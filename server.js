@@ -28,11 +28,14 @@ const openai = new OpenAI({
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No artwork image uploaded." });
+      return res.status(400).json({
+        error: "No artwork image uploaded.",
+      });
     }
 
     const imageBase64 = req.file.buffer.toString("base64");
     const mimeType = req.file.mimetype;
+    const productLink = req.body.productLink || "";
 
     const response = await openai.responses.create({
       model: "gpt-4.1-mini",
@@ -46,6 +49,22 @@ app.post("/generate", upload.single("image"), async (req, res) => {
 You are ArtBoost AI, an expert social media and print-on-demand marketing assistant for artists.
 
 Analyze the uploaded artwork and create a platform-specific marketing package.
+
+IMPORTANT:
+- Instagram, Facebook, Pinterest, TikTok, X, Threads, Tumblr, Lemon8, Reddit, and Truth Social are social posting platforms.
+- Etsy, Redbubble, Shopify, Gumroad, TeePublic, ArtPal, Displate, and other shops are product destinations, NOT social posting platforms.
+- Use the product/shop link only as the destination where customers can buy or view the product.
+
+Product/shop link:
+${productLink || "No product link provided"}
+
+CTA rules:
+- If a product link is provided, use this exact CTA where direct links make sense:
+  "Shop this design here: ${productLink}"
+- For Instagram, TikTok, and Lemon8, use "Shop link in bio" unless a direct product link is appropriate.
+- For Facebook, Pinterest, X, Tumblr, Reddit, and Truth Social, include the product link naturally.
+- If no product link is provided, write the CTA as a general shop prompt without inventing a link.
+- Do not treat Etsy, Redbubble, Shopify, Gumroad, TeePublic, ArtPal, or Displate as social platforms.
 
 Return clean readable text with clear section headers.
 
@@ -61,46 +80,46 @@ LONG DESCRIPTION:
 Write a polished product/social description.
 
 REDBUBBLE TAGS:
-Give exactly 14 comma-separated tags.
+Give exactly 14 comma-separated Redbubble-style product/listing tags.
 
 GENERAL HASHTAGS:
-Give 20 strong hashtags.
+Give 20 strong hashtags for social media.
 
 SUGGESTED AUDIENCE:
 List the best buyers/audience for this artwork.
 
 BEST PLATFORMS:
-Rank the best platforms for this artwork.
+Rank the best social platforms for this artwork. Only include actual social platforms, not marketplaces.
 
 INSTAGRAM POST:
-Caption + hashtags + CTA.
+Caption + hashtags + CTA. Use "Shop link in bio" if a product link was provided.
 
 FACEBOOK POST:
-Conversational caption + direct CTA.
+Conversational caption + direct CTA. Include the product link if provided.
 
 PINTEREST PIN:
-Pin title + pin description + keywords.
+Pin title + pin description + keywords. Include the product link if provided.
 
 TIKTOK CAPTION:
-Short hook-first caption + hashtags.
+Short hook-first caption + hashtags. Use "Shop link in bio" if a product link was provided.
 
 X POST:
-Under 280 characters.
+Under 280 characters. Include the product link only if it fits.
 
 THREADS POST:
-Casual short caption.
+Casual short caption. Mention the shop naturally.
 
 TUMBLR POST:
-Aesthetic caption + tags.
+Aesthetic caption + tags. Include the product link if provided.
 
 LEMON8 POST:
-Lifestyle/discovery style caption.
+Lifestyle/discovery style caption. Use "Shop link in bio" if a product link was provided.
 
 REDDIT POST:
-Natural, non-spammy post title and body.
+Natural, non-spammy post title and body. Mention the product link only if it feels appropriate.
 
 TRUTH SOCIAL POST:
-Direct bold caption + CTA.
+Direct bold caption + CTA. Include the product link if provided.
 
 Make the content useful for selling art, stickers, shirts, posters, digital downloads, and print-on-demand products.
 Avoid copyrighted brand names unless they are visibly present in the artwork.
