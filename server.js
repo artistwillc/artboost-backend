@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -28,15 +27,8 @@ const openai = new OpenAI({
 
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
-    const tone = req.body.tone || "professional";
-    const platform =
-      req.body.platform ||
-      "Instagram, Pinterest, Facebook, TikTok, X, Threads, Tumblr, Lemon8, Reddit, Truth Social";
-
     if (!req.file) {
-      return res.status(400).json({
-        error: "No artwork image uploaded.",
-      });
+      return res.status(400).json({ error: "No artwork image uploaded." });
     }
 
     const imageBase64 = req.file.buffer.toString("base64");
@@ -51,55 +43,67 @@ app.post("/generate", upload.single("image"), async (req, res) => {
             {
               type: "input_text",
               text: `
-You are ArtBoost AI, a professional art marketing assistant.
+You are ArtBoost AI, an expert social media and print-on-demand marketing assistant for artists.
 
-Analyze the uploaded artwork image and create a complete ready-to-post marketing package.
+Analyze the uploaded artwork and create a platform-specific marketing package.
 
-Create content for these platforms:
-${platform}
+Return clean readable text with clear section headers.
 
-Return clean readable text, not JSON.
+Include these exact sections:
 
-Include:
+ARTWORK TITLE:
+Create one strong, sellable title.
 
-1. ARTWORK TITLE
-Create a strong, sellable title.
+SHORT DESCRIPTION:
+Write 2-3 sentences.
 
-2. SHORT DESCRIPTION
-2-3 sentences.
+LONG DESCRIPTION:
+Write a polished product/social description.
 
-3. LONG DESCRIPTION
-A polished product/social description.
+REDBUBBLE TAGS:
+Give exactly 14 comma-separated tags.
 
-4. HASHTAGS
+GENERAL HASHTAGS:
 Give 20 strong hashtags.
 
-5. REDBUBBLE TAGS
-Give exactly 14 comma-separated Redbubble-style tags.
+SUGGESTED AUDIENCE:
+List the best buyers/audience for this artwork.
 
-6. SUGGESTED AUDIENCE
-Who this artwork is best for.
-
-7. BEST PLATFORMS TO POST
+BEST PLATFORMS:
 Rank the best platforms for this artwork.
 
-8. READY-TO-POST CAPTIONS
-Create separate captions for:
-- Instagram
-- Facebook
-- Pinterest
-- TikTok
-- X
-- Threads
-- Tumblr
-- Lemon8
-- Reddit
-- Truth Social
+INSTAGRAM POST:
+Caption + hashtags + CTA.
 
-Tone: ${tone}
+FACEBOOK POST:
+Conversational caption + direct CTA.
+
+PINTEREST PIN:
+Pin title + pin description + keywords.
+
+TIKTOK CAPTION:
+Short hook-first caption + hashtags.
+
+X POST:
+Under 280 characters.
+
+THREADS POST:
+Casual short caption.
+
+TUMBLR POST:
+Aesthetic caption + tags.
+
+LEMON8 POST:
+Lifestyle/discovery style caption.
+
+REDDIT POST:
+Natural, non-spammy post title and body.
+
+TRUTH SOCIAL POST:
+Direct bold caption + CTA.
 
 Make the content useful for selling art, stickers, shirts, posters, digital downloads, and print-on-demand products.
-Avoid copyrighted brand names unless visibly present in the artwork.
+Avoid copyrighted brand names unless they are visibly present in the artwork.
               `,
             },
             {
