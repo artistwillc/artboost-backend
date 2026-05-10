@@ -47,9 +47,19 @@ export default function TabLayout() {
       <Tabs.Screen
         name="connections"
         options={{
-          title: "Connections",
+          title: "Connect",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="link" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="brand"
+        options={{
+          title: "Brand",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="brush" size={size} color={color} />
           ),
         }}
       />
