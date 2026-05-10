@@ -10,6 +10,12 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
 
+const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
+const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
+const PINTEREST_REDIRECT_URI =
+  process.env.PINTEREST_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/pinterest/callback";
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
@@ -23,6 +29,111 @@ app.get("/health", (req, res) => {
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+});
+
+app.get("/auth/pinterest", (req, res) => {
+  if (!PINTEREST_CLIENT_ID) {
+    return res.status(500).send("Missing PINTEREST_CLIENT_ID.");
+  }
+
+  const scopes = [
+    "boards:read",
+    "boards:write",
+    "pins:read",
+    "pins:write",
+    "user_accounts:read",
+  ].join(",");
+
+  const state = "artboost-pinterest-connect";
+
+  const authUrl = new URL("https://www.pinterest.com/oauth/");
+  authUrl.searchParams.set("client_id", PINTEREST_CLIENT_ID);
+  authUrl.searchParams.set("redirect_uri", PINTEREST_REDIRECT_URI);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", scopes);
+  authUrl.searchParams.set("state", state);
+
+  res.redirect(authUrl.toString());
+});
+
+app.get("/auth/pinterest/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+
+    if (!code) {
+      return res.status(400).send("Missing Pinterest authorization code.");
+    }
+
+    if (state !== "artboost-pinterest-connect") {
+      return res.status(400).send("Invalid Pinterest OAuth state.");
+    }
+
+    if (!PINTEREST_CLIENT_ID || !PINTEREST_CLIENT_SECRET) {
+      return res
+        .status(500)
+        .send("Missing Pinterest client ID or client secret.");
+    }
+
+    const basicAuth = Buffer.from(
+      `${PINTEREST_CLIENT_ID}:${PINTEREST_CLIENT_SECRET}`
+    ).toString("base64");
+
+    const tokenResponse = await fetch("https://api.pinterest.com/v5/oauth/token", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: PINTEREST_REDIRECT_URI,
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      console.error("Pinterest token error:", tokenData);
+
+      return res.status(500).send(`
+        <h1>Pinterest Connection Failed</h1>
+        <p>Token exchange failed.</p>
+        <pre>${JSON.stringify(tokenData, null, 2)}</pre>
+      `);
+    }
+
+    console.log("Pinterest connected:", {
+      access_token_present: Boolean(tokenData.access_token),
+      token_type: tokenData.token_type,
+      expires_in: tokenData.expires_in,
+      scope: tokenData.scope,
+    });
+
+    res.send(`
+      <html>
+        <body style="font-family: Arial, sans-serif; padding: 40px;">
+          <h1>Pinterest Connected</h1>
+          <p>Your Pinterest account was connected successfully.</p>
+          <p>You can return to ArtBoost AI.</p>
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    console.error("Pinterest OAuth callback error:", err);
+
+    res.status(500).send(`
+      <h1>Pinterest Connection Error</h1>
+      <p>${err.message}</p>
+    `);
+  }
+});
+
+app.get("/pinterest/status", (req, res) => {
+  res.json({
+    configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
+    redirectUri: PINTEREST_REDIRECT_URI,
+  });
 });
 
 app.post("/generate", upload.single("image"), async (req, res) => {
