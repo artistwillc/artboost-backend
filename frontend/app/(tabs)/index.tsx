@@ -1,6 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
-import React, { useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Text,
   StyleSheet,
@@ -14,7 +18,8 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL =
+  "https://artboost-ai.onrender.com";
 
 const SECTION_HEADERS = [
   "ARTWORK TITLE",
@@ -37,108 +42,165 @@ const SECTION_HEADERS = [
 ];
 
 export default function HomeScreen() {
-  const [image, setImage] = useState<string | null>(null);
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [productLink, setProductLink] = useState("");
+  const [image, setImage] =
+    useState<string | null>(null);
+
+  const [result, setResult] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [productLink, setProductLink] =
+    useState("");
+
+  const [connections, setConnections] =
+    useState<any>({});
+
+  useEffect(() => {
+    loadConnections();
+  }, []);
+
+  const loadConnections = async () => {
+    const saved =
+      await AsyncStorage.getItem(
+        "artboost_connections"
+      );
+
+    if (saved) {
+      setConnections(JSON.parse(saved));
+    }
+  };
 
   const sections = useMemo(() => {
     if (!result) return [];
 
-    const escaped = SECTION_HEADERS.map((h) =>
-      h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const escaped = SECTION_HEADERS.map(
+      (h) =>
+        h.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        )
     );
 
-    const regex = new RegExp(`(${escaped.join("|")}):`, "g");
+    const regex = new RegExp(
+      `(${escaped.join("|")}):`,
+      "g"
+    );
 
-    const matches = [...result.matchAll(regex)];
+    const matches = [
+      ...result.matchAll(regex),
+    ];
 
     if (matches.length === 0) {
-      return [{ title: "Generated Content", content: result.trim() }];
+      return [
+        {
+          title: "Generated Content",
+          content: result.trim(),
+        },
+      ];
     }
 
-    return matches.map((match, index) => {
-      const title = match[1];
+    return matches.map(
+      (match, index) => {
+        const title = match[1];
 
-      const start =
-        (match.index || 0) + match[0].length;
+        const start =
+          (match.index || 0) +
+          match[0].length;
 
-      const end =
-        index + 1 < matches.length
-          ? matches[index + 1].index || result.length
-          : result.length;
+        const end =
+          index + 1 < matches.length
+            ? matches[index + 1].index ||
+              result.length
+            : result.length;
 
-      return {
-        title,
-        content: result.slice(start, end).trim(),
-      };
-    });
+        return {
+          title,
+          content: result
+            .slice(start, end)
+            .trim(),
+        };
+      }
+    );
   }, [result]);
 
   const pickImage = async () => {
     const picked =
-      await ImagePicker.launchImageLibraryAsync({
-        mediaTypes:
-          ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-      });
+      await ImagePicker.launchImageLibraryAsync(
+        {
+          mediaTypes:
+            ImagePicker
+              .MediaTypeOptions.Images,
+          quality: 0.8,
+        }
+      );
 
     if (!picked.canceled) {
-      setImage(picked.assets[0].uri);
+      setImage(
+        picked.assets[0].uri
+      );
+
       setResult("");
     }
   };
 
-  const generateContent = async () => {
-    if (!image) return;
+  const generateContent =
+    async () => {
+      if (!image) return;
 
-    setLoading(true);
-    setResult("");
+      setLoading(true);
+      setResult("");
 
-    const formData = new FormData();
+      const formData =
+        new FormData();
 
-    formData.append("image", {
-      uri: image,
-      name: "artwork.jpg",
-      type: "image/jpeg",
-    } as any);
+      formData.append("image", {
+        uri: image,
+        name: "artwork.jpg",
+        type: "image/jpeg",
+      } as any);
 
-    formData.append(
-      "productLink",
-      productLink
-    );
+      formData.append(
+        "productLink",
+        productLink
+      );
 
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/generate`,
-        {
-          method: "POST",
-          body: formData,
+      try {
+        const response =
+          await fetch(
+            `${BACKEND_URL}/generate`,
+            {
+              method: "POST",
+              body: formData,
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setResult(
+            data.details ||
+              data.error ||
+              "Generation failed."
+          );
+
+          return;
         }
-      );
 
-      const data = await response.json();
-
-      if (!response.ok) {
         setResult(
-          data.details ||
-            data.error ||
-            "Generation failed."
+          data.result ||
+            "No result returned."
         );
-        return;
+      } catch {
+        setResult(
+          "Error connecting to ArtBoost backend."
+        );
+      } finally {
+        setLoading(false);
       }
-
-      setResult(
-        data.result || "No result returned."
-      );
-    } catch {
-      setResult(
-        "Error connecting to ArtBoost backend."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
   const saveResult = async () => {
     if (!result || !image) return;
@@ -148,7 +210,8 @@ export default function HomeScreen() {
       image,
       result,
       productLink,
-      createdAt: new Date().toLocaleString(),
+      createdAt:
+        new Date().toLocaleString(),
     };
 
     const existing =
@@ -162,7 +225,10 @@ export default function HomeScreen() {
 
     await AsyncStorage.setItem(
       "artboost_saves",
-      JSON.stringify([newSave, ...saves])
+      JSON.stringify([
+        newSave,
+        ...saves,
+      ])
     );
 
     Alert.alert(
@@ -175,7 +241,9 @@ export default function HomeScreen() {
     text: string,
     label = "Content"
   ) => {
-    await Clipboard.setStringAsync(text);
+    await Clipboard.setStringAsync(
+      text
+    );
 
     Alert.alert(
       "Copied",
@@ -183,18 +251,106 @@ export default function HomeScreen() {
     );
   };
 
+  const getPlatformName = (
+    title: string
+  ) => {
+    if (
+      title.includes("INSTAGRAM")
+    )
+      return "Instagram";
+
+    if (
+      title.includes("FACEBOOK")
+    )
+      return "Facebook";
+
+    if (
+      title.includes("PINTEREST")
+    )
+      return "Pinterest";
+
+    if (
+      title.includes("TIKTOK")
+    )
+      return "TikTok";
+
+    if (
+      title.includes("X POST")
+    )
+      return "X";
+
+    if (
+      title.includes("THREADS")
+    )
+      return "Threads";
+
+    if (
+      title.includes("TUMBLR")
+    )
+      return "Tumblr";
+
+    if (
+      title.includes("LEMON8")
+    )
+      return "Lemon8";
+
+    if (
+      title.includes("REDDIT")
+    )
+      return "Reddit";
+
+    if (
+      title.includes("TRUTH")
+    )
+      return "Truth Social";
+
+    return null;
+  };
+
+  const handlePostToPlatform =
+    async (
+      platform: string,
+      content: string
+    ) => {
+      const isConnected =
+        connections[platform];
+
+      if (!isConnected) {
+        Alert.alert(
+          `${platform} Not Connected`,
+          `Connect your ${platform} account in the Connections tab first.`
+        );
+
+        return;
+      }
+
+      Alert.alert(
+        `Posting to ${platform}`,
+        `Simulated ${platform} posting successful.\n\nThis will later publish directly through the ${platform} API.`
+      );
+
+      console.log(
+        `Posting to ${platform}:`,
+        content
+      );
+    };
+
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={
+        styles.container
+      }
     >
       <Text style={styles.logo}>
         ArtBoost AI
       </Text>
 
-      <Text style={styles.subtitle}>
-        Upload artwork and generate
-        platform-specific marketing
-        campaigns.
+      <Text
+        style={styles.subtitle}
+      >
+        Upload artwork and
+        generate platform-specific
+        marketing campaigns.
       </Text>
 
       <TextInput
@@ -202,14 +358,18 @@ export default function HomeScreen() {
         placeholder="Paste product/shop link (Etsy, Redbubble, Shopify, etc.)"
         placeholderTextColor="#777"
         value={productLink}
-        onChangeText={setProductLink}
+        onChangeText={
+          setProductLink
+        }
       />
 
       <Pressable
         style={styles.button}
         onPress={pickImage}
       >
-        <Text style={styles.buttonText}>
+        <Text
+          style={styles.buttonText}
+        >
           Upload Artwork
         </Text>
       </Pressable>
@@ -223,11 +383,20 @@ export default function HomeScreen() {
 
       {image && (
         <Pressable
-          style={styles.generateButton}
-          onPress={generateContent}
+          style={
+            styles.generateButton
+          }
+          onPress={
+            generateContent
+          }
         >
-          <Text style={styles.buttonText}>
-            Generate Platform Cards
+          <Text
+            style={
+              styles.buttonText
+            }
+          >
+            Generate Platform
+            Cards
           </Text>
         </Pressable>
       )}
@@ -235,15 +404,23 @@ export default function HomeScreen() {
       {loading && (
         <ActivityIndicator
           size="large"
-          style={{ marginTop: 24 }}
+          style={{
+            marginTop: 24,
+          }}
         />
       )}
 
       {sections.length > 0 && (
         <>
-          <View style={styles.masterActions}>
+          <View
+            style={
+              styles.masterActions
+            }
+          >
             <Pressable
-              style={styles.copyButton}
+              style={
+                styles.copyButton
+              }
               onPress={() =>
                 copyText(
                   result,
@@ -251,178 +428,279 @@ export default function HomeScreen() {
                 )
               }
             >
-              <Text style={styles.buttonText}>
+              <Text
+                style={
+                  styles.buttonText
+                }
+              >
                 Copy Full Campaign
               </Text>
             </Pressable>
 
             <Pressable
-              style={styles.saveButton}
+              style={
+                styles.saveButton
+              }
               onPress={saveResult}
             >
-              <Text style={styles.buttonText}>
+              <Text
+                style={
+                  styles.buttonText
+                }
+              >
                 Save Campaign
               </Text>
             </Pressable>
           </View>
 
-          {sections.map((section) => (
-            <View
-              key={section.title}
-              style={styles.card}
-            >
-              <Text style={styles.cardTitle}>
-                {section.title}
-              </Text>
+          {sections.map(
+            (section) => {
+              const platform =
+                getPlatformName(
+                  section.title
+                );
 
-              <Text style={styles.cardText}>
-                {section.content}
-              </Text>
+              const connected =
+                platform
+                  ? connections[
+                      platform
+                    ]
+                  : false;
 
-              <Pressable
-                style={styles.smallCopyButton}
-                onPress={() =>
-                  copyText(
-                    section.content,
+              return (
+                <View
+                  key={
                     section.title
-                  )
-                }
-              >
-                <Text
-                  style={styles.smallButtonText}
+                  }
+                  style={
+                    styles.card
+                  }
                 >
-                  Copy {section.title}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
+                  <Text
+                    style={
+                      styles.cardTitle
+                    }
+                  >
+                    {section.title}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.cardText
+                    }
+                  >
+                    {
+                      section.content
+                    }
+                  </Text>
+
+                  <Pressable
+                    style={
+                      styles.smallCopyButton
+                    }
+                    onPress={() =>
+                      copyText(
+                        section.content,
+                        section.title
+                      )
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.smallButtonText
+                      }
+                    >
+                      Copy{" "}
+                      {
+                        section.title
+                      }
+                    </Text>
+                  </Pressable>
+
+                  {platform && (
+                    <Pressable
+                      style={[
+                        styles.postButton,
+                        connected
+                          ? styles.connectedPost
+                          : styles.disconnectedPost,
+                      ]}
+                      onPress={() =>
+                        handlePostToPlatform(
+                          platform,
+                          section.content
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.smallButtonText
+                        }
+                      >
+                        {connected
+                          ? `Post to ${platform}`
+                          : `Connect ${platform}`}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            }
+          )}
         </>
       )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    backgroundColor: "#101010",
-    minHeight: "100%",
-    alignItems: "center",
-  },
+const styles =
+  StyleSheet.create({
+    container: {
+      padding: 24,
+      backgroundColor:
+        "#101010",
+      minHeight: "100%",
+      alignItems: "center",
+    },
 
-  logo: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#ffffff",
-    marginTop: 40,
-  },
+    logo: {
+      fontSize: 34,
+      fontWeight: "800",
+      color: "#ffffff",
+      marginTop: 40,
+    },
 
-  subtitle: {
-    fontSize: 16,
-    color: "#cfcfcf",
-    textAlign: "center",
-    marginTop: 12,
-    marginBottom: 24,
-  },
+    subtitle: {
+      fontSize: 16,
+      color: "#cfcfcf",
+      textAlign: "center",
+      marginTop: 12,
+      marginBottom: 24,
+    },
 
-  input: {
-    width: "100%",
-    backgroundColor: "#1b1b1b",
-    color: "#fff",
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 20,
-    fontSize: 15,
-  },
+    input: {
+      width: "100%",
+      backgroundColor:
+        "#1b1b1b",
+      color: "#fff",
+      padding: 14,
+      borderRadius: 12,
+      marginBottom: 20,
+      fontSize: 15,
+    },
 
-  button: {
-    backgroundColor: "#1f8cff",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-  },
+    button: {
+      backgroundColor:
+        "#1f8cff",
+      paddingVertical: 14,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      width: "100%",
+      alignItems: "center",
+    },
 
-  generateButton: {
-    backgroundColor: "#12a86b",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-    marginTop: 18,
-  },
+    generateButton: {
+      backgroundColor:
+        "#12a86b",
+      paddingVertical: 14,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      width: "100%",
+      alignItems: "center",
+      marginTop: 18,
+    },
 
-  preview: {
-    width: "100%",
-    height: 300,
-    borderRadius: 16,
-    marginTop: 24,
-    resizeMode: "contain",
-    backgroundColor: "#222",
-  },
+    preview: {
+      width: "100%",
+      height: 300,
+      borderRadius: 16,
+      marginTop: 24,
+      resizeMode: "contain",
+      backgroundColor:
+        "#222",
+    },
 
-  masterActions: {
-    width: "100%",
-    marginTop: 22,
-  },
+    masterActions: {
+      width: "100%",
+      marginTop: 22,
+    },
 
-  copyButton: {
-    backgroundColor: "#f59e0b",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-  },
+    copyButton: {
+      backgroundColor:
+        "#f59e0b",
+      paddingVertical: 14,
+      borderRadius: 12,
+      width: "100%",
+      alignItems: "center",
+    },
 
-  saveButton: {
-    backgroundColor: "#8b5cf6",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-    marginTop: 12,
-  },
+    saveButton: {
+      backgroundColor:
+        "#8b5cf6",
+      paddingVertical: 14,
+      borderRadius: 12,
+      width: "100%",
+      alignItems: "center",
+      marginTop: 12,
+    },
 
-  card: {
-    marginTop: 18,
-    backgroundColor: "#1b1b1b",
-    padding: 18,
-    borderRadius: 16,
-    width: "100%",
-  },
+    card: {
+      marginTop: 18,
+      backgroundColor:
+        "#1b1b1b",
+      padding: 18,
+      borderRadius: 16,
+      width: "100%",
+    },
 
-  cardTitle: {
-    color: "#ffffff",
-    fontSize: 19,
-    fontWeight: "900",
-    marginBottom: 10,
-  },
+    cardTitle: {
+      color: "#ffffff",
+      fontSize: 19,
+      fontWeight: "900",
+      marginBottom: 10,
+    },
 
-  cardText: {
-    color: "#e6e6e6",
-    fontSize: 15,
-    lineHeight: 22,
-  },
+    cardText: {
+      color: "#e6e6e6",
+      fontSize: 15,
+      lineHeight: 22,
+    },
 
-  smallCopyButton: {
-    backgroundColor: "#2d6cdf",
-    paddingVertical: 11,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 14,
-  },
+    smallCopyButton: {
+      backgroundColor:
+        "#2d6cdf",
+      paddingVertical: 11,
+      borderRadius: 10,
+      alignItems: "center",
+      marginTop: 14,
+    },
 
-  buttonText: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "700",
-  },
+    postButton: {
+      paddingVertical: 11,
+      borderRadius: 10,
+      alignItems: "center",
+      marginTop: 10,
+    },
 
-  smallButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-});
+    connectedPost: {
+      backgroundColor:
+        "#12a86b",
+    },
+
+    disconnectedPost: {
+      backgroundColor:
+        "#444",
+    },
+
+    buttonText: {
+      color: "#ffffff",
+      fontSize: 17,
+      fontWeight: "700",
+    },
+
+    smallButtonText: {
+      color: "#ffffff",
+      fontSize: 14,
+      fontWeight: "700",
+    },
+  });
