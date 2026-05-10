@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
 const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
+
 const PINTEREST_REDIRECT_URI =
   process.env.PINTEREST_REDIRECT_URI ||
   "https://artboost-ai.onrender.com/auth/pinterest/callback";
@@ -56,6 +57,7 @@ app.get("/auth/pinterest", (req, res) => {
   const state = "artboost-pinterest-connect";
 
   const authUrl = new URL("https://www.pinterest.com/oauth/");
+
   authUrl.searchParams.set("client_id", PINTEREST_CLIENT_ID);
   authUrl.searchParams.set("redirect_uri", PINTEREST_REDIRECT_URI);
   authUrl.searchParams.set("response_type", "code");
@@ -75,12 +77,6 @@ app.get("/auth/pinterest/callback", async (req, res) => {
 
     if (state !== "artboost-pinterest-connect") {
       return res.status(400).send("Invalid Pinterest OAuth state.");
-    }
-
-    if (!PINTEREST_CLIENT_ID || !PINTEREST_CLIENT_SECRET) {
-      return res
-        .status(500)
-        .send("Missing Pinterest client ID or client secret.");
     }
 
     const basicAuth = Buffer.from(
@@ -110,7 +106,6 @@ app.get("/auth/pinterest/callback", async (req, res) => {
 
       return res.status(500).send(`
         <h1>Pinterest Connection Failed</h1>
-        <p>Token exchange failed.</p>
         <pre>${JSON.stringify(tokenData, null, 2)}</pre>
       `);
     }
@@ -124,28 +119,21 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       connectedAt: new Date().toISOString(),
     };
 
-    console.log("Pinterest connected:", {
-      connected: true,
-      access_token_present: Boolean(tokenData.access_token),
-      token_type: tokenData.token_type,
-      expires_in: tokenData.expires_in,
-      scope: tokenData.scope,
-    });
+    console.log("Pinterest connected!");
 
     res.send(`
       <html>
-        <body style="font-family: Arial, sans-serif; padding: 40px;">
+        <body style="font-family: Arial; padding: 40px;">
           <h1>Pinterest Connected</h1>
-          <p>Your Pinterest account was connected successfully.</p>
-          <p>You can return to ArtBoost AI.</p>
+          <p>You can now return to ArtBoost AI.</p>
         </body>
       </html>
     `);
   } catch (err) {
-    console.error("Pinterest OAuth callback error:", err);
+    console.error("Pinterest callback error:", err);
 
     res.status(500).send(`
-      <h1>Pinterest Connection Error</h1>
+      <h1>Pinterest OAuth Error</h1>
       <p>${err.message}</p>
     `);
   }
@@ -153,11 +141,12 @@ app.get("/auth/pinterest/callback", async (req, res) => {
 
 app.get("/pinterest/status", (req, res) => {
   res.json({
-    configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
+    configured: Boolean(
+      PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET
+    ),
     connected: pinterestConnection.connected,
     connectedAt: pinterestConnection.connectedAt,
     scope: pinterestConnection.scope,
-    redirectUri: PINTEREST_REDIRECT_URI,
   });
 });
 
@@ -169,27 +158,102 @@ app.get("/pinterest/boards", async (req, res) => {
       });
     }
 
-    const boardsResponse = await fetch("https://api.pinterest.com/v5/boards", {
-      headers: {
-        Authorization: `Bearer ${pinterestConnection.token}`,
-      },
-    });
+    const boardsResponse = await fetch(
+      "https://api.pinterest.com/v5/boards",
+      {
+        headers: {
+          Authorization: `Bearer ${pinterestConnection.token}`,
+        },
+      }
+    );
 
     const boardsData = await boardsResponse.json();
 
     if (!boardsResponse.ok) {
       return res.status(500).json({
-        error: "Failed to fetch Pinterest boards.",
+        error: "Failed to fetch boards.",
         details: boardsData,
       });
     }
 
     res.json(boardsData);
   } catch (err) {
-    console.error("Pinterest boards error:", err);
+    console.error("Boards fetch error:", err);
 
     res.status(500).json({
-      error: "Failed to fetch Pinterest boards.",
+      error: "Boards request failed.",
+      details: err.message,
+    });
+  }
+});
+
+app.post("/pinterest/create-pin", async (req, res) => {
+  try {
+    if (!pinterestConnection.connected || !pinterestConnection.token) {
+      return res.status(401).json({
+        error: "Pinterest is not connected.",
+      });
+    }
+
+    const {
+      boardId,
+      title,
+      description,
+      link,
+      imageUrl,
+    } = req.body;
+
+    if (!boardId || !imageUrl) {
+      return res.status(400).json({
+        error: "Missing boardId or imageUrl.",
+      });
+    }
+
+    const pinPayload = {
+      board_id: boardId,
+      title: title || "ArtBoost AI Pin",
+      description: description || "",
+      link: link || "",
+      media_source: {
+        source_type: "image_url",
+        url: imageUrl,
+      },
+    };
+
+    const pinResponse = await fetch(
+      "https://api.pinterest.com/v5/pins",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pinterestConnection.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(pinPayload),
+      }
+    );
+
+    const pinData = await pinResponse.json();
+
+    if (!pinResponse.ok) {
+      console.error("Pinterest pin error:", pinData);
+
+      return res.status(500).json({
+        error: "Failed to create Pinterest pin.",
+        details: pinData,
+      });
+    }
+
+    console.log("Pinterest pin created:", pinData.id);
+
+    res.json({
+      success: true,
+      pin: pinData,
+    });
+  } catch (err) {
+    console.error("Create pin error:", err);
+
+    res.status(500).json({
+      error: "Pinterest pin creation failed.",
       details: err.message,
     });
   }
@@ -220,79 +284,18 @@ You are ArtBoost AI, an expert social media and print-on-demand marketing assist
 
 Analyze the uploaded artwork and create a platform-specific marketing package.
 
-IMPORTANT:
-- Instagram, Facebook, Pinterest, TikTok, X, Threads, Tumblr, Lemon8, Reddit, and Truth Social are social posting platforms.
-- Etsy, Redbubble, Shopify, Gumroad, TeePublic, ArtPal, Displate, and other shops are product destinations, NOT social posting platforms.
-- Use the product/shop link only as the destination where customers can buy or view the product.
-
 Product/shop link:
 ${productLink || "No product link provided"}
 
-CTA rules:
-- If a product link is provided, use this exact CTA where direct links make sense:
-  "Shop this design here: ${productLink}"
-- For Instagram, TikTok, and Lemon8, use "Shop link in bio" unless a direct product link is appropriate.
-- For Facebook, Pinterest, X, Tumblr, Reddit, and Truth Social, include the product link naturally.
-- If no product link is provided, write the CTA as a general shop prompt without inventing a link.
-- Do not treat Etsy, Redbubble, Shopify, Gumroad, TeePublic, ArtPal, or Displate as social platforms.
+Include:
+- Artwork title
+- Descriptions
+- Hashtags
+- Pinterest pin content
+- Social captions
+- Platform-specific CTAs
 
-Return clean readable text with clear section headers.
-
-Include these exact sections:
-
-ARTWORK TITLE:
-Create one strong, sellable title.
-
-SHORT DESCRIPTION:
-Write 2-3 sentences.
-
-LONG DESCRIPTION:
-Write a polished product/social description.
-
-REDBUBBLE TAGS:
-Give exactly 14 comma-separated Redbubble-style product/listing tags.
-
-GENERAL HASHTAGS:
-Give 20 strong hashtags for social media.
-
-SUGGESTED AUDIENCE:
-List the best buyers/audience for this artwork.
-
-BEST PLATFORMS:
-Rank the best social platforms for this artwork. Only include actual social platforms, not marketplaces.
-
-INSTAGRAM POST:
-Caption + hashtags + CTA. Use "Shop link in bio" if a product link was provided.
-
-FACEBOOK POST:
-Conversational caption + direct CTA. Include the product link if provided.
-
-PINTEREST PIN:
-Pin title + pin description + keywords. Include the product link if provided.
-
-TIKTOK CAPTION:
-Short hook-first caption + hashtags. Use "Shop link in bio" if a product link was provided.
-
-X POST:
-Under 280 characters. Include the product link only if it fits.
-
-THREADS POST:
-Casual short caption. Mention the shop naturally.
-
-TUMBLR POST:
-Aesthetic caption + tags. Include the product link if provided.
-
-LEMON8 POST:
-Lifestyle/discovery style caption. Use "Shop link in bio" if a product link was provided.
-
-REDDIT POST:
-Natural, non-spammy post title and body. Mention the product link only if it feels appropriate.
-
-TRUTH SOCIAL POST:
-Direct bold caption + CTA. Include the product link if provided.
-
-Make the content useful for selling art, stickers, shirts, posters, digital downloads, and print-on-demand products.
-Avoid copyrighted brand names unless they are visibly present in the artwork.
+Use product links naturally.
               `,
             },
             {
@@ -311,7 +314,7 @@ Avoid copyrighted brand names unless they are visibly present in the artwork.
     console.error("OpenAI /generate error:", err);
 
     res.status(500).json({
-      error: "Failed to generate ArtBoost content.",
+      error: "Failed to generate content.",
       details: err.message,
     });
   }
