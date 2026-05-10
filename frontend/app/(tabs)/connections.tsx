@@ -2,12 +2,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+
+const BACKEND_URL = "https://artboost-ai.onrender.com";
 
 const platforms = [
   "Pinterest",
@@ -24,31 +27,79 @@ const platforms = [
 
 export default function ConnectionsScreen() {
   const [connections, setConnections] = useState<any>({});
+  const [loadingPinterest, setLoadingPinterest] = useState(false);
 
   const loadConnections = async () => {
-    const saved = await AsyncStorage.getItem(
-      "artboost_connections"
-    );
+    const saved = await AsyncStorage.getItem("artboost_connections");
 
     if (saved) {
       setConnections(JSON.parse(saved));
     }
+
+    await checkPinterestStatus();
   };
 
-  const toggleConnection = async (
-    platform: string
-  ) => {
-    const updated = {
-      ...connections,
-      [platform]: !connections[platform],
-    };
-
+  const saveConnections = async (updated: any) => {
     setConnections(updated);
 
     await AsyncStorage.setItem(
       "artboost_connections",
       JSON.stringify(updated)
     );
+  };
+
+  const checkPinterestStatus = async () => {
+    try {
+      setLoadingPinterest(true);
+
+      const response = await fetch(`${BACKEND_URL}/pinterest/status`);
+      const data = await response.json();
+
+      const saved = await AsyncStorage.getItem("artboost_connections");
+      const current = saved ? JSON.parse(saved) : {};
+
+      const updated = {
+        ...current,
+        Pinterest: Boolean(data.connected),
+      };
+
+      await saveConnections(updated);
+    } catch (error) {
+      console.log("Pinterest status check failed:", error);
+    } finally {
+      setLoadingPinterest(false);
+    }
+  };
+
+  const connectPinterest = async () => {
+    await Linking.openURL(`${BACKEND_URL}/auth/pinterest`);
+
+    Alert.alert(
+      "Pinterest Login Opened",
+      "After connecting Pinterest, return to ArtBoost and tap Refresh Pinterest Status."
+    );
+  };
+
+  const toggleConnection = async (platform: string) => {
+    if (platform === "Pinterest") {
+      if (connections.Pinterest) {
+        Alert.alert(
+          "Pinterest Connected",
+          "Pinterest is currently connected through the ArtBoost backend."
+        );
+      } else {
+        await connectPinterest();
+      }
+
+      return;
+    }
+
+    const updated = {
+      ...connections,
+      [platform]: !connections[platform],
+    };
+
+    await saveConnections(updated);
 
     Alert.alert(
       updated[platform]
@@ -65,57 +116,49 @@ export default function ConnectionsScreen() {
   }, []);
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-    >
-      <Text style={styles.header}>
-        Social Connections
-      </Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.header}>Social Connections</Text>
 
       <Text style={styles.subheader}>
-        Connect social platforms for
-        automated posting.
+        Connect social platforms for automated posting.
       </Text>
 
+      <Pressable style={styles.refreshButton} onPress={checkPinterestStatus}>
+        <Text style={styles.buttonText}>
+          {loadingPinterest ? "Checking Pinterest..." : "Refresh Pinterest Status"}
+        </Text>
+      </Pressable>
+
       {platforms.map((platform) => {
-        const connected =
-          connections[platform];
+        const connected = connections[platform];
 
         return (
-          <View
-            key={platform}
-            style={styles.card}
-          >
+          <View key={platform} style={styles.card}>
             <View style={styles.row}>
-              <View>
-                <Text style={styles.name}>
-                  {platform}
-                </Text>
+              <View style={styles.platformInfo}>
+                <Text style={styles.name}>{platform}</Text>
 
-                <Text style={styles.status}>
-                  {connected
-                    ? "Connected"
-                    : "Not Connected"}
+                <Text
+                  style={[
+                    styles.status,
+                    connected ? styles.connectedText : styles.disconnectedText,
+                  ]}
+                >
+                  {connected ? "Connected" : "Not Connected"}
                 </Text>
               </View>
 
               <Pressable
                 style={[
                   styles.button,
-                  connected
-                    ? styles.disconnect
-                    : styles.connect,
+                  connected ? styles.disconnect : styles.connect,
                 ]}
-                onPress={() =>
-                  toggleConnection(
-                    platform
-                  )
-                }
+                onPress={() => toggleConnection(platform)}
               >
-                <Text
-                  style={styles.buttonText}
-                >
-                  {connected
+                <Text style={styles.buttonText}>
+                  {platform === "Pinterest" && connected
+                    ? "Connected"
+                    : connected
                     ? "Disconnect"
                     : "Connect"}
                 </Text>
@@ -148,7 +191,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: "center",
     marginTop: 10,
-    marginBottom: 30,
+    marginBottom: 24,
+  },
+
+  refreshButton: {
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 22,
   },
 
   card: {
@@ -164,6 +215,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  platformInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
   name: {
     color: "#fff",
     fontSize: 20,
@@ -171,9 +227,16 @@ const styles = StyleSheet.create({
   },
 
   status: {
-    color: "#999",
     marginTop: 6,
     fontSize: 14,
+  },
+
+  connectedText: {
+    color: "#12a86b",
+  },
+
+  disconnectedText: {
+    color: "#999",
   },
 
   button: {
@@ -187,7 +250,7 @@ const styles = StyleSheet.create({
   },
 
   disconnect: {
-    backgroundColor: "#ff4444",
+    backgroundColor: "#444",
   },
 
   buttonText: {
