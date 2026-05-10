@@ -1,10 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Text,
   StyleSheet,
@@ -18,339 +14,284 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 
-const BACKEND_URL =
-  "https://artboost-ai.onrender.com";
+const BACKEND_URL = "https://artboost-ai.onrender.com";
+
+const PLATFORMS = [
+  "Pinterest",
+  "Instagram",
+  "Facebook",
+  "TikTok",
+  "X",
+  "Threads",
+];
 
 const SECTION_HEADERS = [
   "ARTWORK TITLE",
+  "TITLE",
+  "OPTIMIZED TITLE",
   "SHORT DESCRIPTION",
   "LONG DESCRIPTION",
-  "REDBUBBLE TAGS",
-  "GENERAL HASHTAGS",
-  "SUGGESTED AUDIENCE",
-  "BEST PLATFORMS",
+  "DESCRIPTION",
+  "CAPTION",
+  "HASHTAGS",
+  "CTA",
+  "PINTEREST PIN",
   "INSTAGRAM POST",
   "FACEBOOK POST",
-  "PINTEREST PIN",
   "TIKTOK CAPTION",
   "X POST",
   "THREADS POST",
-  "TUMBLR POST",
-  "LEMON8 POST",
-  "REDDIT POST",
-  "TRUTH SOCIAL POST",
 ];
 
 export default function HomeScreen() {
-  const [image, setImage] =
-    useState<string | null>(null);
-
-  const [result, setResult] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [productLink, setProductLink] =
-    useState("");
-
-  const [connections, setConnections] =
-    useState<any>({});
+  const [image, setImage] = useState<string | null>(null);
+  const [hostedImageUrl, setHostedImageUrl] = useState("");
+  const [result, setResult] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [productLink, setProductLink] = useState("");
+  const [selectedPlatform, setSelectedPlatform] = useState("Pinterest");
+  const [connections, setConnections] = useState<any>({});
 
   useEffect(() => {
     loadConnections();
   }, []);
 
   const loadConnections = async () => {
-    const saved =
-      await AsyncStorage.getItem(
-        "artboost_connections"
-      );
+    const saved = await AsyncStorage.getItem("artboost_connections");
 
     if (saved) {
       setConnections(JSON.parse(saved));
     }
   };
 
-  const sections = useMemo(() => {
-    if (!result) return [];
+  const parseSections = (text: string) => {
+    if (!text) return [];
 
-    const escaped = SECTION_HEADERS.map(
-      (h) =>
-        h.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        )
+    const escaped = SECTION_HEADERS.map((h) =>
+      h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     );
 
-    const regex = new RegExp(
-      `(${escaped.join("|")}):`,
-      "g"
-    );
-
-    const matches = [
-      ...result.matchAll(regex),
-    ];
+    const regex = new RegExp(`(${escaped.join("|")}):`, "g");
+    const matches = [...text.matchAll(regex)];
 
     if (matches.length === 0) {
       return [
         {
-          title: "Generated Content",
-          content: result.trim(),
+          title: `${selectedPlatform} Content`,
+          content: text.trim(),
         },
       ];
     }
 
-    return matches.map(
-      (match, index) => {
-        const title = match[1];
+    return matches.map((match, index) => {
+      const title = match[1];
+      const start = (match.index || 0) + match[0].length;
+      const end =
+        index + 1 < matches.length
+          ? matches[index + 1].index || text.length
+          : text.length;
 
-        const start =
-          (match.index || 0) +
-          match[0].length;
+      return {
+        title,
+        content: text.slice(start, end).trim(),
+      };
+    });
+  };
 
-        const end =
-          index + 1 < matches.length
-            ? matches[index + 1].index ||
-              result.length
-            : result.length;
+  const sections = useMemo(() => {
+    return parseSections(result);
+  }, [result, selectedPlatform]);
 
-        return {
-          title,
-          content: result
-            .slice(start, end)
-            .trim(),
-        };
-      }
-    );
-  }, [result]);
+  const getSectionContent = (sectionTitle: string, sectionList: any[]) => {
+    const found = sectionList.find((section) => section.title === sectionTitle);
+    return found?.content || "";
+  };
 
   const pickImage = async () => {
-    const picked =
-      await ImagePicker.launchImageLibraryAsync(
-        {
-          mediaTypes:
-            ImagePicker
-              .MediaTypeOptions.Images,
-          quality: 0.8,
-        }
-      );
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
 
     if (!picked.canceled) {
-      setImage(
-        picked.assets[0].uri
-      );
-
+      setImage(picked.assets[0].uri);
+      setHostedImageUrl("");
       setResult("");
     }
   };
 
-  const generateContent =
-    async () => {
-      if (!image) return;
+  const storeCurrentCampaign = async (
+    generatedText: string,
+    imageUrlFromBackend: string
+  ) => {
+    const parsed = parseSections(generatedText);
 
-      setLoading(true);
-      setResult("");
+    const title =
+      getSectionContent("ARTWORK TITLE", parsed) ||
+      getSectionContent("TITLE", parsed) ||
+      getSectionContent("OPTIMIZED TITLE", parsed) ||
+      `${selectedPlatform} Campaign`;
 
-      const formData =
-        new FormData();
+    const description =
+      getSectionContent("PINTEREST PIN", parsed) ||
+      getSectionContent("DESCRIPTION", parsed) ||
+      getSectionContent("CAPTION", parsed) ||
+      getSectionContent("LONG DESCRIPTION", parsed) ||
+      getSectionContent("SHORT DESCRIPTION", parsed) ||
+      generatedText;
 
-      formData.append("image", {
-        uri: image,
-        name: "artwork.jpg",
-        type: "image/jpeg",
-      } as any);
-
-      formData.append(
-        "productLink",
-        productLink
-      );
-
-      try {
-        const response =
-          await fetch(
-            `${BACKEND_URL}/generate`,
-            {
-              method: "POST",
-              body: formData,
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setResult(
-            data.details ||
-              data.error ||
-              "Generation failed."
-          );
-
-          return;
-        }
-
-        setResult(
-          data.result ||
-            "No result returned."
-        );
-      } catch {
-        setResult(
-          "Error connecting to ArtBoost backend."
-        );
-      } finally {
-        setLoading(false);
-      }
+    const currentCampaign = {
+      id: Date.now().toString(),
+      image,
+      imageUrl: imageUrlFromBackend,
+      result: generatedText,
+      productLink,
+      platform: selectedPlatform,
+      title,
+      pinterestTitle: title,
+      pinterestDescription: description,
+      createdAt: new Date().toLocaleString(),
     };
+
+    await AsyncStorage.setItem(
+      "artboost_current_campaign",
+      JSON.stringify(currentCampaign)
+    );
+  };
+
+  const generateContent = async () => {
+    if (!image) return;
+
+    setLoading(true);
+    setResult("");
+    setHostedImageUrl("");
+
+    const formData = new FormData();
+
+    formData.append("image", {
+      uri: image,
+      name: "artwork.jpg",
+      type: "image/jpeg",
+    } as any);
+
+    formData.append("productLink", productLink);
+    formData.append("platform", selectedPlatform);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/generate`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setResult(data.details || data.error || "Generation failed.");
+        return;
+      }
+
+      const generatedText = data.result || "No result returned.";
+      const imageUrlFromBackend = data.imageUrl || "";
+
+      setResult(generatedText);
+      setHostedImageUrl(imageUrlFromBackend);
+
+      await storeCurrentCampaign(generatedText, imageUrlFromBackend);
+    } catch {
+      setResult("Error connecting to ArtBoost backend.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const saveResult = async () => {
     if (!result || !image) return;
 
+    const parsed = parseSections(result);
+
+    const title =
+      getSectionContent("ARTWORK TITLE", parsed) ||
+      getSectionContent("TITLE", parsed) ||
+      getSectionContent("OPTIMIZED TITLE", parsed) ||
+      `${selectedPlatform} Campaign`;
+
+    const description =
+      getSectionContent("PINTEREST PIN", parsed) ||
+      getSectionContent("DESCRIPTION", parsed) ||
+      getSectionContent("CAPTION", parsed) ||
+      result;
+
     const newSave = {
       id: Date.now().toString(),
       image,
+      imageUrl: hostedImageUrl,
       result,
       productLink,
-      createdAt:
-        new Date().toLocaleString(),
+      platform: selectedPlatform,
+      title,
+      pinterestTitle: title,
+      pinterestDescription: description,
+      createdAt: new Date().toLocaleString(),
     };
 
-    const existing =
-      await AsyncStorage.getItem(
-        "artboost_saves"
-      );
-
-    const saves = existing
-      ? JSON.parse(existing)
-      : [];
+    const existing = await AsyncStorage.getItem("artboost_saves");
+    const saves = existing ? JSON.parse(existing) : [];
 
     await AsyncStorage.setItem(
       "artboost_saves",
-      JSON.stringify([
-        newSave,
-        ...saves,
-      ])
+      JSON.stringify([newSave, ...saves])
+    );
+
+    await AsyncStorage.setItem(
+      "artboost_current_campaign",
+      JSON.stringify(newSave)
     );
 
     Alert.alert(
       "Saved",
-      "Saved to ArtBoost history!"
+      "Saved to ArtBoost history and loaded for publishing."
     );
   };
 
-  const copyText = async (
-    text: string,
-    label = "Content"
-  ) => {
-    await Clipboard.setStringAsync(
-      text
-    );
+  const copyText = async (text: string, label = "Content") => {
+    await Clipboard.setStringAsync(text);
+    Alert.alert("Copied", `${label} copied to clipboard.`);
+  };
+
+  const handlePostToPlatform = async () => {
+    const isConnected = connections[selectedPlatform];
+
+    if (!isConnected) {
+      Alert.alert(
+        `${selectedPlatform} Not Connected`,
+        `Connect your ${selectedPlatform} account in the Connections tab first.`
+      );
+
+      return;
+    }
+
+    if (selectedPlatform === "Pinterest") {
+      Alert.alert(
+        "Pinterest Ready",
+        "Go to the Pro tab to select a board and publish this campaign to Pinterest."
+      );
+
+      return;
+    }
 
     Alert.alert(
-      "Copied",
-      `${label} copied to clipboard.`
+      `Posting to ${selectedPlatform}`,
+      `Simulated ${selectedPlatform} posting successful.\n\nThis will later publish directly through the ${selectedPlatform} API.`
     );
   };
 
-  const getPlatformName = (
-    title: string
-  ) => {
-    if (
-      title.includes("INSTAGRAM")
-    )
-      return "Instagram";
-
-    if (
-      title.includes("FACEBOOK")
-    )
-      return "Facebook";
-
-    if (
-      title.includes("PINTEREST")
-    )
-      return "Pinterest";
-
-    if (
-      title.includes("TIKTOK")
-    )
-      return "TikTok";
-
-    if (
-      title.includes("X POST")
-    )
-      return "X";
-
-    if (
-      title.includes("THREADS")
-    )
-      return "Threads";
-
-    if (
-      title.includes("TUMBLR")
-    )
-      return "Tumblr";
-
-    if (
-      title.includes("LEMON8")
-    )
-      return "Lemon8";
-
-    if (
-      title.includes("REDDIT")
-    )
-      return "Reddit";
-
-    if (
-      title.includes("TRUTH")
-    )
-      return "Truth Social";
-
-    return null;
-  };
-
-  const handlePostToPlatform =
-    async (
-      platform: string,
-      content: string
-    ) => {
-      const isConnected =
-        connections[platform];
-
-      if (!isConnected) {
-        Alert.alert(
-          `${platform} Not Connected`,
-          `Connect your ${platform} account in the Connections tab first.`
-        );
-
-        return;
-      }
-
-      Alert.alert(
-        `Posting to ${platform}`,
-        `Simulated ${platform} posting successful.\n\nThis will later publish directly through the ${platform} API.`
-      );
-
-      console.log(
-        `Posting to ${platform}:`,
-        content
-      );
-    };
-
   return (
-    <ScrollView
-      contentContainerStyle={
-        styles.container
-      }
-    >
-      <Text style={styles.logo}>
-        ArtBoost AI
-      </Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.logo}>ArtBoost AI</Text>
 
-      <Text
-        style={styles.subtitle}
-      >
-        Upload artwork and
-        generate platform-specific
-        marketing campaigns.
+      <Text style={styles.subtitle}>
+        Upload artwork, choose a platform, and generate focused marketing
+        content.
       </Text>
 
       <TextInput
@@ -358,349 +299,298 @@ export default function HomeScreen() {
         placeholder="Paste product/shop link (Etsy, Redbubble, Shopify, etc.)"
         placeholderTextColor="#777"
         value={productLink}
-        onChangeText={
-          setProductLink
-        }
+        onChangeText={setProductLink}
       />
 
-      <Pressable
-        style={styles.button}
-        onPress={pickImage}
-      >
-        <Text
-          style={styles.buttonText}
+      <View style={styles.platformContainer}>
+        <Text style={styles.platformLabel}>Choose Platform</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ width: "100%" }}
         >
-          Upload Artwork
-        </Text>
+          {PLATFORMS.map((platform) => (
+            <Pressable
+              key={platform}
+              style={[
+                styles.platformButton,
+                selectedPlatform === platform && styles.platformButtonActive,
+              ]}
+              onPress={() => {
+                setSelectedPlatform(platform);
+                setResult("");
+              }}
+            >
+              <Text style={styles.platformButtonText}>{platform}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      <Pressable style={styles.button} onPress={pickImage}>
+        <Text style={styles.buttonText}>Upload Artwork</Text>
       </Pressable>
 
-      {image && (
-        <Image
-          source={{ uri: image }}
-          style={styles.preview}
-        />
-      )}
+      {image && <Image source={{ uri: image }} style={styles.preview} />}
 
       {image && (
-        <Pressable
-          style={
-            styles.generateButton
-          }
-          onPress={
-            generateContent
-          }
-        >
-          <Text
-            style={
-              styles.buttonText
-            }
-          >
-            Generate Platform
-            Cards
+        <Pressable style={styles.generateButton} onPress={generateContent}>
+          <Text style={styles.buttonText}>
+            Generate {selectedPlatform} Content
           </Text>
         </Pressable>
       )}
 
-      {loading && (
-        <ActivityIndicator
-          size="large"
-          style={{
-            marginTop: 24,
-          }}
-        />
-      )}
+      {loading && <ActivityIndicator size="large" style={{ marginTop: 24 }} />}
+
+      {hostedImageUrl ? (
+        <View style={styles.imageUrlBox}>
+          <Text style={styles.imageUrlTitle}>Public Image URL Ready</Text>
+          <Text style={styles.imageUrlText}>{hostedImageUrl}</Text>
+        </View>
+      ) : null}
 
       {sections.length > 0 && (
         <>
-          <View
-            style={
-              styles.masterActions
-            }
-          >
+          <View style={styles.masterActions}>
             <Pressable
-              style={
-                styles.copyButton
-              }
-              onPress={() =>
-                copyText(
-                  result,
-                  "Full campaign"
-                )
-              }
+              style={styles.copyButton}
+              onPress={() => copyText(result, `${selectedPlatform} campaign`)}
             >
-              <Text
-                style={
-                  styles.buttonText
-                }
-              >
-                Copy Full Campaign
+              <Text style={styles.buttonText}>
+                Copy {selectedPlatform} Content
               </Text>
             </Pressable>
 
-            <Pressable
-              style={
-                styles.saveButton
-              }
-              onPress={saveResult}
-            >
-              <Text
-                style={
-                  styles.buttonText
-                }
-              >
-                Save Campaign
-              </Text>
+            <Pressable style={styles.saveButton} onPress={saveResult}>
+              <Text style={styles.buttonText}>Save Campaign</Text>
             </Pressable>
           </View>
 
-          {sections.map(
-            (section) => {
-              const platform =
-                getPlatformName(
-                  section.title
-                );
+          {sections.map((section, index) => (
+            <View key={`${section.title}-${index}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{section.title}</Text>
 
-              const connected =
-                platform
-                  ? connections[
-                      platform
-                    ]
-                  : false;
+              <Text style={styles.cardText}>{section.content}</Text>
 
-              return (
-                <View
-                  key={
-                    section.title
-                  }
-                  style={
-                    styles.card
-                  }
-                >
-                  <Text
-                    style={
-                      styles.cardTitle
-                    }
-                  >
-                    {section.title}
-                  </Text>
+              <Pressable
+                style={styles.smallCopyButton}
+                onPress={() => copyText(section.content, section.title)}
+              >
+                <Text style={styles.smallButtonText}>Copy {section.title}</Text>
+              </Pressable>
+            </View>
+          ))}
 
-                  <Text
-                    style={
-                      styles.cardText
-                    }
-                  >
-                    {
-                      section.content
-                    }
-                  </Text>
-
-                  <Pressable
-                    style={
-                      styles.smallCopyButton
-                    }
-                    onPress={() =>
-                      copyText(
-                        section.content,
-                        section.title
-                      )
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.smallButtonText
-                      }
-                    >
-                      Copy{" "}
-                      {
-                        section.title
-                      }
-                    </Text>
-                  </Pressable>
-
-                  {platform && (
-                    <Pressable
-                      style={[
-                        styles.postButton,
-                        connected
-                          ? styles.connectedPost
-                          : styles.disconnectedPost,
-                      ]}
-                      onPress={() =>
-                        handlePostToPlatform(
-                          platform,
-                          section.content
-                        )
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.smallButtonText
-                        }
-                      >
-                        {connected
-                          ? `Post to ${platform}`
-                          : `Connect ${platform}`}
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              );
-            }
-          )}
+          <Pressable
+            style={[
+              styles.postButton,
+              connections[selectedPlatform]
+                ? styles.connectedPost
+                : styles.disconnectedPost,
+            ]}
+            onPress={handlePostToPlatform}
+          >
+            <Text style={styles.smallButtonText}>
+              {connections[selectedPlatform]
+                ? `Post to ${selectedPlatform}`
+                : `Connect ${selectedPlatform}`}
+            </Text>
+          </Pressable>
         </>
       )}
     </ScrollView>
   );
 }
 
-const styles =
-  StyleSheet.create({
-    container: {
-      padding: 24,
-      backgroundColor:
-        "#101010",
-      minHeight: "100%",
-      alignItems: "center",
-    },
+const styles = StyleSheet.create({
+  container: {
+    padding: 24,
+    backgroundColor: "#101010",
+    minHeight: "100%",
+    alignItems: "center",
+  },
 
-    logo: {
-      fontSize: 34,
-      fontWeight: "800",
-      color: "#ffffff",
-      marginTop: 40,
-    },
+  logo: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#ffffff",
+    marginTop: 40,
+  },
 
-    subtitle: {
-      fontSize: 16,
-      color: "#cfcfcf",
-      textAlign: "center",
-      marginTop: 12,
-      marginBottom: 24,
-    },
+  subtitle: {
+    fontSize: 16,
+    color: "#cfcfcf",
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 24,
+  },
 
-    input: {
-      width: "100%",
-      backgroundColor:
-        "#1b1b1b",
-      color: "#fff",
-      padding: 14,
-      borderRadius: 12,
-      marginBottom: 20,
-      fontSize: 15,
-    },
+  input: {
+    width: "100%",
+    backgroundColor: "#1b1b1b",
+    color: "#fff",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 20,
+    fontSize: 15,
+  },
 
-    button: {
-      backgroundColor:
-        "#1f8cff",
-      paddingVertical: 14,
-      paddingHorizontal: 24,
-      borderRadius: 12,
-      width: "100%",
-      alignItems: "center",
-    },
+  platformContainer: {
+    width: "100%",
+    marginBottom: 20,
+  },
 
-    generateButton: {
-      backgroundColor:
-        "#12a86b",
-      paddingVertical: 14,
-      paddingHorizontal: 24,
-      borderRadius: 12,
-      width: "100%",
-      alignItems: "center",
-      marginTop: 18,
-    },
+  platformLabel: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
 
-    preview: {
-      width: "100%",
-      height: 300,
-      borderRadius: 16,
-      marginTop: 24,
-      resizeMode: "contain",
-      backgroundColor:
-        "#222",
-    },
+  platformButton: {
+    backgroundColor: "#222",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    marginRight: 10,
+  },
 
-    masterActions: {
-      width: "100%",
-      marginTop: 22,
-    },
+  platformButtonActive: {
+    backgroundColor: "#8b5cf6",
+  },
 
-    copyButton: {
-      backgroundColor:
-        "#f59e0b",
-      paddingVertical: 14,
-      borderRadius: 12,
-      width: "100%",
-      alignItems: "center",
-    },
+  platformButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
 
-    saveButton: {
-      backgroundColor:
-        "#8b5cf6",
-      paddingVertical: 14,
-      borderRadius: 12,
-      width: "100%",
-      alignItems: "center",
-      marginTop: 12,
-    },
+  button: {
+    backgroundColor: "#1f8cff",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+  },
 
-    card: {
-      marginTop: 18,
-      backgroundColor:
-        "#1b1b1b",
-      padding: 18,
-      borderRadius: 16,
-      width: "100%",
-    },
+  generateButton: {
+    backgroundColor: "#12a86b",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+    marginTop: 18,
+  },
 
-    cardTitle: {
-      color: "#ffffff",
-      fontSize: 19,
-      fontWeight: "900",
-      marginBottom: 10,
-    },
+  preview: {
+    width: "100%",
+    height: 300,
+    borderRadius: 16,
+    marginTop: 24,
+    resizeMode: "contain",
+    backgroundColor: "#222",
+  },
 
-    cardText: {
-      color: "#e6e6e6",
-      fontSize: 15,
-      lineHeight: 22,
-    },
+  imageUrlBox: {
+    width: "100%",
+    marginTop: 18,
+    backgroundColor: "#142012",
+    borderRadius: 14,
+    padding: 14,
+  },
 
-    smallCopyButton: {
-      backgroundColor:
-        "#2d6cdf",
-      paddingVertical: 11,
-      borderRadius: 10,
-      alignItems: "center",
-      marginTop: 14,
-    },
+  imageUrlTitle: {
+    color: "#12a86b",
+    fontWeight: "800",
+    marginBottom: 6,
+  },
 
-    postButton: {
-      paddingVertical: 11,
-      borderRadius: 10,
-      alignItems: "center",
-      marginTop: 10,
-    },
+  imageUrlText: {
+    color: "#d1ffd6",
+    fontSize: 12,
+    lineHeight: 18,
+  },
 
-    connectedPost: {
-      backgroundColor:
-        "#12a86b",
-    },
+  masterActions: {
+    width: "100%",
+    marginTop: 22,
+  },
 
-    disconnectedPost: {
-      backgroundColor:
-        "#444",
-    },
+  copyButton: {
+    backgroundColor: "#f59e0b",
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+  },
 
-    buttonText: {
-      color: "#ffffff",
-      fontSize: 17,
-      fontWeight: "700",
-    },
+  saveButton: {
+    backgroundColor: "#8b5cf6",
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+    marginTop: 12,
+  },
 
-    smallButtonText: {
-      color: "#ffffff",
-      fontSize: 14,
-      fontWeight: "700",
-    },
-  });
+  card: {
+    marginTop: 18,
+    backgroundColor: "#1b1b1b",
+    padding: 18,
+    borderRadius: 16,
+    width: "100%",
+  },
+
+  cardTitle: {
+    color: "#ffffff",
+    fontSize: 19,
+    fontWeight: "900",
+    marginBottom: 10,
+  },
+
+  cardText: {
+    color: "#e6e6e6",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+
+  smallCopyButton: {
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 14,
+  },
+
+  postButton: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 18,
+    marginBottom: 40,
+  },
+
+  connectedPost: {
+    backgroundColor: "#12a86b",
+  },
+
+  disconnectedPost: {
+    backgroundColor: "#444",
+  },
+
+  buttonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  smallButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+});
