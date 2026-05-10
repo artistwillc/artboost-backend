@@ -16,6 +16,15 @@ const PINTEREST_REDIRECT_URI =
   process.env.PINTEREST_REDIRECT_URI ||
   "https://artboost-ai.onrender.com/auth/pinterest/callback";
 
+let pinterestConnection = {
+  connected: false,
+  token: null,
+  tokenType: null,
+  expiresIn: null,
+  scope: null,
+  connectedAt: null,
+};
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
@@ -78,18 +87,21 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       `${PINTEREST_CLIENT_ID}:${PINTEREST_CLIENT_SECRET}`
     ).toString("base64");
 
-    const tokenResponse = await fetch("https://api.pinterest.com/v5/oauth/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${basicAuth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: String(code),
-        redirect_uri: PINTEREST_REDIRECT_URI,
-      }),
-    });
+    const tokenResponse = await fetch(
+      "https://api.pinterest.com/v5/oauth/token",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: String(code),
+          redirect_uri: PINTEREST_REDIRECT_URI,
+        }),
+      }
+    );
 
     const tokenData = await tokenResponse.json();
 
@@ -103,7 +115,17 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       `);
     }
 
+    pinterestConnection = {
+      connected: true,
+      token: tokenData.access_token,
+      tokenType: tokenData.token_type,
+      expiresIn: tokenData.expires_in,
+      scope: tokenData.scope,
+      connectedAt: new Date().toISOString(),
+    };
+
     console.log("Pinterest connected:", {
+      connected: true,
       access_token_present: Boolean(tokenData.access_token),
       token_type: tokenData.token_type,
       expires_in: tokenData.expires_in,
@@ -132,8 +154,45 @@ app.get("/auth/pinterest/callback", async (req, res) => {
 app.get("/pinterest/status", (req, res) => {
   res.json({
     configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
+    connected: pinterestConnection.connected,
+    connectedAt: pinterestConnection.connectedAt,
+    scope: pinterestConnection.scope,
     redirectUri: PINTEREST_REDIRECT_URI,
   });
+});
+
+app.get("/pinterest/boards", async (req, res) => {
+  try {
+    if (!pinterestConnection.connected || !pinterestConnection.token) {
+      return res.status(401).json({
+        error: "Pinterest is not connected.",
+      });
+    }
+
+    const boardsResponse = await fetch("https://api.pinterest.com/v5/boards", {
+      headers: {
+        Authorization: `Bearer ${pinterestConnection.token}`,
+      },
+    });
+
+    const boardsData = await boardsResponse.json();
+
+    if (!boardsResponse.ok) {
+      return res.status(500).json({
+        error: "Failed to fetch Pinterest boards.",
+        details: boardsData,
+      });
+    }
+
+    res.json(boardsData);
+  } catch (err) {
+    console.error("Pinterest boards error:", err);
+
+    res.status(500).json({
+      error: "Failed to fetch Pinterest boards.",
+      details: err.message,
+    });
+  }
 });
 
 app.post("/generate", upload.single("image"), async (req, res) => {
