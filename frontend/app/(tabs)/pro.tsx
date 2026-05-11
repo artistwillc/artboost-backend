@@ -29,6 +29,7 @@ export default function ProScreen() {
 
   const [publishing, setPublishing] = useState(false);
   const [loadingBoards, setLoadingBoards] = useState(false);
+  const [loadingQueue, setLoadingQueue] = useState(false);
   const [variations, setVariations] = useState<any[]>([]);
   const [loadingVariations, setLoadingVariations] = useState(false);
 
@@ -36,6 +37,13 @@ export default function ProScreen() {
     const trimmed = value.trim();
     const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/);
     return urlMatch ? urlMatch[0] : trimmed;
+  };
+
+  const getStatusStyle = (status: string) => {
+    if (status === "published") return styles.statusPublished;
+    if (status === "failed") return styles.statusFailed;
+    if (status === "publishing") return styles.statusPublishing;
+    return styles.statusScheduled;
   };
 
   const loadCurrentCampaign = async () => {
@@ -57,63 +65,110 @@ export default function ProScreen() {
 
   const loadScheduledCampaigns = async () => {
     try {
-      const saved = await AsyncStorage.getItem("artboost_scheduled_campaigns");
-      if (saved) {
-        setScheduledCampaigns(JSON.parse(saved));
+      setLoadingQueue(true);
+
+      const response = await fetch(`${BACKEND_URL}/scheduled-campaigns`);
+      const data = await response.json();
+
+      if (data.campaigns) {
+        setScheduledCampaigns(data.campaigns);
       }
     } catch (err) {
       console.log("Failed loading scheduled campaigns:", err);
+    } finally {
+      setLoadingQueue(false);
     }
   };
 
   const saveScheduledCampaign = async () => {
-    if (!title || !description) {
-      Alert.alert("Missing Content", "Generate or enter campaign content first.");
-      return;
+    try {
+      if (!title || !description) {
+        Alert.alert(
+          "Missing Content",
+          "Generate or enter campaign content first."
+        );
+        return;
+      }
+
+      if (!imageUrl) {
+        Alert.alert(
+          "Missing Image URL",
+          "A public image URL is required for scheduled publishing."
+        );
+        return;
+      }
+
+      if (!selectedBoard) {
+        Alert.alert("Missing Board", "Please select a Pinterest board.");
+        return;
+      }
+
+      if (!publishDate) {
+        Alert.alert("Missing Schedule Time", "Enter a valid future date/time.");
+        return;
+      }
+
+      const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          imageUrl,
+          productLink,
+          boardId: selectedBoard,
+          publishAt: publishDate,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        Alert.alert(
+          "Scheduling Error",
+          data.error || "Failed to schedule campaign."
+        );
+        return;
+      }
+
+      await loadScheduledCampaigns();
+
+      setPublishDate("");
+
+      Alert.alert("Scheduled", "Campaign added to backend automation queue.");
+    } catch (err: any) {
+      console.log(err);
+
+      Alert.alert(
+        "Scheduling Error",
+        err.message || "Failed to schedule campaign."
+      );
     }
-
-    if (!publishDate) {
-      Alert.alert("Missing Schedule Time", "Enter a date/time or schedule note.");
-      return;
-    }
-
-    const newSchedule = {
-      id: Date.now().toString(),
-      title,
-      description,
-      imageUrl,
-      productLink,
-      boardId: selectedBoard,
-      publishDate,
-      platform: "Pinterest",
-      createdAt: new Date().toLocaleString(),
-    };
-
-    const updated = [newSchedule, ...scheduledCampaigns];
-
-    setScheduledCampaigns(updated);
-
-    await AsyncStorage.setItem(
-      "artboost_scheduled_campaigns",
-      JSON.stringify(updated)
-    );
-
-    setPublishDate("");
-
-    Alert.alert("Scheduled", "Campaign added to your Pro posting queue.");
   };
 
   const deleteScheduledCampaign = async (id: string) => {
-    const updated = scheduledCampaigns.filter((item: any) => item.id !== id);
+    try {
+      const response = await fetch(`${BACKEND_URL}/scheduled-campaigns/${id}`, {
+        method: "DELETE",
+      });
 
-    setScheduledCampaigns(updated);
+      const data = await response.json();
 
-    await AsyncStorage.setItem(
-      "artboost_scheduled_campaigns",
-      JSON.stringify(updated)
-    );
+      if (!response.ok) {
+        Alert.alert("Delete Error", data.error || "Failed to delete campaign.");
+        return;
+      }
 
-    Alert.alert("Deleted", "Scheduled campaign removed.");
+      setScheduledCampaigns(data.campaigns || []);
+
+      Alert.alert("Deleted", "Scheduled campaign removed.");
+    } catch (err: any) {
+      console.log(err);
+
+      Alert.alert("Delete Error", err.message || "Failed to delete campaign.");
+    }
   };
 
   const postScheduledNow = async (item: any) => {
@@ -213,8 +268,11 @@ export default function ProScreen() {
         "Pinterest Pin Published",
         "Your artwork was successfully posted to Pinterest."
       );
+
+      await loadScheduledCampaigns();
     } catch (err: any) {
       console.log(err);
+
       Alert.alert(
         "Publish Failed",
         err.message || "Failed to publish Pinterest pin."
@@ -265,6 +323,7 @@ export default function ProScreen() {
       );
     } catch (err: any) {
       console.log(err);
+
       Alert.alert(
         "Variation Error",
         err.message || "Failed to generate AI variations."
@@ -296,6 +355,12 @@ export default function ProScreen() {
     loadBoards();
     loadCurrentCampaign();
     loadScheduledCampaigns();
+
+    const interval = setInterval(() => {
+      loadScheduledCampaigns();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -327,7 +392,7 @@ export default function ProScreen() {
         <Pressable style={styles.automationCard} onPress={saveScheduledCampaign}>
           <Text style={styles.automationTitle}>Schedule Campaign</Text>
           <Text style={styles.automationText}>
-            Queue this campaign for future automated posting.
+            Queue this campaign for backend automated publishing.
           </Text>
         </Pressable>
 
@@ -340,13 +405,12 @@ export default function ProScreen() {
           </Text>
         </Pressable>
 
-        <Pressable
-          style={styles.automationCard}
-          onPress={() => simulateProFeature("Queue Posts")}
-        >
-          <Text style={styles.automationTitle}>Queue Posts</Text>
+        <Pressable style={styles.automationCard} onPress={loadScheduledCampaigns}>
+          <Text style={styles.automationTitle}>Refresh Queue</Text>
           <Text style={styles.automationText}>
-            Batch process and manage creator campaigns.
+            {loadingQueue
+              ? "Refreshing scheduled campaign status..."
+              : "Check published, failed, and scheduled campaign status."}
           </Text>
         </Pressable>
       </View>
@@ -440,33 +504,60 @@ export default function ProScreen() {
           placeholderTextColor="#777"
         />
 
-        <Text style={styles.label}>Schedule Time / Note</Text>
+        <Text style={styles.label}>Schedule Date/Time</Text>
 
         <TextInput
           style={styles.input}
           value={publishDate}
           onChangeText={setPublishDate}
-          placeholder="Example: Friday 7 PM"
+          placeholder="Example: 2026-05-12T19:00:00-05:00"
           placeholderTextColor="#777"
         />
+
+        <Text style={styles.helperText}>
+          Use ISO format for backend automation: YYYY-MM-DDTHH:mm:ss-05:00
+        </Text>
       </View>
 
       {scheduledCampaigns.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.sectionHeader}>Scheduled Queue</Text>
+          <View style={styles.queueHeaderRow}>
+            <Text style={styles.sectionHeader}>Scheduled Queue</Text>
+
+            <Pressable style={styles.smallRefreshButton} onPress={loadScheduledCampaigns}>
+              <Text style={styles.smallRefreshText}>Refresh</Text>
+            </Pressable>
+          </View>
 
           {scheduledCampaigns.map((item) => (
             <View key={item.id} style={styles.queueCard}>
-              <Text style={styles.queueTitle}>{item.title}</Text>
+              <View style={styles.statusRow}>
+                <Text style={styles.queueTitle}>{item.title}</Text>
+
+                <Text style={[styles.statusBadge, getStatusStyle(item.status)]}>
+                  {item.status || "scheduled"}
+                </Text>
+              </View>
+
               <Text style={styles.queueText}>{item.platform}</Text>
-              <Text style={styles.queueText}>Scheduled: {item.publishDate}</Text>
+              <Text style={styles.queueText}>
+                Scheduled: {item.publishAt || item.publishDate}
+              </Text>
+
+              {item.publishedAt ? (
+                <Text style={styles.queueText}>Published: {item.publishedAt}</Text>
+              ) : null}
+
+              {item.error ? (
+                <Text style={styles.errorText}>Error: {item.error}</Text>
+              ) : null}
 
               <View style={styles.queueButtons}>
                 <Pressable
                   style={styles.queuePostButton}
                   onPress={() => postScheduledNow(item)}
                 >
-                  <Text style={styles.queueButtonText}>Post Now</Text>
+                  <Text style={styles.queueButtonText}>Load</Text>
                 </Pressable>
 
                 <Pressable
@@ -651,6 +742,13 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 
+  helperText: {
+    color: "#777",
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+
   boardButton: {
     backgroundColor: "#2b2b2b",
     padding: 14,
@@ -671,6 +769,26 @@ const styles = StyleSheet.create({
     color: "#aaa",
   },
 
+  queueHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  smallRefreshButton: {
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 18,
+  },
+
+  smallRefreshText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
   queueCard: {
     backgroundColor: "#2b2b2b",
     borderRadius: 14,
@@ -678,17 +796,60 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
+  statusRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 6,
+  },
+
   queueTitle: {
     color: "#fff",
     fontWeight: "800",
     fontSize: 15,
     marginBottom: 6,
+    flex: 1,
+    paddingRight: 8,
+  },
+
+  statusBadge: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "900",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: "hidden",
+    textTransform: "uppercase",
+  },
+
+  statusScheduled: {
+    backgroundColor: "#8b5cf6",
+  },
+
+  statusPublishing: {
+    backgroundColor: "#f59e0b",
+  },
+
+  statusPublished: {
+    backgroundColor: "#12a86b",
+  },
+
+  statusFailed: {
+    backgroundColor: "#a62828",
   },
 
   queueText: {
     color: "#aaa",
     fontSize: 13,
     lineHeight: 20,
+  },
+
+  errorText: {
+    color: "#ff6b6b",
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 6,
   },
 
   queueButtons: {
