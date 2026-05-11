@@ -56,9 +56,13 @@ export default function ProScreen() {
   };
 
   const loadScheduledCampaigns = async () => {
-    const saved = await AsyncStorage.getItem("artboost_scheduled_campaigns");
-    if (saved) {
-      setScheduledCampaigns(JSON.parse(saved));
+    try {
+      const saved = await AsyncStorage.getItem("artboost_scheduled_campaigns");
+      if (saved) {
+        setScheduledCampaigns(JSON.parse(saved));
+      }
+    } catch (err) {
+      console.log("Failed loading scheduled campaigns:", err);
     }
   };
 
@@ -97,6 +101,40 @@ export default function ProScreen() {
     setPublishDate("");
 
     Alert.alert("Scheduled", "Campaign added to your Pro posting queue.");
+  };
+
+  const deleteScheduledCampaign = async (id: string) => {
+    const updated = scheduledCampaigns.filter((item: any) => item.id !== id);
+
+    setScheduledCampaigns(updated);
+
+    await AsyncStorage.setItem(
+      "artboost_scheduled_campaigns",
+      JSON.stringify(updated)
+    );
+
+    Alert.alert("Deleted", "Scheduled campaign removed.");
+  };
+
+  const postScheduledNow = async (item: any) => {
+    try {
+      setTitle(item.title || "");
+      setDescription(item.description || "");
+      setImageUrl(item.imageUrl || "");
+      setProductLink(cleanUrl(item.productLink || ""));
+
+      if (item.boardId) {
+        setSelectedBoard(item.boardId);
+      }
+
+      Alert.alert(
+        "Loaded",
+        "Campaign loaded into publishing fields. Tap Post To Pinterest to publish now."
+      );
+    } catch (err) {
+      console.log(err);
+      Alert.alert("Queue Error", "Failed to load scheduled campaign.");
+    }
   };
 
   const loadBoards = async () => {
@@ -195,7 +233,6 @@ export default function ProScreen() {
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
           title,
           description,
@@ -423,6 +460,22 @@ export default function ProScreen() {
               <Text style={styles.queueTitle}>{item.title}</Text>
               <Text style={styles.queueText}>{item.platform}</Text>
               <Text style={styles.queueText}>Scheduled: {item.publishDate}</Text>
+
+              <View style={styles.queueButtons}>
+                <Pressable
+                  style={styles.queuePostButton}
+                  onPress={() => postScheduledNow(item)}
+                >
+                  <Text style={styles.queueButtonText}>Post Now</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.queueDeleteButton}
+                  onPress={() => deleteScheduledCampaign(item.id)}
+                >
+                  <Text style={styles.queueButtonText}>Delete</Text>
+                </Pressable>
+              </View>
             </View>
           ))}
         </View>
@@ -636,6 +689,33 @@ const styles = StyleSheet.create({
     color: "#aaa",
     fontSize: 13,
     lineHeight: 20,
+  },
+
+  queueButtons: {
+    flexDirection: "row",
+    marginTop: 14,
+  },
+
+  queuePostButton: {
+    flex: 1,
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    marginRight: 8,
+  },
+
+  queueDeleteButton: {
+    flex: 1,
+    backgroundColor: "#a62828",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  queueButtonText: {
+    color: "#fff",
+    fontWeight: "800",
   },
 
   publishButton: {
