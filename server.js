@@ -8,11 +8,7 @@ import { v2 as cloudinary } from "cloudinary";
 dotenv.config({ override: true });
 
 const app = express();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-});
-
+const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
 
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
@@ -36,19 +32,24 @@ let pinterestConnection = {
   connectedAt: null,
 };
 
+let scheduledCampaigns = [];
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 app.get("/", (req, res) => {
   res.send("ArtBoost AI backend is running.");
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  res.json({
+    status: "ok",
+    scheduledCampaigns: scheduledCampaigns.length,
+  });
 });
 
 app.get("/auth/pinterest", (req, res) => {
@@ -152,9 +153,7 @@ app.get("/pinterest/status", (req, res) => {
 app.get("/pinterest/boards", async (req, res) => {
   try {
     if (!pinterestConnection.connected || !pinterestConnection.token) {
-      return res.status(401).json({
-        error: "Pinterest is not connected.",
-      });
+      return res.status(401).json({ error: "Pinterest is not connected." });
     }
 
     const boardsResponse = await fetch("https://api.pinterest.com/v5/boards", {
@@ -181,50 +180,55 @@ app.get("/pinterest/boards", async (req, res) => {
   }
 });
 
+async function publishPinterestPin({ boardId, title, description, link, imageUrl }) {
+  if (!pinterestConnection.connected || !pinterestConnection.token) {
+    throw new Error("Pinterest is not connected.");
+  }
+
+  if (!boardId || !imageUrl) {
+    throw new Error("Missing boardId or imageUrl.");
+  }
+
+  const pinPayload = {
+    board_id: boardId,
+    title: title || "ArtBoost AI Pin",
+    description: description || "",
+    link: link || "",
+    media_source: {
+      source_type: "image_url",
+      url: imageUrl,
+    },
+  };
+
+  const pinResponse = await fetch("https://api.pinterest.com/v5/pins", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${pinterestConnection.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(pinPayload),
+  });
+
+  const pinData = await pinResponse.json();
+
+  if (!pinResponse.ok) {
+    throw new Error(JSON.stringify(pinData));
+  }
+
+  return pinData;
+}
+
 app.post("/pinterest/create-pin", async (req, res) => {
   try {
-    if (!pinterestConnection.connected || !pinterestConnection.token) {
-      return res.status(401).json({
-        error: "Pinterest is not connected.",
-      });
-    }
-
     const { boardId, title, description, link, imageUrl } = req.body;
 
-    if (!boardId || !imageUrl) {
-      return res.status(400).json({
-        error: "Missing boardId or imageUrl.",
-      });
-    }
-
-    const pinPayload = {
-      board_id: boardId,
-      title: title || "ArtBoost AI Pin",
-      description: description || "",
-      link: link || "",
-      media_source: {
-        source_type: "image_url",
-        url: imageUrl,
-      },
-    };
-
-    const pinResponse = await fetch("https://api.pinterest.com/v5/pins", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${pinterestConnection.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(pinPayload),
+    const pinData = await publishPinterestPin({
+      boardId,
+      title,
+      description,
+      link,
+      imageUrl,
     });
-
-    const pinData = await pinResponse.json();
-
-    if (!pinResponse.ok) {
-      return res.status(500).json({
-        error: "Failed to create Pinterest pin.",
-        details: pinData,
-      });
-    }
 
     res.json({
       success: true,
@@ -238,12 +242,100 @@ app.post("/pinterest/create-pin", async (req, res) => {
   }
 });
 
+app.post("/schedule-campaign", (req, res) => {
+  const { title, description, imageUrl, productLink, boardId, publishAt } =
+    req.body;
+
+  if (!title || !description || !publishAt) {
+    return res.status(400).json({
+      error: "Missing title, description, or publishAt.",
+    });
+  }
+
+  const campaign = {
+    id: Date.now().toString(),
+    title,
+    description,
+    imageUrl,
+    productLink,
+    boardId,
+    publishAt,
+    platform: "Pinterest",
+    status: "scheduled",
+    createdAt: new Date().toISOString(),
+    publishedAt: null,
+    error: null,
+  };
+
+  scheduledCampaigns.unshift(campaign);
+
+  res.json({
+    success: true,
+    campaign,
+  });
+});
+
+app.get("/scheduled-campaigns", (req, res) => {
+  res.json({
+    campaigns: scheduledCampaigns,
+  });
+});
+
+app.delete("/scheduled-campaigns/:id", (req, res) => {
+  const { id } = req.params;
+
+  scheduledCampaigns = scheduledCampaigns.filter((item) => item.id !== id);
+
+  res.json({
+    success: true,
+    campaigns: scheduledCampaigns,
+  });
+});
+
+async function runScheduledCampaigns() {
+  const now = Date.now();
+
+  for (const campaign of scheduledCampaigns) {
+    if (campaign.status !== "scheduled") continue;
+
+    const publishTime = new Date(campaign.publishAt).getTime();
+
+    if (Number.isNaN(publishTime)) continue;
+
+    if (publishTime <= now) {
+      try {
+        campaign.status = "publishing";
+
+        const pinData = await publishPinterestPin({
+          boardId: campaign.boardId,
+          title: campaign.title,
+          description: campaign.description,
+          link: campaign.productLink,
+          imageUrl: campaign.imageUrl,
+        });
+
+        campaign.status = "published";
+        campaign.publishedAt = new Date().toISOString();
+        campaign.pin = pinData;
+        campaign.error = null;
+
+        console.log("Scheduled campaign published:", campaign.id);
+      } catch (err) {
+        campaign.status = "failed";
+        campaign.error = err.message;
+
+        console.log("Scheduled campaign failed:", campaign.id, err.message);
+      }
+    }
+  }
+}
+
+setInterval(runScheduledCampaigns, 60 * 1000);
+
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        error: "No artwork image uploaded.",
-      });
+      return res.status(400).json({ error: "No artwork image uploaded." });
     }
 
     const productLink = req.body.productLink || "";
@@ -255,9 +347,7 @@ app.post("/generate", upload.single("image"), async (req, res) => {
 
     const cloudinaryUpload = await cloudinary.uploader.upload(
       `data:${mimeType};base64,${imageBase64}`,
-      {
-        folder: "artboost-ai",
-      }
+      { folder: "artboost-ai" }
     );
 
     const hostedImageUrl = cloudinaryUpload.secure_url;
@@ -284,7 +374,6 @@ ${productLink || "No product link provided"}
 
 IMPORTANT RULES:
 - Do NOT create content for any other platform.
-- Do NOT mention Instagram, Facebook, TikTok, X, Threads, Pinterest, Reddit, Tumblr, Lemon8, Truth Social, Etsy, Redbubble, Shopify, Gumroad, TeePublic, ArtPal, or Displate unless it is the selected platform or the product link destination.
 - Do NOT create multi-platform captions.
 - Return only these exact four sections:
 
@@ -300,7 +389,6 @@ Give strong hashtags for ${platform} only.
 CTA:
 Write one clear call-to-action for ${platform}.
 If a product link is provided, include it naturally.
-If no product link is provided, do not invent a link.
 
 Keep the response clean, visually appealing, and ready to copy.
               `,
@@ -395,8 +483,6 @@ Rules:
 - Do not explain anything.
 - Do not wrap JSON in code fences.
 - Make each variation noticeably different.
-- Keep each title useful for ${platform || "Pinterest"}.
-- Keep each description ready to post.
       `,
     });
 
@@ -421,4 +507,5 @@ Rules:
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log("Scheduled campaign runner active.");
 });
