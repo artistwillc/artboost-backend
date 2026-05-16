@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import multer from "multer";
+import Stripe from "stripe";
 import { v2 as cloudinary } from "cloudinary";
 
 dotenv.config({ override: true });
@@ -10,6 +11,11 @@ dotenv.config({ override: true });
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+const PINTEREST_API_BASE =
+  process.env.PINTEREST_API_BASE || "https://api-sandbox.pinterest.com";
 
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
 const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
@@ -48,8 +54,80 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
+    pinterestApiBase: PINTEREST_API_BASE,
     scheduledCampaigns: scheduledCampaigns.length,
+    stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
   });
+});
+
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { plan } = req.body;
+
+    const priceId =
+      plan === "yearly"
+        ? process.env.STRIPE_YEARLY_PRICE_ID
+        : process.env.STRIPE_MONTHLY_PRICE_ID;
+
+    if (!priceId) {
+      return res.status(400).json({
+        error: "Missing Stripe price ID for selected plan.",
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: "https://artboost-ai.onrender.com/stripe-success",
+      cancel_url: "https://artboost-ai.onrender.com/stripe-cancel",
+      metadata: {
+        app: "ArtBoost AI",
+        plan: plan || "monthly",
+      },
+    });
+
+    res.json({
+      success: true,
+      url: session.url,
+    });
+  } catch (err) {
+    console.error("Stripe checkout error:", err);
+
+    res.status(500).json({
+      error: "Failed to create Stripe checkout session.",
+      details: err.message,
+    });
+  }
+});
+
+app.get("/stripe-success", (req, res) => {
+  res.send(`
+    <html>
+      <body style="font-family: Arial; padding: 40px;">
+        <h1>Payment Successful</h1>
+        <p>Your ArtBoost AI Pro subscription was started successfully.</p>
+        <p>You can now return to the app.</p>
+      </body>
+    </html>
+  `);
+});
+
+app.get("/stripe-cancel", (req, res) => {
+  res.send(`
+    <html>
+      <body style="font-family: Arial; padding: 40px;">
+        <h1>Checkout Cancelled</h1>
+        <p>Your subscription was not completed.</p>
+        <p>You can return to ArtBoost AI and try again anytime.</p>
+      </body>
+    </html>
+  `);
 });
 
 app.get("/auth/pinterest", (req, res) => {
@@ -91,21 +169,18 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       `${PINTEREST_CLIENT_ID}:${PINTEREST_CLIENT_SECRET}`
     ).toString("base64");
 
-    const tokenResponse = await fetch(
-      "https://api.pinterest.com/v5/oauth/token",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${basicAuth}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: String(code),
-          redirect_uri: PINTEREST_REDIRECT_URI,
-        }),
-      }
-    );
+    const tokenResponse = await fetch(`${PINTEREST_API_BASE}/v5/oauth/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: PINTEREST_REDIRECT_URI,
+      }),
+    });
 
     const tokenData = await tokenResponse.json();
 
@@ -130,6 +205,7 @@ app.get("/auth/pinterest/callback", async (req, res) => {
         <body style="font-family: Arial; padding: 40px;">
           <h1>Pinterest Connected</h1>
           <p>You can now return to ArtBoost AI.</p>
+          <p>API Mode: ${PINTEREST_API_BASE}</p>
         </body>
       </html>
     `);
@@ -147,6 +223,7 @@ app.get("/pinterest/status", (req, res) => {
     connected: pinterestConnection.connected,
     connectedAt: pinterestConnection.connectedAt,
     scope: pinterestConnection.scope,
+    apiBase: PINTEREST_API_BASE,
   });
 });
 
@@ -156,7 +233,7 @@ app.get("/pinterest/boards", async (req, res) => {
       return res.status(401).json({ error: "Pinterest is not connected." });
     }
 
-    const boardsResponse = await fetch("https://api.pinterest.com/v5/boards", {
+    const boardsResponse = await fetch(`${PINTEREST_API_BASE}/v5/boards`, {
       headers: {
         Authorization: `Bearer ${pinterestConnection.token}`,
       },
@@ -180,7 +257,13 @@ app.get("/pinterest/boards", async (req, res) => {
   }
 });
 
-async function publishPinterestPin({ boardId, title, description, link, imageUrl }) {
+async function publishPinterestPin({
+  boardId,
+  title,
+  description,
+  link,
+  imageUrl,
+}) {
   if (!pinterestConnection.connected || !pinterestConnection.token) {
     throw new Error("Pinterest is not connected.");
   }
@@ -200,7 +283,7 @@ async function publishPinterestPin({ boardId, title, description, link, imageUrl
     },
   };
 
-  const pinResponse = await fetch("https://api.pinterest.com/v5/pins", {
+  const pinResponse = await fetch(`${PINTEREST_API_BASE}/v5/pins`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${pinterestConnection.token}`,
@@ -507,5 +590,9 @@ Rules:
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Pinterest API base: ${PINTEREST_API_BASE}`);
   console.log("Scheduled campaign runner active.");
+  console.log(
+    `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"}`
+  );
 });
