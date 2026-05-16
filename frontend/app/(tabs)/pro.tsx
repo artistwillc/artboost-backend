@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -17,6 +19,7 @@ const BACKEND_URL = "https://artboost-ai.onrender.com";
 export default function ProScreen() {
   const [boards, setBoards] = useState<any[]>([]);
   const [selectedBoard, setSelectedBoard] = useState("");
+  const [boardError, setBoardError] = useState("");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -24,7 +27,10 @@ export default function ProScreen() {
   const [productLink, setProductLink] = useState("");
   const [previewImage, setPreviewImage] = useState("");
 
-  const [publishDate, setPublishDate] = useState("");
+  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+
   const [scheduledCampaigns, setScheduledCampaigns] = useState<any[]>([]);
 
   const [publishing, setPublishing] = useState(false);
@@ -32,6 +38,7 @@ export default function ProScreen() {
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [variations, setVariations] = useState<any[]>([]);
   const [loadingVariations, setLoadingVariations] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
 
   const cleanUrl = (value: string) => {
     const trimmed = value.trim();
@@ -39,11 +46,52 @@ export default function ProScreen() {
     return urlMatch ? urlMatch[0] : trimmed;
   };
 
+  const getPublishAtIso = () => {
+    if (!scheduledDate) return "";
+    return scheduledDate.toISOString();
+  };
+
+  const getReadableSchedule = () => {
+    if (!scheduledDate) return "No schedule selected";
+    return scheduledDate.toLocaleString();
+  };
+
   const getStatusStyle = (status: string) => {
     if (status === "published") return styles.statusPublished;
     if (status === "failed") return styles.statusFailed;
     if (status === "publishing") return styles.statusPublishing;
     return styles.statusScheduled;
+  };
+
+  const startStripeCheckout = async (plan: "monthly" | "yearly") => {
+    try {
+      setCheckingOut(true);
+
+      const response = await fetch(`${BACKEND_URL}/create-checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.url) {
+        Alert.alert(
+          "Checkout Error",
+          data.error || "Unable to start Stripe checkout."
+        );
+        return;
+      }
+
+      await Linking.openURL(data.url);
+    } catch (err: any) {
+      console.log(err);
+      Alert.alert("Checkout Error", err.message || "Failed to open checkout.");
+    } finally {
+      setCheckingOut(false);
+    }
   };
 
   const loadCurrentCampaign = async () => {
@@ -83,10 +131,7 @@ export default function ProScreen() {
   const saveScheduledCampaign = async () => {
     try {
       if (!title || !description) {
-        Alert.alert(
-          "Missing Content",
-          "Generate or enter campaign content first."
-        );
+        Alert.alert("Missing Content", "Generate or enter campaign content first.");
         return;
       }
 
@@ -103,8 +148,8 @@ export default function ProScreen() {
         return;
       }
 
-      if (!publishDate) {
-        Alert.alert("Missing Schedule Time", "Enter a valid future date/time.");
+      if (!scheduledDate) {
+        Alert.alert("Missing Schedule Time", "Choose a date and time first.");
         return;
       }
 
@@ -119,32 +164,25 @@ export default function ProScreen() {
           imageUrl,
           productLink,
           boardId: selectedBoard,
-          publishAt: publishDate,
+          publishAt: getPublishAtIso(),
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        Alert.alert(
-          "Scheduling Error",
-          data.error || "Failed to schedule campaign."
-        );
+        Alert.alert("Scheduling Error", data.error || "Failed to schedule campaign.");
         return;
       }
 
       await loadScheduledCampaigns();
 
-      setPublishDate("");
+      setScheduledDate(null);
 
       Alert.alert("Scheduled", "Campaign added to backend automation queue.");
     } catch (err: any) {
       console.log(err);
-
-      Alert.alert(
-        "Scheduling Error",
-        err.message || "Failed to schedule campaign."
-      );
+      Alert.alert("Scheduling Error", err.message || "Failed to schedule campaign.");
     }
   };
 
@@ -166,7 +204,6 @@ export default function ProScreen() {
       Alert.alert("Deleted", "Scheduled campaign removed.");
     } catch (err: any) {
       console.log(err);
-
       Alert.alert("Delete Error", err.message || "Failed to delete campaign.");
     }
   };
@@ -195,24 +232,34 @@ export default function ProScreen() {
   const loadBoards = async () => {
     try {
       setLoadingBoards(true);
+      setBoardError("");
 
       const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
       const data = await response.json();
 
-      if (data.items) {
+      if (!response.ok) {
+        setBoards([]);
+        setBoardError(data.error || "Pinterest boards could not be loaded.");
+        return;
+      }
+
+      if (data.items && Array.isArray(data.items)) {
         setBoards(data.items);
 
-        const redbubbleBoard = data.items.find(
-          (b: any) => b.name === "Redbubble"
-        );
+        const redbubbleBoard = data.items.find((b: any) => b.name === "Redbubble");
 
         if (redbubbleBoard) {
           setSelectedBoard(redbubbleBoard.id);
+        } else if (data.items.length > 0) {
+          setSelectedBoard(data.items[0].id);
         }
+      } else {
+        setBoards([]);
+        setBoardError("No Pinterest boards were returned.");
       }
     } catch (err: any) {
       console.log(err);
-      Alert.alert("Error", "Failed to load Pinterest boards.");
+      setBoardError("Failed to load Pinterest boards. Refresh or reconnect Pinterest.");
     } finally {
       setLoadingBoards(false);
     }
@@ -272,11 +319,7 @@ export default function ProScreen() {
       await loadScheduledCampaigns();
     } catch (err: any) {
       console.log(err);
-
-      Alert.alert(
-        "Publish Failed",
-        err.message || "Failed to publish Pinterest pin."
-      );
+      Alert.alert("Publish Failed", err.message || "Failed to publish Pinterest pin.");
     } finally {
       setPublishing(false);
     }
@@ -303,10 +346,7 @@ export default function ProScreen() {
 
       if (!response.ok) {
         console.log(data);
-        Alert.alert(
-          "Variation Error",
-          data.error || "Failed to generate AI variations."
-        );
+        Alert.alert("Variation Error", data.error || "Failed to generate AI variations.");
         return;
       }
 
@@ -323,11 +363,7 @@ export default function ProScreen() {
       );
     } catch (err: any) {
       console.log(err);
-
-      Alert.alert(
-        "Variation Error",
-        err.message || "Failed to generate AI variations."
-      );
+      Alert.alert("Variation Error", err.message || "Failed to generate AI variations.");
     } finally {
       setLoadingVariations(false);
     }
@@ -349,6 +385,33 @@ export default function ProScreen() {
       feature,
       `${feature} automation workflow will be activated as platform APIs are connected.`
     );
+  };
+
+  const handleDateChange = (event: any, selected: Date | undefined) => {
+    if (!selected) return;
+
+    const current = scheduledDate || new Date();
+    const updated = new Date(current);
+
+    updated.setFullYear(selected.getFullYear());
+    updated.setMonth(selected.getMonth());
+    updated.setDate(selected.getDate());
+
+    setScheduledDate(updated);
+  };
+
+  const handleTimeChange = (event: any, selected: Date | undefined) => {
+    if (!selected) return;
+
+    const current = scheduledDate || new Date();
+    const updated = new Date(current);
+
+    updated.setHours(selected.getHours());
+    updated.setMinutes(selected.getMinutes());
+    updated.setSeconds(0);
+    updated.setMilliseconds(0);
+
+    setScheduledDate(updated);
   };
 
   useEffect(() => {
@@ -376,6 +439,35 @@ export default function ProScreen() {
           Generate campaigns, auto-publish content, schedule posts, and
           streamline your creator workflow.
         </Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.sectionHeader}>Upgrade to ArtBoost AI Pro</Text>
+
+        <Text style={styles.heroText}>
+          Unlock premium automation tools, advanced AI variations, scheduling,
+          and multi-platform creator workflows.
+        </Text>
+
+        <Pressable
+          style={styles.upgradeButton}
+          disabled={checkingOut}
+          onPress={() => startStripeCheckout("monthly")}
+        >
+          <Text style={styles.publishText}>
+            {checkingOut ? "Opening Checkout..." : "Start Pro Monthly - $14.99/mo"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.yearlyButton}
+          disabled={checkingOut}
+          onPress={() => startStripeCheckout("yearly")}
+        >
+          <Text style={styles.publishText}>
+            {checkingOut ? "Opening Checkout..." : "Start Pro Yearly - $149/yr"}
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.automationGrid}>
@@ -450,11 +542,17 @@ export default function ProScreen() {
       <View style={styles.card}>
         <Text style={styles.sectionHeader}>Pinterest Publishing</Text>
 
-        <Text style={styles.label}>Pinterest Board</Text>
+        <View style={styles.boardHeaderRow}>
+          <Text style={styles.label}>Pinterest Board</Text>
+
+          <Pressable style={styles.smallRefreshButton} onPress={loadBoards}>
+            <Text style={styles.smallRefreshText}>Refresh Boards</Text>
+          </Pressable>
+        </View>
 
         {loadingBoards ? (
           <Text style={styles.loading}>Loading boards...</Text>
-        ) : (
+        ) : boards.length > 0 ? (
           boards.map((board: any) => (
             <Pressable
               key={board.id}
@@ -467,6 +565,10 @@ export default function ProScreen() {
               <Text style={styles.boardText}>{board.name}</Text>
             </Pressable>
           ))
+        ) : (
+          <Text style={styles.boardError}>
+            {boardError || "No boards loaded. Refresh boards or reconnect Pinterest."}
+          </Text>
         )}
       </View>
 
@@ -506,16 +608,73 @@ export default function ProScreen() {
 
         <Text style={styles.label}>Schedule Date/Time</Text>
 
-        <TextInput
-          style={styles.input}
-          value={publishDate}
-          onChangeText={setPublishDate}
-          placeholder="Example: 2026-05-12T19:00:00-05:00"
-          placeholderTextColor="#777"
-        />
+        <View style={styles.scheduleBox}>
+          <Text style={styles.scheduleText}>{getReadableSchedule()}</Text>
+
+          <View style={styles.scheduleButtons}>
+            <Pressable
+              style={styles.scheduleButton}
+              onPress={() => {
+                setShowTimePicker(false);
+                setShowDatePicker(!showDatePicker);
+              }}
+            >
+              <Text style={styles.scheduleButtonText}>Choose Date</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.scheduleButton}
+              onPress={() => {
+                setShowDatePicker(false);
+                setShowTimePicker(!showTimePicker);
+              }}
+            >
+              <Text style={styles.scheduleButtonText}>Choose Time</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {showDatePicker && (
+          <View style={styles.pickerBox}>
+            <DateTimePicker
+              value={scheduledDate || new Date()}
+              mode="date"
+              display="spinner"
+              themeVariant="dark"
+              onChange={handleDateChange}
+            />
+
+            <Pressable
+              style={styles.donePickerButton}
+              onPress={() => setShowDatePicker(false)}
+            >
+              <Text style={styles.donePickerText}>Done</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {showTimePicker && (
+          <View style={styles.pickerBox}>
+            <DateTimePicker
+              value={scheduledDate || new Date()}
+              mode="time"
+              display="spinner"
+              themeVariant="dark"
+              onChange={handleTimeChange}
+            />
+
+            <Pressable
+              style={styles.donePickerButton}
+              onPress={() => setShowTimePicker(false)}
+            >
+              <Text style={styles.donePickerText}>Done</Text>
+            </Pressable>
+          </View>
+        )}
 
         <Text style={styles.helperText}>
-          Use ISO format for backend automation: YYYY-MM-DDTHH:mm:ss-05:00
+          ArtBoost will convert your selected date and time into backend
+          automation format automatically.
         </Text>
       </View>
 
@@ -626,6 +785,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 
+  upgradeButton: {
+    backgroundColor: "#8b5cf6",
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: "center",
+    marginTop: 18,
+  },
+
+  yearlyButton: {
+    backgroundColor: "#12a86b",
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
   automationGrid: {
     marginBottom: 20,
   },
@@ -721,6 +896,10 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
 
+  boardHeaderRow: {
+    marginBottom: 10,
+  },
+
   label: {
     color: "#fff",
     fontSize: 15,
@@ -765,8 +944,68 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  boardError: {
+    color: "#ff6b6b",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+
   loading: {
     color: "#aaa",
+  },
+
+  scheduleBox: {
+    backgroundColor: "#2b2b2b",
+    borderRadius: 14,
+    padding: 14,
+  },
+
+  scheduleText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 14,
+  },
+
+  scheduleButtons: {
+    flexDirection: "row",
+  },
+
+  scheduleButton: {
+    flex: 1,
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    marginRight: 8,
+  },
+
+  scheduleButtonText: {
+    color: "#fff",
+    fontWeight: "800",
+  },
+
+  pickerBox: {
+    backgroundColor: "#1b1b1b",
+    borderRadius: 16,
+    padding: 10,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+
+  donePickerButton: {
+    backgroundColor: "#8b5cf6",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+
+  donePickerText: {
+    color: "#fff",
+    fontWeight: "900",
   },
 
   queueHeaderRow: {
@@ -891,5 +1130,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "800",
+    textAlign: "center",
   },
 });
