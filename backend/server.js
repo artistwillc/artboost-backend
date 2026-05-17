@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import multer from "multer";
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 import { v2 as cloudinary } from "cloudinary";
 
 dotenv.config({ override: true });
@@ -13,6 +14,11 @@ const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const PINTEREST_API_BASE =
   process.env.PINTEREST_API_BASE || "https://api-sandbox.pinterest.com";
@@ -40,6 +46,142 @@ let pinterestConnection = {
 
 let scheduledCampaigns = [];
 
+app.post(
+  "/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.log("Webhook signature verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object;
+
+          const customerId = session.customer;
+          const subscriptionId = session.subscription;
+          const customerEmail = session.customer_details?.email;
+
+          if (!customerEmail) {
+            console.log("Checkout completed with no customer email.");
+            break;
+          }
+
+          const { data: profile, error: profileError } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("email", customerEmail)
+            .single();
+
+          if (profileError || !profile) {
+            console.log("No matching profile found:", customerEmail);
+            break;
+          }
+
+          await supabase
+            .from("profiles")
+            .update({
+              is_pro: true,
+              subscription_status: "active",
+              plan: session.metadata?.plan || "monthly",
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", profile.id);
+
+          console.log("User upgraded to Pro:", customerEmail);
+          break;
+        }
+
+        case "customer.subscription.updated": {
+          const subscription = event.data.object;
+
+          const customerId = subscription.customer;
+          const status = subscription.status;
+          const isActive = status === "active" || status === "trialing";
+
+          const currentPeriodEnd = subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null;
+
+          await supabase
+            .from("profiles")
+            .update({
+              is_pro: isActive,
+              subscription_status: status,
+              current_period_end: currentPeriodEnd,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("stripe_customer_id", customerId);
+
+          console.log("Subscription updated:", customerId, status);
+          break;
+        }
+
+        case "customer.subscription.deleted": {
+          const subscription = event.data.object;
+
+          const customerId = subscription.customer;
+
+          await supabase
+            .from("profiles")
+            .update({
+              is_pro: false,
+              subscription_status: "cancelled",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("stripe_customer_id", customerId);
+
+          console.log("Subscription cancelled:", customerId);
+          break;
+        }
+
+        case "invoice.payment_failed": {
+          const invoice = event.data.object;
+
+          const customerId = invoice.customer;
+
+          await supabase
+            .from("profiles")
+            .update({
+              is_pro: false,
+              subscription_status: "payment_failed",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("stripe_customer_id", customerId);
+
+          console.log("Payment failed:", customerId);
+          break;
+        }
+
+        default:
+          console.log(`Unhandled event type: ${event.type}`);
+      }
+
+      res.json({ received: true });
+    } catch (err) {
+      console.log("Webhook processing error:", err.message);
+
+      res.status(500).json({
+        error: err.message,
+      });
+    }
+  }
+);
+
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
@@ -57,12 +199,16 @@ app.get("/health", (req, res) => {
     pinterestApiBase: PINTEREST_API_BASE,
     scheduledCampaigns: scheduledCampaigns.length,
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+    stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+    supabaseConfigured: Boolean(
+      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ),
   });
 });
 
 app.post("/create-checkout-session", async (req, res) => {
   try {
-    const { plan } = req.body;
+    const { plan, userEmail } = req.body;
 
     const priceId =
       plan === "yearly"
@@ -78,6 +224,7 @@ app.post("/create-checkout-session", async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
+      customer_email: userEmail || undefined,
       line_items: [
         {
           price: priceId,
@@ -89,6 +236,7 @@ app.post("/create-checkout-session", async (req, res) => {
       metadata: {
         app: "ArtBoost AI",
         plan: plan || "monthly",
+        userEmail: userEmail || "",
       },
     });
 
@@ -594,5 +742,15 @@ app.listen(PORT, () => {
   console.log("Scheduled campaign runner active.");
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"}`
+  );
+  console.log(
+    `Stripe webhook configured: ${process.env.STRIPE_WEBHOOK_SECRET ? "yes" : "no"}`
+  );
+  console.log(
+    `Supabase configured: ${
+      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? "yes"
+        : "no"
+    }`
   );
 });
