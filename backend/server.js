@@ -353,7 +353,34 @@ app.post("/create-checkout-session", async (req, res) => {
     });
   }
 });
+app.post("/create-billing-portal", async (req, res) => {
+  try {
+    const { customerId } = req.body;
 
+    if (!customerId) {
+      return res.status(400).json({
+        error: "Missing Stripe customer ID.",
+      });
+    }
+
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: "https://artboost-ai.onrender.com",
+    });
+
+    res.json({
+      success: true,
+      url: portalSession.url,
+    });
+  } catch (err) {
+    console.error("Billing portal error:", err);
+
+    res.status(500).json({
+      error: "Failed to create billing portal session.",
+      details: err.message,
+    });
+  }
+});
 app.get("/stripe-success", (req, res) => {
   res.send(`
     <html>
