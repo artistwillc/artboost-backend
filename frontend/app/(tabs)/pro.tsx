@@ -14,9 +14,14 @@ import {
   View,
 } from "react-native";
 
+import { supabase } from "@/lib/supabase";
+
 const BACKEND_URL = "https://artboost-ai.onrender.com";
 
 export default function ProScreen() {
+  const [session, setSession] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+
   const [boards, setBoards] = useState<any[]>([]);
   const [selectedBoard, setSelectedBoard] = useState("");
   const [boardError, setBoardError] = useState("");
@@ -39,11 +44,75 @@ export default function ProScreen() {
   const [variations, setVariations] = useState<any[]>([]);
   const [loadingVariations, setLoadingVariations] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [openingBilling, setOpeningBilling] = useState(false);
+  const [syncingSubscription, setSyncingSubscription] = useState(false);
 
   const cleanUrl = (value: string) => {
     const trimmed = value.trim();
     const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/);
     return urlMatch ? urlMatch[0] : trimmed;
+  };
+
+  const syncSubscription = async (userId: string, email: string) => {
+    try {
+      setSyncingSubscription(true);
+
+      const response = await fetch(`${BACKEND_URL}/sync-subscription`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          email,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.log("Subscription sync error:", data);
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      console.log("Subscription sync failed:", err);
+      return null;
+    } finally {
+      setSyncingSubscription(false);
+    }
+  };
+
+  const loadSession = async () => {
+    const { data } = await supabase.auth.getSession();
+
+    setSession(data.session);
+
+    if (data.session?.user?.id) {
+      if (data.session.user.email) {
+        await syncSubscription(data.session.user.id, data.session.user.email);
+      }
+
+      await loadProfile(data.session.user.id);
+    } else {
+      setProfile(null);
+    }
+  };
+
+  const loadProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (error) {
+      console.log("Profile load error:", error.message);
+      return;
+    }
+
+    setProfile(data);
   };
 
   const getPublishAtIso = () => {
@@ -65,6 +134,14 @@ export default function ProScreen() {
 
   const startStripeCheckout = async (plan: "monthly" | "yearly") => {
     try {
+      if (!session?.user?.email) {
+        Alert.alert(
+          "Login Required",
+          "Please log in or create an account before upgrading to Pro."
+        );
+        return;
+      }
+
       setCheckingOut(true);
 
       const response = await fetch(`${BACKEND_URL}/create-checkout-session`, {
@@ -72,7 +149,11 @@ export default function ProScreen() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({
+          plan,
+          userEmail: session.user.email,
+          userId: session.user.id,
+        }),
       });
 
       const data = await response.json();
@@ -91,6 +172,58 @@ export default function ProScreen() {
       Alert.alert("Checkout Error", err.message || "Failed to open checkout.");
     } finally {
       setCheckingOut(false);
+    }
+  };
+
+  const openBillingPortal = async () => {
+    try {
+      if (!session?.user?.email || !session?.user?.id) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before managing your subscription."
+        );
+        return;
+      }
+
+      setOpeningBilling(true);
+
+      if (!profile?.stripe_customer_id) {
+        await syncSubscription(session.user.id, session.user.email);
+        await loadProfile(session.user.id);
+      }
+
+      const response = await fetch(`${BACKEND_URL}/create-billing-portal`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: profile?.stripe_customer_id || null,
+          email: session.user.email,
+          userId: session.user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.url) {
+        Alert.alert(
+          "Billing Portal Error",
+          data.error || "Unable to open billing portal."
+        );
+        return;
+      }
+
+      await Linking.openURL(data.url);
+    } catch (err: any) {
+      console.log(err);
+
+      Alert.alert(
+        "Billing Portal Error",
+        err.message || "Failed to open billing portal."
+      );
+    } finally {
+      setOpeningBilling(false);
     }
   };
 
@@ -115,7 +248,12 @@ export default function ProScreen() {
     try {
       setLoadingQueue(true);
 
-      const response = await fetch(`${BACKEND_URL}/scheduled-campaigns`);
+      const userId = session?.user?.id;
+      const url = userId
+        ? `${BACKEND_URL}/scheduled-campaigns?userId=${userId}`
+        : `${BACKEND_URL}/scheduled-campaigns`;
+
+      const response = await fetch(url);
       const data = await response.json();
 
       if (data.campaigns) {
@@ -130,6 +268,11 @@ export default function ProScreen() {
 
   const saveScheduledCampaign = async () => {
     try {
+      if (!profile?.is_pro) {
+        Alert.alert("Pro Required", "Scheduling is a Pro feature.");
+        return;
+      }
+
       if (!title || !description) {
         Alert.alert("Missing Content", "Generate or enter campaign content first.");
         return;
@@ -159,12 +302,14 @@ export default function ProScreen() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          userId: session?.user?.id || null,
           title,
           description,
           imageUrl,
           productLink,
           boardId: selectedBoard,
           publishAt: getPublishAtIso(),
+          platform: "Pinterest",
         }),
       });
 
@@ -176,7 +321,6 @@ export default function ProScreen() {
       }
 
       await loadScheduledCampaigns();
-
       setScheduledDate(null);
 
       Alert.alert("Scheduled", "Campaign added to backend automation queue.");
@@ -188,7 +332,12 @@ export default function ProScreen() {
 
   const deleteScheduledCampaign = async (id: string) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/scheduled-campaigns/${id}`, {
+      const userId = session?.user?.id;
+      const url = userId
+        ? `${BACKEND_URL}/scheduled-campaigns/${id}?userId=${userId}`
+        : `${BACKEND_URL}/scheduled-campaigns/${id}`;
+
+      const response = await fetch(url, {
         method: "DELETE",
       });
 
@@ -200,7 +349,6 @@ export default function ProScreen() {
       }
 
       setScheduledCampaigns(data.campaigns || []);
-
       Alert.alert("Deleted", "Scheduled campaign removed.");
     } catch (err: any) {
       console.log(err);
@@ -267,6 +415,11 @@ export default function ProScreen() {
 
   const createPinterestPin = async () => {
     try {
+      if (!profile?.is_pro) {
+        Alert.alert("Pro Required", "Pinterest publishing is a Pro feature.");
+        return;
+      }
+
       if (!selectedBoard) {
         Alert.alert("Missing Board", "Please select a Pinterest board.");
         return;
@@ -327,6 +480,11 @@ export default function ProScreen() {
 
   const generateVariations = async () => {
     try {
+      if (!profile?.is_pro) {
+        Alert.alert("Pro Required", "AI variations are a Pro feature.");
+        return;
+      }
+
       setLoadingVariations(true);
 
       const response = await fetch(`${BACKEND_URL}/generate-variations`, {
@@ -381,6 +539,11 @@ export default function ProScreen() {
   };
 
   const simulateProFeature = (feature: string) => {
+    if (!profile?.is_pro) {
+      Alert.alert("Pro Required", `${feature} is a Pro feature.`);
+      return;
+    }
+
     Alert.alert(
       feature,
       `${feature} automation workflow will be activated as platform APIs are connected.`
@@ -415,16 +578,38 @@ export default function ProScreen() {
   };
 
   useEffect(() => {
+    loadSession();
     loadBoards();
     loadCurrentCampaign();
+
+    const authSubscription = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+
+      if (newSession?.user?.id) {
+        loadProfile(newSession.user.id);
+      } else {
+        setProfile(null);
+      }
+    });
+
+    return () => {
+      authSubscription.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     loadScheduledCampaigns();
 
     const interval = setInterval(() => {
       loadScheduledCampaigns();
+
+      if (session?.user?.id) {
+        loadProfile(session.user.id);
+      }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [session?.user?.id]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -442,33 +627,69 @@ export default function ProScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Upgrade to ArtBoost AI Pro</Text>
+        <Text style={styles.sectionHeader}>Account Status</Text>
 
         <Text style={styles.heroText}>
-          Unlock premium automation tools, advanced AI variations, scheduling,
-          and multi-platform creator workflows.
+          {session?.user?.email
+            ? `Signed in as ${session.user.email}`
+            : "You are not signed in. Log in on the main screen before upgrading."}
         </Text>
 
-        <Pressable
-          style={styles.upgradeButton}
-          disabled={checkingOut}
-          onPress={() => startStripeCheckout("monthly")}
-        >
-          <Text style={styles.publishText}>
-            {checkingOut ? "Opening Checkout..." : "Start Pro Monthly - $14.99/mo"}
+        <View style={profile?.is_pro ? styles.proActiveBadge : styles.freeBadge}>
+          <Text style={styles.badgeText}>
+            {profile?.is_pro ? "PRO ACTIVE" : "FREE ACCOUNT"}
+          </Text>
+        </View>
+
+        <Pressable style={styles.smallRefreshButton} onPress={loadSession}>
+          <Text style={styles.smallRefreshText}>
+            {syncingSubscription ? "Syncing Subscription..." : "Refresh Pro Status"}
           </Text>
         </Pressable>
 
-        <Pressable
-          style={styles.yearlyButton}
-          disabled={checkingOut}
-          onPress={() => startStripeCheckout("yearly")}
-        >
-          <Text style={styles.publishText}>
-            {checkingOut ? "Opening Checkout..." : "Start Pro Yearly - $149/yr"}
-          </Text>
-        </Pressable>
+        {profile?.is_pro && (
+          <Pressable
+            style={styles.billingButton}
+            onPress={openBillingPortal}
+            disabled={openingBilling}
+          >
+            <Text style={styles.billingButtonText}>
+              {openingBilling ? "Opening Billing..." : "Manage Subscription"}
+            </Text>
+          </Pressable>
+        )}
       </View>
+
+      {!profile?.is_pro && (
+        <View style={styles.card}>
+          <Text style={styles.sectionHeader}>Upgrade to ArtBoost AI Pro</Text>
+
+          <Text style={styles.heroText}>
+            Unlock premium automation tools, advanced AI variations, scheduling,
+            and multi-platform creator workflows.
+          </Text>
+
+          <Pressable
+            style={styles.upgradeButton}
+            disabled={checkingOut}
+            onPress={() => startStripeCheckout("monthly")}
+          >
+            <Text style={styles.publishText}>
+              {checkingOut ? "Opening Checkout..." : "Start Pro Monthly - $14.99/mo"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.yearlyButton}
+            disabled={checkingOut}
+            onPress={() => startStripeCheckout("yearly")}
+          >
+            <Text style={styles.publishText}>
+              {checkingOut ? "Opening Checkout..." : "Start Pro Yearly - $149/yr"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       <View style={styles.automationGrid}>
         <Pressable
@@ -783,6 +1004,44 @@ const styles = StyleSheet.create({
     color: "#d0d0d0",
     lineHeight: 24,
     fontSize: 15,
+  },
+
+  proActiveBadge: {
+    backgroundColor: "#12a86b",
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 14,
+  },
+
+  freeBadge: {
+    backgroundColor: "#555",
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 14,
+  },
+
+  badgeText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  billingButton: {
+    backgroundColor: "#12a86b",
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    marginTop: 6,
+  },
+
+  billingButtonText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 14,
   },
 
   upgradeButton: {
