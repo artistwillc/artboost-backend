@@ -105,6 +105,142 @@ async function updateProfileByUserIdOrEmail({ userId, email, updateData }) {
   return false;
 }
 
+async function syncStripeSubscriptionForUser({ userId, email }) {
+  if (!email) {
+    throw new Error("Email is required to sync Stripe subscription.");
+  }
+
+  const customers = await stripe.customers.list({
+    email,
+    limit: 10,
+  });
+
+  if (!customers.data.length) {
+    const updateData = {
+      is_pro: false,
+      subscription_status: "free",
+      plan: "free",
+      updated_at: new Date().toISOString(),
+    };
+
+    await updateProfileByUserIdOrEmail({
+      userId,
+      email,
+      updateData,
+    });
+
+    return {
+      synced: true,
+      foundCustomer: false,
+      active: false,
+      message: "No Stripe customer found for this email.",
+    };
+  }
+
+  let bestMatch = null;
+
+  for (const customer of customers.data) {
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customer.id,
+      status: "all",
+      limit: 10,
+    });
+
+    const activeSubscription =
+      subscriptions.data.find((sub) =>
+        ["active", "trialing"].includes(sub.status)
+      ) ||
+      subscriptions.data.find((sub) =>
+        ["past_due", "unpaid", "incomplete"].includes(sub.status)
+      ) ||
+      subscriptions.data[0];
+
+    if (activeSubscription) {
+      bestMatch = {
+        customer,
+        subscription: activeSubscription,
+      };
+
+      if (["active", "trialing"].includes(activeSubscription.status)) {
+        break;
+      }
+    }
+  }
+
+  if (!bestMatch) {
+    const newestCustomer = customers.data[0];
+
+    const updateData = {
+      is_pro: false,
+      subscription_status: "free",
+      plan: "free",
+      stripe_customer_id: newestCustomer.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    await updateProfileByUserIdOrEmail({
+      userId,
+      email,
+      updateData,
+    });
+
+    return {
+      synced: true,
+      foundCustomer: true,
+      active: false,
+      customerId: newestCustomer.id,
+      message: "Stripe customer found, but no subscription found.",
+    };
+  }
+
+  const { customer, subscription } = bestMatch;
+
+  const isActive = ["active", "trialing"].includes(subscription.status);
+  const priceId = subscription.items?.data?.[0]?.price?.id || "";
+  const monthlyPriceId = process.env.STRIPE_MONTHLY_PRICE_ID;
+  const yearlyPriceId = process.env.STRIPE_YEARLY_PRICE_ID;
+
+  let plan = subscription.metadata?.plan || "monthly";
+
+  if (priceId && priceId === yearlyPriceId) {
+    plan = "yearly";
+  }
+
+  if (priceId && priceId === monthlyPriceId) {
+    plan = "monthly";
+  }
+
+  const currentPeriodEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : null;
+
+  const updateData = {
+    is_pro: isActive,
+    subscription_status: subscription.status,
+    plan: isActive ? plan : "free",
+    stripe_customer_id: customer.id,
+    stripe_subscription_id: subscription.id,
+    current_period_end: currentPeriodEnd,
+    updated_at: new Date().toISOString(),
+  };
+
+  await updateProfileByUserIdOrEmail({
+    userId,
+    email,
+    updateData,
+  });
+
+  return {
+    synced: true,
+    foundCustomer: true,
+    active: isActive,
+    customerId: customer.id,
+    subscriptionId: subscription.id,
+    status: subscription.status,
+    plan: updateData.plan,
+  };
+}
+
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -149,6 +285,13 @@ app.post(
             updateData,
           });
 
+          if (customerEmail) {
+            await syncStripeSubscriptionForUser({
+              userId,
+              email: customerEmail,
+            });
+          }
+
           console.log("Checkout completed:", {
             userId,
             customerEmail,
@@ -158,6 +301,7 @@ app.post(
           break;
         }
 
+        case "customer.subscription.created":
         case "customer.subscription.updated": {
           const subscription = event.data.object;
 
@@ -175,7 +319,7 @@ app.post(
           const updateData = {
             is_pro: isActive,
             subscription_status: status,
-            plan,
+            plan: isActive ? plan : "free",
             stripe_customer_id: customerId,
             stripe_subscription_id: subscription.id,
             current_period_end: currentPeriodEnd,
@@ -195,7 +339,7 @@ app.post(
               .eq("stripe_customer_id", customerId);
           }
 
-          console.log("Subscription updated:", customerId, status);
+          console.log("Subscription synced:", customerId, status);
           break;
         }
 
@@ -209,6 +353,7 @@ app.post(
           const updateData = {
             is_pro: false,
             subscription_status: "cancelled",
+            plan: "free",
             updated_at: new Date().toISOString(),
           };
 
@@ -229,6 +374,20 @@ app.post(
           break;
         }
 
+        case "invoice.payment_succeeded": {
+          const invoice = event.data.object;
+
+          if (invoice.customer_email) {
+            await syncStripeSubscriptionForUser({
+              userId: "",
+              email: invoice.customer_email,
+            });
+          }
+
+          console.log("Invoice payment succeeded:", invoice.customer);
+          break;
+        }
+
         case "invoice.payment_failed": {
           const invoice = event.data.object;
 
@@ -239,6 +398,7 @@ app.post(
             .update({
               is_pro: false,
               subscription_status: "payment_failed",
+              plan: "free",
               updated_at: new Date().toISOString(),
             })
             .eq("stripe_customer_id", customerId);
@@ -353,18 +513,59 @@ app.post("/create-checkout-session", async (req, res) => {
     });
   }
 });
+
+app.post("/sync-subscription", async (req, res) => {
+  try {
+    const { userId, email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: "Missing email.",
+      });
+    }
+
+    const result = await syncStripeSubscriptionForUser({
+      userId,
+      email,
+    });
+
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error("Subscription sync error:", err);
+
+    res.status(500).json({
+      error: "Failed to sync Stripe subscription.",
+      details: err.message,
+    });
+  }
+});
+
 app.post("/create-billing-portal", async (req, res) => {
   try {
-    const { customerId } = req.body;
+    const { customerId, email, userId } = req.body;
 
-    if (!customerId) {
+    let finalCustomerId = customerId;
+
+    if (!finalCustomerId && email) {
+      const syncResult = await syncStripeSubscriptionForUser({
+        userId,
+        email,
+      });
+
+      finalCustomerId = syncResult.customerId;
+    }
+
+    if (!finalCustomerId) {
       return res.status(400).json({
         error: "Missing Stripe customer ID.",
       });
     }
 
     const portalSession = await stripe.billingPortal.sessions.create({
-      customer: customerId,
+      customer: finalCustomerId,
       return_url: "https://artboost-ai.onrender.com",
     });
 
@@ -381,6 +582,7 @@ app.post("/create-billing-portal", async (req, res) => {
     });
   }
 });
+
 app.get("/stripe-success", (req, res) => {
   res.send(`
     <html>
