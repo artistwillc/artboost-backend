@@ -44,13 +44,25 @@ let pinterestConnection = {
   connectedAt: null,
 };
 
-let scheduledCampaigns = [];
+const mapCampaignFromDb = (item) => ({
+  id: item.id,
+  userId: item.user_id,
+  platform: item.platform,
+  title: item.title,
+  description: item.description,
+  imageUrl: item.image_url,
+  productLink: item.product_link,
+  boardId: item.board_id,
+  publishAt: item.publish_at,
+  status: item.status,
+  publishedAt: item.published_at,
+  error: item.error,
+  pin: item.pin_data,
+  createdAt: item.created_at,
+  updatedAt: item.updated_at,
+});
 
-async function updateProfileByUserIdOrEmail({
-  userId,
-  email,
-  updateData,
-}) {
+async function updateProfileByUserIdOrEmail({ userId, email, updateData }) {
   if (userId) {
     const { data, error } = await supabase
       .from("profiles")
@@ -261,16 +273,21 @@ app.get("/", (req, res) => {
   res.send("ArtBoost AI backend is running.");
 });
 
-app.get("/health", (req, res) => {
+app.get("/health", async (req, res) => {
+  const { count } = await supabase
+    .from("scheduled_campaigns")
+    .select("*", { count: "exact", head: true });
+
   res.json({
     status: "ok",
     pinterestApiBase: PINTEREST_API_BASE,
-    scheduledCampaigns: scheduledCampaigns.length,
+    scheduledCampaigns: count || 0,
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
     stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
     supabaseConfigured: Boolean(
       process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
     ),
+    databaseScheduling: true,
   });
 });
 
@@ -556,90 +573,192 @@ app.post("/pinterest/create-pin", async (req, res) => {
   }
 });
 
-app.post("/schedule-campaign", (req, res) => {
-  const { title, description, imageUrl, productLink, boardId, publishAt } =
-    req.body;
+app.post("/schedule-campaign", async (req, res) => {
+  try {
+    const {
+      userId,
+      title,
+      description,
+      imageUrl,
+      productLink,
+      boardId,
+      publishAt,
+      platform,
+    } = req.body;
 
-  if (!title || !description || !publishAt) {
-    return res.status(400).json({
-      error: "Missing title, description, or publishAt.",
+    if (!title || !description || !publishAt) {
+      return res.status(400).json({
+        error: "Missing title, description, or publishAt.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("scheduled_campaigns")
+      .insert({
+        user_id: userId || null,
+        platform: platform || "Pinterest",
+        title,
+        description,
+        image_url: imageUrl || null,
+        product_link: productLink || null,
+        board_id: boardId || null,
+        publish_at: publishAt,
+        status: "scheduled",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({
+        error: "Failed to save scheduled campaign.",
+        details: error.message,
+      });
+    }
+
+    res.json({
+      success: true,
+      campaign: mapCampaignFromDb(data),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Scheduling request failed.",
+      details: err.message,
     });
   }
-
-  const campaign = {
-    id: Date.now().toString(),
-    title,
-    description,
-    imageUrl,
-    productLink,
-    boardId,
-    publishAt,
-    platform: "Pinterest",
-    status: "scheduled",
-    createdAt: new Date().toISOString(),
-    publishedAt: null,
-    error: null,
-  };
-
-  scheduledCampaigns.unshift(campaign);
-
-  res.json({
-    success: true,
-    campaign,
-  });
 });
 
-app.get("/scheduled-campaigns", (req, res) => {
-  res.json({
-    campaigns: scheduledCampaigns,
-  });
+app.get("/scheduled-campaigns", async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    let query = supabase
+      .from("scheduled_campaigns")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({
+        error: "Failed to load scheduled campaigns.",
+        details: error.message,
+      });
+    }
+
+    res.json({
+      campaigns: (data || []).map(mapCampaignFromDb),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Scheduled campaigns request failed.",
+      details: err.message,
+    });
+  }
 });
 
-app.delete("/scheduled-campaigns/:id", (req, res) => {
-  const { id } = req.params;
+app.delete("/scheduled-campaigns/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
 
-  scheduledCampaigns = scheduledCampaigns.filter((item) => item.id !== id);
+    let deleteQuery = supabase.from("scheduled_campaigns").delete().eq("id", id);
 
-  res.json({
-    success: true,
-    campaigns: scheduledCampaigns,
-  });
+    if (userId) {
+      deleteQuery = deleteQuery.eq("user_id", userId);
+    }
+
+    const { error } = await deleteQuery;
+
+    if (error) {
+      return res.status(500).json({
+        error: "Failed to delete scheduled campaign.",
+        details: error.message,
+      });
+    }
+
+    let listQuery = supabase
+      .from("scheduled_campaigns")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (userId) {
+      listQuery = listQuery.eq("user_id", userId);
+    }
+
+    const { data } = await listQuery;
+
+    res.json({
+      success: true,
+      campaigns: (data || []).map(mapCampaignFromDb),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Delete request failed.",
+      details: err.message,
+    });
+  }
 });
 
 async function runScheduledCampaigns() {
-  const now = Date.now();
+  const nowIso = new Date().toISOString();
 
-  for (const campaign of scheduledCampaigns) {
-    if (campaign.status !== "scheduled") continue;
+  const { data: dueCampaigns, error } = await supabase
+    .from("scheduled_campaigns")
+    .select("*")
+    .eq("status", "scheduled")
+    .lte("publish_at", nowIso)
+    .limit(10);
 
-    const publishTime = new Date(campaign.publishAt).getTime();
+  if (error) {
+    console.log("Failed to load due scheduled campaigns:", error.message);
+    return;
+  }
 
-    if (Number.isNaN(publishTime)) continue;
+  for (const campaign of dueCampaigns || []) {
+    try {
+      await supabase
+        .from("scheduled_campaigns")
+        .update({
+          status: "publishing",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", campaign.id);
 
-    if (publishTime <= now) {
-      try {
-        campaign.status = "publishing";
+      const pinData = await publishPinterestPin({
+        boardId: campaign.board_id,
+        title: campaign.title,
+        description: campaign.description,
+        link: campaign.product_link,
+        imageUrl: campaign.image_url,
+      });
 
-        const pinData = await publishPinterestPin({
-          boardId: campaign.boardId,
-          title: campaign.title,
-          description: campaign.description,
-          link: campaign.productLink,
-          imageUrl: campaign.imageUrl,
-        });
+      await supabase
+        .from("scheduled_campaigns")
+        .update({
+          status: "published",
+          published_at: new Date().toISOString(),
+          pin_data: pinData,
+          error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", campaign.id);
 
-        campaign.status = "published";
-        campaign.publishedAt = new Date().toISOString();
-        campaign.pin = pinData;
-        campaign.error = null;
+      console.log("Scheduled campaign published:", campaign.id);
+    } catch (err) {
+      await supabase
+        .from("scheduled_campaigns")
+        .update({
+          status: "failed",
+          error: err.message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", campaign.id);
 
-        console.log("Scheduled campaign published:", campaign.id);
-      } catch (err) {
-        campaign.status = "failed";
-        campaign.error = err.message;
-
-        console.log("Scheduled campaign failed:", campaign.id, err.message);
-      }
+      console.log("Scheduled campaign failed:", campaign.id, err.message);
     }
   }
 }
