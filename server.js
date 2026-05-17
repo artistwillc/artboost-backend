@@ -46,6 +46,53 @@ let pinterestConnection = {
 
 let scheduledCampaigns = [];
 
+async function updateProfileByUserIdOrEmail({
+  userId,
+  email,
+  updateData,
+}) {
+  if (userId) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(updateData)
+      .eq("id", userId)
+      .select();
+
+    if (!error && data && data.length > 0) {
+      console.log("Profile updated by userId:", userId);
+      return true;
+    }
+
+    if (error) {
+      console.log("Profile update by userId failed:", error.message);
+    }
+  }
+
+  if (email) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(updateData)
+      .eq("email", email)
+      .select();
+
+    if (!error && data && data.length > 0) {
+      console.log("Profile updated by email:", email);
+      return true;
+    }
+
+    if (error) {
+      console.log("Profile update by email failed:", error.message);
+    }
+  }
+
+  console.log("No matching profile found for Stripe update.", {
+    userId,
+    email,
+  });
+
+  return false;
+}
+
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -70,39 +117,32 @@ app.post(
         case "checkout.session.completed": {
           const session = event.data.object;
 
-          const customerId = session.customer;
-          const subscriptionId = session.subscription;
-          const customerEmail = session.customer_details?.email;
+          const userId = session.metadata?.userId || "";
+          const plan = session.metadata?.plan || "monthly";
+          const customerEmail =
+            session.metadata?.userEmail || session.customer_details?.email || "";
 
-          if (!customerEmail) {
-            console.log("Checkout completed with no customer email.");
-            break;
-          }
+          const updateData = {
+            is_pro: true,
+            subscription_status: "active",
+            plan,
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: session.subscription,
+            updated_at: new Date().toISOString(),
+          };
 
-          const { data: profile, error: profileError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("email", customerEmail)
-            .single();
+          await updateProfileByUserIdOrEmail({
+            userId,
+            email: customerEmail,
+            updateData,
+          });
 
-          if (profileError || !profile) {
-            console.log("No matching profile found:", customerEmail);
-            break;
-          }
+          console.log("Checkout completed:", {
+            userId,
+            customerEmail,
+            plan,
+          });
 
-          await supabase
-            .from("profiles")
-            .update({
-              is_pro: true,
-              subscription_status: "active",
-              plan: session.metadata?.plan || "monthly",
-              stripe_customer_id: customerId,
-              stripe_subscription_id: subscriptionId,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", profile.id);
-
-          console.log("User upgraded to Pro:", customerEmail);
           break;
         }
 
@@ -110,6 +150,9 @@ app.post(
           const subscription = event.data.object;
 
           const customerId = subscription.customer;
+          const userId = subscription.metadata?.userId || "";
+          const customerEmail = subscription.metadata?.userEmail || "";
+          const plan = subscription.metadata?.plan || "monthly";
           const status = subscription.status;
           const isActive = status === "active" || status === "trialing";
 
@@ -117,15 +160,28 @@ app.post(
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
 
-          await supabase
-            .from("profiles")
-            .update({
-              is_pro: isActive,
-              subscription_status: status,
-              current_period_end: currentPeriodEnd,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("stripe_customer_id", customerId);
+          const updateData = {
+            is_pro: isActive,
+            subscription_status: status,
+            plan,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            current_period_end: currentPeriodEnd,
+            updated_at: new Date().toISOString(),
+          };
+
+          const updated = await updateProfileByUserIdOrEmail({
+            userId,
+            email: customerEmail,
+            updateData,
+          });
+
+          if (!updated && customerId) {
+            await supabase
+              .from("profiles")
+              .update(updateData)
+              .eq("stripe_customer_id", customerId);
+          }
 
           console.log("Subscription updated:", customerId, status);
           break;
@@ -135,15 +191,27 @@ app.post(
           const subscription = event.data.object;
 
           const customerId = subscription.customer;
+          const userId = subscription.metadata?.userId || "";
+          const customerEmail = subscription.metadata?.userEmail || "";
 
-          await supabase
-            .from("profiles")
-            .update({
-              is_pro: false,
-              subscription_status: "cancelled",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("stripe_customer_id", customerId);
+          const updateData = {
+            is_pro: false,
+            subscription_status: "cancelled",
+            updated_at: new Date().toISOString(),
+          };
+
+          const updated = await updateProfileByUserIdOrEmail({
+            userId,
+            email: customerEmail,
+            updateData,
+          });
+
+          if (!updated && customerId) {
+            await supabase
+              .from("profiles")
+              .update(updateData)
+              .eq("stripe_customer_id", customerId);
+          }
 
           console.log("Subscription cancelled:", customerId);
           break;
@@ -208,7 +276,7 @@ app.get("/health", (req, res) => {
 
 app.post("/create-checkout-session", async (req, res) => {
   try {
-    const { plan, userEmail } = req.body;
+    const { plan, userEmail, userId } = req.body;
 
     const priceId =
       plan === "yearly"
@@ -221,22 +289,37 @@ app.post("/create-checkout-session", async (req, res) => {
       });
     }
 
+    if (!userEmail || !userId) {
+      return res.status(400).json({
+        error: "Missing logged-in user information.",
+      });
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
-      customer_email: userEmail || undefined,
+      customer_email: userEmail,
       line_items: [
         {
           price: priceId,
           quantity: 1,
         },
       ],
+      subscription_data: {
+        metadata: {
+          app: "ArtBoost AI",
+          plan: plan || "monthly",
+          userEmail,
+          userId,
+        },
+      },
       success_url: "https://artboost-ai.onrender.com/stripe-success",
       cancel_url: "https://artboost-ai.onrender.com/stripe-cancel",
       metadata: {
         app: "ArtBoost AI",
         plan: plan || "monthly",
-        userEmail: userEmail || "",
+        userEmail,
+        userId,
       },
     });
 
@@ -744,7 +827,9 @@ app.listen(PORT, () => {
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"}`
   );
   console.log(
-    `Stripe webhook configured: ${process.env.STRIPE_WEBHOOK_SECRET ? "yes" : "no"}`
+    `Stripe webhook configured: ${
+      process.env.STRIPE_WEBHOOK_SECRET ? "yes" : "no"
+    }`
   );
   console.log(
     `Supabase configured: ${
