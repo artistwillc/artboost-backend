@@ -553,31 +553,35 @@ export default function ProScreen() {
   };
 
   const handleDateChange = (event: any, selected: Date | undefined) => {
-    if (!selected) return;
+  setShowDatePicker(false);
 
-    const current = scheduledDate || new Date();
-    const updated = new Date(current);
+  if (!selected) return;
 
-    updated.setFullYear(selected.getFullYear());
-    updated.setMonth(selected.getMonth());
-    updated.setDate(selected.getDate());
+  const current = scheduledDate || new Date();
+  const updated = new Date(current);
 
-    setScheduledDate(updated);
-  };
+  updated.setFullYear(selected.getFullYear());
+  updated.setMonth(selected.getMonth());
+  updated.setDate(selected.getDate());
 
-  const handleTimeChange = (event: any, selected: Date | undefined) => {
-    if (!selected) return;
+  setScheduledDate(updated);
+};
 
-    const current = scheduledDate || new Date();
-    const updated = new Date(current);
+const handleTimeChange = (event: any, selected: Date | undefined) => {
+  setShowTimePicker(false);
 
-    updated.setHours(selected.getHours());
-    updated.setMinutes(selected.getMinutes());
-    updated.setSeconds(0);
-    updated.setMilliseconds(0);
+  if (!selected) return;
 
-    setScheduledDate(updated);
-  };
+  const current = scheduledDate || new Date();
+  const updated = new Date(current);
+
+  updated.setHours(selected.getHours());
+  updated.setMinutes(selected.getMinutes());
+  updated.setSeconds(0);
+  updated.setMilliseconds(0);
+
+  setScheduledDate(updated);
+};
 
   useEffect(() => {
     loadSession();
