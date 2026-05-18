@@ -460,7 +460,9 @@ export default function ProScreen() {
 
       if (!response.ok) {
         console.log(data);
-        Alert.alert("Pinterest Error", JSON.stringify(data, null, 2));
+        Alert.alert("Pinterest Approval Pending",
+  "Pinterest posting is ready, but your Pinterest Developer app is still pending production approval.\n\nUntil Pinterest approves Standard Access, live pin creation is blocked. Your campaign is saved and ready to post once approval is complete."
+);
         return;
       }
 

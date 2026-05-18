@@ -16,7 +16,8 @@ import {
 
 import { supabase } from "@/lib/supabase";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
 
 const PLATFORMS = ["Pinterest", "Instagram", "Facebook", "TikTok", "X", "Threads"];
 
@@ -204,10 +205,37 @@ export default function HomeScreen() {
     return found?.content || "";
   };
 
+  const buildCurrentCampaign = (
+    generatedText = result,
+    imageUrlFromBackend = hostedImageUrl
+  ) => {
+    const parsed = parseSections(generatedText);
+
+    const title =
+      getSectionContent("TITLE", parsed) || `${selectedPlatform} Campaign`;
+
+    const description =
+      getSectionContent("DESCRIPTION", parsed) || generatedText;
+
+    return {
+      id: Date.now().toString(),
+      image,
+      imageUrl: imageUrlFromBackend,
+      result: generatedText,
+      productLink,
+      platform: selectedPlatform,
+      style: selectedStyle,
+      title,
+      pinterestTitle: title,
+      pinterestDescription: description,
+      createdAt: new Date().toLocaleString(),
+    };
+  };
+
   const pickImage = async () => {
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
+      quality: 0.7,
     });
 
     if (!picked.canceled) {
@@ -221,31 +249,33 @@ export default function HomeScreen() {
     generatedText: string,
     imageUrlFromBackend: string
   ) => {
-    const parsed = parseSections(generatedText);
-
-    const title =
-      getSectionContent("TITLE", parsed) || `${selectedPlatform} Campaign`;
-
-    const description =
-      getSectionContent("DESCRIPTION", parsed) || generatedText;
-
-    const currentCampaign = {
-      id: Date.now().toString(),
-      image,
-      imageUrl: imageUrlFromBackend,
-      result: generatedText,
-      productLink,
-      platform: selectedPlatform,
-      style: selectedStyle,
-      title,
-      pinterestTitle: title,
-      pinterestDescription: description,
-      createdAt: new Date().toLocaleString(),
-    };
+    const currentCampaign = buildCurrentCampaign(
+      generatedText,
+      imageUrlFromBackend
+    );
 
     await AsyncStorage.setItem(
       "artboost_current_campaign",
       JSON.stringify(currentCampaign)
+    );
+  };
+
+  const sendToProTools = async () => {
+    if (!result || !image) {
+      Alert.alert("Missing Campaign", "Generate content before sending to Pro tools.");
+      return;
+    }
+
+    const currentCampaign = buildCurrentCampaign();
+
+    await AsyncStorage.setItem(
+      "artboost_current_campaign",
+      JSON.stringify(currentCampaign)
+    );
+
+    Alert.alert(
+      "Campaign Ready",
+      "Your generated campaign is ready in the Pro tab for posting or scheduling."
     );
   };
 
@@ -293,8 +323,13 @@ export default function HomeScreen() {
       setHostedImageUrl(imageUrlFromBackend);
 
       await storeCurrentCampaign(generatedText, imageUrlFromBackend);
-    } catch {
-      setResult("Error connecting to ArtBoost backend.");
+    } catch (error: any) {
+      console.log("Generate error:", error);
+
+      setResult(
+        error?.message ||
+          "Failed to connect to backend. Check Render server and API URL."
+      );
     } finally {
       setLoading(false);
     }
@@ -303,26 +338,7 @@ export default function HomeScreen() {
   const saveResult = async () => {
     if (!result || !image) return;
 
-    const parsed = parseSections(result);
-
-    const title =
-      getSectionContent("TITLE", parsed) || `${selectedPlatform} Campaign`;
-
-    const description = getSectionContent("DESCRIPTION", parsed) || result;
-
-    const newSave = {
-      id: Date.now().toString(),
-      image,
-      imageUrl: hostedImageUrl,
-      result,
-      productLink,
-      platform: selectedPlatform,
-      style: selectedStyle,
-      title,
-      pinterestTitle: title,
-      pinterestDescription: description,
-      createdAt: new Date().toLocaleString(),
-    };
+    const newSave = buildCurrentCampaign();
 
     const existing = await AsyncStorage.getItem("artboost_saves");
     const saves = existing ? JSON.parse(existing) : [];
@@ -478,6 +494,10 @@ export default function HomeScreen() {
 
             <Pressable style={styles.saveButton} onPress={saveResult}>
               <Text style={styles.buttonText}>Save Campaign</Text>
+            </Pressable>
+
+            <Pressable style={styles.postButton} onPress={sendToProTools}>
+              <Text style={styles.buttonText}>Send To Pro Posting Tools</Text>
             </Pressable>
           </View>
 
@@ -689,6 +709,15 @@ const styles = StyleSheet.create({
 
   saveButton: {
     backgroundColor: "#8b5cf6",
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  postButton: {
+    backgroundColor: "#2563eb",
     paddingVertical: 14,
     borderRadius: 12,
     width: "100%",
