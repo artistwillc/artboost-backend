@@ -813,6 +813,9 @@ app.post("/schedule-campaign", async (req, res) => {
       boardId,
       publishAt,
       platform,
+      repeatType,
+      nextRunAt,
+      repeatUntil,
     } = req.body;
 
     if (!title || !description || !publishAt) {
@@ -820,6 +823,14 @@ app.post("/schedule-campaign", async (req, res) => {
         error: "Missing title, description, or publishAt.",
       });
     }
+
+    const finalRepeatType = repeatType || "one_time";
+
+    const calculatedNextRun =
+      nextRunAt ||
+      (finalRepeatType !== "one_time"
+        ? publishAt
+        : null);
 
     const { data, error } = await supabase
       .from("scheduled_campaigns")
@@ -831,8 +842,13 @@ app.post("/schedule-campaign", async (req, res) => {
         image_url: imageUrl || null,
         product_link: productLink || null,
         board_id: boardId || null,
+
         publish_at: publishAt,
         status: "scheduled",
+
+        repeat_type: finalRepeatType,
+        next_run_at: calculatedNextRun,
+        repeat_until: repeatUntil || null,
       })
       .select()
       .single();
@@ -855,7 +871,6 @@ app.post("/schedule-campaign", async (req, res) => {
     });
   }
 });
-
 app.get("/scheduled-campaigns", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -965,18 +980,58 @@ async function runScheduledCampaigns() {
         imageUrl: campaign.image_url,
       });
 
-      await supabase
-        .from("scheduled_campaigns")
-        .update({
-          status: "published",
-          published_at: new Date().toISOString(),
-          pin_data: pinData,
-          error: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", campaign.id);
+      const repeatType = campaign.repeat_type || "one_time";
 
-      console.log("Scheduled campaign published:", campaign.id);
+      let nextRunDate = null;
+
+      if (repeatType === "weekly") {
+        nextRunDate = new Date(campaign.publish_at);
+        nextRunDate.setDate(nextRunDate.getDate() + 7);
+      }
+
+      if (repeatType === "biweekly") {
+        nextRunDate = new Date(campaign.publish_at);
+        nextRunDate.setDate(nextRunDate.getDate() + 14);
+      }
+
+      if (repeatType === "monthly") {
+        nextRunDate = new Date(campaign.publish_at);
+        nextRunDate.setMonth(nextRunDate.getMonth() + 1);
+      }
+
+      if (nextRunDate) {
+        await supabase
+          .from("scheduled_campaigns")
+          .update({
+            publish_at: nextRunDate.toISOString(),
+            next_run_at: nextRunDate.toISOString(),
+            status: "scheduled",
+            published_at: new Date().toISOString(),
+            pin_data: pinData,
+            error: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", campaign.id);
+
+        console.log(
+          "Recurring campaign rescheduled:",
+          campaign.id,
+          repeatType
+        );
+      } else {
+        await supabase
+          .from("scheduled_campaigns")
+          .update({
+            status: "published",
+            published_at: new Date().toISOString(),
+            pin_data: pinData,
+            error: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", campaign.id);
+
+        console.log("One-time campaign published:", campaign.id);
+      }
     } catch (err) {
       await supabase
         .from("scheduled_campaigns")
