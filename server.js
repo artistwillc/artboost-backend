@@ -60,6 +60,11 @@ const mapCampaignFromDb = (item) => ({
   pin: item.pin_data,
   createdAt: item.created_at,
   updatedAt: item.updated_at,
+  campaignStatus: item.campaign_status,
+  endedAt: item.ended_at,
+  repeatType: item.repeat_type,
+  nextRunAt: item.next_run_at,
+  repeatUntil: item.repeat_until,
 });
 
 async function updateProfileByUserIdOrEmail({ userId, email, updateData }) {
@@ -909,7 +914,10 @@ app.delete("/scheduled-campaigns/:id", async (req, res) => {
     const { id } = req.params;
     const { userId } = req.query;
 
-    let deleteQuery = supabase.from("scheduled_campaigns").delete().eq("id", id);
+    let deleteQuery = supabase
+      .from("scheduled_campaigns")
+      .delete()
+      .eq("id", id);
 
     if (userId) {
       deleteQuery = deleteQuery.eq("user_id", userId);
@@ -947,6 +955,66 @@ app.delete("/scheduled-campaigns/:id", async (req, res) => {
   }
 });
 
+app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, campaignStatus } = req.body;
+
+    if (!["active", "ended", "saved"].includes(campaignStatus)) {
+      return res.status(400).json({
+        error: "Invalid campaign status.",
+      });
+    }
+
+    const updateData = {
+      campaign_status: campaignStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (campaignStatus === "ended") {
+      updateData.ended_at = new Date().toISOString();
+      updateData.status = "ended";
+    }
+
+    if (campaignStatus === "saved") {
+      updateData.status = "saved";
+    }
+
+    if (campaignStatus === "active") {
+      updateData.ended_at = null;
+      updateData.status = "scheduled";
+    }
+
+    let query = supabase
+      .from("scheduled_campaigns")
+      .update(updateData)
+      .eq("id", id);
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { error } = await query;
+
+    if (error) {
+      return res.status(500).json({
+        error: "Failed to update campaign lifecycle.",
+        details: error.message,
+      });
+    }
+
+    res.json({
+      success: true,
+      campaignStatus,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Lifecycle update failed.",
+      details: err.message,
+    });
+  }
+});
+
 async function runScheduledCampaigns() {
   const nowIso = new Date().toISOString();
 
@@ -954,6 +1022,7 @@ async function runScheduledCampaigns() {
     .from("scheduled_campaigns")
     .select("*")
     .eq("status", "scheduled")
+    .eq("campaign_status", "active")
     .lte("publish_at", nowIso)
     .limit(10);
 
