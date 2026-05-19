@@ -1052,6 +1052,15 @@ async function runScheduledCampaigns() {
       const repeatType = campaign.repeat_type || "one_time";
 
       let nextRunDate = null;
+      if (repeatType === "daily") {
+  nextRunDate = new Date(campaign.publish_at);
+  nextRunDate.setDate(nextRunDate.getDate() + 1);
+}
+
+if (repeatType === "3days") {
+  nextRunDate = new Date(campaign.publish_at);
+  nextRunDate.setDate(nextRunDate.getDate() + 3);
+}
 
       if (repeatType === "weekly") {
         nextRunDate = new Date(campaign.publish_at);
