@@ -355,7 +355,50 @@ export default function ProScreen() {
       Alert.alert("Delete Error", err.message || "Failed to delete campaign.");
     }
   };
+const updateCampaignLifecycle = async (
+  id: string,
+  campaignStatus: "active" | "ended" | "saved"
+) => {
+  try {
+    const response = await fetch(
+      `${BACKEND_URL}/scheduled-campaigns/${id}/lifecycle`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: session?.user?.id || null,
+          campaignStatus,
+        }),
+      }
+    );
 
+    const data = await response.json();
+
+    if (!response.ok) {
+      Alert.alert(
+        "Lifecycle Error",
+        data.error || "Failed to update campaign."
+      );
+      return;
+    }
+
+    await loadScheduledCampaigns();
+
+    Alert.alert(
+      "Campaign Updated",
+      `Campaign marked as ${campaignStatus}.`
+    );
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "Lifecycle Error",
+      err.message || "Failed to update campaign."
+    );
+  }
+};
   const postScheduledNow = async (item: any) => {
     try {
       setTitle(item.title || "");
@@ -906,57 +949,100 @@ const handleTimeChange = (event: any, selected: Date | undefined) => {
       </View>
 
       {scheduledCampaigns.length > 0 && (
-        <View style={styles.card}>
-          <View style={styles.queueHeaderRow}>
-            <Text style={styles.sectionHeader}>Scheduled Queue</Text>
+  <View style={styles.card}>
+    <View style={styles.queueHeaderRow}>
+      <Text style={styles.sectionHeader}>Scheduled Queue</Text>
 
-            <Pressable style={styles.smallRefreshButton} onPress={loadScheduledCampaigns}>
-              <Text style={styles.smallRefreshText}>Refresh</Text>
-            </Pressable>
-          </View>
+      <Pressable
+        style={styles.smallRefreshButton}
+        onPress={loadScheduledCampaigns}
+      >
+        <Text style={styles.smallRefreshText}>Refresh</Text>
+      </Pressable>
+    </View>
 
-          {scheduledCampaigns.map((item) => (
-            <View key={item.id} style={styles.queueCard}>
-              <View style={styles.statusRow}>
-                <Text style={styles.queueTitle}>{item.title}</Text>
+    {scheduledCampaigns.map((item) => (
+      <View key={item.id} style={styles.queueCard}>
+        <View style={styles.statusRow}>
+          <Text style={styles.queueTitle}>{item.title}</Text>
 
-                <Text style={[styles.statusBadge, getStatusStyle(item.status)]}>
-                  {item.status || "scheduled"}
-                </Text>
-              </View>
-
-              <Text style={styles.queueText}>{item.platform}</Text>
-              <Text style={styles.queueText}>
-                Scheduled: {item.publishAt || item.publishDate}
-              </Text>
-
-              {item.publishedAt ? (
-                <Text style={styles.queueText}>Published: {item.publishedAt}</Text>
-              ) : null}
-
-              {item.error ? (
-                <Text style={styles.errorText}>Error: {item.error}</Text>
-              ) : null}
-
-              <View style={styles.queueButtons}>
-                <Pressable
-                  style={styles.queuePostButton}
-                  onPress={() => postScheduledNow(item)}
-                >
-                  <Text style={styles.queueButtonText}>Load</Text>
-                </Pressable>
-
-                <Pressable
-                  style={styles.queueDeleteButton}
-                  onPress={() => deleteScheduledCampaign(item.id)}
-                >
-                  <Text style={styles.queueButtonText}>Delete</Text>
-                </Pressable>
-              </View>
-            </View>
-          ))}
+          <Text style={[styles.statusBadge, getStatusStyle(item.status)]}>
+            {item.status || "scheduled"}
+          </Text>
         </View>
-      )}
+
+        <Text style={styles.queueText}>{item.platform}</Text>
+
+        <Text style={styles.queueText}>
+          Scheduled: {item.publishAt || item.publishDate}
+        </Text>
+
+        {item.publishedAt ? (
+          <Text style={styles.queueText}>
+            Published: {item.publishedAt}
+          </Text>
+        ) : null}
+
+        {item.error ? (
+          <Text style={styles.errorText}>
+            Error: {item.error}
+          </Text>
+        ) : null}
+
+        <View style={styles.queueButtons}>
+          <Pressable
+            style={styles.queuePostButton}
+            onPress={() => postScheduledNow(item)}
+          >
+            <Text style={styles.queueButtonText}>Load</Text>
+          </Pressable>
+
+          {item.campaignStatus !== "ended" && (
+            <Pressable
+              style={styles.queueEndButton}
+              onPress={() =>
+                updateCampaignLifecycle(item.id, "ended")
+              }
+            >
+              <Text style={styles.queueButtonText}>End</Text>
+            </Pressable>
+          )}
+
+          {item.campaignStatus !== "saved" && (
+            <Pressable
+              style={styles.queueSaveButton}
+              onPress={() =>
+                updateCampaignLifecycle(item.id, "saved")
+              }
+            >
+              <Text style={styles.queueButtonText}>Save</Text>
+            </Pressable>
+          )}
+
+          {item.campaignStatus !== "active" && (
+            <Pressable
+              style={styles.queueReactivateButton}
+              onPress={() =>
+                updateCampaignLifecycle(item.id, "active")
+              }
+            >
+              <Text style={styles.queueButtonText}>
+                Reactivate
+              </Text>
+            </Pressable>
+          )}
+
+          <Pressable
+            style={styles.queueDeleteButton}
+            onPress={() => deleteScheduledCampaign(item.id)}
+          >
+            <Text style={styles.queueButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+    ))}
+  </View>
+)}
 
       <Pressable style={styles.publishButton} onPress={createPinterestPin}>
         <Text style={styles.publishText}>
@@ -1369,7 +1455,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 8,
   },
+queueEndButton: {
+  flex: 1,
+  backgroundColor: "#f59e0b",
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: "center",
+  marginRight: 8,
+},
 
+queueSaveButton: {
+  flex: 1,
+  backgroundColor: "#8b5cf6",
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: "center",
+  marginRight: 8,
+},
+
+queueReactivateButton: {
+  flex: 1,
+  backgroundColor: "#12a86b",
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: "center",
+  marginRight: 8,
+},
   queueDeleteButton: {
     flex: 1,
     backgroundColor: "#a62828",
