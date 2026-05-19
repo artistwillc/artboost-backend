@@ -1198,8 +1198,11 @@ const applyRepostPreset = (
               <Text style={styles.queueText}>{item.platform}</Text>
 
               <Text style={styles.queueText}>
-                Scheduled: {item.publishAt || item.publishDate}
-              </Text>
+  Scheduled:{" "}
+  {new Date(
+    item.publishAt || item.publishDate
+  ).toLocaleString()}
+</Text>
               <Text style={styles.queueText}>
                Repeat:{" "}
                {(item.repeatType || "one_time")
