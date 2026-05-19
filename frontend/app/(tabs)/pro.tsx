@@ -49,7 +49,7 @@ export default function ProScreen() {
   | "published"
   | "failed"
 >("all");
-
+  const [queueSearch, setQueueSearch] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [loadingQueue, setLoadingQueue] = useState(false);
@@ -169,19 +169,31 @@ const applyRepostPreset = (
     return styles.statusScheduled;
   };
    const filteredCampaigns = scheduledCampaigns.filter((item) => {
-   if (queueFilter === "all") return true;
+  const matchesSearch =
+    !queueSearch ||
+    item.title?.toLowerCase().includes(
+      queueSearch.toLowerCase()
+    ) ||
+    item.platform?.toLowerCase().includes(
+      queueSearch.toLowerCase()
+    );
+
+  if (!matchesSearch) return false;
+
+  if (queueFilter === "all") return true;
 
   if (
     queueFilter === "active" ||
-queueFilter === "paused" ||
-queueFilter === "saved" ||
-queueFilter === "ended"
+    queueFilter === "paused" ||
+    queueFilter === "saved" ||
+    queueFilter === "ended"
   ) {
     return item.campaignStatus === queueFilter;
   }
 
   return item.status === queueFilter;
 });
+   
   const startStripeCheckout = async (plan: "monthly" | "yearly") => {
     try {
       if (!session?.user?.email) {
@@ -1058,6 +1070,13 @@ queueFilter === "ended"
               <Text style={styles.smallRefreshText}>Refresh</Text>
             </Pressable>
           </View>
+<TextInput
+  style={styles.input}
+  placeholder="Search campaigns..."
+  placeholderTextColor="#777"
+  value={queueSearch}
+  onChangeText={setQueueSearch}
+/>
 <View style={styles.filterRow}>
   {["all", "active", "paused", "saved", "ended", "published", "failed"].map(
     (filter) => (
