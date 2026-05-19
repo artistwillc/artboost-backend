@@ -345,15 +345,22 @@ const applyRepostPreset = (
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: session?.user?.id || null,
-          title,
-          description,
-          imageUrl,
-          productLink,
-          boardId: selectedBoard,
-          publishAt: getPublishAtIso(),
-          platform: "Pinterest",
-        }),
+  userId: session?.user?.id || null,
+  title,
+  description,
+  imageUrl,
+  productLink,
+  boardId: selectedBoard,
+  publishAt: getPublishAtIso(),
+  platform: "Pinterest",
+
+  repeatType: repostPreset || "one_time",
+
+  nextRunAt:
+    repostPreset && scheduledDate
+      ? scheduledDate.toISOString()
+      : null,
+}),
       });
 
       const data = await response.json();
