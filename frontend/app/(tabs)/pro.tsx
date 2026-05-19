@@ -1125,13 +1125,20 @@ const applyRepostPreset = (
                 <Text style={styles.queueTitle}>{item.title}</Text>
 
                 <View style={styles.statusBadgeContainer}>
-                  <Text style={[styles.statusBadge, getStatusStyle(item.status)]}>
-                    {item.status || "scheduled"}
-                  </Text>
+                  {item.status !== item.campaignStatus && (
+  <Text
+    style={[
+      styles.statusBadge,
+      getStatusStyle(item.status)
+    ]}
+  >
+    {item.status || "scheduled"}
+  </Text>
+)}
 
-                  <Text style={styles.lifecycleBadge}>
-                    {(item.campaignStatus || "active").toUpperCase()}
-                  </Text>
+<Text style={styles.lifecycleBadge}>
+  {(item.campaignStatus || "active").toUpperCase()}
+</Text>
                 </View>
               </View>
 
