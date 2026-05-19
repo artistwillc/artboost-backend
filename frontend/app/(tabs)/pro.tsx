@@ -1147,57 +1147,113 @@ queueFilter === "ended"
   </Pressable>
 
   {item.campaignStatus === "active" && (
-    <Pressable
-      style={styles.queuePauseButton}
-      onPress={() => updateCampaignLifecycle(item.id, "paused")}
-    >
-      <Text style={styles.queueButtonText}>Pause</Text>
-    </Pressable>
+    <>
+      <Pressable
+        style={styles.queuePauseButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "paused")
+        }
+      >
+        <Text style={styles.queueButtonText}>Pause</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.queueEndButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "ended")
+        }
+      >
+        <Text style={styles.queueButtonText}>End</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.queueSaveButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "saved")
+        }
+      >
+        <Text style={styles.queueButtonText}>Save</Text>
+      </Pressable>
+    </>
   )}
 
   {item.campaignStatus === "paused" && (
+    <>
+      <Pressable
+        style={styles.queueReactivateButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "active")
+        }
+      >
+        <Text style={styles.queueButtonText}>Resume</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.queueEndButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "ended")
+        }
+      >
+        <Text style={styles.queueButtonText}>End</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.queueSaveButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "saved")
+        }
+      >
+        <Text style={styles.queueButtonText}>Save</Text>
+      </Pressable>
+    </>
+  )}
+
+  {item.campaignStatus === "saved" && (
+    <>
+      <Pressable
+        style={styles.queueReactivateButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "active")
+        }
+      >
+        <Text style={styles.queueButtonText}>
+          Reactivate
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.queueEndButton}
+        onPress={() =>
+          updateCampaignLifecycle(item.id, "ended")
+        }
+      >
+        <Text style={styles.queueButtonText}>End</Text>
+      </Pressable>
+    </>
+  )}
+
+  {item.campaignStatus === "ended" && (
     <Pressable
       style={styles.queueReactivateButton}
-      onPress={() => updateCampaignLifecycle(item.id, "active")}
+      onPress={() =>
+        updateCampaignLifecycle(item.id, "active")
+      }
     >
-      <Text style={styles.queueButtonText}>Resume</Text>
-    </Pressable>
-  )}
-
-  {item.campaignStatus !== "ended" && (
-    <Pressable
-      style={styles.queueEndButton}
-      onPress={() => updateCampaignLifecycle(item.id, "ended")}
-    >
-      <Text style={styles.queueButtonText}>End</Text>
-    </Pressable>
-  )}
-
-  {item.campaignStatus !== "saved" && (
-    <Pressable
-      style={styles.queueSaveButton}
-      onPress={() => updateCampaignLifecycle(item.id, "saved")}
-    >
-      <Text style={styles.queueButtonText}>Save</Text>
-    </Pressable>
-  )}
-
-  {item.campaignStatus !== "active" && (
-    <Pressable
-      style={styles.queueReactivateButton}
-      onPress={() => updateCampaignLifecycle(item.id, "active")}
-    >
-      <Text style={styles.queueButtonText}>Reactivate</Text>
+      <Text style={styles.queueButtonText}>
+        Reactivate
+      </Text>
     </Pressable>
   )}
 
   <Pressable
     style={styles.queueDeleteButton}
-    onPress={() => deleteScheduledCampaign(item.id)}
+    onPress={() =>
+      deleteScheduledCampaign(item.id)
+    }
   >
     <Text style={styles.queueButtonText}>Delete</Text>
   </Pressable>
-              </View>
+</View>
             </View>
           ))
 )}
