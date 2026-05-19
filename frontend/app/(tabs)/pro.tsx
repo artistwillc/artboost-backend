@@ -33,6 +33,9 @@ export default function ProScreen() {
   const [previewImage, setPreviewImage] = useState("");
 
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [repostPreset, setRepostPreset] = useState<
+        "daily" | "3days" | "weekly" | "monthly" | null
+        >(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
@@ -127,7 +130,30 @@ export default function ProScreen() {
     if (!scheduledDate) return "No schedule selected";
     return scheduledDate.toLocaleString();
   };
+const applyRepostPreset = (
+  preset: "daily" | "3days" | "weekly" | "monthly"
+) => {
+  const nextDate = new Date();
 
+  if (preset === "daily") {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+
+  if (preset === "3days") {
+    nextDate.setDate(nextDate.getDate() + 3);
+  }
+
+  if (preset === "weekly") {
+    nextDate.setDate(nextDate.getDate() + 7);
+  }
+
+  if (preset === "monthly") {
+    nextDate.setMonth(nextDate.getMonth() + 1);
+  }
+
+  setRepostPreset(preset);
+  setScheduledDate(nextDate);
+};
   const getStatusStyle = (status: string) => {
     if (status === "published") return styles.statusPublished;
     if (status === "failed") return styles.statusFailed;
@@ -958,7 +984,47 @@ export default function ProScreen() {
             </Pressable>
           </View>
         )}
+<View style={styles.presetRow}>
+  <Pressable
+    style={[
+      styles.presetButton,
+      repostPreset === "daily" && styles.presetButtonActive,
+    ]}
+    onPress={() => applyRepostPreset("daily")}
+  >
+    <Text style={styles.presetButtonText}>Daily</Text>
+  </Pressable>
 
+  <Pressable
+    style={[
+      styles.presetButton,
+      repostPreset === "3days" && styles.presetButtonActive,
+    ]}
+    onPress={() => applyRepostPreset("3days")}
+  >
+    <Text style={styles.presetButtonText}>Every 3 Days</Text>
+  </Pressable>
+
+  <Pressable
+    style={[
+      styles.presetButton,
+      repostPreset === "weekly" && styles.presetButtonActive,
+    ]}
+    onPress={() => applyRepostPreset("weekly")}
+  >
+    <Text style={styles.presetButtonText}>Weekly</Text>
+  </Pressable>
+
+  <Pressable
+    style={[
+      styles.presetButton,
+      repostPreset === "monthly" && styles.presetButtonActive,
+    ]}
+    onPress={() => applyRepostPreset("monthly")}
+  >
+    <Text style={styles.presetButtonText}>Monthly</Text>
+  </Pressable>
+</View>
         <Text style={styles.helperText}>
           ArtBoost will convert your selected date and time into backend
           automation format automatically.
@@ -1589,6 +1655,31 @@ const styles = StyleSheet.create({
   fontSize: 18,
   fontWeight: "800",
   textAlign: "center",
+},
+presetRow: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  marginTop: 14,
+  marginBottom: 6,
+},
+
+presetButton: {
+  backgroundColor: "#2b2b2b",
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  borderRadius: 12,
+  marginRight: 8,
+  marginBottom: 8,
+},
+
+presetButtonActive: {
+  backgroundColor: "#8b5cf6",
+},
+
+presetButtonText: {
+  color: "#fff",
+  fontWeight: "800",
+  fontSize: 12,
 },
 
 filterRow: {
