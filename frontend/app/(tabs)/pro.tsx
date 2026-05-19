@@ -1777,10 +1777,11 @@ lifecycleEnded: {
   },
 
   queueButtons: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 14,
-  },
+  flexDirection: "row",
+  flexWrap: "wrap",
+  marginTop: 12,
+  gap: 6,
+},
 
   queuePostButton: {
     flexGrow: 1,
@@ -1788,8 +1789,8 @@ lifecycleEnded: {
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: 6,
+    marginBottom: 6,
   },
 queuePauseButton: {
   flexGrow: 1,
@@ -1932,17 +1933,17 @@ analyticsRow: {
 
 analyticsCard: {
   backgroundColor: "#2b2b2b",
-  borderRadius: 12,
-  paddingVertical: 10,
-  paddingHorizontal: 12,
-  minWidth: 62,
+  borderRadius: 10,
+  paddingVertical: 8,
+  paddingHorizontal: 8,
+  minWidth: 52,
   alignItems: "center",
   marginBottom: 8,
 },
 
 analyticsNumber: {
   color: "#8b5cf6",
-  fontSize: 18,
+  fontSize: 15,
   fontWeight: "900",
 },
 
