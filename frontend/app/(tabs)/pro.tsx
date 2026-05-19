@@ -1139,7 +1139,23 @@ const applyRepostPreset = (
   </Text>
 )}
 
-<Text style={styles.lifecycleBadge}>
+<Text
+  style={[
+    styles.lifecycleBadge,
+
+    item.campaignStatus === "active" &&
+      styles.lifecycleActive,
+
+    item.campaignStatus === "paused" &&
+      styles.lifecyclePaused,
+
+    item.campaignStatus === "saved" &&
+      styles.lifecycleSaved,
+
+    item.campaignStatus === "ended" &&
+      styles.lifecycleEnded,
+  ]}
+>
   {(item.campaignStatus || "active").toUpperCase()}
 </Text>
                 </View>
@@ -1644,16 +1660,31 @@ const styles = StyleSheet.create({
   },
 
   lifecycleBadge: {
-    backgroundColor: "#444",
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "900",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginLeft: 6,
-    overflow: "hidden",
-  },
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: "900",
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  borderRadius: 8,
+  marginLeft: 6,
+  overflow: "hidden",
+},
+
+lifecycleActive: {
+  backgroundColor: "#12a86b",
+},
+
+lifecyclePaused: {
+  backgroundColor: "#555",
+},
+
+lifecycleSaved: {
+  backgroundColor: "#8b5cf6",
+},
+
+lifecycleEnded: {
+  backgroundColor: "#a62828",
+},
 
   queueTitle: {
     color: "#fff",
