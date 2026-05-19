@@ -173,8 +173,9 @@ const applyRepostPreset = (
 
   if (
     queueFilter === "active" ||
-    queueFilter === "saved" ||
-    queueFilter === "ended"
+queueFilter === "paused" ||
+queueFilter === "saved" ||
+queueFilter === "ended"
   ) {
     return item.campaignStatus === queueFilter;
   }
@@ -1075,12 +1076,12 @@ const applyRepostPreset = (
       ? scheduledCampaigns.length
       : filteredCampaigns.filter((item) => {
           if (
-  queueFilter === "active" ||
-  queueFilter === "paused" ||
-  queueFilter === "saved" ||
-  queueFilter === "ended"
+  filter === "active" ||
+  filter === "paused" ||
+  filter === "saved" ||
+  filter === "ended"
 ) {
-  return item.campaignStatus === queueFilter;
+  return item.campaignStatus === filter;
 }
 
           return item.status === filter;
@@ -1137,55 +1138,65 @@ const applyRepostPreset = (
               {item.error ? (
                 <Text style={styles.errorText}>Error: {item.error}</Text>
               ) : null}
-
-              <View style={styles.queueButtons}>
-                <Pressable
-                  style={styles.queuePostButton}
-                  onPress={() => postScheduledNow(item)}
-                >
-                  <Text style={styles.queueButtonText}>Load</Text>
-                </Pressable>
-{item.campaignStatus === "active" && (
+<View style={styles.queueButtons}>
   <Pressable
-    style={styles.queuePauseButton}
-    onPress={() => updateCampaignLifecycle(item.id, "paused")}
+    style={styles.queuePostButton}
+    onPress={() => postScheduledNow(item)}
   >
-    <Text style={styles.queueButtonText}>Pause</Text>
+    <Text style={styles.queueButtonText}>Load</Text>
   </Pressable>
-)}
-                {item.campaignStatus !== "ended" && (
-                  <Pressable
-                    style={styles.queueEndButton}
-                    onPress={() => updateCampaignLifecycle(item.id, "ended")}
-                  >
-                    <Text style={styles.queueButtonText}>End</Text>
-                  </Pressable>
-                )}
 
-                {item.campaignStatus !== "saved" && (
-                  <Pressable
-                    style={styles.queueSaveButton}
-                    onPress={() => updateCampaignLifecycle(item.id, "saved")}
-                  >
-                    <Text style={styles.queueButtonText}>Save</Text>
-                  </Pressable>
-                )}
+  {item.campaignStatus === "active" && (
+    <Pressable
+      style={styles.queuePauseButton}
+      onPress={() => updateCampaignLifecycle(item.id, "paused")}
+    >
+      <Text style={styles.queueButtonText}>Pause</Text>
+    </Pressable>
+  )}
 
-                {item.campaignStatus !== "active" && (
-                  <Pressable
-                    style={styles.queueReactivateButton}
-                    onPress={() => updateCampaignLifecycle(item.id, "active")}
-                  >
-                    <Text style={styles.queueButtonText}>Reactivate</Text>
-                  </Pressable>
-                )}
+  {item.campaignStatus === "paused" && (
+    <Pressable
+      style={styles.queueReactivateButton}
+      onPress={() => updateCampaignLifecycle(item.id, "active")}
+    >
+      <Text style={styles.queueButtonText}>Resume</Text>
+    </Pressable>
+  )}
 
-                <Pressable
-                  style={styles.queueDeleteButton}
-                  onPress={() => deleteScheduledCampaign(item.id)}
-                >
-                  <Text style={styles.queueButtonText}>Delete</Text>
-                </Pressable>
+  {item.campaignStatus !== "ended" && (
+    <Pressable
+      style={styles.queueEndButton}
+      onPress={() => updateCampaignLifecycle(item.id, "ended")}
+    >
+      <Text style={styles.queueButtonText}>End</Text>
+    </Pressable>
+  )}
+
+  {item.campaignStatus !== "saved" && (
+    <Pressable
+      style={styles.queueSaveButton}
+      onPress={() => updateCampaignLifecycle(item.id, "saved")}
+    >
+      <Text style={styles.queueButtonText}>Save</Text>
+    </Pressable>
+  )}
+
+  {item.campaignStatus !== "active" && (
+    <Pressable
+      style={styles.queueReactivateButton}
+      onPress={() => updateCampaignLifecycle(item.id, "active")}
+    >
+      <Text style={styles.queueButtonText}>Reactivate</Text>
+    </Pressable>
+  )}
+
+  <Pressable
+    style={styles.queueDeleteButton}
+    onPress={() => deleteScheduledCampaign(item.id)}
+  >
+    <Text style={styles.queueButtonText}>Delete</Text>
+  </Pressable>
               </View>
             </View>
           ))
