@@ -990,13 +990,36 @@ export default function ProScreen() {
         onPress={() => setQueueFilter(filter as any)}
       >
         <Text style={styles.filterButtonText}>
-          {filter.toUpperCase()}
-        </Text>
+  {filter.toUpperCase()} (
+  {
+    filter === "all"
+      ? scheduledCampaigns.length
+      : filteredCampaigns.filter((item) => {
+          if (
+            filter === "active" ||
+            filter === "saved" ||
+            filter === "ended"
+          ) {
+            return item.campaignStatus === filter;
+          }
+
+          return item.status === filter;
+        }).length
+  }
+  )
+</Text>
       </Pressable>
     )
   )}
 </View>
-          {filteredCampaigns.map((item) => (
+          {filteredCampaigns.length === 0 ? (
+  <View style={styles.emptyStateBox}>
+    <Text style={styles.emptyStateText}>
+      No {queueFilter} campaigns.
+    </Text>
+  </View>
+) : (
+  filteredCampaigns.map((item) => (
             <View key={item.id} style={styles.queueCard}>
               <View style={styles.statusRow}>
                 <Text style={styles.queueTitle}>{item.title}</Text>
@@ -1069,7 +1092,8 @@ export default function ProScreen() {
                 </Pressable>
               </View>
             </View>
-          ))}
+          ))
+)}
         </View>
       )}
 
@@ -1590,5 +1614,19 @@ filterButtonText: {
   color: "#fff",
   fontSize: 11,
   fontWeight: "800",
+},
+
+emptyStateBox: {
+  backgroundColor: "#2b2b2b",
+  borderRadius: 14,
+  padding: 20,
+  alignItems: "center",
+  marginBottom: 10,
+},
+
+emptyStateText: {
+  color: "#aaa",
+  fontSize: 14,
+  fontWeight: "700",
 },
 });
