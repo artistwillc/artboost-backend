@@ -41,8 +41,14 @@ export default function ProScreen() {
 
   const [scheduledCampaigns, setScheduledCampaigns] = useState<any[]>([]);
   const [queueFilter, setQueueFilter] = useState<
-        "all" | "active" | "saved" | "ended" | "published" | "failed"
-        >("all");
+  | "all"
+  | "active"
+  | "paused"
+  | "saved"
+  | "ended"
+  | "published"
+  | "failed"
+>("all");
 
   const [publishing, setPublishing] = useState(false);
   const [loadingBoards, setLoadingBoards] = useState(false);
@@ -408,7 +414,7 @@ const applyRepostPreset = (
 
   const updateCampaignLifecycle = async (
     id: string,
-    campaignStatus: "active" | "ended" | "saved"
+    campaignStatus: "active" | "paused" | "ended" | "saved"
   ) => {
     try {
       const response = await fetch(
@@ -1052,7 +1058,7 @@ const applyRepostPreset = (
             </Pressable>
           </View>
 <View style={styles.filterRow}>
-  {["all", "active", "saved", "ended", "published", "failed"].map(
+  {["all", "active", "paused", "saved", "ended", "published", "failed"].map(
     (filter) => (
       <Pressable
         key={filter}
@@ -1069,12 +1075,13 @@ const applyRepostPreset = (
       ? scheduledCampaigns.length
       : filteredCampaigns.filter((item) => {
           if (
-            filter === "active" ||
-            filter === "saved" ||
-            filter === "ended"
-          ) {
-            return item.campaignStatus === filter;
-          }
+  queueFilter === "active" ||
+  queueFilter === "paused" ||
+  queueFilter === "saved" ||
+  queueFilter === "ended"
+) {
+  return item.campaignStatus === queueFilter;
+}
 
           return item.status === filter;
         }).length
@@ -1113,10 +1120,19 @@ const applyRepostPreset = (
               <Text style={styles.queueText}>
                 Scheduled: {item.publishAt || item.publishDate}
               </Text>
-
+              <Text style={styles.queueText}>
+               Repeat:{" "}
+               {(item.repeatType || "one_time")
+               .replace("3days", "Every 3 Days")
+               .replace("_", " ")
+               .toUpperCase()}
+               </Text>
               {item.publishedAt ? (
-                <Text style={styles.queueText}>Published: {item.publishedAt}</Text>
-              ) : null}
+  <Text style={styles.queueText}>
+    Last Published:{" "}
+    {new Date(item.publishedAt).toLocaleString()}
+  </Text>
+) : null}
 
               {item.error ? (
                 <Text style={styles.errorText}>Error: {item.error}</Text>
@@ -1129,7 +1145,14 @@ const applyRepostPreset = (
                 >
                   <Text style={styles.queueButtonText}>Load</Text>
                 </Pressable>
-
+{item.campaignStatus === "active" && (
+  <Pressable
+    style={styles.queuePauseButton}
+    onPress={() => updateCampaignLifecycle(item.id, "paused")}
+  >
+    <Text style={styles.queueButtonText}>Pause</Text>
+  </Pressable>
+)}
                 {item.campaignStatus !== "ended" && (
                   <Pressable
                     style={styles.queueEndButton}
@@ -1604,6 +1627,15 @@ const styles = StyleSheet.create({
     marginRight: 8,
     marginBottom: 8,
   },
+queuePauseButton: {
+  flexGrow: 1,
+  backgroundColor: "#444",
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: "center",
+  marginRight: 8,
+  marginBottom: 8,
+},
 
   queueEndButton: {
     flexGrow: 1,

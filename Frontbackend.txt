@@ -1,0 +1,8 @@
+Frontend:
+cd /d E:\ArtBoostAI\frontend
+
+E:\ArtBoostAI\frontend>npx expo start --clear
+
+Backend:
+cd /d E:\ArtBoostAI\backend
+npm start

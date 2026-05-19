@@ -960,7 +960,7 @@ app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
     const { id } = req.params;
     const { userId, campaignStatus } = req.body;
 
-    if (!["active", "ended", "saved"].includes(campaignStatus)) {
+    if (!["active", "paused", "ended", "saved"].includes(campaignStatus)) {
       return res.status(400).json({
         error: "Invalid campaign status.",
       });
@@ -977,10 +977,14 @@ app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
     }
 
     if (campaignStatus === "saved") {
-      updateData.status = "saved";
-    }
+  updateData.status = "saved";
+}
 
-    if (campaignStatus === "active") {
+if (campaignStatus === "paused") {
+  updateData.status = "paused";
+}
+
+if (campaignStatus === "active") {
       updateData.ended_at = null;
       updateData.status = "scheduled";
     }
