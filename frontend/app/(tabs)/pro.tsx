@@ -1080,6 +1080,42 @@ const applyRepostPreset = (
   value={queueSearch}
   onChangeText={setQueueSearch}
 />
+
+<View style={styles.analyticsRow}>
+  <View style={styles.analyticsCard}>
+    <Text style={styles.analyticsNumber}>{scheduledCampaigns.length}</Text>
+    <Text style={styles.analyticsLabel}>Total</Text>
+  </View>
+
+  <View style={styles.analyticsCard}>
+    <Text style={styles.analyticsNumber}>
+      {scheduledCampaigns.filter((x) => x.campaignStatus === "active").length}
+    </Text>
+    <Text style={styles.analyticsLabel}>Active</Text>
+  </View>
+
+  <View style={styles.analyticsCard}>
+    <Text style={styles.analyticsNumber}>
+      {scheduledCampaigns.filter((x) => x.campaignStatus === "paused").length}
+    </Text>
+    <Text style={styles.analyticsLabel}>Paused</Text>
+  </View>
+
+  <View style={styles.analyticsCard}>
+    <Text style={styles.analyticsNumber}>
+      {scheduledCampaigns.filter((x) => x.campaignStatus === "saved").length}
+    </Text>
+    <Text style={styles.analyticsLabel}>Saved</Text>
+  </View>
+
+  <View style={styles.analyticsCard}>
+    <Text style={styles.analyticsNumber}>
+      {scheduledCampaigns.filter((x) => x.status === "published").length}
+    </Text>
+    <Text style={styles.analyticsLabel}>Posted</Text>
+  </View>
+</View>
+
 <View style={styles.filterRow}>
   {["all", "active", "paused", "saved", "ended", "published", "failed"].map(
     (filter) => (
@@ -1092,37 +1128,35 @@ const applyRepostPreset = (
         onPress={() => setQueueFilter(filter as any)}
       >
         <Text style={styles.filterButtonText}>
-  {filter.toUpperCase()} (
-  {
-    filter === "all"
-      ? scheduledCampaigns.length
-      : filteredCampaigns.filter((item) => {
-          if (
-  filter === "active" ||
-  filter === "paused" ||
-  filter === "saved" ||
-  filter === "ended"
-) {
-  return item.campaignStatus === filter;
-}
+          {filter.toUpperCase()} (
+          {filter === "all"
+            ? scheduledCampaigns.length
+            : filteredCampaigns.filter((item) => {
+                if (
+                  filter === "active" ||
+                  filter === "paused" ||
+                  filter === "saved" ||
+                  filter === "ended"
+                ) {
+                  return item.campaignStatus === filter;
+                }
 
-          return item.status === filter;
-        }).length
-  }
-  )
-</Text>
+                return item.status === filter;
+              }).length}
+          )
+        </Text>
       </Pressable>
     )
   )}
 </View>
-          {filteredCampaigns.length === 0 ? (
+  {filteredCampaigns.length === 0 ? (
   <View style={styles.emptyStateBox}>
     <Text style={styles.emptyStateText}>
       No {queueFilter} campaigns.
     </Text>
   </View>
 ) : (
-  filteredCampaigns.map((item) => (
+    filteredCampaigns.map((item) => (
             <View key={item.id} style={styles.queueCard}>
               <View style={styles.statusRow}>
                 <Text style={styles.queueTitle}>{item.title}</Text>
@@ -1884,6 +1918,34 @@ emptyStateBox: {
 emptyStateText: {
   color: "#aaa",
   fontSize: 14,
+  fontWeight: "700",
+},
+analyticsRow: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  justifyContent: "space-between",
+  marginBottom: 14,
+},
+
+analyticsCard: {
+  backgroundColor: "#2b2b2b",
+  borderRadius: 12,
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  minWidth: 62,
+  alignItems: "center",
+  marginBottom: 8,
+},
+
+analyticsNumber: {
+  color: "#8b5cf6",
+  fontSize: 18,
+  fontWeight: "900",
+},
+
+analyticsLabel: {
+  color: "#aaa",
+  fontSize: 11,
   fontWeight: "700",
 },
 });
