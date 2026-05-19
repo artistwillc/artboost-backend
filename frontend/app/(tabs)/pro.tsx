@@ -168,31 +168,34 @@ const applyRepostPreset = (
     if (status === "saved") return styles.statusSaved;
     return styles.statusScheduled;
   };
-   const filteredCampaigns = scheduledCampaigns.filter((item) => {
-  const matchesSearch =
-    !queueSearch ||
-    item.title?.toLowerCase().includes(
-      queueSearch.toLowerCase()
-    ) ||
-    item.platform?.toLowerCase().includes(
-      queueSearch.toLowerCase()
-    );
+   const filteredCampaigns = scheduledCampaigns
+  .filter((item) => {
+    const matchesSearch =
+      !queueSearch ||
+      item.title?.toLowerCase().includes(queueSearch.toLowerCase()) ||
+      item.platform?.toLowerCase().includes(queueSearch.toLowerCase());
 
-  if (!matchesSearch) return false;
+    if (!matchesSearch) return false;
 
-  if (queueFilter === "all") return true;
+    if (queueFilter === "all") return true;
 
-  if (
-    queueFilter === "active" ||
-    queueFilter === "paused" ||
-    queueFilter === "saved" ||
-    queueFilter === "ended"
-  ) {
-    return item.campaignStatus === queueFilter;
-  }
+    if (
+      queueFilter === "active" ||
+      queueFilter === "paused" ||
+      queueFilter === "saved" ||
+      queueFilter === "ended"
+    ) {
+      return item.campaignStatus === queueFilter;
+    }
 
-  return item.status === queueFilter;
-});
+    return item.status === queueFilter;
+  })
+  .sort((a, b) => {
+    const aTime = new Date(a.publishAt || a.publishDate || 0).getTime();
+    const bTime = new Date(b.publishAt || b.publishDate || 0).getTime();
+
+    return aTime - bTime;
+  });
    
   const startStripeCheckout = async (plan: "monthly" | "yearly") => {
     try {
