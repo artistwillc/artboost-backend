@@ -37,6 +37,9 @@ export default function ProScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   const [scheduledCampaigns, setScheduledCampaigns] = useState<any[]>([]);
+  const [queueFilter, setQueueFilter] = useState<
+        "all" | "active" | "saved" | "ended" | "published" | "failed"
+        >("all");
 
   const [publishing, setPublishing] = useState(false);
   const [loadingBoards, setLoadingBoards] = useState(false);
@@ -133,7 +136,19 @@ export default function ProScreen() {
     if (status === "saved") return styles.statusSaved;
     return styles.statusScheduled;
   };
+   const filteredCampaigns = scheduledCampaigns.filter((item) => {
+   if (queueFilter === "all") return true;
 
+  if (
+    queueFilter === "active" ||
+    queueFilter === "saved" ||
+    queueFilter === "ended"
+  ) {
+    return item.campaignStatus === queueFilter;
+  }
+
+  return item.status === queueFilter;
+});
   const startStripeCheckout = async (plan: "monthly" | "yearly") => {
     try {
       if (!session?.user?.email) {
@@ -959,11 +974,29 @@ export default function ProScreen() {
               style={styles.smallRefreshButton}
               onPress={loadScheduledCampaigns}
             >
+
               <Text style={styles.smallRefreshText}>Refresh</Text>
             </Pressable>
           </View>
-
-          {scheduledCampaigns.map((item) => (
+<View style={styles.filterRow}>
+  {["all", "active", "saved", "ended", "published", "failed"].map(
+    (filter) => (
+      <Pressable
+        key={filter}
+        style={[
+          styles.filterButton,
+          queueFilter === filter && styles.filterButtonActive,
+        ]}
+        onPress={() => setQueueFilter(filter as any)}
+      >
+        <Text style={styles.filterButtonText}>
+          {filter.toUpperCase()}
+        </Text>
+      </Pressable>
+    )
+  )}
+</View>
+          {filteredCampaigns.map((item) => (
             <View key={item.id} style={styles.queueCard}>
               <View style={styles.statusRow}>
                 <Text style={styles.queueTitle}>{item.title}</Text>
@@ -1528,9 +1561,34 @@ const styles = StyleSheet.create({
   },
 
   publishText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "800",
-    textAlign: "center",
-  },
+  color: "#fff",
+  fontSize: 18,
+  fontWeight: "800",
+  textAlign: "center",
+},
+
+filterRow: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  marginBottom: 14,
+},
+
+filterButton: {
+  backgroundColor: "#2b2b2b",
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  borderRadius: 10,
+  marginRight: 8,
+  marginBottom: 8,
+},
+
+filterButtonActive: {
+  backgroundColor: "#8b5cf6",
+},
+
+filterButtonText: {
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: "800",
+},
 });
