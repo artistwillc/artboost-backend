@@ -1211,6 +1211,37 @@ const applyRepostPreset = (
                .toUpperCase()}
                </Text>
               {item.publishedAt ? (
+<View style={styles.metricsRow}>
+  <View style={styles.metricBox}>
+    <Text style={styles.metricNumber}>
+      {item.views || 0}
+    </Text>
+
+    <Text style={styles.metricLabel}>
+      Views
+    </Text>
+  </View>
+
+  <View style={styles.metricBox}>
+    <Text style={styles.metricNumber}>
+      {item.clicks || 0}
+    </Text>
+
+    <Text style={styles.metricLabel}>
+      Clicks
+    </Text>
+  </View>
+
+  <View style={styles.metricBox}>
+    <Text style={styles.metricNumber}>
+      {item.posts || 0}
+    </Text>
+
+    <Text style={styles.metricLabel}>
+      Posts
+    </Text>
+  </View>
+</View>
   <Text style={styles.queueText}>
     Last Published:{" "}
     {new Date(item.publishedAt).toLocaleString()}
@@ -1951,5 +1982,32 @@ analyticsLabel: {
   color: "#aaa",
   fontSize: 11,
   fontWeight: "700",
+},
+metricsRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  marginTop: 12,
+  marginBottom: 10,
+},
+
+metricBox: {
+  backgroundColor: "#222",
+  borderRadius: 10,
+  paddingVertical: 8,
+  paddingHorizontal: 12,
+  alignItems: "center",
+  minWidth: 70,
+},
+
+metricNumber: {
+  color: "#8b5cf6",
+  fontSize: 16,
+  fontWeight: "900",
+},
+
+metricLabel: {
+  color: "#888",
+  fontSize: 11,
+  marginTop: 2,
 },
 });
