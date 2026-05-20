@@ -6,3 +6,17 @@ E:\ArtBoostAI\frontend>npx expo start --clear
 Backend:
 cd /d E:\ArtBoostAI\backend
 npm start
+
+
+
+cd /d E:\ArtBoostAI\frontend
+npx expo start
+
+cd /d E:\ArtBoostAI\backend
+node server.js
+
+cd /d E:\ArtBoostAI
+git status
+git add .
+git commit -m "Your update message"
+git push
