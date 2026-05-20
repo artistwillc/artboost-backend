@@ -1088,7 +1088,13 @@ app.post("/schedule-campaign", async (req, res) => {
       message: `Your ${platform || "Pinterest"} campaign "${title}" was scheduled successfully.`,
       type: "success",
     });
- 
+ await createNotification({
+  userId,
+  title: "Campaign Scheduled",
+  message: `Your ${platform || "Pinterest"} campaign "${title}" was scheduled successfully.`,
+  type: "success",
+});
+
     res.json({
       success: true,
       campaign: mapCampaignFromDb(data),
@@ -1360,7 +1366,12 @@ async function runScheduledCampaigns() {
           message: `"${campaign.title}" was published successfully.`,
           type: "success",
         });
- 
+ await createNotification({
+  userId: campaign.user_id,
+  title: "Campaign Published",
+  message: `"${campaign.title}" was published successfully.`,
+  type: "success",
+});
         console.log("One-time campaign published:", campaign.id);
       }
     } catch (err) {
@@ -1379,7 +1390,12 @@ async function runScheduledCampaigns() {
         message: `"${campaign.title}" failed to publish. ${err.message}`,
         type: "error",
       });
- 
+ await createNotification({
+  userId: campaign.user_id,
+  title: "Scheduled Campaign Failed",
+  message: `"${campaign.title}" failed to publish. ${err.message}`,
+  type: "error",
+});
       console.log("Scheduled campaign failed:", campaign.id, err.message);
     }
   }
