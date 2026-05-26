@@ -1077,11 +1077,15 @@ Facebook
       </View>
  
       <View style={styles.card}>
-        <Text style={styles.label}>Pinterest Title</Text>
+        <Text style={styles.label}>
+{selectedPlatform} Title
+</Text>
  
         <TextInput style={styles.input} value={title} onChangeText={setTitle} />
  
-        <Text style={styles.label}>Pinterest Description</Text>
+        <Text style={styles.label}>
+{selectedPlatform} Description
+</Text>
  
         <TextInput
           style={[styles.input, styles.textarea]}
@@ -1225,7 +1229,9 @@ Facebook
       {scheduledCampaigns.length > 0 && (
         <View style={styles.card}>
           <View style={styles.queueHeaderRow}>
-            <Text style={styles.sectionHeader}>Scheduled Queue</Text>
+            <Text style={styles.sectionHeader}>
+{selectedPlatform} Publishing
+</Text>
  
             <Pressable
               style={styles.smallRefreshButton}
@@ -1538,7 +1544,9 @@ Facebook
  
       <Pressable style={styles.publishButton} onPress={createPinterestPin}>
         <Text style={styles.publishText}>
-          {publishing ? "Publishing..." : "Post To Pinterest"}
+          {publishing
+  ? "Publishing..."
+  : `Post To ${selectedPlatform}`}
         </Text>
       </Pressable>
     </ScrollView>
