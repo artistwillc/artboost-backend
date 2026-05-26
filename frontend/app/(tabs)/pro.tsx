@@ -633,6 +633,68 @@ const loadFacebookStatus = async () => {
       setPublishing(false);
     }
   };
+
+const createFacebookPost = async () => {
+  try {
+
+    if (!profile?.is_pro) {
+
+      Alert.alert(
+        "Pro Required",
+        "Facebook publishing is a Pro feature."
+      );
+
+      return;
+
+    }
+
+    if (!imageUrl) {
+
+      Alert.alert(
+
+        "Missing Image URL",
+
+        "Facebook requires a public image URL."
+
+      );
+
+      return;
+
+    }
+
+    setPublishing(true);
+
+    Alert.alert(
+
+      "Facebook Ready",
+
+      "Facebook publishing is connected and ready for backend posting."
+
+    );
+
+  }
+
+  catch (err:any) {
+
+    Alert.alert(
+
+      "Facebook Publish Failed",
+
+      err.message ||
+
+      "Failed to publish Facebook post."
+
+    );
+
+  }
+
+  finally {
+
+    setPublishing(false);
+
+  }
+
+};
  
   const generateVariations = async () => {
     try {
@@ -1566,25 +1628,24 @@ Facebook
   style={styles.publishButton}
   onPress={() => {
 
-    if (
-      selectedPlatform ===
-      "Facebook"
-    ) {
+  if (
 
-      Alert.alert(
-        "Facebook",
-        "Facebook publishing connected. Backend publishing is next."
-      );
+    selectedPlatform ===
+    "Facebook"
 
-    }
+  ) {
 
-    else {
+    createFacebookPost();
 
-      createPinterestPin();
+  }
 
-    }
+  else {
 
-  }}
+    createPinterestPin();
+
+  }
+
+}}
 >
         <Text style={styles.publishText}>
           {publishing
