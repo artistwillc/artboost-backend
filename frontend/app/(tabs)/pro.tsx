@@ -826,7 +826,7 @@ const loadFacebookStatus = async () => {
 
       ? "Syncing Subscription..."
 
-      : "Refresh Pro Status"}
+      : "Refresh Connections"}
 
   </Text>
 
@@ -1562,7 +1562,30 @@ Facebook
         </View>
       )}
  
-      <Pressable style={styles.publishButton} onPress={createPinterestPin}>
+      <Pressable
+  style={styles.publishButton}
+  onPress={() => {
+
+    if (
+      selectedPlatform ===
+      "Facebook"
+    ) {
+
+      Alert.alert(
+        "Facebook",
+        "Facebook publishing connected. Backend publishing is next."
+      );
+
+    }
+
+    else {
+
+      createPinterestPin();
+
+    }
+
+  }}
+>
         <Text style={styles.publishText}>
           {publishing
   ? "Publishing..."
