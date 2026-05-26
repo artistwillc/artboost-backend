@@ -806,11 +806,31 @@ const loadFacebookStatus = async () => {
           </Text>
         </View>
  
-        <Pressable style={styles.smallRefreshButton} onPress={loadSession}>
-          <Text style={styles.smallRefreshText}>
-            {syncingSubscription ? "Syncing Subscription..." : "Refresh Pro Status"}
-          </Text>
-        </Pressable>
+        <Pressable
+
+  style={styles.smallRefreshButton}
+
+  onPress={() => {
+
+    loadSession();
+
+    loadFacebookStatus();
+
+  }}
+
+>
+
+  <Text style={styles.smallRefreshText}>
+
+    {syncingSubscription
+
+      ? "Syncing Subscription..."
+
+      : "Refresh Pro Status"}
+
+  </Text>
+
+</Pressable>
  
         {profile?.is_pro && (
           <Pressable
