@@ -317,6 +317,13 @@ export default function HomeScreen() {
     );
   };
 
+const createFacebookPost = async () => {
+  Alert.alert(
+    "Facebook Connected",
+    "Facebook workflow is active. Direct Facebook Page publishing is the next backend step."
+  );
+};
+
   const postNow = async () => {
     if (!profile?.is_pro) {
       Alert.alert("Pro Required", "Posting directly to platforms is a Pro feature.");
