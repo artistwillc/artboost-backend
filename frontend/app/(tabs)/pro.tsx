@@ -61,6 +61,10 @@ export default function ProScreen() {
   const [facebookConnected, setFacebookConnected] = useState(false);
   const [facebookConnectedAt, setFacebookConnectedAt] =
   useState("");
+  const [selectedPlatform, setSelectedPlatform] =
+useState<"Pinterest" | "Facebook">(
+"Pinterest"
+);
   const cleanUrl = (value: string) => {
     const trimmed = value.trim();
     const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/);
@@ -376,7 +380,7 @@ const applyRepostPreset = (
   productLink,
   boardId: selectedBoard,
   publishAt: getPublishAtIso(),
-  platform: "Pinterest",
+  platform: selectedPlatform,
  
   repeatType: repostPreset || "one_time",
  
@@ -901,6 +905,72 @@ facebookConnectedAt
 ) : null}
 
 </View>
+
+</View>
+
+<View style={styles.card}>
+
+<Text style={styles.sectionHeader}>
+Choose Platform
+</Text>
+
+<Pressable
+
+style={[
+
+styles.boardButton,
+
+selectedPlatform ===
+"Pinterest"
+
+&& styles.boardSelected,
+
+]}
+
+onPress={() =>
+
+setSelectedPlatform(
+
+"Pinterest"
+
+)}
+
+>
+
+<Text style={styles.boardText}>
+Pinterest
+</Text>
+
+</Pressable>
+
+<Pressable
+
+style={[
+
+styles.boardButton,
+
+selectedPlatform ===
+"Facebook"
+
+&& styles.boardSelected,
+
+]}
+
+onPress={() =>
+
+setSelectedPlatform(
+
+"Facebook"
+
+)}
+
+>
+
+<Text style={styles.boardText}>
+Facebook
+</Text>
+
+</Pressable>
 
 </View>
  
