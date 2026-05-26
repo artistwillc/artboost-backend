@@ -328,13 +328,13 @@ export default function HomeScreen() {
       return;
     }
 
-    if (selectedPlatform !== "Pinterest") {
-      Alert.alert(
-        "Coming Soon",
-        `${selectedPlatform} direct posting will be added after that platform connection is built.`
-      );
-      return;
-    }
+    if (selectedPlatform === "Facebook") {
+
+  createFacebookPost();
+
+  return;
+
+}
 
     if (!selectedBoard) {
       Alert.alert("Missing Board", "Select a Pinterest board before posting.");
