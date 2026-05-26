@@ -58,7 +58,9 @@ export default function ProScreen() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [openingBilling, setOpeningBilling] = useState(false);
   const [syncingSubscription, setSyncingSubscription] = useState(false);
- 
+  const [facebookConnected, setFacebookConnected] = useState(false);
+  const [facebookConnectedAt, setFacebookConnectedAt] =
+  useState("");
   const cleanUrl = (value: string) => {
     const trimmed = value.trim();
     const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/);
@@ -490,6 +492,39 @@ const applyRepostPreset = (
       Alert.alert("Queue Error", "Failed to load scheduled campaign.");
     }
   };
+
+const loadFacebookStatus = async () => {
+
+  try {
+
+    const response =
+      await fetch(
+        `${BACKEND_URL}/facebook/status`
+      );
+
+    const data =
+      await response.json();
+
+    setFacebookConnected(
+      data.connected || false
+    );
+
+    setFacebookConnectedAt(
+      data.connectedAt || ""
+    );
+
+  }
+
+  catch (err) {
+
+    console.log(
+      "Facebook status failed:",
+      err
+    );
+
+  }
+
+};
  
   const loadBoards = async () => {
     try {
@@ -699,9 +734,14 @@ const applyRepostPreset = (
   };
  
   useEffect(() => {
-    loadSession();
-    loadBoards();
-    loadCurrentCampaign();
+
+  loadSession();
+
+  loadBoards();
+
+  loadFacebookStatus();
+
+  loadCurrentCampaign();
  
     const authSubscription = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
@@ -811,6 +851,58 @@ const applyRepostPreset = (
           </Pressable>
         </View>
       )}
+
+<View style={styles.card}>
+
+<Text style={styles.sectionHeader}>
+Social Connections
+</Text>
+
+<View style={styles.queueCard}>
+
+<Text style={styles.queueTitle}>
+Pinterest
+</Text>
+
+<Text style={styles.queueText}>
+🟢 Connected
+</Text>
+
+</View>
+
+<View style={styles.queueCard}>
+
+<Text style={styles.queueTitle}>
+Facebook
+</Text>
+
+<Text style={styles.queueText}>
+
+{facebookConnected
+? "🟢 Connected"
+: "⚪ Not Connected"}
+
+</Text>
+
+{facebookConnectedAt ? (
+
+<Text style={styles.queueText}>
+
+Connected:
+
+{" "}
+
+{new Date(
+facebookConnectedAt
+).toLocaleString()}
+
+</Text>
+
+) : null}
+
+</View>
+
+</View>
  
       <View style={styles.automationGrid}>
         <Pressable
