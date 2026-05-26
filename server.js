@@ -568,6 +568,58 @@ app.patch("/notifications/read/:id", async (req, res) => {
 });
  
 app.patch("/notifications/read-all/:userId", async (req, res) => {
+
+  try {
+
+    const { userId } = req.params;
+
+    let query =
+      supabase
+        .from("notifications")
+        .update({
+          unread: false,
+        });
+
+    if (userId !== "all") {
+
+      query =
+        query.eq(
+          "user_id",
+          userId
+        );
+
+    }
+
+    const { error } =
+      await query;
+
+    if (error) {
+
+      return res
+        .status(500)
+        .json({
+          error:
+            error.message,
+        });
+
+    }
+
+    res.json({
+      success: true,
+    });
+
+  } catch (err) {
+
+    res
+      .status(500)
+      .json({
+        error:
+          err.message,
+      });
+
+  }
+
+});, async (req, res) => {
   try {
     const { userId } = req.params;
  
