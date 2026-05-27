@@ -636,64 +636,49 @@ const loadFacebookStatus = async () => {
 
 const createFacebookPost = async () => {
   try {
-
     if (!profile?.is_pro) {
-
-      Alert.alert(
-        "Pro Required",
-        "Facebook publishing is a Pro feature."
-      );
-
+      Alert.alert("Pro Required", "Facebook publishing is a Pro feature.");
       return;
-
     }
 
     if (!imageUrl) {
-
-      Alert.alert(
-
-        "Missing Image URL",
-
-        "Facebook requires a public image URL."
-
-      );
-
+      Alert.alert("Missing Image URL", "Facebook requires a public image URL.");
       return;
-
     }
 
     setPublishing(true);
 
+    const response = await fetch(`${BACKEND_URL}/facebook/post`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: `${title}\n\n${description}\n\n${productLink}`,
+        imageUrl,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      Alert.alert("Facebook Error", data.error || "Facebook post failed.");
+      return;
+    }
+
     Alert.alert(
-
-      "Facebook Ready",
-
-      "Facebook publishing is connected and ready for backend posting."
-
+      "Facebook Published",
+      "Your artwork was successfully posted to Facebook."
     );
-
-  }
-
-  catch (err:any) {
-
+  } catch (err: any) {
+    console.log(err);
     Alert.alert(
-
       "Facebook Publish Failed",
-
-      err.message ||
-
-      "Failed to publish Facebook post."
-
+      err.message || "Failed to publish Facebook post."
     );
-
-  }
-
-  finally {
-
+  } finally {
     setPublishing(false);
-
   }
-
 };
  
   const generateVariations = async () => {
