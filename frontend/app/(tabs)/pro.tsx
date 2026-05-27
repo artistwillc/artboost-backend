@@ -1663,7 +1663,12 @@ Facebook
       )}
  
       <Pressable
-  style={styles.publishButton}
+  style={[
+  styles.publishButton,
+  selectedPlatform === "Facebook"
+    ? styles.facebookButton
+    : styles.pinterestButton,
+]}
   onPress={() => {
 
   if (
@@ -2191,12 +2196,19 @@ queuePauseButton: {
   },
  
   publishButton: {
-    backgroundColor: "#bd081c",
-    paddingVertical: 18,
-    borderRadius: 18,
-    alignItems: "center",
-    marginBottom: 40,
-  },
+  paddingVertical: 18,
+  borderRadius: 18,
+  alignItems: "center",
+  marginBottom: 40,
+},
+
+pinterestButton: {
+  backgroundColor: "#bd081c",
+},
+
+facebookButton: {
+  backgroundColor: "#1877f2",
+},
  
   publishText: {
   color: "#fff",
