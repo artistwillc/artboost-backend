@@ -357,10 +357,10 @@ const applyRepostPreset = (
         return;
       }
  
-      if (!selectedBoard) {
-        Alert.alert("Missing Board", "Please select a Pinterest board.");
-        return;
-      }
+      if (selectedPlatform === "Pinterest" && !selectedBoard) {
+  Alert.alert("Missing Board", "Please select a Pinterest board.");
+  return;
+}
  
       if (!scheduledDate) {
         Alert.alert("Missing Schedule Time", "Choose a date and time first.");
@@ -378,7 +378,7 @@ const applyRepostPreset = (
   description,
   imageUrl,
   productLink,
-  boardId: selectedBoard,
+  boardId: selectedPlatform === "Pinterest" ? selectedBoard : null,
   publishAt: getPublishAtIso(),
   platform: selectedPlatform,
  
@@ -1110,38 +1110,91 @@ Facebook
         <Image source={{ uri: previewImage }} style={styles.preview} />
       ) : null}
  
-      <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Pinterest Publishing</Text>
- 
-        <View style={styles.boardHeaderRow}>
-          <Text style={styles.label}>Pinterest Board</Text>
- 
-          <Pressable style={styles.smallRefreshButton} onPress={loadBoards}>
-            <Text style={styles.smallRefreshText}>Refresh Boards</Text>
-          </Pressable>
-        </View>
- 
-        {loadingBoards ? (
-          <Text style={styles.loading}>Loading boards...</Text>
-        ) : boards.length > 0 ? (
-          boards.map((board: any) => (
-            <Pressable
-              key={board.id}
-              style={[
-                styles.boardButton,
-                selectedBoard === board.id && styles.boardSelected,
-              ]}
-              onPress={() => setSelectedBoard(board.id)}
-            >
-              <Text style={styles.boardText}>{board.name}</Text>
-            </Pressable>
-          ))
-        ) : (
-          <Text style={styles.boardError}>
-            {boardError || "No boards loaded. Refresh boards or reconnect Pinterest."}
+      {selectedPlatform === "Pinterest" && (
+  <View style={styles.card}>
+    <Text style={styles.sectionHeader}>
+      Pinterest Publishing
+    </Text>
+
+    <View style={styles.boardHeaderRow}>
+      <Text style={styles.label}>
+        Pinterest Board
+      </Text>
+
+      <Pressable
+        style={styles.smallRefreshButton}
+        onPress={loadBoards}
+      >
+        <Text style={styles.smallRefreshText}>
+          Refresh Boards
+        </Text>
+      </Pressable>
+    </View>
+
+    {loadingBoards ? (
+      <Text style={styles.loading}>
+        Loading boards...
+      </Text>
+    ) : boards.length > 0 ? (
+      boards.map((board: any) => (
+        <Pressable
+          key={board.id}
+          style={[
+            styles.boardButton,
+            selectedBoard === board.id &&
+              styles.boardSelected,
+          ]}
+          onPress={() =>
+            setSelectedBoard(board.id)
+          }
+        >
+          <Text style={styles.boardText}>
+            {board.name}
           </Text>
-        )}
-      </View>
+        </Pressable>
+      ))
+    ) : (
+      <Text style={styles.boardError}>
+        {boardError ||
+          "No boards loaded. Refresh boards or reconnect Pinterest."}
+      </Text>
+    )}
+  </View>
+)}
+
+{selectedPlatform === "Facebook" && (
+  <View style={styles.card}>
+    <Text style={styles.sectionHeader}>
+      Facebook Publishing
+    </Text>
+
+    <Text style={styles.heroText}>
+      Your connected Facebook Pages will be used
+      for direct publishing.
+    </Text>
+
+    <View style={styles.queueCard}>
+      <Text style={styles.queueTitle}>
+        Facebook Status
+      </Text>
+
+      <Text style={styles.queueText}>
+        {facebookConnected
+          ? "🟢 Connected"
+          : "⚪ Not Connected"}
+      </Text>
+
+      {facebookConnectedAt ? (
+        <Text style={styles.queueText}>
+          Connected:{" "}
+          {new Date(
+            facebookConnectedAt
+          ).toLocaleString()}
+        </Text>
+      ) : null}
+    </View>
+  </View>
+)}
  
       <View style={styles.card}>
         <Text style={styles.label}>

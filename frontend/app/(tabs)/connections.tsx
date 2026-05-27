@@ -15,98 +15,61 @@ const BACKEND_URL = "https://artboost-ai.onrender.com";
 const platforms = [
   {
     name: "Pinterest",
-    description:
-      "Auto-publish pins and artwork campaigns.",
+    description: "Auto-publish pins and artwork campaigns.",
     premium: true,
   },
-
   {
     name: "Facebook",
-    description:
-      "Post artwork directly to Facebook Pages.",
+    description: "Post artwork directly to Facebook Pages.",
     premium: true,
   },
-
   {
     name: "Instagram",
-    description:
-      "Instagram Business publishing and captions.",
+    description: "Instagram Business publishing and captions.",
     premium: true,
   },
-
   {
     name: "TikTok",
-    description:
-      "Generate viral captions and future auto-posting.",
+    description: "Generate viral captions and future auto-posting.",
     premium: true,
   },
-
   {
     name: "X",
-    description:
-      "Fast text and artwork posting.",
+    description: "Fast text and artwork posting.",
     premium: true,
   },
-
   {
     name: "Threads",
-    description:
-      "Meta Threads creator publishing.",
+    description: "Meta Threads creator publishing.",
     premium: true,
   },
-
   {
     name: "Tumblr",
-    description:
-      "Art blogging and niche communities.",
+    description: "Art blogging and niche communities.",
     premium: false,
   },
-
   {
     name: "Reddit",
-    description:
-      "Subreddit campaign publishing.",
+    description: "Subreddit campaign publishing.",
     premium: false,
   },
-
   {
     name: "Lemon8",
-    description:
-      "Lifestyle creator growth platform.",
+    description: "Lifestyle creator growth platform.",
     premium: false,
   },
-
   {
     name: "Truth Social",
-    description:
-      "Alternative social publishing.",
+    description: "Alternative social publishing.",
     premium: false,
   },
 ];
 
 export default function ConnectionsScreen() {
-  const [connections, setConnections] =
-    useState<any>({});
+  const [connections, setConnections] = useState<any>({});
+  const [loadingStatus, setLoadingStatus] = useState(false);
 
-  const [loadingPinterest, setLoadingPinterest] =
-    useState(false);
-
-  const loadConnections = async () => {
-    const saved =
-      await AsyncStorage.getItem(
-        "artboost_connections"
-      );
-
-    if (saved) {
-      setConnections(JSON.parse(saved));
-    }
-
-    await checkPinterestStatus();
-  };
-
-  const saveConnections = async (
-    updated: any
-  ) => {
+  const saveConnections = async (updated: any) => {
     setConnections(updated);
 
     await AsyncStorage.setItem(
@@ -115,434 +78,336 @@ export default function ConnectionsScreen() {
     );
   };
 
-  const checkPinterestStatus =
-    async () => {
-      try {
-        setLoadingPinterest(true);
+  const checkPinterestStatus = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/pinterest/status`);
+      const data = await response.json();
 
-        const response =
-          await fetch(
-            `${BACKEND_URL}/pinterest/status`
-          );
-
-        const data =
-          await response.json();
-
-        const saved =
-          await AsyncStorage.getItem(
-            "artboost_connections"
-          );
-
-        const current = saved
-          ? JSON.parse(saved)
-          : {};
-
-        const updated = {
-          ...current,
-          Pinterest: Boolean(
-            data.connected
-          ),
-        };
-
-        await saveConnections(
-          updated
-        );
-      } catch (error) {
-        console.log(
-          "Pinterest status check failed:",
-          error
-        );
-      } finally {
-        setLoadingPinterest(false);
-      }
-    };
-
-  const connectPinterest =
-    async () => {
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/pinterest`
-      );
-
-      Alert.alert(
-        "Pinterest Login Opened",
-        "After connecting Pinterest, return to ArtBoost and tap Refresh Pinterest Status."
-      );
-    };
-
-  const connectFacebook =
-    async () => {
-      Alert.alert(
-        "Facebook Integration",
-        "Facebook OAuth integration will be connected next through the Meta Developer platform."
-      );
+      const saved = await AsyncStorage.getItem("artboost_connections");
+      const current = saved ? JSON.parse(saved) : {};
 
       const updated = {
-        ...connections,
-        Facebook: true,
+        ...current,
+        Pinterest: Boolean(data.connected),
       };
 
-      await saveConnections(
-        updated
-      );
-    };
+      await saveConnections(updated);
+    } catch (error) {
+      console.log("Pinterest status check failed:", error);
+    }
+  };
 
-  const toggleConnection =
-    async (platform: string) => {
-      if (
-        platform === "Pinterest"
-      ) {
-        if (
-          connections.Pinterest
-        ) {
-          Alert.alert(
-            "Pinterest Connected",
-            "Pinterest is connected through the ArtBoost backend."
-          );
-        } else {
-          await connectPinterest();
-        }
+  const checkFacebookStatus = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/facebook/status`);
+      const data = await response.json();
 
-        return;
+      const saved = await AsyncStorage.getItem("artboost_connections");
+      const current = saved ? JSON.parse(saved) : {};
+
+      const updated = {
+        ...current,
+        Facebook: Boolean(data.connected),
+      };
+
+      await saveConnections(updated);
+    } catch (error) {
+      console.log("Facebook status check failed:", error);
+    }
+  };
+
+  const refreshAllStatuses = async () => {
+    try {
+      setLoadingStatus(true);
+
+      await checkPinterestStatus();
+      await checkFacebookStatus();
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  const loadConnections = async () => {
+    const saved = await AsyncStorage.getItem("artboost_connections");
+
+    if (saved) {
+      setConnections(JSON.parse(saved));
+    }
+
+    await refreshAllStatuses();
+  };
+
+  const connectPinterest = async () => {
+    await Linking.openURL(`${BACKEND_URL}/auth/pinterest`);
+
+    Alert.alert(
+      "Pinterest Login Opened",
+      "After connecting Pinterest, return to ArtBoost and tap Refresh Connection Status."
+    );
+  };
+
+  const connectFacebook = async () => {
+    await Linking.openURL(`${BACKEND_URL}/auth/facebook`);
+
+    Alert.alert(
+      "Facebook Login Opened",
+      "After connecting Facebook, return to ArtBoost and tap Refresh Connection Status."
+    );
+  };
+
+  const toggleConnection = async (platform: string) => {
+    if (platform === "Pinterest") {
+      if (connections.Pinterest) {
+        Alert.alert(
+          "Pinterest Connected",
+          "Pinterest is connected through the ArtBoost backend."
+        );
+      } else {
+        await connectPinterest();
       }
 
-      if (
-        platform === "Facebook"
-      ) {
+      return;
+    }
+
+    if (platform === "Facebook") {
+      if (connections.Facebook) {
+        Alert.alert(
+          "Facebook Connected",
+          "Facebook is connected through the ArtBoost backend."
+        );
+      } else {
         await connectFacebook();
-        return;
       }
 
-      const updated = {
-        ...connections,
-        [platform]:
-          !connections[
-            platform
-          ],
-      };
+      return;
+    }
 
-      await saveConnections(
-        updated
-      );
-
-      Alert.alert(
-        updated[platform]
-          ? `${platform} Connected`
-          : `${platform} Disconnected`,
-        updated[platform]
-          ? `Your ${platform} account is now connected.`
-          : `Your ${platform} account was disconnected.`
-      );
+    const updated = {
+      ...connections,
+      [platform]: !connections[platform],
     };
+
+    await saveConnections(updated);
+
+    Alert.alert(
+      updated[platform] ? `${platform} Connected` : `${platform} Disconnected`,
+      updated[platform]
+        ? `Your ${platform} account is now connected.`
+        : `Your ${platform} account was disconnected.`
+    );
+  };
 
   useEffect(() => {
     loadConnections();
   }, []);
 
   return (
-    <ScrollView
-      contentContainerStyle={
-        styles.container
-      }
-    >
-      <Text style={styles.header}>
-        Connections
-      </Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.header}>Connections</Text>
 
-      <Text
-        style={styles.subheader}
-      >
-        Connect creator platforms
-        for automated publishing
-        and Pro workflow tools.
+      <Text style={styles.subheader}>
+        Connect creator platforms for automated publishing and Pro workflow
+        tools.
       </Text>
 
       <View style={styles.proBox}>
-        <Text
-          style={styles.proTitle}
-        >
-          ArtBoost Pro
-        </Text>
+        <Text style={styles.proTitle}>ArtBoost Pro</Text>
 
-        <Text
-          style={styles.proText}
-        >
-          Connect platforms once,
-          then generate and publish
-          campaigns automatically.
+        <Text style={styles.proText}>
+          Connect platforms once, then generate and publish campaigns
+          automatically.
         </Text>
       </View>
 
-      <Pressable
-        style={styles.refreshButton}
-        onPress={
-          checkPinterestStatus
-        }
-      >
-        <Text
-          style={styles.buttonText}
-        >
-          {loadingPinterest
-            ? "Checking Pinterest..."
-            : "Refresh Pinterest Status"}
+      <Pressable style={styles.refreshButton} onPress={refreshAllStatuses}>
+        <Text style={styles.buttonText}>
+          {loadingStatus ? "Checking Connections..." : "Refresh Connection Status"}
         </Text>
       </Pressable>
 
-      {platforms.map(
-        (platform) => {
-          const connected =
-            connections[
-              platform.name
-            ];
+      {platforms.map((platform) => {
+        const connected = connections[platform.name];
 
-          return (
-            <View
-              key={platform.name}
-              style={styles.card}
-            >
-              <View
-                style={styles.row}
-              >
-                <View
-                  style={
-                    styles.platformInfo
-                  }
-                >
-                  <View
-                    style={
-                      styles.titleRow
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.name
-                      }
-                    >
-                      {
-                        platform.name
-                      }
-                    </Text>
+        return (
+          <View key={platform.name} style={styles.card}>
+            <View style={styles.row}>
+              <View style={styles.platformInfo}>
+                <View style={styles.titleRow}>
+                  <Text style={styles.name}>{platform.name}</Text>
 
-                    {platform.premium && (
-                      <View
-                        style={
-                          styles.proBadge
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.proBadgeText
-                          }
-                        >
-                          PRO
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <Text
-                    style={
-                      styles.description
-                    }
-                  >
-                    {
-                      platform.description
-                    }
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.status,
-                      connected
-                        ? styles.connectedText
-                        : styles.disconnectedText,
-                    ]}
-                  >
-                    {connected
-                      ? "Connected"
-                      : "Not Connected"}
-                  </Text>
+                  {platform.premium && (
+                    <View style={styles.proBadge}>
+                      <Text style={styles.proBadgeText}>PRO</Text>
+                    </View>
+                  )}
                 </View>
 
-                <Pressable
+                <Text style={styles.description}>{platform.description}</Text>
+
+                <Text
                   style={[
-                    styles.button,
-                    connected
-                      ? styles.disconnect
-                      : styles.connect,
+                    styles.status,
+                    connected ? styles.connectedText : styles.disconnectedText,
                   ]}
-                  onPress={() =>
-                    toggleConnection(
-                      platform.name
-                    )
-                  }
                 >
-                  <Text
-                    style={
-                      styles.buttonText
-                    }
-                  >
-                    {platform.name ===
-                      "Pinterest" &&
-                    connected
-                      ? "Connected"
-                      : connected
-                      ? "Disconnect"
-                      : "Connect"}
-                  </Text>
-                </Pressable>
+                  {connected ? "Connected" : "Not Connected"}
+                </Text>
               </View>
+
+              <Pressable
+                style={[
+                  styles.button,
+                  connected ? styles.disconnect : styles.connect,
+                ]}
+                onPress={() => toggleConnection(platform.name)}
+              >
+                <Text style={styles.buttonText}>
+                  {connected ? "Connected" : "Connect"}
+                </Text>
+              </Pressable>
             </View>
-          );
-        }
-      )}
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
 
-const styles =
-  StyleSheet.create({
-    container: {
-      padding: 20,
-      backgroundColor:
-        "#101010",
-      minHeight: "100%",
-    },
+const styles = StyleSheet.create({
+  container: {
+    padding: 20,
+    backgroundColor: "#101010",
+    minHeight: "100%",
+  },
 
-    header: {
-      color: "#fff",
-      fontSize: 32,
-      fontWeight: "800",
-      marginTop: 40,
-      textAlign: "center",
-    },
+  header: {
+    color: "#fff",
+    fontSize: 32,
+    fontWeight: "800",
+    marginTop: 40,
+    textAlign: "center",
+  },
 
-    subheader: {
-      color: "#aaa",
-      fontSize: 15,
-      textAlign: "center",
-      marginTop: 10,
-      marginBottom: 24,
-      lineHeight: 22,
-    },
+  subheader: {
+    color: "#aaa",
+    fontSize: 15,
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 24,
+    lineHeight: 22,
+  },
 
-    proBox: {
-      backgroundColor:
-        "#1b1b1b",
-      borderRadius: 18,
-      padding: 18,
-      marginBottom: 20,
-      borderWidth: 1,
-      borderColor: "#8b5cf6",
-    },
+  proBox: {
+    backgroundColor: "#1b1b1b",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#8b5cf6",
+  },
 
-    proTitle: {
-      color: "#fff",
-      fontSize: 20,
-      fontWeight: "900",
-      marginBottom: 8,
-    },
+  proTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
 
-    proText: {
-      color: "#cfcfcf",
-      lineHeight: 22,
-      fontSize: 14,
-    },
+  proText: {
+    color: "#cfcfcf",
+    lineHeight: 22,
+    fontSize: 14,
+  },
 
-    refreshButton: {
-      backgroundColor:
-        "#2d6cdf",
-      paddingVertical: 14,
-      borderRadius: 12,
-      alignItems: "center",
-      marginBottom: 22,
-    },
+  refreshButton: {
+    backgroundColor: "#2d6cdf",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 22,
+  },
 
-    card: {
-      backgroundColor:
-        "#1b1b1b",
-      borderRadius: 18,
-      padding: 18,
-      marginBottom: 16,
-    },
+  card: {
+    backgroundColor: "#1b1b1b",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 16,
+  },
 
-    row: {
-      flexDirection: "row",
-      justifyContent:
-        "space-between",
-      alignItems: "center",
-    },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
 
-    platformInfo: {
-      flex: 1,
-      paddingRight: 12,
-    },
+  platformInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
 
-    titleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
 
-    name: {
-      color: "#fff",
-      fontSize: 20,
-      fontWeight: "800",
-    },
+  name: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "800",
+  },
 
-    description: {
-      color: "#aaa",
-      marginTop: 8,
-      lineHeight: 20,
-      fontSize: 13,
-    },
+  description: {
+    color: "#aaa",
+    marginTop: 8,
+    lineHeight: 20,
+    fontSize: 13,
+  },
 
-    status: {
-      marginTop: 10,
-      fontSize: 14,
-      fontWeight: "700",
-    },
+  status: {
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: "700",
+  },
 
-    connectedText: {
-      color: "#12a86b",
-    },
+  connectedText: {
+    color: "#12a86b",
+  },
 
-    disconnectedText: {
-      color: "#999",
-    },
+  disconnectedText: {
+    color: "#999",
+  },
 
-    button: {
-      paddingVertical: 12,
-      paddingHorizontal: 18,
-      borderRadius: 12,
-    },
+  button: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+  },
 
-    connect: {
-      backgroundColor:
-        "#12a86b",
-    },
+  connect: {
+    backgroundColor: "#12a86b",
+  },
 
-    disconnect: {
-      backgroundColor:
-        "#444",
-    },
+  disconnect: {
+    backgroundColor: "#444",
+  },
 
-    buttonText: {
-      color: "#fff",
-      fontWeight: "700",
-      fontSize: 15,
-    },
+  buttonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
 
-    proBadge: {
-      backgroundColor:
-        "#8b5cf6",
-      borderRadius: 8,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      marginLeft: 10,
-    },
+  proBadge: {
+    backgroundColor: "#8b5cf6",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 10,
+  },
 
-    proBadgeText: {
-      color: "#fff",
-      fontSize: 10,
-      fontWeight: "900",
-    },
-  });
+  proBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+});
