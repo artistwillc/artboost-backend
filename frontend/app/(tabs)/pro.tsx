@@ -89,7 +89,8 @@ useState<"Pinterest" | "Facebook">(
       });
  
       const data = await response.json();
- 
+
+
       if (!response.ok) {
         console.log("Subscription sync error:", data);
         return null;
@@ -249,56 +250,56 @@ const applyRepostPreset = (
   };
  
   const openBillingPortal = async () => {
-    try {
-      if (!session?.user?.email || !session?.user?.id) {
-        Alert.alert(
-          "Login Required",
-          "Please log in before managing your subscription."
-        );
-        return;
-      }
- 
-      setOpeningBilling(true);
- 
-      if (!profile?.stripe_customer_id) {
-        await syncSubscription(session.user.id, session.user.email);
-        await loadProfile(session.user.id);
-      }
- 
-      const response = await fetch(`${BACKEND_URL}/create-billing-portal`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          customerId: profile?.stripe_customer_id || null,
-          email: session.user.email,
-          userId: session.user.id,
-        }),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok || !data.url) {
-        Alert.alert(
-          "Billing Portal Error",
-          data.error || "Unable to open billing portal."
-        );
-        return;
-      }
- 
-      await Linking.openURL(data.url);
-    } catch (err: any) {
-      console.log(err);
- 
+  try {
+    if (!session?.user?.email || !session?.user?.id) {
+      Alert.alert(
+        "Login Required",
+        "Please log in before managing your subscription."
+      );
+      return;
+    }
+
+    setOpeningBilling(true);
+
+    if (!profile?.stripe_customer_id) {
+      await syncSubscription(session.user.id, session.user.email);
+      await loadProfile(session.user.id);
+    }
+
+    const response = await fetch(`${BACKEND_URL}/create-billing-portal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        customerId: profile?.stripe_customer_id || null,
+        email: session.user.email,
+        userId: session.user.id,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.url) {
       Alert.alert(
         "Billing Portal Error",
-        err.message || "Failed to open billing portal."
+        data.error || "Unable to open billing portal."
       );
-    } finally {
-      setOpeningBilling(false);
+      return;
     }
-  };
+
+    await Linking.openURL(data.url);
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "Billing Portal Error",
+      err.message || "Failed to open billing portal."
+    );
+  } finally {
+    setOpeningBilling(false);
+  }
+};
  
   const loadCurrentCampaign = async () => {
     try {
@@ -536,6 +537,7 @@ const loadFacebookPages = async () => {
   try {
     const response = await fetch(`${BACKEND_URL}/facebook/pages`);
     const data = await response.json();
+console.log("Facebook Pages Response:", data);
 
     if (!response.ok || !data.data) {
       console.log("Facebook pages failed:", data);
@@ -680,7 +682,7 @@ const createFacebookPost = async () => {
       body: JSON.stringify({
   message: `${title}\n\n${description}\n\n${productLink}`,
   imageUrl,
-  pageId: selectedFacebookPage,
+  pageId: "106367482441971",
 }),
     });
 
@@ -734,16 +736,12 @@ if (!response.ok || data.error) {
       });
  
       const data = await response.json();
-
-console.log("Facebook post response:", data);
-
-if (!response.ok || data.error) {
-  Alert.alert(
-    "Facebook Error",
-    data.error?.message || data.error || "Facebook post failed."
-  );
-  return;
-}
+ 
+      if (!response.ok) {
+        console.log(data);
+        Alert.alert("Variation Error", data.error || "Failed to generate AI variations.");
+        return;
+      }
  
       if (!data.variations || !Array.isArray(data.variations)) {
         Alert.alert("Variation Error", "Invalid AI response.");
@@ -895,11 +893,13 @@ if (!response.ok || data.error) {
 
   onPress={() => {
 
-    loadSession();
+  loadSession();
 
-    loadFacebookStatus();
+  loadFacebookStatus();
 
-  }}
+  loadFacebookPages();
+
+}}
 
 >
 
@@ -1006,6 +1006,27 @@ facebookConnectedAt
 </Text>
 
 ) : null}
+
+<Text style={styles.label}>Choose Facebook Page</Text>
+
+{facebookPages.length > 0 ? (
+  facebookPages.map((page: any) => (
+    <Pressable
+      key={page.id}
+      style={[
+        styles.boardButton,
+        selectedFacebookPage === page.id && styles.boardSelected,
+      ]}
+      onPress={() => setSelectedFacebookPage(page.id)}
+    >
+      <Text style={styles.boardText}>{page.name}</Text>
+    </Pressable>
+  ))
+) : (
+  <Text style={styles.boardError}>
+    No Facebook Pages loaded. Refresh connections or reconnect Facebook.
+  </Text>
+)}
 
 </View>
 
