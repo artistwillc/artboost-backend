@@ -27,6 +27,8 @@ export default function ProScreen() {
   const [boardError, setBoardError] = useState("");
  
   const [title, setTitle] = useState("");
+  const [facebookPages, setFacebookPages] = useState<any[]>([]);
+  const [selectedFacebookPage, setSelectedFacebookPage] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [productLink, setProductLink] = useState("");
@@ -530,6 +532,28 @@ const loadFacebookStatus = async () => {
 
 };
  
+const loadFacebookPages = async () => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/facebook/pages`);
+    const data = await response.json();
+
+    if (!response.ok || !data.data) {
+      console.log("Facebook pages failed:", data);
+      setFacebookPages([]);
+      return;
+    }
+
+    setFacebookPages(data.data);
+
+    if (data.data.length > 0 && !selectedFacebookPage) {
+      setSelectedFacebookPage(data.data[0].id);
+    }
+  } catch (err) {
+    console.log("Facebook pages load failed:", err);
+    setFacebookPages([]);
+  }
+};
+
   const loadBoards = async () => {
     try {
       setLoadingBoards(true);
@@ -654,17 +678,23 @@ const createFacebookPost = async () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: `${title}\n\n${description}\n\n${productLink}`,
-        imageUrl,
-      }),
+  message: `${title}\n\n${description}\n\n${productLink}`,
+  imageUrl,
+  pageId: selectedFacebookPage,
+}),
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      Alert.alert("Facebook Error", data.error || "Facebook post failed.");
-      return;
-    }
+console.log("Facebook post response:", data);
+
+if (!response.ok || data.error) {
+  Alert.alert(
+    "Facebook Error",
+    data.error?.message || data.error || "Facebook post failed."
+  );
+  return;
+}
 
     Alert.alert(
       "Facebook Published",
@@ -704,12 +734,16 @@ const createFacebookPost = async () => {
       });
  
       const data = await response.json();
- 
-      if (!response.ok) {
-        console.log(data);
-        Alert.alert("Variation Error", data.error || "Failed to generate AI variations.");
-        return;
-      }
+
+console.log("Facebook post response:", data);
+
+if (!response.ok || data.error) {
+  Alert.alert(
+    "Facebook Error",
+    data.error?.message || data.error || "Facebook post failed."
+  );
+  return;
+}
  
       if (!data.variations || !Array.isArray(data.variations)) {
         Alert.alert("Variation Error", "Invalid AI response.");
@@ -791,6 +825,8 @@ const createFacebookPost = async () => {
   loadBoards();
 
   loadFacebookStatus();
+
+  loadFacebookPages();
 
   loadCurrentCampaign();
  
