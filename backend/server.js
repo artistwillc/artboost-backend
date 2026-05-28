@@ -1057,6 +1057,19 @@ app.get("/facebook/pages", async (req, res) => {
 
 });
 
+app.get("/facebook/permissions", async (req, res) => {
+  if (!facebookConnection.token) {
+    return res.status(400).json({ error: "Facebook not connected" });
+  }
+
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/me/permissions?access_token=${facebookConnection.token}`
+  );
+
+  const data = await response.json();
+  res.json(data);
+});
+
 app.post("/facebook/post", async (req, res) => {
 
   try {
