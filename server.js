@@ -464,7 +464,55 @@ app.get("/", (req, res) => {
   res.send("ArtBoost AI backend is running.");
 });
  
-app.post("/notifications/create", async (req, res) => {
+app.get("/delete-user-data", (req, res) => {
+
+  res.send(`
+
+  <html>
+
+  <body style="
+    font-family:Arial;
+    max-width:700px;
+    margin:40px auto;
+    padding:20px;
+  ">
+
+  <h1>ArtBoost AI User Data Deletion</h1>
+
+  <p>
+  Users may request deletion of ArtBoost AI account data.
+  </p>
+
+  <p>
+  Contact:
+  support@artboost-ai.com
+  </p>
+
+  <ul>
+
+    <li>Name</li>
+
+    <li>Email</li>
+
+    <li>Connected Social Accounts</li>
+
+  </ul>
+
+  <p>
+
+  Requests processed within 30 days.
+
+  </p>
+
+  </body>
+
+  </html>
+
+  `);
+
+});
+
+ app.post("/notifications/create", async (req, res) => {
   try {
     const { userId, title, message, type } = req.body;
  
@@ -568,58 +616,6 @@ app.patch("/notifications/read/:id", async (req, res) => {
 });
  
 app.patch("/notifications/read-all/:userId", async (req, res) => {
-
-  try {
-
-    const { userId } = req.params;
-
-    let query =
-      supabase
-        .from("notifications")
-        .update({
-          unread: false,
-        });
-
-    if (userId !== "all") {
-
-      query =
-        query.eq(
-          "user_id",
-          userId
-        );
-
-    }
-
-    const { error } =
-      await query;
-
-    if (error) {
-
-      return res
-        .status(500)
-        .json({
-          error:
-            error.message,
-        });
-
-    }
-
-    res.json({
-      success: true,
-    });
-
-  } catch (err) {
-
-    res
-      .status(500)
-      .json({
-        error:
-          err.message,
-      });
-
-  }
-
-});, async (req, res) => {
   try {
     const { userId } = req.params;
  
@@ -885,7 +881,203 @@ app.get("/auth/pinterest", (req, res) => {
  
   res.redirect(authUrl.toString());
 });
- 
+
+let facebookConnection = {
+  connected: false,
+  token: null,
+  expiresIn: null,
+  connectedAt: null,
+};
+
+app.get("/auth/facebook", (req, res) => {
+
+  const APP_ID =
+    process.env.FACEBOOK_APP_ID;
+
+  const REDIRECT_URI =
+    "https://artboost-ai.onrender.com/auth/facebook/callback";
+
+  const url =
+    `https://www.facebook.com/v23.0/dialog/oauth` +
+    `?client_id=${APP_ID}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&scope=email,pages_read_engagement,pages_show_list` +
+    `&response_type=code`;
+console.log("FACEBOOK ROUTE VERSION 2:", url);
+  res.redirect(url);
+
+});
+
+app.get("/facebook/debug-auth-url", (req, res) => {
+
+  const APP_ID =
+    process.env.FACEBOOK_APP_ID;
+
+  const REDIRECT_URI =
+    "https://artboost-ai.onrender.com/auth/facebook/callback";
+
+  const url =
+    `https://www.facebook.com/v23.0/dialog/oauth` +
+    `?client_id=${APP_ID}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&scope=email,pages_read_engagement,pages_show_list` +
+    `&response_type=code`;
+
+  res.json({ url });
+
+});
+
+app.get("/auth/facebook/callback", async (req, res) => {
+
+  try {
+
+    const code =
+      req.query.code;
+
+    if (!code) {
+
+      return res
+        .status(400)
+        .send(
+          "Missing Facebook authorization code"
+        );
+
+    }
+
+    const tokenResponse =
+      await fetch(
+        `https://graph.facebook.com/v23.0/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=https://artboost-ai.onrender.com/auth/facebook/callback&client_secret=${process.env.FACEBOOK_APP_SECRET}&code=${code}`
+      );
+
+    const tokenData =
+      await tokenResponse.json();
+
+    if (!tokenData.access_token) {
+
+      console.log(
+        "Facebook Token Error:",
+        tokenData
+      );
+
+      return res
+        .status(400)
+        .send(
+          "Facebook token exchange failed."
+        );
+
+    }
+
+    facebookConnection = {
+
+      connected: true,
+
+      token:
+        tokenData.access_token,
+
+      expiresIn:
+        tokenData.expires_in,
+
+      connectedAt:
+        new Date().toISOString(),
+
+    };
+
+    console.log(
+      "Facebook Connected Successfully"
+    );
+
+    res.send(`
+      <html>
+        <body style="font-family:Arial;padding:40px;">
+          <h1>Facebook Connected</h1>
+          <p>You can now return to ArtBoost AI.</p>
+        </body>
+      </html>
+    `);
+
+  }
+
+  catch (err) {
+
+    console.error(err);
+
+    res
+      .status(500)
+      .send(
+        "Facebook connection failed"
+      );
+
+  }
+
+});
+
+app.get("/facebook/pages", async (req, res) => {
+
+  try {
+
+    if (!facebookConnection.token) {
+
+      return res
+        .status(400)
+        .json({
+
+          error:
+            "Missing Facebook access token"
+
+        });
+
+    }
+
+    const response =
+      await fetch(
+
+        `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
+
+      );
+
+    const data =
+      await response.json();
+
+    res.json(data);
+
+  }
+
+  catch (err) {
+
+    res
+      .status(500)
+      .json({
+
+        error:
+          err.message
+
+      });
+
+  }
+
+});
+
+app.get("/facebook/test", (req, res) => {
+
+  res.json({
+
+    connected:
+      facebookConnection.connected,
+
+    hasToken:
+      Boolean(
+        facebookConnection.token
+      ),
+
+    readyForPages:false,
+
+    message:
+      "Facebook login works. Page publishing requires Meta Page permissions."
+
+  });
+
+});
+
 app.get("/auth/pinterest/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
@@ -1040,6 +1232,78 @@ async function publishPinterestPin({
  
   return pinData;
 }
+
+async function publishFacebookPost({
+
+  title,
+  description,
+  productLink,
+  imageUrl,
+  pageId,
+
+}) {
+
+  if (!facebookConnection.token) {
+
+    throw new Error(
+      "Facebook not connected"
+    );
+
+  }
+
+  const message = `
+
+${title}
+
+${description}
+
+${productLink || ""}
+
+`;
+
+  const response =
+  await fetch(
+
+`https://graph.facebook.com/v23.0/${pageId}/photos`,
+
+    {
+
+      method:"POST",
+
+      headers:{
+        "Content-Type":
+        "application/json"
+      },
+
+      body:JSON.stringify({
+
+        url:imageUrl,
+
+        caption:message,
+
+        access_token:
+        facebookConnection.token,
+
+      }),
+
+    }
+
+  );
+
+  const data =
+  await response.json();
+
+  if (data.error) {
+
+    throw new Error(
+      data.error.message
+    );
+
+  }
+
+  return data;
+
+}
  
 app.post("/pinterest/create-pin", async (req, res) => {
   try {
@@ -1140,13 +1404,7 @@ app.post("/schedule-campaign", async (req, res) => {
       message: `Your ${platform || "Pinterest"} campaign "${title}" was scheduled successfully.`,
       type: "success",
     });
- await createNotification({
-  userId,
-  title: "Campaign Scheduled",
-  message: `Your ${platform || "Pinterest"} campaign "${title}" was scheduled successfully.`,
-  type: "success",
-});
-
+ 
     res.json({
       success: true,
       campaign: mapCampaignFromDb(data),
@@ -1342,13 +1600,25 @@ async function runScheduledCampaigns() {
         })
         .eq("id", campaign.id);
  
-      const pinData = await publishPinterestPin({
-        boardId: campaign.board_id,
-        title: campaign.title,
-        description: campaign.description,
-        link: campaign.product_link,
-        imageUrl: campaign.image_url,
-      });
+      let publishData = null;
+
+if (campaign.platform === "Facebook") {
+  publishData = await publishFacebookPost({
+    title: campaign.title,
+    description: campaign.description,
+    productLink: campaign.product_link,
+    imageUrl: campaign.image_url,
+    pageId: campaign.page_id,
+  });
+} else {
+  publishData = await publishPinterestPin({
+    boardId: campaign.board_id,
+    title: campaign.title,
+    description: campaign.description,
+    link: campaign.product_link,
+    imageUrl: campaign.image_url,
+  });
+}
  
       const repeatType = campaign.repeat_type || "one_time";
       let nextRunDate = null;
@@ -1386,7 +1656,7 @@ async function runScheduledCampaigns() {
             next_run_at: nextRunDate.toISOString(),
             status: "scheduled",
             published_at: new Date().toISOString(),
-            pin_data: pinData,
+            pin_data: publishData,
             error: null,
             updated_at: new Date().toISOString(),
           })
@@ -1406,7 +1676,7 @@ async function runScheduledCampaigns() {
           .update({
             status: "published",
             published_at: new Date().toISOString(),
-            pin_data: pinData,
+            pin_data: publishData,
             error: null,
             updated_at: new Date().toISOString(),
           })
@@ -1418,12 +1688,6 @@ async function runScheduledCampaigns() {
           message: `"${campaign.title}" was published successfully.`,
           type: "success",
         });
- await createNotification({
-  userId: campaign.user_id,
-  title: "Campaign Published",
-  message: `"${campaign.title}" was published successfully.`,
-  type: "success",
-});
         console.log("One-time campaign published:", campaign.id);
       }
     } catch (err) {
@@ -1442,12 +1706,6 @@ async function runScheduledCampaigns() {
         message: `"${campaign.title}" failed to publish. ${err.message}`,
         type: "error",
       });
- await createNotification({
-  userId: campaign.user_id,
-  title: "Scheduled Campaign Failed",
-  message: `"${campaign.title}" failed to publish. ${err.message}`,
-  type: "error",
-});
       console.log("Scheduled campaign failed:", campaign.id, err.message);
     }
   }
