@@ -901,7 +901,7 @@ app.get("/auth/facebook", (req, res) => {
     `https://www.facebook.com/v23.0/dialog/oauth` +
     `?client_id=${APP_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&scope=email,pages_read_engagement,pages_show_list` +
+    `&scope=email,pages_read_engagement,pages_show_list,pages_manage_posts` +
     `&response_type=code`;
 console.log("FACEBOOK ROUTE VERSION 2:", url);
   res.redirect(url);
@@ -920,7 +920,7 @@ app.get("/facebook/debug-auth-url", (req, res) => {
     `https://www.facebook.com/v23.0/dialog/oauth` +
     `?client_id=${APP_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&scope=email,pages_read_engagement,pages_show_list` +
+    `&scope=email,pages_read_engagement,pages_show_list,pages_manage_posts` +
     `&response_type=code`;
 
   res.json({ url });
