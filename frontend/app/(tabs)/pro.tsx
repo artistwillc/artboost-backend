@@ -682,7 +682,7 @@ const createFacebookPost = async () => {
       body: JSON.stringify({
   message: `${title}\n\n${description}\n\n${productLink}`,
   imageUrl,
-  pageId: "106367482441971",
+  pageId: selectedFacebookPage,
 }),
     });
 
