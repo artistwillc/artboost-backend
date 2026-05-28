@@ -1180,8 +1180,6 @@ app.post("/facebook/post", async (req, res) => {
   }
 
 });
-```
-
 
 app.get("/facebook/test", (req, res) => {
 
