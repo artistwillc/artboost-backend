@@ -1057,6 +1057,119 @@ app.get("/facebook/pages", async (req, res) => {
 
 });
 
+app.post("/facebook/post", async (req, res) => {
+
+  try {
+
+    const {
+      message,
+      imageUrl,
+      pageId
+    } = req.body;
+
+    if (!facebookConnection.token) {
+
+      return res.status(400).json({
+        error: "Facebook not connected"
+      });
+
+    }
+
+    const pagesResponse =
+      await fetch(
+        `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
+      );
+
+    const pagesData =
+      await pagesResponse.json();
+
+    if (!pagesData.data || !pagesData.data.length) {
+
+      return res.status(400).json({
+        error: "No Facebook Pages found"
+      });
+
+    }
+
+    const page =
+      pageId
+        ? pagesData.data.find(
+            (p) => p.id === pageId
+          )
+        : pagesData.data[0];
+
+    if (!page) {
+
+      return res.status(400).json({
+        error: "Selected Facebook Page not found"
+      });
+
+    }
+
+    let postUrl =
+      `https://graph.facebook.com/v23.0/${page.id}/feed`;
+
+    let body = {
+      message,
+      access_token: page.access_token,
+    };
+
+    if (imageUrl) {
+
+      postUrl =
+        `https://graph.facebook.com/v23.0/${page.id}/photos`;
+
+      body = {
+        url: imageUrl,
+        caption: message,
+        access_token: page.access_token,
+      };
+
+    }
+
+    const postResponse =
+      await fetch(postUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+    const postData =
+      await postResponse.json();
+
+    if (postData.error) {
+
+      console.log(
+        "Facebook Post Error:",
+        postData.error
+      );
+
+      return res.status(500).json({
+        error: postData.error,
+      });
+
+    }
+
+    res.json(postData);
+
+  }
+
+  catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
+
+  }
+
+});
+```
+
+
 app.get("/facebook/test", (req, res) => {
 
   res.json({
