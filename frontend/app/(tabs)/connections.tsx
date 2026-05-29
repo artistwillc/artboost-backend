@@ -52,7 +52,7 @@ export default function ConnectionsScreen() {
     try {
       const response = await fetch(`${BACKEND_URL}/pinterest/status`);
       const data = await response.json();
-
+      console.log("Facebook response:", data);
       const saved = await AsyncStorage.getItem("artboost_connections");
       const current = saved ? JSON.parse(saved) : {};
 
@@ -69,7 +69,7 @@ export default function ConnectionsScreen() {
 
   const checkFacebookStatus = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/facebook/status`);
+      const response = await fetch(`${BACKEND_URL}/facebook/test`);
       const data = await response.json();
 
       const saved = await AsyncStorage.getItem("artboost_connections");

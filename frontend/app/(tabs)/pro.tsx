@@ -501,12 +501,10 @@ const applyRepostPreset = (
   };
 
 const loadFacebookStatus = async () => {
-
   try {
-
     const response =
       await fetch(
-        `${BACKEND_URL}/facebook/status`
+        `${BACKEND_URL}/facebook/test`
       );
 
     const data =
