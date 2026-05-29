@@ -909,8 +909,10 @@ async function saveFacebookConnection(tokenData) {
     );
 
   if (error) {
-    console.log("Facebook token save failed:", error.message);
-  }
+  console.log("Facebook token save failed:", error);
+} else {
+  console.log("Facebook token saved to Supabase");
+}
 
   facebookConnection = {
     connected: true,
@@ -1188,6 +1190,8 @@ app.get("/auth/facebook/callback", async (req, res) => {
     }
 
     await saveFacebookConnection(tokenData);
+
+    console.log("Facebook token received and save attempted");
 
     console.log(
       "Facebook Connected Successfully"
