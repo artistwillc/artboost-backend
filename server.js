@@ -988,7 +988,7 @@ app.post("/x/post", async (req, res) => {
     });
     app.get("/x/post-test", async (req, res) => {
   try {
-    const response = await fetch("http://localhost:3000/x/post", {
+    const response = await fetch("https://artboost-ai.onrender.com/x/post", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1012,6 +1012,26 @@ app.post("/x/post", async (req, res) => {
     });
   }
 });
+
+app.get("/x/post-test", async (req, res) => {
+  try {
+    const response = await fetch("http://localhost:3000/x/post", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "Testing X publishing from ArtBoost AI 🚀",
+      }),
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
   app.get("/instagram/status", (req, res) => {
   const hasToken = !!process.env.INSTAGRAM_ACCESS_TOKEN;
