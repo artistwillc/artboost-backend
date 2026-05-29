@@ -2291,7 +2291,7 @@ Rules:
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Pinterest API base: ${PINTEREST_API_BASE}`);
-  console.log("LIVE SERVER VERSION: X DEBUG 1");
+  console.log("LIVE SERVER VERSION: FACEBOOK STATUS FIX 1");
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"}`
   );
