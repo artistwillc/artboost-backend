@@ -1443,26 +1443,7 @@ app.post("/instagram/post", async (req, res) => {
 });
 
 // PASTE THE NEW ROUTE HERE
-app.get("/facebook/status", (req, res) => {
-  res.json({
-    connected: facebookConnection.connected,
-    connectedAt: facebookConnection.connectedAt || null,
-    hasToken: Boolean(facebookConnection.token),
-  });
-});
 
-app.get("/x/credentials-check", (req, res) => {
-  res.json({
-    connected: true,
-    hasClientId: Boolean(process.env.X_CLIENT_ID),
-    hasClientSecret: Boolean(process.env.X_CLIENT_SECRET),
-    hasApiKey: Boolean(process.env.X_API_KEY),
-    hasApiSecret: Boolean(process.env.X_API_SECRET),
-    hasAccessToken: Boolean(process.env.X_ACCESS_TOKEN),
-    hasAccessTokenSecret: Boolean(process.env.X_ACCESS_TOKEN_SECRET),
-    message: "X credentials check complete.",
-  });
-});
 app.get("/facebook/test", (req, res) => {
 
   res.json({
@@ -2291,7 +2272,7 @@ Rules:
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Pinterest API base: ${PINTEREST_API_BASE}`);
-  console.log("LIVE SERVER VERSION: FACEBOOK STATUS FIX 1");
+  console.log("LIVE SERVER VERSION: X DEBUG 1");
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"}`
   );
