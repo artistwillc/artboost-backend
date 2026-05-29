@@ -929,6 +929,7 @@ app.get("/x/status", (req, res) => {
     hasAccessToken: !!process.env.X_ACCESS_TOKEN,
     hasAccessTokenSecret: !!process.env.X_ACCESS_TOKEN_SECRET,
     message: "X credentials check complete.",
+postTestRouteAdded: true,
   });
 });
 
