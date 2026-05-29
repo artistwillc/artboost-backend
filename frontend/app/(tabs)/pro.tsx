@@ -64,7 +64,7 @@ export default function ProScreen() {
   const [facebookConnectedAt, setFacebookConnectedAt] =
   useState("");
   const [selectedPlatform, setSelectedPlatform] =
-useState<"Pinterest" | "Facebook">(
+useState<"Pinterest" | "Facebook" | "Instagram">(
 "Pinterest"
 );
   const cleanUrl = (value: string) => {
@@ -712,6 +712,66 @@ if (!response.ok || data.error) {
     setPublishing(false);
   }
 };
+
+const createInstagramPost = async () => {
+  try {
+    if (!profile?.is_pro) {
+      Alert.alert(
+        "Pro Required",
+        "Instagram publishing is a Pro feature."
+      );
+      return;
+    }
+
+    if (!imageUrl) {
+      Alert.alert(
+        "Missing Image URL",
+        "Instagram requires a public image URL."
+      );
+      return;
+    }
+
+    setPublishing(true);
+
+    const response = await fetch(
+      `${BACKEND_URL}/instagram/post`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: `${title}\n\n${description}\n\n${productLink}`,
+          imageUrl,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error?.message ||
+        data.error ||
+        "Instagram publish failed"
+      );
+    }
+
+    Alert.alert(
+      "Instagram Published",
+      "Your artwork was successfully posted to Instagram."
+    );
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "Instagram Publish Failed",
+      err.message || "Failed to publish Instagram post."
+    );
+  } finally {
+    setPublishing(false);
+  }
+};
  
   const generateVariations = async () => {
     try {
@@ -1068,32 +1128,18 @@ Pinterest
 </Pressable>
 
 <Pressable
-
-style={[
-
-styles.boardButton,
-
-selectedPlatform ===
-"Facebook"
-
-&& styles.boardSelected,
-
-]}
-
-onPress={() =>
-
-setSelectedPlatform(
-
-"Facebook"
-
-)}
-
+  style={[
+    styles.boardButton,
+    selectedPlatform === "Instagram" &&
+      styles.boardSelected,
+  ]}
+  onPress={() =>
+    setSelectedPlatform("Instagram")
+  }
 >
-
-<Text style={styles.boardText}>
-Facebook
-</Text>
-
+  <Text style={styles.boardText}>
+    Instagram
+  </Text>
 </Pressable>
 
 </View>
@@ -1728,22 +1774,23 @@ Facebook
 ]}
   onPress={() => {
 
-  if (
+  if (selectedPlatform === "Facebook") {
 
-    selectedPlatform ===
-    "Facebook"
+  createFacebookPost();
 
-  ) {
+}
 
-    createFacebookPost();
+else if (selectedPlatform === "Instagram") {
 
-  }
+  createInstagramPost();
 
-  else {
+}
 
-    createPinterestPin();
+else {
 
-  }
+  createPinterestPin();
+
+}
 
 }}
 >
