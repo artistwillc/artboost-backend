@@ -908,6 +908,56 @@ console.log("FACEBOOK ROUTE VERSION 2:", url);
 
 });
 
+// ================================
+// Instagram Status/Test Routes
+// ================================
+app.get("/instagram/status", (req, res) => {
+  const hasToken = !!process.env.INSTAGRAM_ACCESS_TOKEN;
+  const hasUserId = !!process.env.INSTAGRAM_USER_ID;
+
+  res.json({
+    connected: hasToken && hasUserId,
+    hasToken,
+    hasUserId,
+    username: process.env.INSTAGRAM_USERNAME || "wills_custom_airbrushing",
+    message:
+      hasToken && hasUserId
+        ? "Instagram is configured and ready."
+        : "Missing Instagram environment variables.",
+  });
+});
+
+app.get("/instagram/test", async (req, res) => {
+  try {
+    const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+
+    if (!token) {
+      return res.status(400).json({ error: "Missing INSTAGRAM_ACCESS_TOKEN" });
+    }
+
+    const response = await fetch(
+      `https://graph.instagram.com/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    res.json({
+      ok: true,
+      instagram: data,
+    });
+  } catch (error) {
+    console.error("Instagram test error:", error);
+    res.status(500).json({
+      error: "Instagram test failed",
+      details: error.message,
+    });
+  }
+});
+
 app.get("/facebook/debug-auth-url", (req, res) => {
 
   const APP_ID =
@@ -1180,6 +1230,98 @@ app.post("/facebook/post", async (req, res) => {
   }
 
 });
+
+// ================================
+// Instagram Publish Route
+// ================================
+app.post("/instagram/post", async (req, res) => {
+  try {
+    const { message, imageUrl } = req.body;
+
+    const instagramUserId = process.env.INSTAGRAM_USER_ID;
+    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+
+    if (!instagramUserId || !accessToken) {
+      return res.status(400).json({
+        error: "Instagram not configured",
+      });
+    }
+
+    if (!imageUrl) {
+      return res.status(400).json({
+        error: "Instagram requires an imageUrl to publish.",
+      });
+    }
+
+    const createContainerResponse = await fetch(
+      `https://graph.instagram.com/v23.0/${instagramUserId}/media`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image_url: imageUrl,
+          caption: message || "",
+          access_token: accessToken,
+        }),
+      }
+    );
+
+    const createContainerData = await createContainerResponse.json();
+
+    if (createContainerData.error) {
+      console.log("Instagram Container Error:", createContainerData.error);
+
+      return res.status(500).json({
+        error: createContainerData.error,
+      });
+    }
+
+    const creationId = createContainerData.id;
+
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+
+    const publishResponse = await fetch(
+      `https://graph.instagram.com/v23.0/${instagramUserId}/media_publish`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          creation_id: creationId,
+          access_token: accessToken,
+        }),
+      }
+    );
+
+    const publishData = await publishResponse.json();
+
+    if (publishData.error) {
+      console.log("Instagram Publish Error:", publishData.error);
+
+      return res.status(500).json({
+        error: publishData.error,
+      });
+    }
+
+    res.json({
+      success: true,
+      platform: "instagram",
+      creationId,
+      result: publishData,
+    });
+  } catch (err) {
+    console.error("Instagram post error:", err);
+
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+
+// PASTE THE NEW ROUTE HERE
 
 app.get("/facebook/test", (req, res) => {
 
