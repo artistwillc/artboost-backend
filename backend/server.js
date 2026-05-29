@@ -1015,7 +1015,7 @@ app.post("/x/post", async (req, res) => {
 
 app.get("/x/post-test", async (req, res) => {
   try {
-    const response = await fetch("http://localhost:3000/x/post", {
+    const response = await fetch("https://artboost-ai.onrender.com/x/post", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
