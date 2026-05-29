@@ -64,7 +64,7 @@ export default function ProScreen() {
   const [facebookConnectedAt, setFacebookConnectedAt] =
   useState("");
   const [selectedPlatform, setSelectedPlatform] =
-useState<"Pinterest" | "Facebook" | "Instagram">(
+useState<"Pinterest" | "Facebook" | "Instagram" | "X">(
 "Pinterest"
 );
   const cleanUrl = (value: string) => {
@@ -768,12 +768,57 @@ const createInstagramPost = async () => {
       "Instagram Publish Failed",
       err.message || "Failed to publish Instagram post."
     );
+    } finally {
+    setPublishing(false);
+  }
+};
+
+const createXPost = async () => {
+  try {
+    if (!profile?.is_pro) {
+      Alert.alert("Pro Required", "X publishing is a Pro feature.");
+      return;
+    }
+
+    setPublishing(true);
+
+    const response = await fetch(`${BACKEND_URL}/x/post`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: `${title}\n\n${description}\n\n${productLink}`.slice(0, 280),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error?.message ||
+        data.error ||
+        "X publish failed"
+      );
+    }
+
+    Alert.alert(
+      "X Published",
+      "Your artwork was successfully posted to X."
+    );
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "X Publish Failed",
+      err.message || "Failed to publish to X."
+    );
   } finally {
     setPublishing(false);
   }
 };
- 
-  const generateVariations = async () => {
+
+const generateVariations = async () => {
     try {
       if (!profile?.is_pro) {
         Alert.alert("Pro Required", "AI variations are a Pro feature.");
@@ -1130,6 +1175,21 @@ Pinterest
 <Pressable
   style={[
     styles.boardButton,
+    selectedPlatform === "Facebook" &&
+      styles.boardSelected,
+  ]}
+  onPress={() =>
+    setSelectedPlatform("Facebook")
+  }
+>
+  <Text style={styles.boardText}>
+    Facebook
+  </Text>
+</Pressable>
+
+<Pressable
+  style={[
+    styles.boardButton,
     selectedPlatform === "Instagram" &&
       styles.boardSelected,
   ]}
@@ -1139,6 +1199,21 @@ Pinterest
 >
   <Text style={styles.boardText}>
     Instagram
+  </Text>
+</Pressable>
+
+<Pressable
+  style={[
+    styles.boardButton,
+    selectedPlatform === "X" &&
+      styles.boardSelected,
+  ]}
+  onPress={() =>
+    setSelectedPlatform("X")
+  }
+>
+  <Text style={styles.boardText}>
+    X
   </Text>
 </Pressable>
 
@@ -1783,6 +1858,12 @@ Pinterest
 else if (selectedPlatform === "Instagram") {
 
   createInstagramPost();
+
+}
+
+else if (selectedPlatform === "X") {
+
+  createXPost();
 
 }
 
