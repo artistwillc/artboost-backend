@@ -6,7 +6,9 @@ import multer from "multer";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { v2 as cloudinary } from "cloudinary";
- 
+import OAuth from "oauth-1.0a";
+import CryptoJS from "crypto-js";
+
 dotenv.config({ override: true });
  
 const app = express();
@@ -911,7 +913,107 @@ console.log("FACEBOOK ROUTE VERSION 2:", url);
 // ================================
 // Instagram Status/Test Routes
 // ================================
-app.get("/instagram/status", (req, res) => {
+app.get("/x/status", (req, res) => {
+  res.json({
+    connected:
+      !!process.env.X_CLIENT_ID &&
+      !!process.env.X_CLIENT_SECRET &&
+      !!process.env.X_API_KEY &&
+      !!process.env.X_API_SECRET &&
+      !!process.env.X_ACCESS_TOKEN &&
+      !!process.env.X_ACCESS_TOKEN_SECRET,
+    hasClientId: !!process.env.X_CLIENT_ID,
+    hasClientSecret: !!process.env.X_CLIENT_SECRET,
+    hasApiKey: !!process.env.X_API_KEY,
+    hasApiSecret: !!process.env.X_API_SECRET,
+    hasAccessToken: !!process.env.X_ACCESS_TOKEN,
+    hasAccessTokenSecret: !!process.env.X_ACCESS_TOKEN_SECRET,
+    message: "X credentials check complete.",
+  });
+});
+
+app.post("/x/post", async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Missing message" });
+    }
+
+    const oauth = OAuth({
+      consumer: {
+        key: process.env.X_API_KEY,
+        secret: process.env.X_API_SECRET,
+      },
+      signature_method: "HMAC-SHA1",
+      hash_function(baseString, key) {
+        return CryptoJS.HmacSHA1(baseString, key).toString(CryptoJS.enc.Base64);
+      },
+    });
+
+    const token = {
+      key: process.env.X_ACCESS_TOKEN,
+      secret: process.env.X_ACCESS_TOKEN_SECRET,
+    };
+
+    const requestData = {
+      url: "https://api.x.com/2/tweets",
+      method: "POST",
+    };
+
+    const authHeader = oauth.toHeader(oauth.authorize(requestData, token));
+
+    const response = await fetch(requestData.url, {
+      method: "POST",
+      headers: {
+        ...authHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: message,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.log("X Post Error:", data);
+      return res.status(response.status).json(data);
+    }
+
+    res.json({
+      success: true,
+      platform: "x",
+      result: data,
+    });
+    app.get("/x/post-test", async (req, res) => {
+  try {
+    const response = await fetch("http://localhost:3000/x/post", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "Testing X publishing from ArtBoost AI 🚀",
+      }),
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+  } catch (err) {
+    console.error("X post error:", err);
+
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+
+  app.get("/instagram/status", (req, res) => {
   const hasToken = !!process.env.INSTAGRAM_ACCESS_TOKEN;
   const hasUserId = !!process.env.INSTAGRAM_USER_ID;
 
