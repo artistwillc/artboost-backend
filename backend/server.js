@@ -999,6 +999,13 @@ app.post("/x/post", async (req, res) => {
 }
 });
 
+app.get("/will-test", (req, res) => {
+  res.json({
+    works: true,
+    time: new Date().toISOString()
+  });
+});
+
 app.get("/x/post-test", async (req, res) => {
   try {
     const response = await fetch(
