@@ -1443,37 +1443,12 @@ app.post("/instagram/post", async (req, res) => {
 });
 
 // PASTE THE NEW ROUTE HERE
-
-app.get("/facebook/test", (req, res) => {
-
-  app.get("/facebook/status", (req, res) => {
+app.get("/facebook/status", (req, res) => {
   res.json({
     connected: facebookConnection.connected,
     connectedAt: facebookConnection.connectedAt || null,
     hasToken: Boolean(facebookConnection.token),
   });
-});
-
-app.get("/facebook/pages", async (req, res) => {
-  try {
-    if (!facebookConnection.token) {
-      return res.json({ data: [] });
-    }
-
-    const response = await fetch(
-      `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
-    );
-
-    const data = await response.json();
-
-    res.json(data);
-  } catch (err) {
-    console.log("Facebook pages error:", err);
-
-    res.status(500).json({
-      error: "Failed to load Facebook pages",
-    });
-  }
 });
 
 app.get("/x/credentials-check", (req, res) => {
@@ -1484,12 +1459,11 @@ app.get("/x/credentials-check", (req, res) => {
     hasApiKey: Boolean(process.env.X_API_KEY),
     hasApiSecret: Boolean(process.env.X_API_SECRET),
     hasAccessToken: Boolean(process.env.X_ACCESS_TOKEN),
-    hasAccessTokenSecret: Boolean(
-      process.env.X_ACCESS_TOKEN_SECRET
-    ),
+    hasAccessTokenSecret: Boolean(process.env.X_ACCESS_TOKEN_SECRET),
     message: "X credentials check complete.",
   });
 });
+app.get("/facebook/test", (req, res) => {
 
   res.json({
 
