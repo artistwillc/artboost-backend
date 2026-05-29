@@ -934,7 +934,7 @@ app.get("/x/status", (req, res) => {
 
 app.post("/x/post", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, imageUrl } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: "Missing message" });
@@ -957,9 +957,9 @@ app.post("/x/post", async (req, res) => {
     };
 
     const requestData = {
-      url: "https://api.x.com/2/tweets",
-      method: "POST",
-    };
+  url: "https://api.twitter.com/2/tweets",
+  method: "POST",
+};
 
     const authHeader = oauth.toHeader(oauth.authorize(requestData, token));
 
@@ -986,33 +986,44 @@ app.post("/x/post", async (req, res) => {
       platform: "x",
       result: data,
     });
-    app.get("/x/post-test", async (req, res) => {
-  try {
-    const response = await fetch("http://localhost:3000/x/post", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: "Testing X publishing from ArtBoost AI 🚀",
-      }),
-    });
-
-    const data = await response.json();
-    res.json(data);
+    
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  console.error("X post error:", err);
+
+  res.status(500).json({
+    error: "fetch failed",
+    message: err.message,
+    cause: err.cause || null,
+    stack: err.stack || null,
+  });
+}
 });
-  } catch (err) {
-    console.error("X post error:", err);
 
+app.get("/x/post-test", async (req, res) => {
+  try {
+    const response = await fetch(
+      "https://api.twitter.com/2/tweets",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${process.env.X_BEARER_TOKEN}`,
+        },
+      }
+    );
+
+    const data = await response.text();
+
+    res.json({
+      status: response.status,
+      data,
+    });
+  } catch (err) {
     res.status(500).json({
       error: err.message,
+      stack: err.stack,
     });
   }
 });
-
   app.get("/instagram/status", (req, res) => {
   const hasToken = !!process.env.INSTAGRAM_ACCESS_TOKEN;
   const hasUserId = !!process.env.INSTAGRAM_USER_ID;
