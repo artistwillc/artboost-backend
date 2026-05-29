@@ -19,7 +19,7 @@ import { supabase } from "@/lib/supabase";
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
 
-const PLATFORMS = ["Pinterest", "Instagram", "Facebook", "TikTok", "X", "Threads"];
+const PLATFORMS = ["Pinterest", "Instagram", "Facebook", "X"];
 
 const STYLE_PRESETS = [
   "Bold Sales",

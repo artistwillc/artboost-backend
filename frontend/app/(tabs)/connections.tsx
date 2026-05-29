@@ -29,39 +29,9 @@ const platforms = [
     premium: true,
   },
   {
-    name: "TikTok",
-    description: "Generate viral captions and future auto-posting.",
-    premium: true,
-  },
-  {
     name: "X",
     description: "Fast text and artwork posting.",
     premium: true,
-  },
-  {
-    name: "Threads",
-    description: "Meta Threads creator publishing.",
-    premium: true,
-  },
-  {
-    name: "Tumblr",
-    description: "Art blogging and niche communities.",
-    premium: false,
-  },
-  {
-    name: "Reddit",
-    description: "Subreddit campaign publishing.",
-    premium: false,
-  },
-  {
-    name: "Lemon8",
-    description: "Lifestyle creator growth platform.",
-    premium: false,
-  },
-  {
-    name: "Truth Social",
-    description: "Alternative social publishing.",
-    premium: false,
   },
 ];
 

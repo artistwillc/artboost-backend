@@ -1443,7 +1443,7 @@ app.post("/instagram/post", async (req, res) => {
 });
 
 // PASTE THE NEW ROUTE HERE
-app.get("/facebook/status", (req, res) => {
+app.get("/facebook/test", (req, res) => {
   res.json({
     connected: facebookConnection.connected,
     connectedAt: facebookConnection.connectedAt || null,
