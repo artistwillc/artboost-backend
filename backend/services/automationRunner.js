@@ -19,34 +19,34 @@ function cleanText(value) {
     .trim();
 }
 
-function truncateText(value, maxLength) {
+function truncateText(
+  value,
+  maxLength
+) {
   const text = cleanText(value);
 
   if (text.length <= maxLength) {
     return text;
   }
 
-  return `${text.slice(
-    0,
-    Math.max(maxLength - 3, 0)
-  ).trim()}...`;
+  return `${text
+    .slice(
+      0,
+      Math.max(maxLength - 3, 0)
+    )
+    .trim()}...`;
 }
 
 function buildXTitle({
   title,
   productLink,
 }) {
-  const cleanTitle = cleanText(title);
-  const cleanLink = cleanText(productLink);
+  const cleanTitle =
+    cleanText(title);
 
-  /*
-   * Reserve space for:
-   * title
-   * two line breaks
-   * product URL
-   *
-   * This keeps the complete X message under 280 characters.
-   */
+  const cleanLink =
+    cleanText(productLink);
+
   const reservedLength =
     cleanLink.length + 2;
 
@@ -181,11 +181,6 @@ export async function runAutomation({
     );
   }
 
-  /*
-   * Store automation intentionally uses short,
-   * listing-focused content instead of the complete
-   * Shopify description.
-   */
   const contentByPlatform = {};
 
   for (const platform of platforms) {
