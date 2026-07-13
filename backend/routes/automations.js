@@ -10,6 +10,10 @@ import {
   getNextAutomationProduct,
 } from "../services/productService.js";
 
+import {
+  runAutomation,
+} from "../services/automationRunner.js";
+
 import supabase from "../lib/supabase.js";
 
 const router = express.Router();
@@ -157,104 +161,107 @@ router.get(
  *
  * Creates or updates one store automation.
  */
-router.post("/", async (req, res) => {
-  try {
-    const {
-      userId,
-      storeId,
-      storeType,
-      storeName,
-      automationName =
-        "Daily Store Rotation",
-      enabled = false,
-      frequency = "daily",
-      postingTime = "09:00:00",
-      timezone = "America/Chicago",
-      platforms = [],
-      selectionMode =
-        "least_recently_posted",
-      repeatDelayDays = 30,
-    } = req.body;
+router.post(
+  "/",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        storeId,
+        storeType,
+        storeName,
+        automationName =
+          "Daily Store Rotation",
+        enabled = false,
+        frequency = "daily",
+        postingTime = "09:00:00",
+        timezone = "America/Chicago",
+        platforms = [],
+        selectionMode =
+          "least_recently_posted",
+        repeatDelayDays = 30,
+      } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing userId.",
+        });
+      }
+
+      if (!storeId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing storeId.",
+        });
+      }
+
+      if (!storeType) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing storeType.",
+        });
+      }
+
+      if (!storeName) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing storeName.",
+        });
+      }
+
+      if (!Array.isArray(platforms)) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Platforms must be an array.",
+        });
+      }
+
+      const automation =
+        await createOrUpdateAutomation({
+          userId: String(userId),
+          storeId: String(storeId),
+          storeType: String(storeType),
+          storeName: String(storeName),
+          automationName: String(
+            automationName ||
+              "Daily Store Rotation"
+          ),
+          enabled: Boolean(enabled),
+          frequency: String(frequency),
+          postingTime: String(
+            postingTime
+          ),
+          timezone: String(timezone),
+          platforms,
+          selectionMode: String(
+            selectionMode
+          ),
+          repeatDelayDays: Number(
+            repeatDelayDays
+          ),
+        });
+
+      return res.json({
+        success: true,
+        automation,
       });
-    }
+    } catch (error) {
+      console.error(
+        "Automation save error:",
+        error
+      );
 
-    if (!storeId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing storeId.",
-      });
-    }
-
-    if (!storeType) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing storeType.",
-      });
-    }
-
-    if (!storeName) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing storeName.",
-      });
-    }
-
-    if (!Array.isArray(platforms)) {
-      return res.status(400).json({
+      return res.status(500).json({
         success: false,
         error:
-          "Platforms must be an array.",
+          "Unable to save automation.",
+        details: error.message,
       });
     }
-
-    const automation =
-      await createOrUpdateAutomation({
-        userId: String(userId),
-        storeId: String(storeId),
-        storeType: String(storeType),
-        storeName: String(storeName),
-        automationName: String(
-          automationName ||
-            "Daily Store Rotation"
-        ),
-        enabled: Boolean(enabled),
-        frequency: String(frequency),
-        postingTime: String(
-          postingTime
-        ),
-        timezone: String(timezone),
-        platforms,
-        selectionMode: String(
-          selectionMode
-        ),
-        repeatDelayDays: Number(
-          repeatDelayDays
-        ),
-      });
-
-    return res.json({
-      success: true,
-      automation,
-    });
-  } catch (error) {
-    console.error(
-      "Automation save error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      error:
-        "Unable to save automation.",
-      details: error.message,
-    });
   }
-});
+);
 
 /*
  * POST /automations/preview
@@ -323,6 +330,59 @@ router.post(
         success: false,
         error:
           "Unable to preview the next product.",
+        details: error.message,
+      });
+    }
+  }
+);
+
+/*
+ * POST /automations/:automationId/run
+ *
+ * Manually runs one automation.
+ */
+router.post(
+  "/:automationId/run",
+  async (req, res) => {
+    try {
+      const { automationId } =
+        req.params;
+
+      const { userId } = req.body;
+
+      if (!automationId) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Missing automationId.",
+        });
+      }
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing userId.",
+        });
+      }
+
+      const result =
+        await runAutomation({
+          automationId:
+            String(automationId),
+          userId: String(userId),
+        });
+
+      return res.json(result);
+    } catch (error) {
+      console.error(
+        "Manual automation run error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to run automation.",
         details: error.message,
       });
     }
