@@ -3012,151 +3012,277 @@ ${hashtags || ""}`;
   return publishData;
 }
 
-async function publishXPost({ title, description, productLink, imageUrl }) {
-  const finalDescription = description || "";
-
-  const extractedLink =
-    finalDescription.match(/https?:\/\/[^\s]+|redbubble\.com\/[^\s]+/i)?.[0] || "";
-
-  const linkText = productLink || extractedLink || "";
-
-  const cleanedDescription = finalDescription
-    .replace(/https?:\/\/[^\s]+|redbubble\.com\/[^\s]+/gi, "")
+async function publishXPost({
+  title,
+  description,
+  productLink,
+  imageUrl,
+}) {
+  const cleanTitle = String(
+    title || description || "Check out this product"
+  )
+    .replace(/\s+/g, " ")
     .trim();
 
-  let message = [title, cleanedDescription, linkText]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
+  const cleanProductLink = String(
+    productLink || ""
+  ).trim();
 
-  // Prevent duplicate tweet errors
-  const variations = [
-    "🔥 Available now",
-    "⚡ Grab yours today",
-    "🏁 Built for hot rod fans",
-    "💀 Limited artwork",
-    "🚀 Check it out",
-    "🐀 Wild rat rod energy",
-  ];
-
-  message +=
-    "\n\n" +
-    variations[Math.floor(Math.random() * variations.length)];
-
-  const hasProductLink = Boolean(linkText);
-
-  if (!message) {
-    throw new Error("Missing X post message");
+  if (!cleanTitle) {
+    throw new Error(
+      "Missing X post title."
+    );
   }
 
   const oauth = OAuth({
     consumer: {
-      key: process.env.X_API_KEY,
-      secret: process.env.X_API_SECRET,
+      key:
+        process.env.X_API_KEY,
+      secret:
+        process.env.X_API_SECRET,
     },
-    signature_method: "HMAC-SHA1",
-    hash_function(baseString, key) {
-      return CryptoJS.HmacSHA1(baseString, key).toString(CryptoJS.enc.Base64);
+    signature_method:
+      "HMAC-SHA1",
+    hash_function(
+      baseString,
+      key
+    ) {
+      return CryptoJS
+        .HmacSHA1(
+          baseString,
+          key
+        )
+        .toString(
+          CryptoJS.enc.Base64
+        );
     },
   });
 
   const token = {
-    key: process.env.X_ACCESS_TOKEN,
-    secret: process.env.X_ACCESS_TOKEN_SECRET,
+    key:
+      process.env.X_ACCESS_TOKEN,
+    secret:
+      process.env
+        .X_ACCESS_TOKEN_SECRET,
   };
 
-  let mediaId = null;
-  console.log("X PRODUCT LINK:", productLink);
-  console.log("X HAS PRODUCT LINK:", Boolean(productLink));
-  console.log("X HAS IMAGE URL:", Boolean(imageUrl));
-  console.log("X WILL UPLOAD MEDIA:", Boolean(imageUrl && !hasProductLink));
+  /*
+   * X counts normal URLs as shortened links.
+   * We still keep the raw final text under 280
+   * characters for predictable behavior.
+   */
+  const separator =
+    cleanProductLink
+      ? "\n\n"
+      : "";
 
-  if (imageUrl && !hasProductLink) {
-    const imageResponse = await fetch(imageUrl);
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    const uploadRequestData = {
-      url: "https://upload.twitter.com/1.1/media/upload.json",
-      method: "POST",
-    };
-
-    const uploadAuthHeader = oauth.toHeader(
-      oauth.authorize(uploadRequestData, token)
+  const availableTitleLength =
+    Math.max(
+      280 -
+        separator.length -
+        cleanProductLink.length,
+      1
     );
 
-    const formData = new FormData();
+  const finalTitle =
+    cleanTitle.length >
+    availableTitleLength
+      ? `${cleanTitle
+          .slice(
+            0,
+            Math.max(
+              availableTitleLength -
+                3,
+              1
+            )
+          )
+          .trim()}...`
+      : cleanTitle;
+
+  const message = [
+    finalTitle,
+    cleanProductLink,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!message) {
+    throw new Error(
+      "Missing X post message."
+    );
+  }
+
+  let mediaId = null;
+
+  console.log(
+    "X PRODUCT LINK:",
+    cleanProductLink
+  );
+
+  console.log(
+    "X HAS PRODUCT LINK:",
+    Boolean(cleanProductLink)
+  );
+
+  console.log(
+    "X HAS IMAGE URL:",
+    Boolean(imageUrl)
+  );
+
+  /*
+   * Upload the product image even when the
+   * tweet also includes a product link.
+   */
+  if (imageUrl) {
+    const imageResponse =
+      await fetch(imageUrl);
+
+    if (!imageResponse.ok) {
+      throw new Error(
+        `Unable to download X image: ${imageResponse.status}`
+      );
+    }
+
+    const imageBuffer =
+      Buffer.from(
+        await imageResponse.arrayBuffer()
+      );
+
+    const uploadRequestData = {
+      url:
+        "https://upload.twitter.com/1.1/media/upload.json",
+      method:
+        "POST",
+    };
+
+    const uploadAuthHeader =
+      oauth.toHeader(
+        oauth.authorize(
+          uploadRequestData,
+          token
+        )
+      );
+
+    const formData =
+      new FormData();
+
     formData.append(
       "media",
-      new Blob([imageBuffer]),
+      new Blob([
+        imageBuffer,
+      ]),
       "artboost-image.jpg"
     );
 
-    const uploadResponse = await fetch(uploadRequestData.url, {
-      method: "POST",
-      headers: {
-        ...uploadAuthHeader,
-      },
-      body: formData,
-    });
+    const uploadResponse =
+      await fetch(
+        uploadRequestData.url,
+        {
+          method:
+            "POST",
+          headers: {
+            ...uploadAuthHeader,
+          },
+          body:
+            formData,
+        }
+      );
 
-    const uploadData = await uploadResponse.json();
+    const uploadData =
+      await uploadResponse.json();
 
-    if (!uploadResponse.ok || !uploadData.media_id_string) {
-      console.log("X Media Upload Error:", uploadData);
-      throw new Error("X image upload failed");
+    if (
+      !uploadResponse.ok ||
+      !uploadData.media_id_string
+    ) {
+      console.error(
+        "X Media Upload Error:",
+        uploadData
+      );
+
+      throw new Error(
+        `X image upload failed: ${JSON.stringify(
+          uploadData
+        )}`
+      );
     }
 
-    mediaId = uploadData.media_id_string;
+    mediaId =
+      uploadData.media_id_string;
   }
 
   const tweetRequestData = {
-    url: "https://api.twitter.com/2/tweets",
-    method: "POST",
+    url:
+      "https://api.twitter.com/2/tweets",
+    method:
+      "POST",
   };
 
-  const tweetAuthHeader = oauth.toHeader(
-    oauth.authorize(tweetRequestData, token)
-  );
+  const tweetAuthHeader =
+    oauth.toHeader(
+      oauth.authorize(
+        tweetRequestData,
+        token
+      )
+    );
 
   const tweetBody = {
-    text: message,
+    text:
+      message,
   };
 
   if (mediaId) {
     tweetBody.media = {
-      media_ids: [mediaId],
+      media_ids: [
+        mediaId,
+      ],
     };
   }
 
-  console.log("X MESSAGE LENGTH:", message.length);
+  console.log(
+    "X MESSAGE LENGTH:",
+    message.length
+  );
 
-  console.log("X MESSAGE:");
-  console.log(message);
+  console.log(
+    "X MESSAGE:"
+  );
 
+  console.log(
+    message
+  );
 
-  console.log("X MESSAGE LENGTH:", message.length);
+  const response =
+    await fetch(
+      tweetRequestData.url,
+      {
+        method:
+          "POST",
+        headers: {
+          ...tweetAuthHeader,
+          "Content-Type":
+            "application/json",
+        },
+        body:
+          JSON.stringify(
+            tweetBody
+          ),
+      }
+    );
 
-  console.log("X MESSAGE:");
-  console.log(message);
-
-  console.log("X MESSAGE LENGTH:", message.length);
-
-  console.log("X MESSAGE:");
-  console.log(message);
-
-  const response = await fetch(tweetRequestData.url, {
-    method: "POST",
-    headers: {
-      ...tweetAuthHeader,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(tweetBody),
-  });
-
-  const data = await response.json();
+  const data =
+    await response.json();
 
   if (!response.ok) {
-    console.log("X Scheduled Post Error:", data);
-    throw new Error(JSON.stringify(data));
+    console.error(
+      "X Scheduled Post Error:",
+      data
+    );
+
+    throw new Error(
+      JSON.stringify(data)
+    );
   }
 
   return data;
