@@ -22,15 +22,23 @@ function normalizePlatform(platform) {
   return normalized;
 }
 
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /*
- * Publishes one prepared post to one social platform.
+ * Publishes one store product to one social platform.
+ *
+ * Store automation posts only:
+ * - product title
+ * - product image
+ * - product link, where supported
  */
 export async function publishToPlatform({
   platform,
   title,
-  description,
-  hashtags = "",
-  cta = "",
   productLink = "",
   imageUrl = "",
   boardId = null,
@@ -39,49 +47,81 @@ export async function publishToPlatform({
   const normalizedPlatform =
     normalizePlatform(platform);
 
+  const cleanTitle =
+    cleanText(title);
+
+  const cleanProductLink =
+    cleanText(productLink);
+
   if (!normalizedPlatform) {
     throw new Error(
       "A social platform is required."
     );
   }
 
-  if (normalizedPlatform === "pinterest") {
+  if (!cleanTitle) {
+    throw new Error(
+      "A product title is required."
+    );
+  }
+
+  if (!imageUrl) {
+    throw new Error(
+      "A product image is required."
+    );
+  }
+
+  if (
+    normalizedPlatform ===
+    "pinterest"
+  ) {
     return publishPinterest({
       boardId,
-      title,
-      description,
-      link: productLink,
+      title: cleanTitle,
+      description: "",
+      link: cleanProductLink,
       imageUrl,
     });
   }
 
-  if (normalizedPlatform === "facebook") {
+  if (
+    normalizedPlatform ===
+    "facebook"
+  ) {
     return publishFacebook({
-      title,
-      description,
-      hashtags,
-      cta,
-      productLink,
+      title: cleanTitle,
+      description: "",
+      hashtags: "",
+      cta: "",
+      productLink:
+        cleanProductLink,
       imageUrl,
       pageId,
     });
   }
 
-  if (normalizedPlatform === "instagram") {
+  if (
+    normalizedPlatform ===
+    "instagram"
+  ) {
     return publishInstagram({
-      title,
-      description,
-      hashtags,
-      cta,
+      title: cleanTitle,
+      description: "",
+      hashtags: "",
+      cta:
+        "Tap the link in bio.",
       imageUrl,
     });
   }
 
-  if (normalizedPlatform === "x") {
+  if (
+    normalizedPlatform === "x"
+  ) {
     return publishX({
-      title,
-      description,
-      productLink,
+      title: cleanTitle,
+      description: "",
+      productLink:
+        cleanProductLink,
       imageUrl,
     });
   }
@@ -92,10 +132,10 @@ export async function publishToPlatform({
 }
 
 /*
- * Publishes prepared content to every selected platform.
+ * Publishes one store product to all selected platforms.
  *
- * A failure on one platform does not prevent the remaining
- * platforms from being attempted.
+ * A failure on one platform does not prevent attempts
+ * on the remaining selected platforms.
  */
 export async function publishToPlatforms({
   platforms,
@@ -122,40 +162,67 @@ export async function publishToPlatforms({
     );
   }
 
+  const productTitle =
+    cleanText(
+      product.title ||
+      "Check out this product"
+    );
+
+  const productLink =
+    cleanText(
+      product.product_url ??
+      product.productUrl ??
+      product.link ??
+      product.url
+    );
+
+  const imageUrl =
+    product.image_url ??
+    product.imageUrl ??
+    product.image ??
+    "";
+
+  if (!productLink) {
+    throw new Error(
+      "The product does not contain a product link."
+    );
+  }
+
+  if (!imageUrl) {
+    throw new Error(
+      "The product does not contain an image URL."
+    );
+  }
+
   const results = [];
 
-  for (const platformValue of platforms) {
+  for (
+    const platformValue
+    of platforms
+  ) {
     const platform =
-      normalizePlatform(platformValue);
+      normalizePlatform(
+        platformValue
+      );
 
     const platformContent =
-      contentByPlatform?.[platform] || {};
+      contentByPlatform?.[
+        platform
+      ] || {};
+
+    const title =
+      cleanText(
+        platformContent.title ||
+        productTitle
+      );
 
     try {
       const result =
         await publishToPlatform({
           platform,
-          title:
-            platformContent.title ||
-            product.title ||
-            "",
-          description:
-            platformContent.description ||
-            platformContent.message ||
-            product.description ||
-            "",
-          hashtags:
-            platformContent.hashtags ||
-            "",
-          cta:
-            platformContent.cta ||
-            "",
-          productLink:
-            product.product_url ||
-            "",
-          imageUrl:
-            product.image_url ||
-            "",
+          title,
+          productLink,
+          imageUrl,
           boardId,
           pageId,
         });
@@ -174,31 +241,42 @@ export async function publishToPlatforms({
       results.push({
         platform,
         success: false,
-        error: error.message,
+        error:
+          error.message,
       });
     }
   }
 
   const successful =
     results.filter(
-      (result) => result.success
+      (result) =>
+        result.success
     );
 
   const failed =
     results.filter(
-      (result) => !result.success
+      (result) =>
+        !result.success
     );
 
   return {
     success:
       successful.length > 0 &&
       failed.length === 0,
+
     partialSuccess:
       successful.length > 0 &&
       failed.length > 0,
-    total: results.length,
-    successful: successful.length,
-    failed: failed.length,
+
+    total:
+      results.length,
+
+    successful:
+      successful.length,
+
+    failed:
+      failed.length,
+
     results,
   };
 }
