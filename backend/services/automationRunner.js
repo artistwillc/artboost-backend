@@ -144,8 +144,9 @@ export async function runAutomation({
     publishResult?.partialSuccess
   ) {
     await markProductAsPosted({
-      productId: product.id,
-    });
+  productId: product.id,
+  userId,
+});
 
     const {
       error: updateError,
