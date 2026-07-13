@@ -29,19 +29,56 @@ export async function runAutomation({
     );
   }
 
+  const storeId =
+    automation.store_id ??
+    automation.storeId;
+
+  const storeType =
+    automation.store_type ??
+    automation.storeType ??
+    automation.platform;
+
+  const storeName =
+    automation.store_name ??
+    automation.storeName;
+
+  const selectionMode =
+    automation.selection_mode ??
+    automation.selectionMode ??
+    "next";
+
+  const repeatDelayDays =
+    automation.repeat_delay_days ??
+    automation.repeatDelayDays ??
+    0;
+
+  console.log(
+    "Running automation with store:",
+    {
+      automationId:
+        automation.id,
+      storeId,
+      storeType,
+      storeName,
+      selectionMode,
+      repeatDelayDays,
+    }
+  );
+
+  if (!storeType) {
+    throw new Error(
+      `Automation ${automation.id} does not contain a store type.`
+    );
+  }
+
   const product =
     await getNextAutomationProduct({
       userId,
-      storeId:
-        automation.store_id,
-      storeType:
-        automation.store_type,
-      storeName:
-        automation.store_name,
-      selectionMode:
-        automation.selection_mode,
-      repeatDelayDays:
-        automation.repeat_delay_days,
+      storeId,
+      storeType,
+      storeName,
+      selectionMode,
+      repeatDelayDays,
     });
 
   if (!product) {
@@ -50,13 +87,32 @@ export async function runAutomation({
     );
   }
 
+  const platforms =
+    Array.isArray(
+      automation.platforms
+    )
+      ? automation.platforms
+      : [];
+
+  if (platforms.length === 0) {
+    throw new Error(
+      "No platforms are selected for this automation."
+    );
+  }
+
   const contentByPlatform = {};
 
-  for (const platform of automation.platforms) {
+  for (const platform of platforms) {
+    const normalizedPlatform =
+      String(platform)
+        .trim()
+        .toLowerCase();
+
     contentByPlatform[
-      String(platform).toLowerCase()
+      normalizedPlatform
     ] = {
-      title: product.title,
+      title:
+        product.title || "",
       description:
         product.description || "",
       hashtags: "",
@@ -64,26 +120,36 @@ export async function runAutomation({
     };
   }
 
+  const boardId =
+    automation.board_id ??
+    automation.boardId;
+
+  const pageId =
+    automation.facebook_page_id ??
+    automation.facebookPageId ??
+    automation.page_id ??
+    automation.pageId;
+
   const publishResult =
     await publishToPlatforms({
-      platforms:
-        automation.platforms,
+      platforms,
       contentByPlatform,
       product,
-      boardId:
-        automation.board_id,
-      pageId:
-        automation.facebook_page_id,
+      boardId,
+      pageId,
     });
 
-  if (publishResult.success ||
-      publishResult.partialSuccess) {
-
+  if (
+    publishResult?.success ||
+    publishResult?.partialSuccess
+  ) {
     await markProductAsPosted({
       productId: product.id,
     });
 
-    await supabase
+    const {
+      error: updateError,
+    } = await supabase
       .from("store_automations")
       .update({
         last_run:
@@ -93,6 +159,13 @@ export async function runAutomation({
         "id",
         automation.id
       );
+
+    if (updateError) {
+      console.error(
+        "Failed to update automation last_run:",
+        updateError
+      );
+    }
   }
 
   return {
