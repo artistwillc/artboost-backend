@@ -149,17 +149,19 @@ export async function runAutomation({
 });
 
     const {
-      error: updateError,
-    } = await supabase
-      .from("store_automations")
-      .update({
-        last_run:
-          new Date().toISOString(),
-      })
-      .eq(
-        "id",
-        automation.id
-      );
+  error: updateError,
+} = await supabase
+  .from("store_automations")
+  .update({
+    last_run_at:
+      new Date().toISOString(),
+    last_product_id:
+      product.id,
+  })
+  .eq(
+    "id",
+    automation.id
+  );
 
     if (updateError) {
       console.error(
