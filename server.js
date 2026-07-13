@@ -4,6 +4,10 @@ import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import automationRoutes from "./routes/automations.js";
+
+import {
+  registerSocialPublishers,
+} from "./services/socialPublisher.js";
 import OpenAI from "openai";
 import multer from "multer";
 import Stripe from "stripe";
@@ -3539,6 +3543,13 @@ app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
       details: err.message,
     });
   }
+});
+
+registerSocialPublishers({
+  publishPinterestPin,
+  publishFacebookPost,
+  publishInstagramPost,
+  publishXPost,
 });
 
 async function runScheduledCampaigns() {
