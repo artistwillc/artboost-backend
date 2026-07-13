@@ -2889,58 +2889,178 @@ async function publishFacebookPost({
   pageId,
 }) {
   if (!facebookConnection.token) {
-    throw new Error("Facebook not connected");
+    throw new Error(
+      "Facebook not connected"
+    );
   }
 
-  if (!pageId) {
-    throw new Error("Missing Facebook pageId for scheduled post");
+  const pagesResponse =
+    await fetch(
+      `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
+    );
+
+  const pagesData =
+    await pagesResponse.json();
+
+  if (!pagesResponse.ok) {
+    throw new Error(
+      pagesData?.error?.message ||
+      "Unable to load Facebook Pages."
+    );
   }
 
-  const pagesResponse = await fetch(
-    `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
-  );
+  const pages =
+    Array.isArray(pagesData.data)
+      ? pagesData.data
+      : [];
 
-  const pagesData = await pagesResponse.json();
-
-  if (!pagesData.data || !pagesData.data.length) {
-    throw new Error("No Facebook Pages found");
+  if (pages.length === 0) {
+    throw new Error(
+      "No Facebook Pages found."
+    );
   }
 
-  const page = pagesData.data.find((p) => p.id === pageId);
+  let page = null;
 
+  /*
+   * Use the saved page when one was supplied.
+   */
+  if (pageId) {
+    page = pages.find(
+      (candidate) =>
+        String(candidate.id) ===
+        String(pageId)
+    );
+
+    if (!page) {
+      throw new Error(
+        "The saved Facebook Page could not be found."
+      );
+    }
+  }
+
+  /*
+   * When no Page ID was saved:
+   * - automatically use the only available page
+   * - require a selection when multiple pages exist
+   */
   if (!page) {
-    throw new Error("Selected Facebook Page not found");
+    if (pages.length === 1) {
+      page = pages[0];
+
+      console.log(
+        "Facebook page selected automatically:",
+        {
+          pageId:
+            page.id,
+          pageName:
+            page.name || null,
+        }
+      );
+    } else {
+      throw new Error(
+        "Multiple Facebook Pages were found. Select a Facebook Page and save the automation again."
+      );
+    }
   }
 
-  const message = `${title}
+  if (!page.access_token) {
+    throw new Error(
+      "The selected Facebook Page does not contain a Page access token."
+    );
+  }
 
-${description}
+  const cleanTitle =
+    String(title || "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-${cta || ""}
+  const cleanProductLink =
+    String(productLink || "")
+      .trim();
 
-${hashtags || ""}
+  const message = [
+    cleanTitle,
+    cleanProductLink,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 
-${productLink || ""}`;
+  if (!message) {
+    throw new Error(
+      "The Facebook post does not contain a title or product link."
+    );
+  }
 
-  const response = await fetch(
-    `https://graph.facebook.com/v23.0/${page.id}/photos`,
+  let postUrl =
+    `https://graph.facebook.com/v23.0/${page.id}/feed`;
+
+  let body = {
+    message,
+    access_token:
+      page.access_token,
+  };
+
+  if (imageUrl) {
+    postUrl =
+      `https://graph.facebook.com/v23.0/${page.id}/photos`;
+
+    body = {
+      url:
+        imageUrl,
+      caption:
+        message,
+      access_token:
+        page.access_token,
+    };
+  }
+
+  console.log(
+    "Facebook automation post:",
     {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url: imageUrl,
-        caption: message,
-        access_token: page.access_token,
-      }),
+      pageId:
+        page.id,
+      pageName:
+        page.name || null,
+      hasImage:
+        Boolean(imageUrl),
+      hasProductLink:
+        Boolean(cleanProductLink),
     }
   );
 
-  const data = await response.json();
+  const response =
+    await fetch(
+      postUrl,
+      {
+        method:
+          "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body:
+          JSON.stringify(body),
+      }
+    );
 
-  if (data.error) {
-    throw new Error(data.error.message);
+  const data =
+    await response.json();
+
+  if (
+    !response.ok ||
+    data.error
+  ) {
+    console.error(
+      "Facebook Scheduled Post Error:",
+      data
+    );
+
+    throw new Error(
+      data?.error?.message ||
+      "Facebook post failed."
+    );
   }
 
   return data;
