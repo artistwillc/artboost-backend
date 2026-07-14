@@ -689,7 +689,23 @@ export async function disableAutomation({
     );
   }
 
-  export async function resumeAutomation({
+  const {
+    data,
+    error,
+  } = await query
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Unable to disable automation: ${error.message}`
+    );
+  }
+
+  return normalizeAutomation(data);
+}
+
+export async function resumeAutomation({
   automationId,
   userId,
 }) {
@@ -738,43 +754,27 @@ export async function disableAutomation({
         new Date(),
     });
 
-  const { data, error } =
-    await supabase
-      .from("store_automations")
-      .update({
-        enabled: true,
-        disabled_reason: null,
-        next_run_at: nextRunAt,
-        updated_at:
-          new Date().toISOString(),
-      })
-      .eq("id", automationId)
-      .eq("user_id", userId)
-      .select()
-      .single();
-
-  if (error) {
-    throw new Error(
-      error.message ||
-        "Unable to resume automation."
-    );
-  }
-
-  return normalizeAutomation(
-    data
-  );
-}
-
   const {
     data,
     error,
-  } = await query
+  } = await supabase
+    .from("store_automations")
+    .update({
+      enabled: true,
+      disabled_reason: null,
+      next_run_at: nextRunAt,
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", automationId)
+    .eq("user_id", userId)
     .select("*")
     .single();
 
   if (error) {
     throw new Error(
-      `Unable to disable automation: ${error.message}`
+      error.message ||
+        "Unable to resume automation."
     );
   }
 
