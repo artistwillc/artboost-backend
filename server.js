@@ -392,7 +392,7 @@ app.get(
 
       const tokenResponse =
         await fetch(
-          "https://api.etsy.com/v3/public/oauth/token",
+          "https://openapi.etsy.com/v3/public/oauth/token",
           {
             method: "POST",
             headers: {
