@@ -228,6 +228,7 @@ router.post(
         enabled = false,
         frequency = "daily",
         postingTime = "09:00:00",
+        startDate = null,
         timezone = "America/Chicago",
         platforms = [],
         facebookPageId = null,
@@ -285,8 +286,11 @@ router.post(
           enabled: Boolean(enabled),
           frequency: String(frequency),
           postingTime: String(
-            postingTime
+          postingTime
           ),
+          startDate: startDate
+          ? String(startDate)
+          : null,
           timezone: String(timezone),
           platforms,
           facebookPageId:

@@ -34,6 +34,7 @@ automationName:
 enabled: Boolean(row.enabled),
     frequency: row.frequency || "daily",
     postingTime: row.posting_time || "09:00:00",
+    startDate: row.start_date || null,
     timezone: row.timezone || "America/Chicago",
     platforms: Array.isArray(row.platforms)
   ? row.platforms
@@ -227,6 +228,7 @@ function isWeekdayName(weekday) {
 export function calculateNextRun({
   frequency = "daily",
   postingTime = "09:00:00",
+  startDate = null,
   timezone = "America/Chicago",
   fromDate = new Date(),
 }) {
@@ -424,10 +426,11 @@ export async function createOrUpdateAutomation({
   enabled = false,
   frequency = "daily",
   postingTime = "09:00:00",
+  startDate = null,
   timezone = "America/Chicago",
   platforms = [],
-facebookPageId = null,
-selectionMode =
+  facebookPageId = null,
+  selectionMode =
     "least_recently_posted",
   repeatDelayDays = 30,
 }) {
@@ -485,11 +488,16 @@ selectionMode =
       0
     );
 
-  const nextRunAt = enabled
+  const nextRunAt =
+  enabled
     ? calculateNextRun({
         frequency,
         postingTime,
         timezone,
+        fromDate:
+          startDate
+            ? new Date(`${startDate}T00:00:00`)
+            : new Date(),
       })
     : null;
 
@@ -508,6 +516,7 @@ automation_name: String(
 enabled: Boolean(enabled),
     frequency,
     posting_time: postingTime,
+    start_date: startDate,
     timezone,
     platforms: cleanPlatforms,
 
