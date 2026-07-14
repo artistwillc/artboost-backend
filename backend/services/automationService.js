@@ -422,7 +422,8 @@ export async function createOrUpdateAutomation({
   postingTime = "09:00:00",
   timezone = "America/Chicago",
   platforms = [],
-  selectionMode =
+facebookPageId = null,
+selectionMode =
     "least_recently_posted",
   repeatDelayDays = 30,
 }) {
@@ -505,7 +506,15 @@ enabled: Boolean(enabled),
     posting_time: postingTime,
     timezone,
     platforms: cleanPlatforms,
-    selection_mode: selectionMode,
+
+facebook_page_id:
+  facebookPageId
+    ? String(
+        facebookPageId
+      )
+    : null,
+
+selection_mode: selectionMode,
     repeat_delay_days:
       parsedRepeatDelayDays,
     next_run_at: nextRunAt,

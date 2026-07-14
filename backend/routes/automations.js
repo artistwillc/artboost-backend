@@ -177,8 +177,9 @@ router.post(
         postingTime = "09:00:00",
         timezone = "America/Chicago",
         platforms = [],
+        facebookPageId = null,
         selectionMode =
-          "least_recently_posted",
+        "least_recently_posted",
         repeatDelayDays = 30,
       } = req.body;
 
@@ -235,8 +236,14 @@ router.post(
           ),
           timezone: String(timezone),
           platforms,
+          facebookPageId:
+          facebookPageId
+          ? String(
+          facebookPageId
+          )
+          : null,
           selectionMode: String(
-            selectionMode
+          selectionMode
           ),
           repeatDelayDays: Number(
             repeatDelayDays
