@@ -151,16 +151,30 @@ export default function ConnectionsScreen() {
   };
 
   const updateStoredConnection = async (
-    platform: string,
-    connected: boolean
-  ) => {
-    const current = await getStoredConnections();
+  platform: string,
+  connected: boolean
+) => {
+  setConnections(
+    (current) => {
+      const updated = {
+        ...current,
+        [platform]: connected,
+      };
 
-    await saveConnections({
-      ...current,
-      [platform]: connected,
-    });
-  };
+      AsyncStorage.setItem(
+        "artboost_connections",
+        JSON.stringify(updated)
+      ).catch((error) => {
+        console.log(
+          "Connection storage failed:",
+          error
+        );
+      });
+
+      return updated;
+    }
+  );
+};
 
   const checkPinterestStatus = async () => {
     try {
@@ -351,17 +365,90 @@ if (
     }
   };
 
+  const checkEtsyStatus = async () => {
+  try {
+    const { data: sessionData } =
+      await supabase.auth.getSession();
+
+    const userId =
+      sessionData.session?.user?.id;
+
+       if (!userId) {
+        await updateStoredConnection(
+        "Etsy",
+        false
+      );
+
+      return;
+    }
+
+    const response = await fetch(
+      `${BACKEND_URL}/etsy/status?userId=${encodeURIComponent(
+        userId
+      )}`
+    );
+
+    const responseText =
+      await response.text();
+
+      let data: any;
+
+    try {
+      data = JSON.parse(
+        responseText
+      );
+    } catch {
+      throw new Error(
+        `Backend returned ${response.status}: ${responseText.slice(
+          0,
+          200
+        )}`
+      );
+    }
+
+    Alert.alert(
+  "Etsy Status Test",
+  `HTTP ${response.status}\n\n${responseText.slice(
+    0,
+    500
+  )}`
+);
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          "Unable to check Etsy status."
+      );
+    }
+
+    await updateStoredConnection(
+  "Etsy",
+  Boolean(data.connected)
+);
+
+  } catch (error) {
+    console.log(
+      "Etsy status check failed:",
+      error
+    );
+
+    await updateStoredConnection(
+      "Etsy",
+      false
+    );
+  }
+};
+
   const refreshAllStatuses = async () => {
     try {
       setLoadingStatus(true);
 
-      await Promise.all([
-        checkPinterestStatus(),
-        checkFacebookStatus(),
-        checkInstagramStatus(),
-        checkXStatus(),
-        checkShopifyStatus(),
-      ]);
+      await checkPinterestStatus();
+      await checkFacebookStatus();
+      await checkInstagramStatus();
+      await checkXStatus();
+      await checkShopifyStatus();
+      await checkEtsyStatus();
     } finally {
       setLoadingStatus(false);
     }
@@ -492,15 +579,13 @@ const connectEtsy = async () => {
       return;
     }
 
-    await Linking.openURL(
+    const etsyUrl =
       `${BACKEND_URL}/auth/etsy?userId=${encodeURIComponent(
         userId
-      )}`
-    );
+      )}`;
 
-    Alert.alert(
-      "Etsy Login Opened",
-      "Complete the Etsy authorization, return to ArtBoost, and refresh the connection status."
+    await Linking.openURL(
+      etsyUrl
     );
   } catch (error: any) {
     Alert.alert(
@@ -510,7 +595,7 @@ const connectEtsy = async () => {
     );
   }
 };
-
+       
   const connectPlatform = async (
     platform: string
   ) => {
