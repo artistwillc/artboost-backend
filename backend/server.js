@@ -46,6 +46,664 @@ const SHOPIFY_REDIRECT_URI =
   "https://artboost-ai.onrender.com/auth/shopify/callback";
 const SHOPIFY_API_VERSION =
   process.env.SHOPIFY_API_VERSION || "2026-07";
+  const ETSY_API_KEY =
+  process.env.ETSY_API_KEY;
+
+const ETSY_SHARED_SECRET =
+  process.env.ETSY_SHARED_SECRET;
+
+const ETSY_REDIRECT_URI =
+  process.env.ETSY_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/etsy/callback";
+
+  function createEtsyState(userId) {
+  const payload = {
+    userId,
+    timestamp: Date.now(),
+    nonce: crypto
+      .randomBytes(16)
+      .toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(
+      JSON.stringify(payload)
+    ).toString("base64url");
+
+  const signature = crypto
+    .createHmac(
+      "sha256",
+      ETSY_SHARED_SECRET
+    )
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyEtsyState(state) {
+  if (
+    !state ||
+    !ETSY_SHARED_SECRET
+  ) {
+    return null;
+  }
+
+  const [
+    encodedPayload,
+    suppliedSignature,
+  ] = String(state).split(".");
+
+  if (
+    !encodedPayload ||
+    !suppliedSignature
+  ) {
+    return null;
+  }
+
+  const expectedSignature =
+    crypto
+      .createHmac(
+        "sha256",
+        ETSY_SHARED_SECRET
+      )
+      .update(encodedPayload)
+      .digest("base64url");
+
+  const suppliedBuffer =
+    Buffer.from(
+      suppliedSignature
+    );
+
+  const expectedBuffer =
+    Buffer.from(
+      expectedSignature
+    );
+
+  if (
+    suppliedBuffer.length !==
+    expectedBuffer.length
+  ) {
+    return null;
+  }
+
+  if (
+    !crypto.timingSafeEqual(
+      suppliedBuffer,
+      expectedBuffer
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    const payload =
+      JSON.parse(
+        Buffer.from(
+          encodedPayload,
+          "base64url"
+        ).toString("utf8")
+      );
+
+    const tenMinutes =
+      10 * 60 * 1000;
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() -
+        payload.timestamp >
+        tenMinutes
+    ) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+app.get(
+  "/auth/etsy",
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
+
+      if (
+        !ETSY_API_KEY ||
+        !ETSY_SHARED_SECRET
+      ) {
+        return res
+          .status(500)
+          .send(
+            "Etsy is not configured on the server."
+          );
+      }
+
+      if (!userId) {
+        return res
+          .status(400)
+          .send(
+            "Missing ArtBoost userId."
+          );
+      }
+
+      const state =
+        createEtsyState(
+          String(userId)
+        );
+
+      const codeVerifier =
+        crypto
+          .randomBytes(48)
+          .toString("base64url");
+
+      const codeChallenge =
+        crypto
+          .createHash("sha256")
+          .update(codeVerifier)
+          .digest("base64url");
+
+      const {
+        error: stateError,
+      } = await supabase
+        .from("etsy_oauth_states")
+        .insert({
+          user_id: String(userId),
+          state,
+          code_verifier:
+            codeVerifier,
+        });
+
+      if (stateError) {
+        throw new Error(
+          `Unable to save Etsy OAuth state: ${stateError.message}`
+        );
+      }
+
+      const authorizationUrl =
+        new URL(
+          "https://www.etsy.com/oauth/connect"
+        );
+
+      authorizationUrl.searchParams.set(
+        "response_type",
+        "code"
+      );
+
+      authorizationUrl.searchParams.set(
+        "client_id",
+        ETSY_API_KEY
+      );
+
+      authorizationUrl.searchParams.set(
+        "redirect_uri",
+        ETSY_REDIRECT_URI
+      );
+
+      authorizationUrl.searchParams.set(
+        "scope",
+        "shops_r listings_r"
+      );
+
+      authorizationUrl.searchParams.set(
+        "state",
+        state
+      );
+
+      authorizationUrl.searchParams.set(
+        "code_challenge",
+        codeChallenge
+      );
+
+      authorizationUrl.searchParams.set(
+        "code_challenge_method",
+        "S256"
+      );
+
+      return res.redirect(
+        authorizationUrl.toString()
+      );
+    } catch (error) {
+      console.error(
+        "Etsy authorization error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .send(
+          error instanceof Error
+            ? error.message
+            : "Unable to start Etsy connection."
+        );
+    }
+  }
+);
+
+app.get(
+  "/auth/etsy/callback",
+  async (req, res) => {
+    try {
+      const {
+        code,
+        state,
+        error: oauthError,
+        error_description: oauthErrorDescription,
+      } = req.query;
+
+      if (oauthError) {
+        return res.status(400).send(`
+          <html>
+            <body style="font-family:Arial;padding:40px;">
+              <h1>Etsy Connection Cancelled</h1>
+              <p>
+                ${
+                  oauthErrorDescription ||
+                  oauthError
+                }
+              </p>
+            </body>
+          </html>
+        `);
+      }
+
+      if (!code || !state) {
+        return res.status(400).send(
+          "Missing Etsy callback information."
+        );
+      }
+
+      const statePayload =
+        verifyEtsyState(
+          String(state)
+        );
+
+      if (!statePayload) {
+        return res.status(401).send(
+          "Invalid or expired Etsy OAuth state."
+        );
+      }
+
+      const {
+        data: savedState,
+        error: stateLoadError,
+      } = await supabase
+        .from("etsy_oauth_states")
+        .select(
+          "id, user_id, code_verifier, created_at"
+        )
+        .eq(
+          "state",
+          String(state)
+        )
+        .maybeSingle();
+
+      if (stateLoadError) {
+        throw new Error(
+          `Unable to load Etsy OAuth state: ${stateLoadError.message}`
+        );
+      }
+
+      if (
+        !savedState ||
+        !savedState.code_verifier
+      ) {
+        return res.status(401).send(
+          "Etsy OAuth state was not found or has already been used."
+        );
+      }
+
+      if (
+        String(savedState.user_id) !==
+        String(statePayload.userId)
+      ) {
+        return res.status(401).send(
+          "Etsy OAuth user does not match."
+        );
+      }
+
+      const stateCreatedAt =
+        new Date(
+          savedState.created_at
+        );
+
+      if (
+        Number.isNaN(
+          stateCreatedAt.getTime()
+        ) ||
+        Date.now() -
+          stateCreatedAt.getTime() >
+          10 * 60 * 1000
+      ) {
+        await supabase
+          .from("etsy_oauth_states")
+          .delete()
+          .eq(
+            "id",
+            savedState.id
+          );
+
+        return res.status(401).send(
+          "Etsy OAuth request expired. Please try connecting again."
+        );
+      }
+
+      const tokenResponse =
+        await fetch(
+          "https://api.etsy.com/v3/public/oauth/token",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/x-www-form-urlencoded",
+            },
+            body:
+              new URLSearchParams({
+                grant_type:
+                  "authorization_code",
+                client_id:
+                  ETSY_API_KEY,
+                redirect_uri:
+                  ETSY_REDIRECT_URI,
+                code:
+                  String(code),
+                code_verifier:
+                  savedState.code_verifier,
+              }),
+          }
+        );
+
+      const tokenText =
+        await tokenResponse.text();
+
+      let tokenData;
+
+      try {
+        tokenData =
+          JSON.parse(tokenText);
+      } catch {
+        throw new Error(
+          `Etsy returned ${tokenResponse.status}: ${tokenText.slice(
+            0,
+            200
+          )}`
+        );
+      }
+
+      if (
+        !tokenResponse.ok ||
+        !tokenData.access_token
+      ) {
+        console.error(
+          "Etsy token exchange failed:",
+          tokenData
+        );
+
+        throw new Error(
+          tokenData.error_description ||
+            tokenData.error ||
+            "Etsy access token could not be created."
+        );
+      }
+
+      await supabase
+        .from("etsy_oauth_states")
+        .delete()
+        .eq(
+          "id",
+          savedState.id
+        );
+
+      const now =
+        new Date();
+
+      const expiresIn =
+        Number(
+          tokenData.expires_in
+        ) || 3600;
+
+      const expiresAt =
+        new Date(
+          now.getTime() +
+            expiresIn * 1000
+        ).toISOString();
+
+      const connectionData = {
+        user_id:
+          String(
+            statePayload.userId
+          ),
+        platform: "etsy",
+        connected: true,
+        access_token:
+          tokenData.access_token,
+        refresh_token:
+          tokenData.refresh_token ||
+          null,
+        expires_in:
+          expiresIn,
+        expires_at:
+          expiresAt,
+        scopes:
+          "shops_r listings_r",
+        connected_at:
+          now.toISOString(),
+        updated_at:
+          now.toISOString(),
+      };
+
+      const {
+        data: existingConnection,
+        error: connectionFindError,
+      } = await supabase
+        .from(
+          "social_connections"
+        )
+        .select("id")
+        .eq(
+          "user_id",
+          String(
+            statePayload.userId
+          )
+        )
+        .eq(
+          "platform",
+          "etsy"
+        )
+        .maybeSingle();
+
+      if (connectionFindError) {
+        throw new Error(
+          `Unable to check Etsy connection: ${connectionFindError.message}`
+        );
+      }
+
+      if (
+        existingConnection?.id
+      ) {
+        const {
+          error: updateError,
+        } = await supabase
+          .from(
+            "social_connections"
+          )
+          .update(
+            connectionData
+          )
+          .eq(
+            "id",
+            existingConnection.id
+          );
+
+        if (updateError) {
+          throw new Error(
+            `Unable to update Etsy connection: ${updateError.message}`
+          );
+        }
+      } else {
+        const {
+          error: insertError,
+        } = await supabase
+          .from(
+            "social_connections"
+          )
+          .insert(
+            connectionData
+          );
+
+        if (insertError) {
+          throw new Error(
+            `Unable to save Etsy connection: ${insertError.message}`
+          );
+        }
+      }
+
+      await createNotification({
+        userId:
+          String(
+            statePayload.userId
+          ),
+        title:
+          "Etsy Connected",
+        message:
+          "Your Etsy account was connected successfully.",
+        type: "success",
+      });
+
+      return res.send(`
+        <html>
+          <body style="
+            font-family:Arial;
+            max-width:700px;
+            margin:60px auto;
+            padding:30px;
+            text-align:center;
+          ">
+            <h1>Etsy Connected</h1>
+            <p>
+              Your Etsy account is now connected to ArtBoost AI.
+            </p>
+            <p>
+              You can close this page and return to the app.
+            </p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error(
+        "Etsy callback error:",
+        error
+      );
+
+      return res.status(500).send(`
+        <html>
+          <body style="font-family:Arial;padding:40px;">
+            <h1>Etsy Connection Error</h1>
+            <p>
+              ${
+                error instanceof Error
+                  ? error.message
+                  : "Etsy connection failed."
+              }
+            </p>
+          </body>
+        </html>
+      `);
+    }
+  }
+);
+
+app.get(
+  "/etsy/status",
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({
+          configured: Boolean(
+            ETSY_API_KEY &&
+              ETSY_SHARED_SECRET
+          ),
+          connected: false,
+          error: "Missing userId.",
+        });
+      }
+
+      const {
+        data: connection,
+        error,
+      } = await supabase
+        .from(
+          "social_connections"
+        )
+        .select(
+          `
+            connected,
+            access_token,
+            refresh_token,
+            expires_at,
+            scopes,
+            connected_at
+          `
+        )
+        .eq(
+          "user_id",
+          String(userId)
+        )
+        .eq(
+          "platform",
+          "etsy"
+        )
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(
+          `Unable to load Etsy connection: ${error.message}`
+        );
+      }
+
+      return res.json({
+        configured: Boolean(
+          ETSY_API_KEY &&
+            ETSY_SHARED_SECRET
+        ),
+        connected: Boolean(
+          connection?.connected &&
+            connection?.access_token
+        ),
+        expiresAt:
+          connection?.expires_at ||
+          null,
+        scopes:
+          connection?.scopes ||
+          null,
+        connectedAt:
+          connection?.connected_at ||
+          null,
+      });
+    } catch (error) {
+      console.error(
+        "Etsy status error:",
+        error
+      );
+
+      return res.status(500).json({
+        configured: Boolean(
+          ETSY_API_KEY &&
+            ETSY_SHARED_SECRET
+        ),
+        connected: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to check Etsy status.",
+      });
+    }
+  }
+);
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
