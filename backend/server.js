@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import automationRoutes from "./routes/automations.js";
+import etsyRoutes from "./routes/etsy.js";
 
 import {
   registerSocialPublishers,
@@ -1210,6 +1211,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/automations", automationRoutes);
+app.use(etsyRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
