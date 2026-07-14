@@ -62,6 +62,111 @@ function buildXTitle({
   );
 }
 
+/*
+ * Writes one automation-history record.
+ *
+ * Logging failures are reported to Render,
+ * but they do not stop a post from publishing.
+ */
+async function createAutomationLog({
+  automationId,
+  userId,
+  storeId = null,
+  eventType,
+  status,
+  product = null,
+  platforms = [],
+  publishResult = null,
+  message = null,
+  errorMessage = null,
+}) {
+  try {
+    const productId =
+      product?.id ??
+      product?.product_id ??
+      null;
+
+    const productTitle =
+      product?.title ??
+      product?.name ??
+      product?.product_title ??
+      null;
+
+    const productImageUrl =
+      product?.image_url ??
+      product?.imageUrl ??
+      product?.featured_image ??
+      product?.image ??
+      product?.images?.[0]?.src ??
+      product?.images?.[0] ??
+      null;
+
+    const productUrl =
+      product?.product_url ??
+      product?.productUrl ??
+      product?.link ??
+      product?.url ??
+      null;
+
+    const {
+      error,
+    } = await supabase
+      .from(
+        "store_automation_logs"
+      )
+      .insert({
+        automation_id:
+          automationId,
+        user_id:
+          userId,
+        store_id:
+          storeId
+            ? String(storeId)
+            : null,
+        event_type:
+          eventType,
+        status,
+        product_id:
+          productId
+            ? String(productId)
+            : null,
+        product_title:
+          productTitle
+            ? String(productTitle)
+            : null,
+        product_image_url:
+          productImageUrl
+            ? String(productImageUrl)
+            : null,
+        product_url:
+          productUrl
+            ? String(productUrl)
+            : null,
+        platforms:
+          Array.isArray(platforms)
+            ? platforms
+            : [],
+        publish_result:
+          publishResult,
+        message,
+        error_message:
+          errorMessage,
+      });
+
+    if (error) {
+      console.error(
+        "Automation log insert failed:",
+        error
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Automation history logging failed:",
+      error
+    );
+  }
+}
+
 export async function runAutomation({
   automationId,
   userId,
@@ -101,6 +206,13 @@ export async function runAutomation({
     automation.repeatDelayDays ??
     0;
 
+  const platforms =
+    Array.isArray(
+      automation.platforms
+    )
+      ? automation.platforms
+      : [];
+
   console.log(
     "Running automation with store:",
     {
@@ -115,38 +227,109 @@ export async function runAutomation({
   );
 
   if (!storeType) {
-    throw new Error(
-      `Automation ${automation.id} does not contain a store type.`
-    );
-  }
+    const message =
+      `Automation ${automation.id} does not contain a store type.`;
 
-  const product =
-    await getNextAutomationProduct({
+    await createAutomationLog({
+      automationId:
+        automation.id,
       userId,
       storeId,
-      storeType,
-      storeName,
-      selectionMode,
-      repeatDelayDays,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      platforms,
+      message:
+        "Automation could not run.",
+      errorMessage:
+        message,
     });
 
-  if (!product) {
-    throw new Error(
-      "No eligible product found."
-    );
+    throw new Error(message);
   }
 
-  const platforms =
-    Array.isArray(
-      automation.platforms
-    )
-      ? automation.platforms
-      : [];
+  let product;
+
+  try {
+    product =
+      await getNextAutomationProduct({
+        userId,
+        storeId,
+        storeType,
+        storeName,
+        selectionMode,
+        repeatDelayDays,
+      });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to select the next product.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      platforms,
+      message:
+        "Product selection failed.",
+      errorMessage:
+        message,
+    });
+
+    throw error;
+  }
+
+  if (!product) {
+    const message =
+      "No eligible product found.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_skipped",
+      status:
+        "skipped",
+      platforms,
+      message:
+        "No eligible products are currently available.",
+      errorMessage:
+        message,
+    });
+
+    throw new Error(message);
+  }
 
   if (platforms.length === 0) {
-    throw new Error(
-      "No platforms are selected for this automation."
-    );
+    const message =
+      "No platforms are selected for this automation.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_skipped",
+      status:
+        "skipped",
+      product,
+      platforms,
+      message,
+      errorMessage:
+        message,
+    });
+
+    throw new Error(message);
   }
 
   const productTitle =
@@ -170,15 +353,51 @@ export async function runAutomation({
     null;
 
   if (!productLink) {
-    throw new Error(
-      "The selected product does not contain a product link."
-    );
+    const message =
+      "The selected product does not contain a product link.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      product,
+      platforms,
+      message:
+        "Product could not be posted.",
+      errorMessage:
+        message,
+    });
+
+    throw new Error(message);
   }
 
   if (!productImageUrl) {
-    throw new Error(
-      "The selected product does not contain an image URL."
-    );
+    const message =
+      "The selected product does not contain an image URL.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      product,
+      platforms,
+      message:
+        "Product could not be posted.",
+      errorMessage:
+        message,
+    });
+
+    throw new Error(message);
   }
 
   const contentByPlatform = {};
@@ -286,20 +505,48 @@ export async function runAutomation({
     automation.page_id ??
     automation.pageId;
 
-  const publishResult =
-    await publishToPlatforms({
+  let publishResult;
+
+  try {
+    publishResult =
+      await publishToPlatforms({
+        platforms,
+        contentByPlatform,
+        product: {
+          ...product,
+          product_url:
+            productLink,
+          image_url:
+            productImageUrl,
+        },
+        boardId,
+        pageId,
+      });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Publishing failed.";
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      product,
       platforms,
-      contentByPlatform,
-      product: {
-        ...product,
-        product_url:
-          productLink,
-        image_url:
-          productImageUrl,
-      },
-      boardId,
-      pageId,
+      message:
+        "The product could not be published.",
+      errorMessage:
+        message,
     });
+
+    throw error;
+  }
 
   if (
     publishResult?.success ||
@@ -332,6 +579,52 @@ export async function runAutomation({
         updateError
       );
     }
+
+    const partialSuccess =
+      Boolean(
+        publishResult?.partialSuccess
+      );
+
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        partialSuccess
+          ? "post_partial_success"
+          : "post_success",
+      status:
+        partialSuccess
+          ? "partial_success"
+          : "success",
+      product,
+      platforms,
+      publishResult,
+      message:
+        partialSuccess
+          ? "The product posted to some selected platforms."
+          : "The product posted successfully.",
+    });
+  } else {
+    await createAutomationLog({
+      automationId:
+        automation.id,
+      userId,
+      storeId,
+      eventType:
+        "post_failed",
+      status:
+        "failed",
+      product,
+      platforms,
+      publishResult,
+      message:
+        "The selected platforms did not confirm a successful post.",
+      errorMessage:
+        publishResult?.error ||
+        "Publishing was unsuccessful.",
+    });
   }
 
   return {
