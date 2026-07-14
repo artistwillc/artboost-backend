@@ -3030,27 +3030,69 @@ async function publishFacebookPost({
     }
   );
 
+    const formBody =
+    new URLSearchParams();
+
+  for (
+    const [key, value]
+    of Object.entries(body)
+  ) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      value !== ""
+    ) {
+      formBody.append(
+        key,
+        String(value)
+      );
+    }
+  }
+
   const response =
     await fetch(
       postUrl,
       {
-        method:
-          "POST",
+        method: "POST",
         headers: {
           "Content-Type":
-            "application/json",
+            "application/x-www-form-urlencoded",
         },
         body:
-          JSON.stringify(body),
+          formBody.toString(),
       }
     );
 
-  const data =
-    await response.json();
+  const responseText =
+    await response.text();
+
+  let data;
+
+  try {
+    data = JSON.parse(
+      responseText
+    );
+  } catch {
+    data = {
+      raw:
+        responseText,
+    };
+  }
+
+  console.log(
+    "Facebook Graph response:",
+    {
+      status:
+        response.status,
+      ok:
+        response.ok,
+      data,
+    }
+  );
 
   if (
     !response.ok ||
-    data.error
+    data?.error
   ) {
     console.error(
       "Facebook Scheduled Post Error:",
@@ -3059,11 +3101,31 @@ async function publishFacebookPost({
 
     throw new Error(
       data?.error?.message ||
-      "Facebook post failed."
+      `Facebook post failed with status ${response.status}.`
     );
   }
 
-  return data;
+  if (
+    !data?.id &&
+    !data?.post_id
+  ) {
+    throw new Error(
+      "Facebook did not return a post ID."
+    );
+  }
+
+  return {
+    success: true,
+    pageId:
+      page.id,
+    pageName:
+      page.name || null,
+    postId:
+      data.post_id ||
+      data.id,
+    result:
+      data,
+  };
 }
 
 async function publishInstagramPost({
