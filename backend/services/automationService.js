@@ -760,12 +760,11 @@ export async function resumeAutomation({
   } = await supabase
     .from("store_automations")
     .update({
-      enabled: true,
-      disabled_reason: null,
-      next_run_at: nextRunAt,
-      updated_at:
-        new Date().toISOString(),
-    })
+  enabled: true,
+  next_run_at: nextRunAt,
+  updated_at:
+    new Date().toISOString(),
+})
     .eq("id", automationId)
     .eq("user_id", userId)
     .select("*")
