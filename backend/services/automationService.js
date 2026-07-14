@@ -36,11 +36,15 @@ enabled: Boolean(row.enabled),
     postingTime: row.posting_time || "09:00:00",
     timezone: row.timezone || "America/Chicago",
     platforms: Array.isArray(row.platforms)
-      ? row.platforms
-      : [],
-    selectionMode:
-      row.selection_mode ||
-      "least_recently_posted",
+  ? row.platforms
+  : [],
+
+facebookPageId:
+  row.facebook_page_id || null,
+
+selectionMode:
+  row.selection_mode ||
+  "least_recently_posted",
     repeatDelayDays:
       Number(row.repeat_delay_days) || 0,
     lastRunAt: row.last_run_at || null,
