@@ -1,9 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { supabase } from "../lib/supabase";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,7 +27,9 @@ const API_BASE = "https://artboost-ai.onrender.com";
 type Frequency =
   | "daily"
   | "weekdays"
-  | "weekly";
+  | "weekly"
+  | "every_x_days"
+  | "one_time";
 
 type SelectionMode =
   | "never_posted_first"
@@ -33,6 +41,11 @@ type PlatformOption = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   available: boolean;
+};
+
+type FacebookPage = {
+  id: string;
+  name: string;
 };
 
 const PLATFORM_OPTIONS: PlatformOption[] = [
@@ -94,6 +107,18 @@ const FREQUENCY_OPTIONS: {
     label: "Weekly",
     description: "Post one product each week.",
   },
+{
+  id: "every_x_days",
+  label: "Every X Days",
+  description:
+    "Post automatically every X number of days.",
+},
+  {
+  id: "one_time",
+  label: "One-Time Promotion",
+  description:
+    "Post this promotion one time on the selected date and time.",
+},
 ];
 
 const SELECTION_OPTIONS: {
@@ -250,6 +275,83 @@ function displayTime(
   return `${displayHour}:${minute} ${suffix}`;
 }
 
+function startDateToDate(
+  value: string
+) {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if (!match) {
+    return new Date();
+  }
+
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    12,
+    0,
+    0
+  );
+}
+
+function postingTimeToDate(
+  value: string
+) {
+  const date = new Date();
+
+  const match = value.match(
+    /^(\d{1,2}):(\d{2})$/
+  );
+
+  if (!match) {
+    date.setHours(9, 0, 0, 0);
+    return date;
+  }
+
+  date.setHours(
+    Number(match[1]),
+    Number(match[2]),
+    0,
+    0
+  );
+
+  return date;
+}
+
+function formatDateForStorage(
+  date: Date
+) {
+  const year = date.getFullYear();
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateForDisplay(
+  value: string
+) {
+  return startDateToDate(
+    value
+  ).toLocaleDateString(
+    undefined,
+    {
+      weekday: "short",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }
+  );
+}
+
 export default function StoreAutomationScreen() {
   const params = useLocalSearchParams<{
     storeId?: string;
@@ -302,6 +404,19 @@ export default function StoreAutomationScreen() {
   const [postingTime, setPostingTime] =
     useState("09:00");
 
+    const [startDate, setStartDate] =
+  useState(
+    new Date()
+      .toISOString()
+      .split("T")[0]
+  );
+
+  const [showDatePicker, setShowDatePicker] =
+  useState(false);
+
+const [showTimePicker, setShowTimePicker] =
+  useState(false);
+
   const [timezone] = useState(
     "America/Chicago"
   );
@@ -309,10 +424,9 @@ export default function StoreAutomationScreen() {
   const [
     selectedPlatforms,
     setSelectedPlatforms,
-  ] = useState<string[]>([
+    ] = useState<string[]>([
     "facebook",
     "instagram",
-    "pinterest",
     "x",
   ]);
 
@@ -324,12 +438,521 @@ export default function StoreAutomationScreen() {
   );
 
   const [
-    repeatDelayDays,
-    setRepeatDelayDays,
-  ] = useState("30");
+  repeatDelayDays,
+  setRepeatDelayDays,
+] = useState("30");
+
+const [
+  postingIntervalDays,
+  setPostingIntervalDays,
+] = useState("2");
 
   const [saving, setSaving] =
     useState(false);
+
+      const [loadingAutomation, setLoadingAutomation] =
+    useState(true);
+
+    const [automationId, setAutomationId] =
+  useState("");
+
+  const [postingNow, setPostingNow] =
+  useState(false);
+
+      const [previewProduct, setPreviewProduct] =
+    useState<any>(null);
+
+  const [loadingPreview, setLoadingPreview] =
+    useState(false);
+
+  const [previewError, setPreviewError] =
+    useState("");
+
+  const [facebookPages, setFacebookPages] =
+    useState<FacebookPage[]>([]);
+
+  const [
+    selectedFacebookPageId,
+    setSelectedFacebookPageId,
+  ] = useState("");
+
+  const [
+    loadingFacebookPages,
+    setLoadingFacebookPages,
+  ] = useState(false);
+
+  const [
+    facebookPagesError,
+    setFacebookPagesError,
+  ] = useState("");
+
+  useEffect(() => {
+    let screenIsActive = true;
+
+    async function loadAutomation() {
+      if (!storeId) {
+        setLoadingAutomation(false);
+        return;
+      }
+
+      try {
+        setLoadingAutomation(true);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError) {
+          throw new Error(
+            userError.message
+          );
+        }
+
+        if (!user) {
+          throw new Error(
+            "You must be signed in to load an automation."
+          );
+        }
+
+        const response = await fetch(
+          `${API_BASE}/automations/store/${encodeURIComponent(
+            storeId
+          )}?userId=${encodeURIComponent(
+            user.id
+          )}`
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any;
+
+        try {
+          data = JSON.parse(
+            responseText
+          );
+        } catch {
+          throw new Error(
+            `Backend returned ${response.status}: ${responseText.slice(
+              0,
+              150
+            )}`
+          );
+        }
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          throw new Error(
+            data.details ||
+              data.error ||
+              "Unable to load the saved automation."
+          );
+        }
+
+        const automation =
+          Array.isArray(
+            data.automations
+          ) &&
+          data.automations.length > 0
+            ? data.automations[0]
+            : null;
+
+        if (
+          !automation ||
+          !screenIsActive
+        ) {
+          return;
+        }
+
+        setAutomationId(
+        String(automation.id)
+        );
+
+        setEnabled(
+          Boolean(
+            automation.enabled
+          )
+        );
+
+        if (
+          automation.frequency === "daily" ||
+          automation.frequency === "weekdays" ||
+          automation.frequency === "weekly" ||
+          automation.frequency === "one_time"
+          )
+          {
+          setFrequency(
+            automation.frequency
+          );
+        }
+
+        const savedPostingTime =
+          String(
+            automation.posting_time ||
+              automation.postingTime ||
+              "09:00"
+          );
+
+        setPostingTime(
+          savedPostingTime.slice(
+            0,
+            5
+          )
+        );
+
+        const savedStartDate =
+  automation.start_date ??
+  automation.startDate;
+
+if (savedStartDate) {
+  setStartDate(
+    String(savedStartDate).slice(
+      0,
+      10
+    )
+  );
+}
+
+        if (
+          Array.isArray(
+            automation.platforms
+          )
+        ) {
+          setSelectedPlatforms(
+            automation.platforms
+          );
+        }
+
+        const savedFacebookPageId =
+          automation.facebook_page_id ??
+          automation.facebookPageId ??
+          automation.page_id ??
+          automation.pageId ??
+          "";
+
+        setSelectedFacebookPageId(
+          String(savedFacebookPageId)
+        );
+
+        const savedSelectionMode =
+          automation.selection_mode ||
+          automation.selectionMode;
+
+        if (
+          savedSelectionMode ===
+            "never_posted_first" ||
+          savedSelectionMode ===
+            "least_recently_posted" ||
+          savedSelectionMode ===
+            "random"
+        ) {
+          setSelectionMode(
+            savedSelectionMode
+          );
+        }
+
+        const savedRepeatDelay =
+          automation.repeat_delay_days ??
+          automation.repeatDelayDays;
+
+        if (
+          savedRepeatDelay !==
+            undefined &&
+          savedRepeatDelay !== null
+        ) {
+          setRepeatDelayDays(
+            String(
+              savedRepeatDelay
+            )
+          );
+        }
+      } catch (error: any) {
+        console.log(
+          "Store automation load failed:",
+          error
+        );
+
+        if (screenIsActive) {
+          Alert.alert(
+            "Load Failed",
+            error?.message ||
+              "ArtBoost could not load the saved automation."
+          );
+        }
+      } finally {
+        if (screenIsActive) {
+          setLoadingAutomation(
+            false
+          );
+        }
+      }
+    }
+
+    loadAutomation();
+
+    return () => {
+      screenIsActive = false;
+    };
+  }, [storeId]);
+
+
+  useEffect(() => {
+    let screenIsActive = true;
+
+    async function loadFacebookPages() {
+      if (
+        !selectedPlatforms.includes(
+          "facebook"
+        )
+      ) {
+        if (screenIsActive) {
+          setFacebookPages([]);
+          setFacebookPagesError("");
+        }
+
+        return;
+      }
+
+      try {
+        setLoadingFacebookPages(true);
+        setFacebookPagesError("");
+
+        const response = await fetch(
+          `${API_BASE}/facebook/pages`
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any;
+
+        try {
+          data = JSON.parse(
+            responseText
+          );
+        } catch {
+          throw new Error(
+            `Backend returned ${response.status}: ${responseText.slice(
+              0,
+              150
+            )}`
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              "Unable to load Facebook Pages."
+          );
+        }
+
+        const pages: FacebookPage[] =
+          Array.isArray(data.data)
+            ? data.data
+                .filter(
+                  (page: any) =>
+                    page?.id &&
+                    page?.name
+                )
+                .map(
+                  (page: any) => ({
+                    id: String(
+                      page.id
+                    ),
+                    name: String(
+                      page.name
+                    ),
+                  })
+                )
+            : [];
+
+        if (!screenIsActive) {
+          return;
+        }
+
+        setFacebookPages(pages);
+
+        setSelectedFacebookPageId(
+          (current) => {
+            if (
+              current &&
+              pages.some(
+                (page) =>
+                  page.id === current
+              )
+            ) {
+              return current;
+            }
+
+            if (pages.length === 1) {
+              return pages[0].id;
+            }
+
+            return "";
+          }
+        );
+      } catch (error: any) {
+        console.log(
+          "Facebook Pages load failed:",
+          error
+        );
+
+        if (screenIsActive) {
+          setFacebookPages([]);
+          setFacebookPagesError(
+            error?.message ||
+              "ArtBoost could not load your Facebook Pages."
+          );
+        }
+      } finally {
+        if (screenIsActive) {
+          setLoadingFacebookPages(
+            false
+          );
+        }
+      }
+    }
+
+    loadFacebookPages();
+
+    return () => {
+      screenIsActive = false;
+    };
+  }, [selectedPlatforms]);
+
+    async function loadProductPreview() {
+    if (!storeId) {
+      return;
+    }
+
+    try {
+      setLoadingPreview(true);
+      setPreviewError("");
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw new Error(
+          userError.message
+        );
+      }
+
+      if (!user) {
+        throw new Error(
+          "You must be signed in to preview a product."
+        );
+      }
+
+      const parsedRepeatDelay =
+        Number(repeatDelayDays);
+
+      const response = await fetch(
+        `${API_BASE}/automations/preview`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            storeId,
+            storeType,
+            storeName,
+            selectionMode,
+            repeatDelayDays:
+            parsedRepeatDelay,
+            postingIntervalDays:
+            Number(
+            postingIntervalDays
+            ) || 1,
+        }),
+        }
+      );
+
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(
+          responseText
+        );
+      } catch {
+        throw new Error(
+          `Backend returned ${response.status}: ${responseText.slice(
+            0,
+            150
+          )}`
+        );
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.details ||
+            data.error ||
+            "Unable to load the next product."
+        );
+      }
+
+      setPreviewProduct(
+        data.product || null
+      );
+    } catch (error: any) {
+      console.log(
+        "Product preview failed:",
+        error
+      );
+
+      setPreviewProduct(null);
+
+      setPreviewError(
+        error?.message ||
+          "ArtBoost could not preview the next product."
+      );
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+    const previewProductTitle =
+    previewProduct?.title ||
+    previewProduct?.name ||
+    previewProduct?.product_title ||
+    "Untitled Product";
+
+  const previewProductPrice =
+    previewProduct?.price ??
+    previewProduct?.product_price ??
+    previewProduct?.variants?.[0]
+      ?.price ??
+    null;
+
+  const previewProductImage =
+    previewProduct?.image_url ||
+    previewProduct?.imageUrl ||
+    previewProduct?.featured_image ||
+    previewProduct?.image ||
+    previewProduct?.images?.[0]?.src ||
+    previewProduct?.images?.[0] ||
+    null;
+
+  const previewPostingStatus =
+    previewProduct?.last_posted_at
+      ? `Last posted ${new Date(
+          previewProduct.last_posted_at
+        ).toLocaleDateString()}`
+      : "Never posted";
 
   const nextRunText = useMemo(() => {
     if (!enabled) {
@@ -337,11 +960,13 @@ export default function StoreAutomationScreen() {
     }
 
     const frequencyLabel =
-      frequency === "daily"
-        ? "Tomorrow"
-        : frequency === "weekdays"
-          ? "Next weekday"
-          : "Next week";
+  frequency === "daily"
+    ? "Tomorrow"
+    : frequency === "weekdays"
+    ? "Next weekday"
+    : frequency === "weekly"
+    ? "Next week"
+    : "Scheduled";
 
     return `${frequencyLabel} at ${displayTime(
       postingTime
@@ -412,6 +1037,193 @@ export default function StoreAutomationScreen() {
     );
   }
 
+  async function postNow() {
+  if (!automationId) {
+    Alert.alert(
+      "Automation Not Loaded",
+      "Please save or reload the automation first."
+    );
+    return;
+  }
+
+  try {
+    setPostingNow(true);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      throw new Error(userError.message);
+    }
+
+    if (!user) {
+      throw new Error(
+        "You must be signed in."
+      );
+    }
+
+    const response = await fetch(
+      `${API_BASE}/automations/${automationId}/run`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+        }),
+      }
+    );
+
+    const responseText =
+      await response.text();
+
+    let data: any;
+
+    try {
+      data = JSON.parse(
+        responseText
+      );
+    } catch {
+      throw new Error(
+        `Backend returned ${response.status}: ${responseText}`
+      );
+    }
+
+    if (
+      !response.ok ||
+      !data.success
+    ) {
+      throw new Error(
+        data.details ||
+          data.error ||
+          "Unable to run automation."
+      );
+    }
+
+    Alert.alert(
+      "Success",
+      "Your product has been posted successfully."
+    );
+
+    loadProductPreview();
+  } catch (error: any) {
+    console.log(
+      "Manual automation failed:",
+      error
+    );
+
+    Alert.alert(
+      "Post Failed",
+      error?.message ||
+        "Unable to post this product."
+    );
+  } finally {
+    setPostingNow(false);
+  }
+}
+
+async function toggleAutomationStatus() {
+  if (!automationId) {
+    return;
+  }
+
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      throw new Error(
+        userError.message
+      );
+    }
+
+    if (!user) {
+      throw new Error(
+        "You must be signed in."
+      );
+    }
+
+    const endpoint = enabled
+      ? "disable"
+      : "resume";
+
+    const method = enabled
+      ? "PATCH"
+      : "POST";
+
+    const response = await fetch(
+      `${API_BASE}/automations/${automationId}/${endpoint}`,
+      {
+        method,
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+        }),
+      }
+    );
+
+    const responseText =
+  await response.text();
+
+let data: any;
+
+try {
+  data = JSON.parse(
+    responseText
+  );
+} catch {
+  throw new Error(
+    `Backend returned ${response.status}: ${responseText.slice(
+      0,
+      150
+    )}`
+  );
+}
+
+if (
+  !response.ok ||
+  !data.success
+) {
+  throw new Error(
+    data.details ||
+      data.error ||
+      "Unable to update automation."
+  );
+}
+
+const newEnabledStatus =
+  Boolean(
+    data.automation?.enabled
+  );
+
+setEnabled(
+  newEnabledStatus
+);
+
+Alert.alert(
+  "Success",
+  newEnabledStatus
+    ? "Promotion has been resumed."
+    : "Promotion has been paused."
+);
+  } catch (error: any) {
+    Alert.alert(
+      "Update Failed",
+      error?.message ||
+        "Unable to update automation."
+    );
+  }
+}
+
   async function saveAutomation() {
   if (!storeId) {
     Alert.alert(
@@ -429,6 +1241,21 @@ export default function StoreAutomationScreen() {
     Alert.alert(
       "Select Platforms",
       "Choose at least one social platform before enabling automation."
+    );
+
+    return;
+  }
+
+  if (
+    enabled &&
+    selectedPlatforms.includes(
+      "facebook"
+    ) &&
+    !selectedFacebookPageId
+  ) {
+    Alert.alert(
+      "Select Facebook Page",
+      "Choose which Facebook Page ArtBoost should use before saving the automation."
     );
 
     return;
@@ -493,8 +1320,12 @@ export default function StoreAutomationScreen() {
           enabled,
           frequency,
           postingTime: `${postingTime}:00`,
+          startDate,
           timezone,
           platforms: selectedPlatforms,
+          facebookPageId:
+            selectedFacebookPageId ||
+            null,
           selectionMode,
           repeatDelayDays:
             parsedRepeatDelay,
@@ -564,11 +1395,21 @@ try {
       >
         <View style={styles.header}>
           <Pressable
-            style={styles.backButton}
-            onPress={() =>
-              router.back()
-            }
-          >
+  style={styles.backButton}
+  onPress={() =>
+    router.replace({
+      pathname:
+        "/store-dashboard" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+        productCount:
+          String(productCount),
+      },
+    })
+  }
+>
             <Ionicons
               name="arrow-back"
               size={24}
@@ -710,20 +1551,29 @@ try {
               </View>
 
               <Switch
-                value={enabled}
-                onValueChange={
-                  setEnabled
-                }
-                trackColor={{
-                  false: "#353535",
-                  true: "#6547b5",
-                }}
-                thumbColor={
-                  enabled
-                    ? "#ffffff"
-                    : "#b1b1b1"
-                }
-              />
+  value={enabled}
+  onValueChange={(value) => {
+    if (automationId) {
+      Alert.alert(
+        "Use Pause or Resume",
+        "Use the Pause Promotion or Resume Promotion button below to change an existing promotion."
+      );
+
+      return;
+    }
+
+    setEnabled(value);
+  }}
+  trackColor={{
+    false: "#353535",
+    true: "#6547b5",
+  }}
+  thumbColor={
+    enabled
+      ? "#ffffff"
+      : "#b1b1b1"
+  }
+/>
             </View>
 
             <View
@@ -852,58 +1702,229 @@ try {
               )}
             </View>
 
-            <Text
-              style={styles.fieldLabel}
-            >
-              Posting Time
-            </Text>
+            <Text style={styles.fieldLabel}>
+  Start Date
+</Text>
 
-            <View
-              style={styles.inputRow}
-            >
-              <View
-                style={styles.inputIcon}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={21}
-                  color="#a78bfa"
-                />
-              </View>
+<Pressable
+  style={styles.inputRow}
+  onPress={() => setShowDatePicker(true)}
+>
+  <View style={styles.inputIcon}>
+    <Ionicons
+      name="calendar-outline"
+      size={21}
+      color="#a78bfa"
+    />
+  </View>
 
-              <TextInput
-                value={postingTime}
-                onChangeText={(value) =>
-                  setPostingTime(
-                    normalizeTimeInput(
-                      value
-                    )
-                  )
-                }
-                placeholder="09:00"
-                placeholderTextColor="#666666"
-                keyboardType="number-pad"
-                maxLength={5}
-                style={styles.textInput}
-              />
+  <Text style={styles.pickerValue}>
+    {formatDateForDisplay(startDate)}
+  </Text>
 
-              <Text
-                style={
-                  styles.inputHint
-                }
-              >
-                {displayTime(
-                  postingTime
-                )}
-              </Text>
-            </View>
+  <Ionicons
+    name="chevron-down"
+    size={18}
+    color="#777777"
+  />
+</Pressable>
 
-            <Text
-              style={styles.fieldHelp}
-            >
-              Enter time in 24-hour
-              format.
-            </Text>
+{showDatePicker ? (
+  <DateTimePicker
+    value={startDateToDate(startDate)}
+    mode="date"
+    display={
+      Platform.OS === "ios"
+        ? "spinner"
+        : "default"
+    }
+    minimumDate={new Date()}
+    onChange={(event, selectedDate) => {
+      setShowDatePicker(false);
+
+      if (
+        event.type === "dismissed" ||
+        !selectedDate
+      ) {
+        return;
+      }
+
+      setStartDate(
+        formatDateForStorage(
+          selectedDate
+        )
+      );
+    }}
+  />
+) : null}
+
+<Text style={styles.fieldLabel}>
+  Posting Time
+</Text>
+
+<Pressable
+  style={styles.inputRow}
+  onPress={() => setShowTimePicker(true)}
+>
+  <View style={styles.inputIcon}>
+    <Ionicons
+      name="time-outline"
+      size={21}
+      color="#a78bfa"
+    />
+  </View>
+
+  <Text style={styles.pickerValue}>
+    {displayTime(postingTime)}
+  </Text>
+
+  <Ionicons
+    name="chevron-down"
+    size={18}
+    color="#777777"
+  />
+</Pressable>
+
+{showTimePicker ? (
+  <DateTimePicker
+    value={postingTimeToDate(
+      postingTime
+    )}
+    mode="time"
+    display={
+      Platform.OS === "ios"
+        ? "spinner"
+        : "default"
+    }
+    is24Hour={false}
+    onChange={(event, selectedTime) => {
+      setShowTimePicker(false);
+
+      if (
+        event.type === "dismissed" ||
+        !selectedTime
+      ) {
+        return;
+      }
+
+      const hour = String(
+        selectedTime.getHours()
+      ).padStart(2, "0");
+
+      const minute = String(
+        selectedTime.getMinutes()
+      ).padStart(2, "0");
+
+      setPostingTime(
+        `${hour}:${minute}`
+      );
+    }}
+  />
+) : null}
+
+<Text style={styles.fieldHelp}>
+  Select the first posting date and an AM/PM posting time.
+</Text>
+
+{frequency === "every_x_days" ? (
+  <>
+    <Text style={styles.fieldLabel}>
+      Post Every
+    </Text>
+
+    <View style={styles.counterRow}>
+      <Pressable
+        style={styles.counterButton}
+        onPress={() => {
+          const currentValue =
+            Math.max(
+              Number(
+                postingIntervalDays
+              ) || 1,
+              1
+            );
+
+          setPostingIntervalDays(
+            String(
+              Math.max(
+                currentValue - 1,
+                1
+              )
+            )
+          );
+        }}
+      >
+        <Ionicons
+          name="remove"
+          size={23}
+          color="#ffffff"
+        />
+      </Pressable>
+
+      <View
+        style={
+          styles.counterInputWrap
+        }
+      >
+        <TextInput
+          value={
+            postingIntervalDays
+          }
+          onChangeText={(value) =>
+            setPostingIntervalDays(
+              value.replace(
+                /\D/g,
+                ""
+              )
+            )
+          }
+          keyboardType="number-pad"
+          maxLength={3}
+          style={
+            styles.counterInput
+          }
+        />
+
+        <Text
+          style={
+            styles.counterSuffix
+          }
+        >
+          days
+        </Text>
+      </View>
+
+      <Pressable
+        style={styles.counterButton}
+        onPress={() => {
+          const currentValue =
+            Math.max(
+              Number(
+                postingIntervalDays
+              ) || 1,
+              1
+            );
+
+          setPostingIntervalDays(
+            String(
+              currentValue + 1
+            )
+          );
+        }}
+      >
+        <Ionicons
+          name="add"
+          size={23}
+          color="#ffffff"
+        />
+      </Pressable>
+    </View>
+
+    <Text style={styles.fieldHelp}>
+      ArtBoost will publish one product at this interval.
+    </Text>
+  </>
+) : null}
 
             <Text
               style={styles.fieldLabel}
@@ -1057,6 +2078,168 @@ try {
               )}
             </View>
           </View>
+
+          {selectedPlatforms.includes(
+            "facebook"
+          ) ? (
+            <View
+              style={styles.sectionCard}
+            >
+              <Text
+                style={styles.sectionTitle}
+              >
+                Facebook Page
+              </Text>
+
+              <Text
+                style={
+                  styles.sectionDescription
+                }
+              >
+                Choose the Page that should
+                receive automated product
+                posts.
+              </Text>
+
+              {loadingFacebookPages ? (
+                <View
+                  style={
+                    styles.facebookPageState
+                  }
+                >
+                  <Ionicons
+                    name="hourglass-outline"
+                    size={21}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageStateText
+                    }
+                  >
+                    Loading Facebook Pages...
+                  </Text>
+                </View>
+              ) : facebookPagesError ? (
+                <View
+                  style={
+                    styles.facebookPageError
+                  }
+                >
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={21}
+                    color="#fca5a5"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageErrorText
+                    }
+                  >
+                    {facebookPagesError}
+                  </Text>
+                </View>
+              ) : facebookPages.length >
+                0 ? (
+                <View
+                  style={
+                    styles.optionStack
+                  }
+                >
+                  {facebookPages.map(
+                    (page) => {
+                      const selected =
+                        selectedFacebookPageId ===
+                        page.id;
+
+                      return (
+                        <Pressable
+                          key={page.id}
+                          style={[
+                            styles.facebookPageCard,
+                            selected &&
+                              styles.facebookPageCardSelected,
+                          ]}
+                          onPress={() =>
+                            setSelectedFacebookPageId(
+                              page.id
+                            )
+                          }
+                        >
+                          <View
+                            style={[
+                              styles.radioOuter,
+                              selected &&
+                                styles.radioOuterSelected,
+                            ]}
+                          >
+                            {selected ? (
+                              <View
+                                style={
+                                  styles.radioInner
+                                }
+                              />
+                            ) : null}
+                          </View>
+
+                          <View
+                            style={
+                              styles.facebookPageIcon
+                            }
+                          >
+                            <Ionicons
+                              name="logo-facebook"
+                              size={22}
+                              color={
+                                selected
+                                  ? "#ffffff"
+                                  : "#a78bfa"
+                              }
+                            />
+                          </View>
+
+                          <Text
+                            style={[
+                              styles.facebookPageName,
+                              selected &&
+                                styles.facebookPageNameSelected,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {page.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    }
+                  )}
+                </View>
+              ) : (
+                <View
+                  style={
+                    styles.facebookPageError
+                  }
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={21}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageStateText
+                    }
+                  >
+                    No Facebook Pages were
+                    found for the connected
+                    account.
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : null}
 
           <View
             style={styles.sectionCard}
@@ -1307,28 +2490,199 @@ try {
               </Text>
             </View>
 
-            <View
+                        <View
               style={
-                styles.previewRow
+                styles.productPreviewBox
               }
             >
-              <Text
+              <View
                 style={
-                  styles.previewLabel
+                  styles.productPreviewHeader
                 }
               >
-                Next Product
-              </Text>
+                <Text
+                  style={
+                    styles.previewLabel
+                  }
+                >
+                  Next Product
+                </Text>
 
-              <Text
-                style={
-                  styles.previewValue
-                }
-              >
-                Selected automatically
-              </Text>
+                <Pressable
+                  onPress={
+                    loadProductPreview
+                  }
+                  disabled={
+                    loadingPreview
+                  }
+                  style={
+                    styles.refreshPreviewButton
+                  }
+                >
+                  <Ionicons
+                    name="refresh"
+                    size={16}
+                    color="#c4b5fd"
+                  />
+
+                  <Text
+                    style={
+                      styles.refreshPreviewText
+                    }
+                  >
+                    {loadingPreview
+                      ? "Loading"
+                      : "Refresh"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {loadingPreview ? (
+                <View
+                  style={
+                    styles.previewProductState
+                  }
+                >
+                  <Ionicons
+                    name="hourglass-outline"
+                    size={22}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.previewProductStateText
+                    }
+                  >
+                    Finding the next eligible product...
+                  </Text>
+                </View>
+              ) : previewError ? (
+                <View
+                  style={
+                    styles.previewProductState
+                  }
+                >
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={22}
+                    color="#fca5a5"
+                  />
+
+                  <Text
+                    style={
+                      styles.previewErrorText
+                    }
+                  >
+                    {previewError}
+                  </Text>
+                </View>
+                            ) : previewProduct ? (
+                <View
+                  style={
+                    styles.previewProductRow
+                  }
+                >
+                  {previewProductImage ? (
+                    <Image
+                      source={{
+                        uri: previewProductImage,
+                      }}
+                      style={
+                        styles.previewProductImage
+                      }
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={
+                        styles.previewImagePlaceholder
+                      }
+                    >
+                      <Ionicons
+                        name="image-outline"
+                        size={26}
+                        color="#8b5cf6"
+                      />
+                    </View>
+                  )}
+
+                  <View
+                    style={
+                      styles.previewProductInfo
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.previewProductTitle
+                      }
+                      numberOfLines={3}
+                    >
+                      {previewProductTitle}
+                    </Text>
+
+                    {previewProductPrice !==
+                    null ? (
+                      <Text
+                        style={
+                          styles.previewProductPrice
+                        }
+                      >
+                        $
+                        {Number(
+                          previewProductPrice
+                        ).toFixed(2)}
+                      </Text>
+                    ) : null}
+
+                    <View
+                      style={
+                        styles.previewProductMetaRow
+                      }
+                    >
+                      <Ionicons
+                        name={
+                          previewProduct?.last_posted_at
+                            ? "time-outline"
+                            : "sparkles-outline"
+                        }
+                        size={15}
+                        color="#a78bfa"
+                      />
+
+                      <Text
+                        style={
+                          styles.previewProductMeta
+                        }
+                      >
+                        {previewPostingStatus}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View
+                  style={
+                    styles.previewProductState
+                  }
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={22}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.previewProductStateText
+                    }
+                  >
+                    No eligible product is currently available.
+                  </Text>
+                </View>
+              )}
             </View>
-
+  
             <View
               style={
                 styles.previewRow
@@ -1402,13 +2756,73 @@ try {
           </View>
 
           <Pressable
+  style={[
+    styles.saveButton,
+    postingNow &&
+      styles.saveButtonDisabled,
+  ]}
+  onPress={postNow}
+  disabled={
+    postingNow ||
+    !automationId
+  }
+>
+  <Ionicons
+    name="send"
+    size={22}
+    color="#ffffff"
+  />
+
+  <Text
+    style={styles.saveButtonText}
+  >
+    {postingNow
+      ? "Posting..."
+      : "Post Now"}
+  </Text>
+</Pressable>
+
+<View style={{ height: 14 }} />
+
+<Pressable
+  style={styles.saveButton}
+  onPress={
+    toggleAutomationStatus
+  }
+  disabled={!automationId}
+>
+  <Ionicons
+    name={
+      enabled
+        ? "pause"
+        : "play"
+    }
+    size={22}
+    color="#ffffff"
+  />
+
+  <Text
+    style={styles.saveButtonText}
+  >
+    {enabled
+      ? "Pause Promotion"
+      : "Resume Promotion"}
+  </Text>
+</Pressable>
+
+<View style={{ height: 14 }} />
+
+          <Pressable
             style={[
               styles.saveButton,
               saving &&
                 styles.saveButtonDisabled,
             ]}
-            onPress={saveAutomation}
-            disabled={saving}
+                        onPress={saveAutomation}
+            disabled={
+              saving ||
+              loadingAutomation
+            }
           >
             <Ionicons
               name={
@@ -1425,9 +2839,11 @@ try {
                 styles.saveButtonText
               }
             >
-              {saving
-                ? "Saving..."
-                : "Save Automation"}
+                            {loadingAutomation
+                ? "Loading..."
+                : saving
+                  ? "Saving..."
+                  : "Save Automation"}
             </Text>
           </Pressable>
 
@@ -1745,6 +3161,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
+  pickerValue: {
+  flex: 1,
+  color: "#ffffff",
+  fontSize: 15,
+  fontWeight: "900",
+},
+
   readOnlyRow: {
     minHeight: 54,
     borderRadius: 16,
@@ -1853,6 +3276,85 @@ const styles = StyleSheet.create({
     color: "#777777",
     fontSize: 8,
     fontWeight: "900",
+  },
+
+  facebookPageState: {
+    minHeight: 54,
+    marginTop: 16,
+    borderRadius: 16,
+    backgroundColor: "#202020",
+    borderWidth: 1,
+    borderColor: "#303030",
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  facebookPageStateText: {
+    flex: 1,
+    color: "#b9afc7",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  facebookPageError: {
+    minHeight: 54,
+    marginTop: 16,
+    borderRadius: 16,
+    backgroundColor: "#202020",
+    borderWidth: 1,
+    borderColor: "#4a3030",
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  facebookPageErrorText: {
+    flex: 1,
+    color: "#fca5a5",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  facebookPageCard: {
+    minHeight: 62,
+    borderRadius: 16,
+    backgroundColor: "#202020",
+    borderWidth: 1,
+    borderColor: "#303030",
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  facebookPageCardSelected: {
+    backgroundColor: "#241b3b",
+    borderColor: "#6649a8",
+  },
+
+  facebookPageIcon: {
+    width: 38,
+    height: 38,
+    marginLeft: 11,
+    marginRight: 10,
+    borderRadius: 13,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  facebookPageName: {
+    flex: 1,
+    color: "#d0d0d0",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+
+  facebookPageNameSelected: {
+    color: "#ffffff",
   },
 
   counterRow: {
@@ -1968,6 +3470,114 @@ const styles = StyleSheet.create({
 
   previewValueActive: {
     color: "#c4b5fd",
+  },
+
+    productPreviewBox: {
+    borderRadius: 16,
+    backgroundColor: "#241b3b",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    padding: 14,
+    marginBottom: 8,
+  },
+
+  productPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent:
+      "space-between",
+    marginBottom: 12,
+  },
+
+  refreshPreviewButton: {
+    minHeight: 32,
+    borderRadius: 11,
+    backgroundColor: "#2b2145",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  refreshPreviewText: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  previewProductRow: {
+  flexDirection: "row",
+  alignItems: "flex-start",
+},
+
+previewProductImage: {
+  width: 78,
+  height: 78,
+  borderRadius: 12,
+  backgroundColor: "#1a1a1a",
+  marginRight: 12,
+},
+
+previewImagePlaceholder: {
+  width: 78,
+  height: 78,
+  borderRadius: 12,
+  backgroundColor: "#2b2145",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 12,
+},
+
+previewProductInfo: {
+  flex: 1,
+},
+
+  previewProductTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+
+  previewProductPrice: {
+    color: "#c4b5fd",
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 7,
+  },
+
+  previewProductMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 10,
+  },
+
+  previewProductMeta: {
+    color: "#a99dbb",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  previewProductState: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  previewProductStateText: {
+    flex: 1,
+    color: "#b9afc7",
+    fontSize: 11,
+    lineHeight: 17,
+  },
+
+  previewErrorText: {
+    flex: 1,
+    color: "#fca5a5",
+    fontSize: 11,
+    lineHeight: 17,
   },
 
   previewNotice: {

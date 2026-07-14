@@ -69,7 +69,7 @@ const storePlatforms: PlatformItem[] = [
     name: "Etsy",
     description: "Import Etsy shop listings and product information.",
     premium: true,
-    available: false,
+    available: true,
     connectionType: "Live Sync",
   },
   {
@@ -168,7 +168,29 @@ export default function ConnectionsScreen() {
         `${BACKEND_URL}/pinterest/status`
       );
 
-      const data = await response.json();
+      const responseText =
+  await response.text();
+
+console.log(
+  "Resume response:",
+  response.status,
+  responseText
+);
+
+let data: any;
+
+try {
+  data = JSON.parse(
+    responseText
+  );
+} catch {
+  throw new Error(
+    `Backend returned ${response.status}: ${responseText.slice(
+      0,
+      200
+    )}`
+  );
+}
 
       await updateStoredConnection(
         "Pinterest",
@@ -453,6 +475,42 @@ if (
   });
 };
 
+const connectEtsy = async () => {
+  try {
+    const { data: sessionData } =
+      await supabase.auth.getSession();
+
+    const userId =
+      sessionData.session?.user?.id;
+
+    if (!userId) {
+      Alert.alert(
+        "Login Required",
+        "Please log in before connecting Etsy."
+      );
+
+      return;
+    }
+
+    await Linking.openURL(
+      `${BACKEND_URL}/auth/etsy?userId=${encodeURIComponent(
+        userId
+      )}`
+    );
+
+    Alert.alert(
+      "Etsy Login Opened",
+      "Complete the Etsy authorization, return to ArtBoost, and refresh the connection status."
+    );
+  } catch (error: any) {
+    Alert.alert(
+      "Etsy Connection Failed",
+      error?.message ||
+        "Unable to open Etsy."
+    );
+  }
+};
+
   const connectPlatform = async (
     platform: string
   ) => {
@@ -470,6 +528,11 @@ if (
       await connectShopify();
       return;
     }
+
+    if (platform === "Etsy") {
+  await connectEtsy();
+  return;
+}
 
     if (
       platform === "Instagram" ||

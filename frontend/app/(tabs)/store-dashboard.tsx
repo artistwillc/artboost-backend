@@ -218,15 +218,23 @@ export default function StoreDashboardScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
         <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color="#ffffff"
-          />
-        </Pressable>
+  style={styles.backButton}
+  onPress={() =>
+  router.navigate({
+    pathname:
+      "/connections" as any,
+    params: {
+      section: "stores",
+    },
+  })
+}
+>
+  <Ionicons
+    name="arrow-back"
+    size={24}
+    color="#ffffff"
+  />
+</Pressable>
 
         <View style={styles.headerTextWrap}>
           <Text style={styles.eyebrow}>
@@ -397,30 +405,40 @@ export default function StoreDashboardScreen() {
         />
 
         <DashboardAction
-  icon="flash-outline"
-  title="Store Automation"
-  description="Automatically promote a different store product on your selected schedule."
+  icon="megaphone-outline"
+  title="Grow My Business"
+  description="Automatically promote your store products on Facebook, Instagram, Pinterest, and more."
   onPress={() =>
     router.push({
-      pathname: "/store-automation" as any,
+      pathname:
+        "/store-automation" as any,
       params: {
         storeId,
         storeName,
         storeType,
-        productCount: String(productCount),
+        productCount:
+          String(productCount),
       },
     })
   }
 />
 
-        <DashboardAction
-          icon="calendar-outline"
-          title="Scheduled Posts"
-          description="Review promotions scheduled for this store."
-          onPress={() =>
-            router.push("/scheduled" as any)
-          }
-        />
+<DashboardAction
+  icon="calendar-outline"
+  title="Scheduled Promotions"
+  description="Review, run, pause, and manage your scheduled store promotions."
+  onPress={() =>
+    router.push({
+      pathname:
+        "/schedule" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    })
+  }
+/>
 
         <DashboardAction
           icon="analytics-outline"
