@@ -4,6 +4,7 @@ import {
   createOrUpdateAutomation,
   disableAutomation,
   getAutomationById,
+  resumeAutomation,
 } from "../services/automationService.js";
 
 import {
@@ -495,7 +496,7 @@ router.patch(
             : null,
         });
 
-      return res.json({
+        return res.json({
         success: true,
         automation,
       });
@@ -510,6 +511,49 @@ router.patch(
         error:
           "Unable to disable automation.",
         details: error.message,
+      });
+    }
+  }
+);
+
+/*
+ * POST /automations/:automationId/resume
+ *
+ * Resumes an existing automation.
+ */
+router.post(
+  "/:automationId/resume",
+  async (req, res) => {
+    try {
+      const {
+        automationId,
+      } = req.params;
+
+      const {
+        userId,
+      } = req.body;
+
+      const automation =
+        await resumeAutomation({
+          automationId,
+          userId,
+        });
+
+      return res.json({
+        success: true,
+        automation,
+      });
+    } catch (error) {
+      console.error(
+        "Resume automation error:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+        error:
+          error.message ||
+          "Unable to resume automation.",
       });
     }
   }

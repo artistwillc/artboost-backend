@@ -6,6 +6,7 @@ import {
 } from "./productService.js";
 
 const VALID_FREQUENCIES = new Set([
+  "one_time",
   "daily",
   "weekdays",
   "weekly",
@@ -224,6 +225,9 @@ function isWeekdayName(weekday) {
 /*
  * Calculates the next scheduled run in the
  * automation's configured timezone.
+ *
+ * Initial scheduling may begin on startDate.
+ * Later runs calculate forward from fromDate.
  */
 export function calculateNextRun({
   frequency = "daily",
@@ -231,6 +235,7 @@ export function calculateNextRun({
   startDate = null,
   timezone = "America/Chicago",
   fromDate = new Date(),
+  initialSchedule = false,
 }) {
   const normalizedFrequency =
     VALID_FREQUENCIES.has(frequency)
@@ -243,18 +248,80 @@ export function calculateNextRun({
     second,
   } = parsePostingTime(postingTime);
 
-  let localDateParts = getTimeZoneParts(
-    fromDate,
-    timezone
-  );
+  const now =
+    fromDate instanceof Date
+      ? fromDate
+      : new Date(fromDate);
+
+  if (Number.isNaN(now.getTime())) {
+    throw new Error(
+      "Invalid scheduling reference date."
+    );
+  }
+
+  let searchDate = now;
 
   /*
-   * Search up to eight calendar days ahead. This
-   * supports daily, weekdays, and weekly schedules.
+   * When first creating or enabling an automation,
+   * begin searching from the selected start date.
+   */
+  if (
+    initialSchedule &&
+    startDate
+  ) {
+    const startDateMatch =
+      String(startDate).match(
+        /^(\d{4})-(\d{2})-(\d{2})$/
+      );
+
+    if (!startDateMatch) {
+      throw new Error(
+        "Start date must use YYYY-MM-DD format."
+      );
+    }
+
+    const selectedStartDate =
+      zonedDateTimeToUtc({
+        year: Number(
+          startDateMatch[1]
+        ),
+        month: Number(
+          startDateMatch[2]
+        ),
+        day: Number(
+          startDateMatch[3]
+        ),
+        hour: 0,
+        minute: 0,
+        second: 0,
+        timezone,
+      });
+
+    /*
+     * Never schedule in the past.
+     */
+    if (
+      selectedStartDate >
+      searchDate
+    ) {
+      searchDate =
+        selectedStartDate;
+    }
+  }
+
+  const localDateParts =
+    getTimeZoneParts(
+      searchDate,
+      timezone
+    );
+
+  /*
+   * Weekly schedules may need up to seven days.
+   * Weekday schedules may need to skip a weekend.
    */
   for (
     let dayOffset = 0;
-    dayOffset <= 8;
+    dayOffset <= 14;
     dayOffset += 1
   ) {
     const candidateCalendarDate =
@@ -265,15 +332,16 @@ export function calculateNextRun({
         days: dayOffset,
       });
 
-    const candidate = zonedDateTimeToUtc({
-      ...candidateCalendarDate,
-      hour,
-      minute,
-      second,
-      timezone,
-    });
+    const candidate =
+      zonedDateTimeToUtc({
+        ...candidateCalendarDate,
+        hour,
+        minute,
+        second,
+        timezone,
+      });
 
-    if (candidate <= fromDate) {
+    if (candidate <= now) {
       continue;
     }
 
@@ -294,17 +362,26 @@ export function calculateNextRun({
     }
 
     if (
-      normalizedFrequency === "weekly"
+  normalizedFrequency ===
+    "one_time"
+) {
+  return candidate.toISOString();
+}
+
+    /*
+     * When calculating after an existing run,
+     * weekly schedules advance by seven days.
+     *
+     * When initially scheduling, the selected
+     * start date may be used immediately.
+     */
+    if (
+      normalizedFrequency ===
+        "weekly" &&
+      !initialSchedule &&
+      dayOffset < 7
     ) {
-      /*
-       * The first version keeps a weekly automation
-       * on the same local weekday as the previous run.
-       * If no previous run exists, it uses today or
-       * the next available occurrence.
-       */
-      if (dayOffset < 7) {
-        continue;
-      }
+      continue;
     }
 
     return candidate.toISOString();
@@ -493,11 +570,10 @@ export async function createOrUpdateAutomation({
     ? calculateNextRun({
         frequency,
         postingTime,
+        startDate,
         timezone,
-        fromDate:
-          startDate
-            ? new Date(`${startDate}T00:00:00`)
-            : new Date(),
+        fromDate: new Date(),
+        initialSchedule: true,
       })
     : null;
 
@@ -613,6 +689,82 @@ export async function disableAutomation({
     );
   }
 
+  export async function resumeAutomation({
+  automationId,
+  userId,
+}) {
+  if (!automationId) {
+    throw new Error(
+      "Missing automationId."
+    );
+  }
+
+  if (!userId) {
+    throw new Error(
+      "Missing userId."
+    );
+  }
+
+  const automation =
+    await getAutomationById({
+      automationId,
+      userId,
+    });
+
+  if (!automation) {
+    throw new Error(
+      "Automation not found."
+    );
+  }
+
+  if (
+    automation.frequency ===
+    "one_time"
+  ) {
+    throw new Error(
+      "Completed one-time promotions cannot be resumed."
+    );
+  }
+
+  const nextRunAt =
+    calculateNextRun({
+      frequency:
+        automation.frequency,
+      postingTime:
+        automation.postingTime,
+      timezone:
+        automation.timezone,
+      fromDate:
+        new Date(),
+    });
+
+  const { data, error } =
+    await supabase
+      .from("store_automations")
+      .update({
+        enabled: true,
+        disabled_reason: null,
+        next_run_at: nextRunAt,
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq("id", automationId)
+      .eq("user_id", userId)
+      .select()
+      .single();
+
+  if (error) {
+    throw new Error(
+      error.message ||
+        "Unable to resume automation."
+    );
+  }
+
+  return normalizeAutomation(
+    data
+  );
+}
+
   const {
     data,
     error,
@@ -679,22 +831,43 @@ export async function runAutomation({
     const message =
       "No social platforms are selected.";
 
-    const nextRunAt =
-      calculateNextRun({
-        frequency:
-          automation.frequency,
-        postingTime:
-          automation.postingTime,
-        timezone:
-          automation.timezone,
-        fromDate: new Date(),
-      });
+    let nextRunAt = null;
+
+if (
+  automation.frequency !==
+  "one_time"
+) {
+  nextRunAt =
+    calculateNextRun({
+      frequency:
+        automation.frequency,
+      postingTime:
+        automation.postingTime,
+      timezone:
+        automation.timezone,
+      fromDate:
+        new Date(),
+    });
+}
 
     await updateAutomationRun({
       automationId: automation.id,
       nextRunAt,
       lastError: message,
     });
+
+    if (
+  automation.frequency ===
+  "one_time"
+) {
+  await disableAutomation({
+    automationId:
+      automation.id,
+    userId:
+      automation.userId,
+    reason: null,
+  });
+}
 
     return {
       success: false,
@@ -743,6 +916,19 @@ export async function runAutomation({
         nextRunAt,
         lastError: message,
       });
+
+      if (
+  automation.frequency ===
+  "one_time"
+) {
+  await disableAutomation({
+    automationId:
+      automation.id,
+    userId:
+      automation.userId,
+    reason: null,
+  });
+}
 
     return {
       success: false,
