@@ -90,13 +90,66 @@ router.get(
 );
 
 /*
- * GET /automations/:automationId
+ * GET /automations
  *
- * Loads one automation by its ID.
+ * Loads all store automations belonging to one user.
  *
  * Query:
  * userId
  */
+router.get(
+  "/",
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing userId.",
+        });
+      }
+
+      const {
+        data: automationRows,
+        error,
+      } = await supabase
+        .from("store_automations")
+        .select("*")
+        .eq("user_id", String(userId))
+        .order("created_at", {
+          ascending: false,
+        });
+
+      if (error) {
+        throw new Error(
+          `Unable to load automations: ${error.message}`
+        );
+      }
+
+      const automations =
+        automationRows || [];
+
+      return res.json({
+        success: true,
+        total: automations.length,
+        automations,
+      });
+    } catch (error) {
+      console.error(
+        "Automations list error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to load automations.",
+        details: error.message,
+      });
+    }
+  }
+);
 router.get(
   "/:automationId",
   async (req, res) => {
