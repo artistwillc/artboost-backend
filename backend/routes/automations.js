@@ -559,4 +559,121 @@ router.post(
   }
 );
 
+/*
+ * DELETE /automations/bulk-delete
+ *
+ * Deletes selected automations or all automations
+ * belonging to the signed-in user.
+ */
+router.delete(
+  "/bulk-delete",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        automationIds = [],
+        deleteAll = false,
+        storeId = null,
+      } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing userId.",
+        });
+      }
+
+      if (
+        !deleteAll &&
+        (
+          !Array.isArray(
+            automationIds
+          ) ||
+          automationIds.length === 0
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Select at least one scheduled promotion.",
+        });
+      }
+
+      let query = supabase
+        .from("store_automations")
+        .delete()
+        .eq(
+          "user_id",
+          String(userId)
+        );
+
+      /*
+       * Delete only promotions for the
+       * currently displayed store when
+       * a storeId is supplied.
+       */
+      if (storeId) {
+        query = query.eq(
+          "store_id",
+          String(storeId)
+        );
+      }
+
+      /*
+       * When Delete All is false, restrict
+       * deletion to the selected IDs.
+       */
+      if (!deleteAll) {
+        query = query.in(
+          "id",
+          automationIds.map(
+            (id) => String(id)
+          )
+        );
+      }
+
+      const {
+        data,
+        error,
+      } = await query.select("id");
+
+      if (error) {
+        throw new Error(
+          `Unable to delete scheduled promotions: ${error.message}`
+        );
+      }
+
+      const deletedRows =
+        Array.isArray(data)
+          ? data
+          : [];
+
+      return res.json({
+        success: true,
+        deletedCount:
+          deletedRows.length,
+        deletedIds:
+          deletedRows.map(
+            (row) => row.id
+          ),
+      });
+    } catch (error) {
+      console.error(
+        "Scheduled promotion delete error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to delete scheduled promotions.",
+        details:
+          error instanceof Error
+            ? error.message
+            : "Unknown delete error.",
+      });
+    }
+  }
+);
+
 export default router;
