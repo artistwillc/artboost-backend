@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import automationRoutes from "./routes/automations.js";
+import aiRouter from "./routes/ai.js";
 import etsyRoutes from "./routes/etsy.js";
 import redbubbleRoutes from "./routes/redbubble.js";
 
@@ -1213,6 +1214,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/automations", automationRoutes);
+app.use("/ai", aiRouter);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
 app.use("/catalog", catalogRoutes);
