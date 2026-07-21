@@ -147,10 +147,35 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X">(
     return scheduledDate.toISOString();
   };
  
-  const getReadableSchedule = () => {
-    if (!scheduledDate) return "No schedule selected";
-    return scheduledDate.toLocaleString();
-  };
+  const getReadableDate = () => {
+  if (!scheduledDate) {
+    return "Not Selected";
+  }
+
+  return scheduledDate.toLocaleDateString(
+    undefined,
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }
+  );
+};
+
+const getReadableTime = () => {
+  if (!scheduledDate) {
+    return "Not Selected";
+  }
+
+  return scheduledDate.toLocaleTimeString(
+    undefined,
+    {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }
+  );
+};
 const applyRepostPreset = (
   preset: "daily" | "3days" | "weekly" | "monthly"
 ) => {
@@ -1590,7 +1615,7 @@ useFocusEffect(
 <View style={styles.card}>
 
 <Text style={styles.sectionHeader}>
-Social Connections
+Connected Accounts
 </Text>
 
 <View style={styles.queueCard}>
@@ -1663,7 +1688,11 @@ facebookConnectedAt
 <View style={styles.card}>
 
 <Text style={styles.sectionHeader}>
-Choose Platform
+Create Campaign
+</Text>
+
+<Text style={styles.heroText}>
+  Choose where ArtBoost should publish this campaign.
 </Text>
 
 <Pressable
@@ -1747,17 +1776,23 @@ Pinterest
           style={styles.automationCard}
           onPress={postEverywhere}
         >
-          <Text style={styles.automationTitle}>Post Everywhere</Text>
-          <Text style={styles.automationText}>
-            Publish campaigns to multiple connected platforms.
-          </Text>
+          <Text style={styles.automationTitle}>
+  Post Everywhere Now
+</Text>
+
+<Text style={styles.automationText}>
+  Publish this campaign now across all available connected platforms.
+</Text>
         </Pressable>
  
         <Pressable style={styles.automationCard} onPress={saveScheduledCampaign}>
-          <Text style={styles.automationTitle}>Schedule Campaign</Text>
-          <Text style={styles.automationText}>
-            Queue this campaign for backend automated publishing.
-          </Text>
+          <Text style={styles.automationTitle}>
+  Schedule This Platform
+</Text>
+
+<Text style={styles.automationText}>
+  Choose a date and time to publish on the selected platform.
+</Text>
         </Pressable>
 
         <Pressable
@@ -1765,29 +1800,36 @@ Pinterest
   onPress={scheduleEverywhere}
 >
   <Text style={styles.automationTitle}>
-    Schedule Everywhere
-  </Text>
-  <Text style={styles.automationText}>
-    Queue this campaign for Facebook, Instagram, X, and Pinterest when available.
-  </Text>
+  Schedule Everywhere
+</Text>
+
+<Text style={styles.automationText}>
+  Schedule this campaign across all available connected platforms.
+</Text>
 </Pressable>
  
         <Pressable style={styles.automationCard} onPress={generateVariations}>
-          <Text style={styles.automationTitle}>Generate Variations</Text>
-          <Text style={styles.automationText}>
-            {loadingVariations
-              ? "Generating AI variations..."
-              : "Create multiple title and caption versions instantly."}
-          </Text>
+          <Text style={styles.automationTitle}>
+  Generate More Versions
+</Text>
+
+<Text style={styles.automationText}>
+  {loadingVariations
+    ? "Creating new AI versions..."
+    : "Create more title, description, and caption options."}
+</Text>
         </Pressable>
  
         <Pressable style={styles.automationCard} onPress={loadScheduledCampaigns}>
-          <Text style={styles.automationTitle}>Refresh Queue</Text>
-          <Text style={styles.automationText}>
-            {loadingQueue
-              ? "Refreshing scheduled campaign status..."
-              : "Check published, failed, and scheduled campaign status."}
-          </Text>
+          <Text style={styles.automationTitle}>
+  Campaign Status
+</Text>
+
+<Text style={styles.automationText}>
+  {loadingQueue
+    ? "Refreshing campaign status..."
+    : "View scheduled, published, paused, and failed campaigns."}
+</Text>
         </Pressable>
       </View>
  
@@ -1945,53 +1987,102 @@ Pinterest
   onChangeText={setHashtags}
 />
  
-        <Text style={styles.label}>Public Image URL</Text>
+        <Text style={styles.label}>Campaign Image</Text>
+
+<View style={styles.queueCard}>
+  {previewImage || imageUrl ? (
+    <>
+      <Image
+        source={{
+          uri: previewImage || imageUrl,
+        }}
+        style={styles.campaignImagePreview}
+        resizeMode="cover"
+      />
+
+      <Text style={styles.readyText}>
+        ✓ Image Ready
+      </Text>
+    </>
+  ) : (
+    <Text style={styles.queueText}>
+      No campaign image loaded
+    </Text>
+  )}
+</View>
+
+<Text style={styles.label}>Product Link</Text>
+
+<View style={styles.queueCard}>
+  <Text style={styles.readyText}>
+    {productLink
+      ? "✓ Product Link Attached"
+      : "No product link attached"}
+  </Text>
+
+  {productLink ? (
+    <Pressable
+      style={styles.smallRefreshButton}
+      onPress={() => Linking.openURL(cleanUrl(productLink))}
+    >
+      <Text style={styles.smallRefreshText}>
+        View Product
+      </Text>
+    </Pressable>
+  ) : null}
+</View>
  
-        <TextInput
-          style={styles.input}
-          value={imageUrl}
-          onChangeText={setImageUrl}
-          placeholder="https://..."
-          placeholderTextColor="#777"
-        />
- 
-        <Text style={styles.label}>Product Link</Text>
- 
-        <TextInput
-          style={styles.input}
-          value={productLink}
-          onChangeText={setProductLink}
-          placeholder="https://your-product-link.com"
-          placeholderTextColor="#777"
-        />
- 
-        <Text style={styles.label}>Schedule Date/Time</Text>
- 
-        <View style={styles.scheduleBox}>
-          <Text style={styles.scheduleText}>{getReadableSchedule()}</Text>
- 
-          <View style={styles.scheduleButtons}>
-            <Pressable
-              style={styles.scheduleButton}
-              onPress={() => {
-                setShowTimePicker(false);
-                setShowDatePicker(!showDatePicker);
-              }}
-            >
-              <Text style={styles.scheduleButtonText}>Choose Date</Text>
-            </Pressable>
- 
-            <Pressable
-              style={styles.scheduleButton}
-              onPress={() => {
-                setShowDatePicker(false);
-                setShowTimePicker(!showTimePicker);
-              }}
-            >
-              <Text style={styles.scheduleButtonText}>Choose Time</Text>
-            </Pressable>
-          </View>
-        </View>
+        <Text style={styles.label}>
+  Schedule Date & Time
+</Text>
+
+<View style={styles.scheduleBox}>
+
+  <Text style={styles.scheduleTitle}>
+    Date
+  </Text>
+
+  <Text style={styles.scheduleText}>
+    {getReadableDate()}
+  </Text>
+
+  <Text style={styles.scheduleTitle}>
+    Time
+  </Text>
+
+  <Text style={styles.scheduleText}>
+    {getReadableTime()}
+  </Text>
+
+  <View style={styles.scheduleButtons}>
+
+    <Pressable
+      style={styles.scheduleButton}
+      onPress={() => {
+        setShowTimePicker(false);
+        setShowDatePicker(!showDatePicker);
+      }}
+    >
+      <Text style={styles.scheduleButtonText}>
+        Select Date
+      </Text>
+    </Pressable>
+
+    <Pressable
+      style={styles.scheduleButton}
+      onPress={() => {
+        setShowDatePicker(false);
+        setShowTimePicker(!showTimePicker);
+      }}
+    >
+      <Text style={styles.scheduleButtonText}>
+        Select Time
+      </Text>
+    </Pressable>
+
+  </View>
+
+</View>
  
         {showDatePicker && (
           <View style={styles.pickerBox}>
@@ -2710,6 +2801,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
+
+  scheduleTitle: {
+  color: "#9ca3af",
+  fontSize: 13,
+  fontWeight: "700",
+  marginTop: 12,
+  marginBottom: 4,
+},
  
   scheduleText: {
     color: "#fff",
@@ -2777,6 +2876,21 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 12,
   },
+
+  campaignImagePreview: {
+  width: "100%",
+  height: 220,
+  borderRadius: 12,
+  marginBottom: 12,
+  backgroundColor: "#202020",
+},
+
+readyText: {
+  color: "#9be88f",
+  fontSize: 13,
+  fontWeight: "700",
+  marginBottom: 8,
+},
  
   queueCard: {
     backgroundColor: "#2b2b2b",
