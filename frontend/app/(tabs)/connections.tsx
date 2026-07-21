@@ -132,6 +132,14 @@ export default function ConnectionsScreen() {
   productCount: number;
 } | null>(null);
 
+const [redbubbleDetails, setRedbubbleDetails] =
+  useState<{
+    id: string;
+    storeType: string;
+    storeName: string;
+    productCount: number;
+  } | null>(null);
+
   const visiblePlatforms = useMemo(() => {
     return activeSection === "social" ? socialPlatforms : storePlatforms;
   }, [activeSection]);
@@ -341,25 +349,73 @@ if (
       ).toLowerCase() === "shopify"
   );
 
+  const redbubbleConnection = (
+  storesData.stores || []
+).find(
+  (store: any) =>
+    String(
+      store.storeType || ""
+    ).toLowerCase() === "redbubble"
+);
+
   if (shopifyConnection) {
-    setShopifyDetails({
-      id: String(
-        shopifyConnection.id
-      ),
-      storeType: String(
-        shopifyConnection.storeType
-      ),
-      storeName: String(
-        shopifyConnection.storeName
-      ),
-      productCount:
-        Number(
-          shopifyConnection.productCount
-        ) || 0,
-    });
-  } else {
-    setShopifyDetails(null);
-  }
+  setShopifyDetails({
+    id: String(
+      shopifyConnection.id
+    ),
+    storeType: String(
+      shopifyConnection.storeType
+    ),
+    storeName: String(
+      shopifyConnection.storeName
+    ),
+    productCount:
+      Number(
+        shopifyConnection.productCount
+      ) || 0,
+  });
+} else {
+  setShopifyDetails(null);
+}
+
+if (redbubbleConnection) {
+  setRedbubbleDetails({
+    id: String(
+      redbubbleConnection.id
+    ),
+    storeType: String(
+      redbubbleConnection.storeType
+    ),
+    storeName: String(
+      redbubbleConnection.storeName
+    ),
+    productCount:
+      Number(
+        redbubbleConnection.productCount
+      ) || 0,
+  });
+
+  setRedbubbleStore(
+    String(
+      redbubbleConnection.storeName || ""
+    )
+  );
+
+  await updateStoredConnection(
+    "Redbubble",
+    Boolean(
+      redbubbleConnection.connected
+    )
+  );
+} else {
+  setRedbubbleDetails(null);
+
+  await updateStoredConnection(
+    "Redbubble",
+    false
+  );
+}
+
 }
 
     } catch (error) {
@@ -559,6 +615,32 @@ if (
   });
 };
 
+const openRedbubbleDashboard = () => {
+  if (!redbubbleDetails) {
+    Alert.alert(
+      "Store Information Unavailable",
+      "Refresh the connection status and try again."
+    );
+
+    return;
+  }
+
+  router.push({
+    pathname: "/store-dashboard" as any,
+    params: {
+      storeId: redbubbleDetails.id,
+      storeName:
+        redbubbleDetails.storeName,
+      storeType:
+        redbubbleDetails.storeType,
+      productCount: String(
+        redbubbleDetails.productCount
+      ),
+      connected: "true",
+    },
+  });
+};
+
 const connectEtsy = async () => {
   try {
     const { data: sessionData } =
@@ -669,9 +751,9 @@ const connectRedbubble = async () => {
     await refreshAllStatuses();
 
     Alert.alert(
-      "Redbubble Connected",
-      `${data.productsImported || 0} products were imported from Redbubble.`
-    );
+  "Redbubble Connected",
+  "Your Redbubble store has been connected. Product catalog importing is coming next."
+);
   } catch (error: any) {
     console.log(
       "Redbubble connection failed:",
@@ -884,15 +966,20 @@ if (platform === "Redbubble") {
 
           <View style={styles.buttonColumn}>
             {connected &&
-platform.name === "Shopify" ? (
+(
+  platform.name === "Shopify" ||
+  platform.name === "Redbubble"
+) ? (
   <Pressable
     style={[
       styles.button,
       styles.manageStoreButton,
     ]}
     onPress={
-      openShopifyDashboard
-    }
+  platform.name === "Shopify"
+    ? openShopifyDashboard
+    : openRedbubbleDashboard
+}
   >
     <Text style={styles.buttonText}>
       Manage Store

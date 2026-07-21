@@ -173,18 +173,38 @@ export default function StoreDashboardScreen() {
   }, [platformLabel, storeName]);
 
   const lastSyncedText = useMemo(() => {
-    if (!params.lastSyncedAt) {
-      return "Not available";
-    }
+  if (!params.lastSyncedAt) {
+    return "Not available";
+  }
 
-    const date = new Date(params.lastSyncedAt);
+  const date = new Date(params.lastSyncedAt);
 
-    if (Number.isNaN(date.getTime())) {
-      return "Not available";
-    }
+  if (Number.isNaN(date.getTime())) {
+    return "Not available";
+  }
 
-    return date.toLocaleString();
-  }, [params.lastSyncedAt]);
+  return date.toLocaleString();
+}, [params.lastSyncedAt]);
+
+const syncButtonLabel = useMemo(() => {
+  const type = String(storeType)
+    .trim()
+    .toLowerCase();
+
+  if (type === "redbubble") {
+    return "Import Catalog";
+  }
+
+  if (type === "shopify") {
+    return "Live Sync";
+  }
+
+  if (type === "etsy") {
+    return "Sync Listings";
+  }
+
+  return "Sync Products";
+}, [storeType]);
 
   function openProducts() {
     router.push({
@@ -197,12 +217,37 @@ export default function StoreDashboardScreen() {
   }
 
   function syncProducts() {
-    Alert.alert(
-      "Product Sync",
-      `The ${platformLabel} product sync control will be connected in the next step.`,
-      [{ text: "OK" }]
-    );
+  const type = String(storeType)
+    .trim()
+    .toLowerCase();
+
+  if (type === "redbubble") {
+    router.push({
+      pathname: "/catalog-importer" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    });
+
+    return;
   }
+
+  if (type === "shopify") {
+    Alert.alert(
+      "Live Sync",
+      "Shopify product synchronization is already connected through Live Sync."
+    );
+
+    return;
+  }
+
+  Alert.alert(
+    "Product Sync",
+    `The ${platformLabel} product import system will be connected in a future update.`
+  );
+}
 
   function openStoreConnection() {
     router.push({
@@ -371,7 +416,7 @@ export default function StoreDashboardScreen() {
                 color="#ffffff"
               />
               <Text style={styles.syncButtonText}>
-                Sync Products
+                  {syncButtonLabel}
               </Text>
             </Pressable>
 
