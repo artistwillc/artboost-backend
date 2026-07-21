@@ -406,14 +406,6 @@ if (
       );
     }
 
-    Alert.alert(
-  "Etsy Status Test",
-  `HTTP ${response.status}\n\n${responseText.slice(
-    0,
-    500
-  )}`
-);
-
     if (!response.ok) {
       throw new Error(
         data.error ||

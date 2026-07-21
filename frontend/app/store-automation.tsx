@@ -578,16 +578,16 @@ const [
         );
 
         if (
-          automation.frequency === "daily" ||
-          automation.frequency === "weekdays" ||
-          automation.frequency === "weekly" ||
-          automation.frequency === "one_time"
-          )
-          {
-          setFrequency(
-            automation.frequency
-          );
-        }
+           automation.frequency === "daily" ||
+           automation.frequency === "weekdays" ||
+           automation.frequency === "weekly" ||
+           automation.frequency === "every_x_days" ||
+           automation.frequency === "one_time"
+         ) {
+           setFrequency(
+             automation.frequency
+           );
+          }
 
         const savedPostingTime =
           String(
@@ -669,6 +669,20 @@ if (savedStartDate) {
             )
           );
         }
+
+        const savedPostingInterval =
+  automation.posting_interval_days ??
+  automation.postingIntervalDays;
+
+if (
+  savedPostingInterval !== undefined &&
+  savedPostingInterval !== null
+) {
+  setPostingIntervalDays(
+    String(savedPostingInterval)
+  );
+}
+
       } catch (error: any) {
         console.log(
           "Store automation load failed:",
@@ -869,9 +883,7 @@ if (savedStartDate) {
             repeatDelayDays:
             parsedRepeatDelay,
             postingIntervalDays:
-            Number(
-            postingIntervalDays
-            ) || 1,
+        Number(postingIntervalDays) || 1,
         }),
         }
       );
@@ -1270,6 +1282,24 @@ Alert.alert(
     return;
   }
 
+  const parsedPostingInterval =
+  Number(postingIntervalDays);
+
+if (
+  frequency === "every_x_days" &&
+  (
+    Number.isNaN(parsedPostingInterval) ||
+    parsedPostingInterval < 1
+  )
+) {
+  Alert.alert(
+    "Invalid Posting Interval",
+    "The posting interval must be at least 1 day."
+  );
+
+  return;
+}
+
   const parsedRepeatDelay =
     Number(repeatDelayDays);
 
@@ -1316,7 +1346,11 @@ Alert.alert(
           storeName,
           storeType,
           automationName:
-            "Daily Store Rotation",
+            frequency === "one_time"
+              ? "One-Time Store Promotion"
+              : frequency === "every_x_days"
+                ? `Store Promotion Every ${parsedPostingInterval} Days`
+                : "Store Product Rotation",
           enabled,
           frequency,
           postingTime: `${postingTime}:00`,
@@ -1329,6 +1363,10 @@ Alert.alert(
           selectionMode,
           repeatDelayDays:
             parsedRepeatDelay,
+          postingIntervalDays:
+            frequency === "every_x_days"
+              ? parsedPostingInterval
+              : 1,
         }),
       }
     );
