@@ -174,16 +174,16 @@ export default function CatalogImporterScreen() {
   }
 
   function openSingleProductImport() {
-    router.push({
-      pathname:
-        "/product-create" as any,
-      params: {
-        storeId,
-        storeName,
-        storeType,
-      },
-    });
-  }
+  router.push({
+    pathname:
+      "/product-import-wizard" as any,
+    params: {
+      storeId,
+      storeName,
+      storeType,
+    },
+  });
+}
 
   function showCsvComingSoon() {
     Alert.alert(
