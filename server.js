@@ -17,6 +17,7 @@ import { v2 as cloudinary } from "cloudinary";
 import OAuth from "oauth-1.0a";
 import CryptoJS from "crypto-js";
 import crypto from "crypto";
+import catalogRoutes from "./routes/catalog.js";
 
 dotenv.config({ override: true });
 
@@ -1212,6 +1213,7 @@ app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/automations", automationRoutes);
 app.use(etsyRoutes);
+app.use("/catalog", catalogRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
