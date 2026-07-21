@@ -83,7 +83,7 @@ const storePlatforms: PlatformItem[] = [
     name: "Redbubble",
     description: "Import products from a Redbubble storefront.",
     premium: true,
-    available: false,
+    available: true,
     connectionType: "Catalog Import",
   },
   {
@@ -120,6 +120,11 @@ export default function ConnectionsScreen() {
   const [connections, setConnections] = useState<Record<string, boolean>>({});
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [shopifyStore, setShopifyStore] = useState("");
+  const [redbubbleStore, setRedbubbleStore] =
+  useState("");
+
+  const [redbubbleLoading, setRedbubbleLoading] =
+  useState(false);
   const [shopifyDetails, setShopifyDetails] = useState<{
   id: string;
   storeType: string;
@@ -587,6 +592,101 @@ const connectEtsy = async () => {
     );
   }
 };
+
+const connectRedbubble = async () => {
+  try {
+    const cleanStore = redbubbleStore.trim();
+
+    if (!cleanStore) {
+      Alert.alert(
+        "Redbubble Store Required",
+        "Enter your Redbubble username or storefront URL."
+      );
+
+      return;
+    }
+
+    const { data: sessionData } =
+      await supabase.auth.getSession();
+
+    const userId =
+      sessionData.session?.user?.id;
+
+    if (!userId) {
+      Alert.alert(
+        "Login Required",
+        "Please log in before connecting Redbubble."
+      );
+
+      return;
+    }
+
+    setRedbubbleLoading(true);
+
+    const response = await fetch(
+      `${BACKEND_URL}/stores/redbubble/import`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          storeUrl: cleanStore,
+        }),
+      }
+    );
+
+    const responseText =
+      await response.text();
+
+    let data: any;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        `Backend returned ${response.status}: ${responseText.slice(
+          0,
+          200
+        )}`
+      );
+    }
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.details ||
+          data.error ||
+          "Unable to import the Redbubble store."
+      );
+    }
+
+    await updateStoredConnection(
+      "Redbubble",
+      true
+    );
+
+    await refreshAllStatuses();
+
+    Alert.alert(
+      "Redbubble Connected",
+      `${data.productsImported || 0} products were imported from Redbubble.`
+    );
+  } catch (error: any) {
+    console.log(
+      "Redbubble connection failed:",
+      error
+    );
+
+    Alert.alert(
+      "Redbubble Import Failed",
+      error?.message ||
+        "ArtBoost could not import this Redbubble store."
+    );
+  } finally {
+    setRedbubbleLoading(false);
+  }
+};
        
   const connectPlatform = async (
     platform: string
@@ -608,6 +708,11 @@ const connectEtsy = async () => {
 
     if (platform === "Etsy") {
   await connectEtsy();
+  return;
+}
+
+if (platform === "Redbubble") {
+  await connectRedbubble();
   return;
 }
 
@@ -795,27 +900,34 @@ platform.name === "Shopify" ? (
   </Pressable>
 ) : null}
             <Pressable
-              style={[
-                styles.button,
-                !platform.available
-                  ? styles.comingSoonButton
-                  : connected
-                  ? styles.reconnectButton
-                  : styles.connectButton,
-              ]}
-              disabled={!platform.available}
-              onPress={() =>
-                connectPlatform(platform.name)
-              }
-            >
-              <Text style={styles.buttonText}>
-                {!platform.available
-                  ? "Coming Soon"
-                  : connected
-                  ? "Reconnect"
-                  : "Connect"}
-              </Text>
-            </Pressable>
+  style={[
+    styles.button,
+    !platform.available
+      ? styles.comingSoonButton
+      : connected
+      ? styles.reconnectButton
+      : styles.connectButton,
+  ]}
+  disabled={
+    !platform.available ||
+    (platform.name === "Redbubble" &&
+      redbubbleLoading)
+  }
+  onPress={() =>
+    connectPlatform(platform.name)
+  }
+>
+  <Text style={styles.buttonText}>
+    {platform.name === "Redbubble" &&
+    redbubbleLoading
+      ? "Importing..."
+      : !platform.available
+      ? "Coming Soon"
+      : connected
+      ? "Reconnect"
+      : "Connect"}
+  </Text>
+</Pressable>
 
             {connected ? (
               <Pressable
@@ -936,32 +1048,74 @@ platform.name === "Shopify" ? (
       </Pressable>
 
       {activeSection === "stores" ? (
-        <View style={styles.shopifyEntryCard}>
-          <Text style={styles.name}>
-            Shopify Store
-          </Text>
+  <>
+    <View style={styles.shopifyEntryCard}>
+      <Text style={styles.name}>
+        Shopify Store
+      </Text>
 
-          <Text style={styles.description}>
-            Enter the store prefix or full
-            myshopify.com address.
-          </Text>
+      <Text style={styles.description}>
+        Enter the store prefix or full
+        myshopify.com address.
+      </Text>
 
-          <TextInput
-            style={styles.input}
-            value={shopifyStore}
-            onChangeText={setShopifyStore}
-            placeholder="artistwill"
-            placeholderTextColor="#777"
-            autoCapitalize="none"
-            autoCorrect={false}
+      <TextInput
+        style={styles.input}
+        value={shopifyStore}
+        onChangeText={setShopifyStore}
+        placeholder="artistwill"
+        placeholderTextColor="#777"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <Text style={styles.inputHint}>
+        Example: artistwill or
+        artistwill.myshopify.com
+      </Text>
+    </View>
+
+    <View style={styles.shopifyEntryCard}>
+      <Text style={styles.name}>
+        Redbubble Store
+      </Text>
+
+      <Text style={styles.description}>
+        Enter your Redbubble username or
+        full storefront URL.
+      </Text>
+
+      <TextInput
+        style={styles.input}
+        value={redbubbleStore}
+        onChangeText={setRedbubbleStore}
+        placeholder="artistwill"
+        placeholderTextColor="#777"
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={!redbubbleLoading}
+      />
+
+      <Text style={styles.inputHint}>
+        Example: artistwill or
+        https://www.redbubble.com/people/artistwill/shop
+      </Text>
+
+      {redbubbleLoading ? (
+        <View style={styles.redbubbleLoadingRow}>
+          <ActivityIndicator
+            size="small"
+            color="#a78bfa"
           />
 
-          <Text style={styles.inputHint}>
-            Example: artistwill or
-            artistwill.myshopify.com
+          <Text style={styles.redbubbleLoadingText}>
+            Importing Redbubble products...
           </Text>
         </View>
       ) : null}
+    </View>
+  </>
+) : null}
 
       {visiblePlatforms.map(
         renderPlatformCard
@@ -1206,5 +1360,18 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 10,
     fontWeight: "900",
+  },
+
+  redbubbleLoadingRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 14,
+  gap: 8,
+  },
+
+  redbubbleLoadingText: {
+  color: "#a78bfa",
+  fontSize: 12,
+  fontWeight: "700",
   },
 });
