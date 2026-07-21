@@ -402,98 +402,129 @@ export async function runAutomation({
 
   const contentByPlatform = {};
 
-  for (const platform of platforms) {
-    const normalizedPlatform =
-      String(platform)
-        .trim()
-        .toLowerCase();
+const title = productTitle;
 
-    if (
-      normalizedPlatform ===
-      "pinterest"
-    ) {
-      contentByPlatform.pinterest = {
-        title:
-          truncateText(
-            productTitle,
-            100
-          ),
-        description:
-          truncateText(
-            `Shop ${productTitle}`,
-            450
-          ),
-        hashtags: "",
-        cta: "",
-      };
+const shortDescription = cleanText(
+  (
+    product.description ||
+    product.body_html ||
+    `${productTitle} is now available in our store.`
+  ).replace(/<[^>]*>/g, "")
+);
 
-      continue;
-    }
+const hashtags = [
+  "#art",
+  "#artist",
+  "#shopsmall",
+  "#supportartists",
+]
+  .join(" ");
 
-    if (
-      normalizedPlatform ===
-      "facebook"
-    ) {
-      contentByPlatform.facebook = {
-        title:
-          productTitle,
-        description: "",
-        hashtags: "",
-        cta:
-          "Shop now",
-      };
+for (const platform of platforms) {
+  const normalizedPlatform = String(platform)
+    .trim()
+    .toLowerCase();
 
-      continue;
-    }
+  // PINTEREST
 
-    if (
-      normalizedPlatform ===
-      "instagram"
-    ) {
-      contentByPlatform.instagram = {
-        title:
-          productTitle,
-        description:
-          "Available now.",
-        hashtags: "",
-        cta:
-          "Tap the link in bio.",
-      };
+  if (normalizedPlatform === "pinterest") {
+    contentByPlatform.pinterest = {
+      title: truncateText(title, 100),
 
-      continue;
-    }
+      description: truncateText(
+        `${shortDescription}
 
-    if (
-      normalizedPlatform === "x" ||
-      normalizedPlatform ===
-        "twitter"
-    ) {
-      contentByPlatform.x = {
-        title:
-          buildXTitle({
-            title:
-              productTitle,
-            productLink,
-          }),
-        description: "",
-        hashtags: "",
-        cta: "",
-      };
+Shop now:
+${productLink}`,
+        500
+      ),
 
-      continue;
-    }
+      hashtags,
 
-    contentByPlatform[
-      normalizedPlatform
-    ] = {
-      title:
-        productTitle,
-      description: "",
-      hashtags: "",
-      cta:
-        "Shop now",
+      cta: "Shop now!",
     };
+
+    continue;
   }
+
+  // FACEBOOK
+
+  if (normalizedPlatform === "facebook") {
+    contentByPlatform.facebook = {
+      title,
+
+      description: `${shortDescription}
+
+Shop here:
+${productLink}`,
+
+      hashtags,
+
+      cta: "Shop now!",
+    };
+
+    continue;
+  }
+
+  // INSTAGRAM
+
+  if (normalizedPlatform === "instagram") {
+    contentByPlatform.instagram = {
+      title,
+
+      description: `${shortDescription}
+
+🎨 New artwork just dropped!
+
+Tap the link in bio to shop now.`,
+
+      hashtags,
+
+      cta: "Tap the link in bio.",
+    };
+
+    continue;
+  }
+
+  // X / TWITTER
+
+  if (
+    normalizedPlatform === "x" ||
+    normalizedPlatform === "twitter"
+  ) {
+    contentByPlatform.x = {
+      title: buildXTitle({
+        title,
+        productLink,
+      }),
+
+      description: truncateText(
+        `${shortDescription}
+
+${productLink}`,
+        220
+      ),
+
+      hashtags: "",
+
+      cta: "",
+    };
+
+    continue;
+  }
+
+  // FALLBACK
+
+  contentByPlatform[normalizedPlatform] = {
+    title,
+
+    description: shortDescription,
+
+    hashtags,
+
+    cta: "Shop now!",
+  };
+}
 
   const boardId =
     automation.board_id ??
