@@ -1050,10 +1050,68 @@ if (
   }
 
   async function postNow() {
-  if (!automationId) {
+  if (!storeId) {
     Alert.alert(
-      "Automation Not Loaded",
-      "Please save or reload the automation first."
+      "Missing Store",
+      "This screen was opened without a store connection ID."
+    );
+    return;
+  }
+
+  if (selectedPlatforms.length === 0) {
+    Alert.alert(
+      "Select Platforms",
+      "Choose at least one social platform before posting."
+    );
+    return;
+  }
+
+  if (
+    selectedPlatforms.includes("facebook") &&
+    !selectedFacebookPageId
+  ) {
+    Alert.alert(
+      "Select Facebook Page",
+      "Choose which Facebook Page ArtBoost should post to."
+    );
+    return;
+  }
+
+  if (!validateTime(postingTime)) {
+    Alert.alert(
+      "Invalid Posting Time",
+      "Select a valid posting time."
+    );
+    return;
+  }
+
+  const parsedRepeatDelay =
+    Number(repeatDelayDays);
+
+  if (
+    Number.isNaN(parsedRepeatDelay) ||
+    parsedRepeatDelay < 0
+  ) {
+    Alert.alert(
+      "Invalid Repeat Delay",
+      "Repeat delay must be 0 or more days."
+    );
+    return;
+  }
+
+  const parsedPostingInterval =
+    Number(postingIntervalDays);
+
+  if (
+    frequency === "every_x_days" &&
+    (
+      Number.isNaN(parsedPostingInterval) ||
+      parsedPostingInterval < 1
+    )
+  ) {
+    Alert.alert(
+      "Invalid Posting Interval",
+      "The posting interval must be at least 1 day."
     );
     return;
   }
@@ -1067,7 +1125,9 @@ if (
     } = await supabase.auth.getUser();
 
     if (userError) {
-      throw new Error(userError.message);
+      throw new Error(
+        userError.message
+      );
     }
 
     if (!user) {
@@ -1076,52 +1136,219 @@ if (
       );
     }
 
-    const response = await fetch(
-      `${API_BASE}/automations/${automationId}/run`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json",
-        },
-        body: JSON.stringify({
-          userId: user.id,
-        }),
-      }
-    );
+    /*
+     * Save the current on-screen settings first.
+     * This ensures Post Now uses the platforms,
+     * Facebook Page, and product-selection settings
+     * the user currently sees.
+     */
+    const saveResponse =
+      await fetch(
+        `${API_BASE}/automations`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            storeId,
+            storeName,
+            storeType,
 
-    const responseText =
-      await response.text();
+            automationName:
+              frequency === "one_time"
+                ? "One-Time Store Promotion"
+                : frequency ===
+                    "every_x_days"
+                  ? `Store Promotion Every ${
+                      parsedPostingInterval || 1
+                    } Days`
+                  : "Store Product Rotation",
 
-    let data: any;
+            enabled,
+            frequency,
+
+            postingTime:
+              `${postingTime}:00`,
+
+            startDate,
+            timezone,
+
+            platforms:
+              selectedPlatforms,
+
+            facebookPageId:
+              selectedFacebookPageId ||
+              null,
+
+            selectionMode,
+
+            repeatDelayDays:
+              parsedRepeatDelay,
+
+            postingIntervalDays:
+              frequency ===
+              "every_x_days"
+                ? parsedPostingInterval
+                : 1,
+          }),
+        }
+      );
+
+    const saveResponseText =
+      await saveResponse.text();
+
+    let saveData: any;
 
     try {
-      data = JSON.parse(
-        responseText
-      );
+      saveData =
+        JSON.parse(
+          saveResponseText
+        );
     } catch {
       throw new Error(
-        `Backend returned ${response.status}: ${responseText}`
+        `Backend returned ${saveResponse.status}: ${saveResponseText.slice(
+          0,
+          160
+        )}`
       );
     }
 
     if (
-      !response.ok ||
-      !data.success
+      !saveResponse.ok ||
+      !saveData.success
     ) {
       throw new Error(
-        data.details ||
-          data.error ||
+        saveData.details ||
+          saveData.error ||
+          "ArtBoost could not save the current automation settings."
+      );
+    }
+
+    const savedAutomationId =
+      String(
+        saveData.automation?.id ||
+          automationId ||
+          ""
+      );
+
+    if (!savedAutomationId) {
+      throw new Error(
+        "The saved automation did not return a valid ID."
+      );
+    }
+
+    setAutomationId(
+      savedAutomationId
+    );
+
+    /*
+     * Run the newly saved automation.
+     */
+    const runResponse =
+      await fetch(
+        `${API_BASE}/automations/${encodeURIComponent(
+          savedAutomationId
+        )}/run`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.id,
+          }),
+        }
+      );
+
+    const runResponseText =
+      await runResponse.text();
+
+    let runData: any;
+
+    try {
+      runData =
+        JSON.parse(
+          runResponseText
+        );
+    } catch {
+      throw new Error(
+        `Backend returned ${runResponse.status}: ${runResponseText.slice(
+          0,
+          160
+        )}`
+      );
+    }
+
+    if (
+      !runResponse.ok ||
+      !runData.success
+    ) {
+      const platformErrors =
+        Array.isArray(
+          runData?.publishResult
+            ?.results
+        )
+          ? runData.publishResult.results
+              .filter(
+                (result: any) =>
+                  !result?.success
+              )
+              .map(
+                (result: any) =>
+                  `${String(
+                    result?.platform ||
+                      "Platform"
+                  )}: ${
+                    result?.error ||
+                    "Publishing failed."
+                  }`
+              )
+              .join("\n")
+          : "";
+
+      throw new Error(
+        platformErrors ||
+          runData.details ||
+          runData.error ||
           "Unable to run automation."
       );
     }
 
+    const publishedPlatforms =
+      Array.isArray(
+        runData?.publishResult
+          ?.results
+      )
+        ? runData.publishResult.results
+            .filter(
+              (result: any) =>
+                result?.success
+            )
+            .map(
+              (result: any) =>
+                formatPlatformLabel(
+                  result?.platform
+                )
+            )
+        : [];
+
+    const successMessage =
+      publishedPlatforms.length > 0
+        ? `Your product was posted successfully to ${publishedPlatforms.join(
+            ", "
+          )}.`
+        : "Your product has been posted successfully.";
+
     Alert.alert(
       "Success",
-      "Your product has been posted successfully."
+      successMessage
     );
 
-    loadProductPreview();
+    await loadProductPreview();
   } catch (error: any) {
     console.log(
       "Manual automation failed:",
