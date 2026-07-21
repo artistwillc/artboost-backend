@@ -30,15 +30,13 @@ function cleanText(value) {
 
 /*
  * Publishes one store product to one social platform.
- *
- * Store automation posts only:
- * - product title
- * - product image
- * - product link, where supported
  */
 export async function publishToPlatform({
   platform,
   title,
+  description = "",
+  hashtags = "",
+  cta = "",
   productLink = "",
   imageUrl = "",
   boardId = null,
@@ -49,6 +47,15 @@ export async function publishToPlatform({
 
   const cleanTitle =
     cleanText(title);
+
+  const cleanDescription =
+    cleanText(description);
+
+  const cleanHashtags =
+    cleanText(hashtags);
+
+  const cleanCta =
+    cleanText(cta);
 
   const cleanProductLink =
     cleanText(productLink);
@@ -78,8 +85,14 @@ export async function publishToPlatform({
     return publishPinterest({
       boardId,
       title: cleanTitle,
-      description: "",
-      link: cleanProductLink,
+      description:
+        cleanDescription,
+      hashtags:
+        cleanHashtags,
+      cta:
+        cleanCta,
+      link:
+        cleanProductLink,
       imageUrl,
     });
   }
@@ -89,10 +102,14 @@ export async function publishToPlatform({
     "facebook"
   ) {
     return publishFacebook({
-      title: cleanTitle,
-      description: "",
-      hashtags: "",
-      cta: "",
+      title:
+        cleanTitle,
+      description:
+        cleanDescription,
+      hashtags:
+        cleanHashtags,
+      cta:
+        cleanCta,
       productLink:
         cleanProductLink,
       imageUrl,
@@ -105,10 +122,14 @@ export async function publishToPlatform({
     "instagram"
   ) {
     return publishInstagram({
-      title: cleanTitle,
-      description: "",
-      hashtags: "",
+      title:
+        cleanTitle,
+      description:
+        cleanDescription,
+      hashtags:
+        cleanHashtags,
       cta:
+        cleanCta ||
         "Tap the link in bio.",
       imageUrl,
     });
@@ -118,8 +139,14 @@ export async function publishToPlatform({
     normalizedPlatform === "x"
   ) {
     return publishX({
-      title: cleanTitle,
-      description: "",
+      title:
+        cleanTitle,
+      description:
+        cleanDescription,
+      hashtags:
+        cleanHashtags,
+      cta:
+        cleanCta,
       productLink:
         cleanProductLink,
       imageUrl,
@@ -216,11 +243,29 @@ export async function publishToPlatforms({
         productTitle
       );
 
+    const description =
+      cleanText(
+        platformContent.description
+      );
+
+    const hashtags =
+      cleanText(
+        platformContent.hashtags
+      );
+
+    const cta =
+      cleanText(
+        platformContent.cta
+      );
+
     try {
       const result =
         await publishToPlatform({
           platform,
           title,
+          description,
+          hashtags,
+          cta,
           productLink,
           imageUrl,
           boardId,
@@ -242,7 +287,9 @@ export async function publishToPlatforms({
         platform,
         success: false,
         error:
-          error.message,
+          error instanceof Error
+            ? error.message
+            : "Unknown publishing error.",
       });
     }
   }
