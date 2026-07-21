@@ -243,7 +243,10 @@ async function fetchProductMetadata(productUrl) {
         html,
         "twitter:description"
       ) ||
-      extractMetaContent(html, "description");
+      extractMetaContent(
+        html,
+        "description"
+      );
 
     const imageUrl =
       extractMetaContent(html, "og:image") ||
@@ -259,13 +262,16 @@ async function fetchProductMetadata(productUrl) {
 
     return {
       title:
-        cleanText(title) || "Imported Product",
+        cleanText(title) ||
+        "Imported Product",
       description:
         cleanText(description) || null,
       imageUrl: imageUrl || null,
-      productUrl: normalizeUrl(canonicalUrl),
+      productUrl:
+        normalizeUrl(canonicalUrl),
       price: extractPrice(html),
-      currency: extractCurrency(html),
+      currency:
+        extractCurrency(html),
     };
   } catch (error) {
     if (error?.name === "AbortError") {
@@ -286,7 +292,8 @@ async function saveImportedProduct({
   storeName,
   metadata,
 }) {
-  const now = new Date().toISOString();
+  const now =
+    new Date().toISOString();
 
   const {
     data: existingProduct,
@@ -295,7 +302,10 @@ async function saveImportedProduct({
     .from("products")
     .select("id")
     .eq("user_id", userId)
-    .eq("product_url", metadata.productUrl)
+    .eq(
+      "product_url",
+      metadata.productUrl
+    )
     .maybeSingle();
 
   if (lookupError) {
@@ -309,11 +319,15 @@ async function saveImportedProduct({
     store_type: storeType,
     store_name: storeName,
     title: metadata.title,
-    description: metadata.description,
-    image_url: metadata.imageUrl,
-    product_url: metadata.productUrl,
+    description:
+      metadata.description,
+    image_url:
+      metadata.imageUrl,
+    product_url:
+      metadata.productUrl,
     price: metadata.price,
-    currency: metadata.currency || "USD",
+    currency:
+      metadata.currency || "USD",
     status: "active",
     updated_at: now,
   };
@@ -391,7 +405,9 @@ export async function importCatalogUrls({
   const normalizedUrls = [
     ...new Set(
       urls
-        .map((url) => normalizeUrl(url))
+        .map((url) =>
+          normalizeUrl(url)
+        )
         .filter(Boolean)
     ),
   ];
@@ -420,10 +436,14 @@ export async function importCatalogUrls({
   const imported = [];
   const failed = [];
 
-  for (const productUrl of normalizedUrls) {
+  for (
+    const productUrl of normalizedUrls
+  ) {
     try {
       const detectedStoreType =
-        detectMarketplace(productUrl);
+        detectMarketplace(
+          productUrl
+        );
 
       const resolvedStoreType =
         requestedStoreType &&
@@ -432,19 +452,24 @@ export async function importCatalogUrls({
           : detectedStoreType;
 
       const metadata =
-        await fetchProductMetadata(productUrl);
+        await fetchProductMetadata(
+          productUrl
+        );
 
       const saved =
         await saveImportedProduct({
           userId,
-          storeType: resolvedStoreType,
-          storeName: String(storeName),
+          storeType:
+            resolvedStoreType,
+          storeName:
+            String(storeName),
           metadata,
         });
 
       imported.push({
         id: saved.product.id,
-        title: saved.product.title,
+        title:
+          saved.product.title,
         productUrl:
           saved.product.product_url,
         imageUrl:
@@ -463,10 +488,210 @@ export async function importCatalogUrls({
   }
 
   return {
-    requested: normalizedUrls.length,
-    importedCount: imported.length,
-    failedCount: failed.length,
+    requested:
+      normalizedUrls.length,
+    importedCount:
+      imported.length,
+    failedCount:
+      failed.length,
     imported,
     failed,
+  };
+}
+
+export async function importSingleCatalogProduct({
+  userId,
+  storeId,
+  storeName,
+  storeType,
+  title,
+  description,
+  imageUrl,
+  productUrl,
+  price,
+  currency,
+  productType,
+  tags,
+}) {
+  if (!userId) {
+    throw new Error("Missing userId.");
+  }
+
+  if (!storeName) {
+    throw new Error("Missing storeName.");
+  }
+
+  const cleanTitle = String(
+    title || ""
+  ).trim();
+
+  if (!cleanTitle) {
+    throw new Error(
+      "Product title is required."
+    );
+  }
+
+  const cleanProductUrl =
+    normalizeUrl(productUrl);
+
+  let cleanImageUrl = null;
+
+  if (
+    String(imageUrl || "").trim()
+  ) {
+    cleanImageUrl =
+      normalizeUrl(imageUrl);
+  }
+
+  let normalizedPrice = null;
+
+  if (
+    price !== null &&
+    price !== undefined &&
+    String(price).trim() !== ""
+  ) {
+    normalizedPrice =
+      Number(price);
+
+    if (
+      !Number.isFinite(
+        normalizedPrice
+      ) ||
+      normalizedPrice < 0
+    ) {
+      throw new Error(
+        "Product price must be a valid positive number."
+      );
+    }
+  }
+
+  const normalizedStoreType =
+    String(
+      storeType ||
+        "custom_store"
+    )
+      .trim()
+      .toLowerCase();
+
+  const normalizedCurrency =
+    String(currency || "USD")
+      .trim()
+      .toUpperCase();
+
+  const now =
+    new Date().toISOString();
+
+  const {
+    data: existingProduct,
+    error: lookupError,
+  } = await supabase
+    .from("products")
+    .select("id")
+    .eq(
+      "user_id",
+      String(userId)
+    )
+    .eq(
+      "product_url",
+      cleanProductUrl
+    )
+    .maybeSingle();
+
+  if (lookupError) {
+    throw new Error(
+      `Unable to check existing product: ${lookupError.message}`
+    );
+  }
+
+  const productRecord = {
+    user_id: String(userId),
+    store_type:
+      normalizedStoreType,
+    store_name:
+      String(storeName).trim(),
+    title: cleanTitle,
+    description:
+      String(
+        description || ""
+      ).trim() || null,
+    image_url:
+      cleanImageUrl,
+    product_url:
+      cleanProductUrl,
+    price: normalizedPrice,
+    currency:
+      normalizedCurrency,
+    status: "active",
+    updated_at: now,
+  };
+
+  if (existingProduct?.id) {
+    const {
+      data: updatedProduct,
+      error: updateError,
+    } = await supabase
+      .from("products")
+      .update(productRecord)
+      .eq(
+        "id",
+        existingProduct.id
+      )
+      .select("*")
+      .single();
+
+    if (updateError) {
+      throw new Error(
+        `Unable to update product: ${updateError.message}`
+      );
+    }
+
+    return {
+      product: updatedProduct,
+      action: "updated",
+      storeId:
+        storeId || null,
+      productType:
+        String(
+          productType || ""
+        ).trim() || null,
+      tags: Array.isArray(tags)
+        ? tags
+        : [],
+    };
+  }
+
+  const {
+    data: insertedProduct,
+    error: insertError,
+  } = await supabase
+    .from("products")
+    .insert({
+      ...productRecord,
+      created_at: now,
+      times_posted: 0,
+      last_posted_at: null,
+      automation_enabled: false,
+    })
+    .select("*")
+    .single();
+
+  if (insertError) {
+    throw new Error(
+      `Unable to save product: ${insertError.message}`
+    );
+  }
+
+  return {
+    product: insertedProduct,
+    action: "created",
+    storeId:
+      storeId || null,
+    productType:
+      String(
+        productType || ""
+      ).trim() || null,
+    tags: Array.isArray(tags)
+      ? tags
+      : [],
   };
 }
