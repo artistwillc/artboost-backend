@@ -60,6 +60,13 @@ export default function RootLayout() {
               title: "Modal",
             }}
           />
+
+          <Stack.Screen
+            name="product-import-wizard"
+            options={{
+            headerShown: false,
+            }}
+          />
         </Stack>
 
         <StatusBar style="auto" />
