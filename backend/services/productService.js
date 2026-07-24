@@ -92,24 +92,46 @@ export async function getProducts({
 export async function getStores({
   userId,
 }) {
-  const supportedStorePlatforms = [
+  const {
+    data: v2Connections,
+    error: v2Error,
+  } = await supabase
+    .from("store_connections")
+    .select(
+      `
+        id,
+        platform,
+        store_name,
+        store_url,
+        connected,
+        metadata,
+        connected_at,
+        updated_at
+      `
+    )
+    .eq("user_id", userId)
+    .order("updated_at", {
+      ascending: false,
+    });
+
+  if (v2Error) {
+    throw new Error(
+      `Unable to load store connections: ${v2Error.message}`
+    );
+  }
+
+  const supportedLegacyPlatforms = [
     "shopify",
     "etsy",
-    "ebay",
     "redbubble",
-    "artpal",
-    "fine_art_america",
     "woocommerce",
     "printify",
     "printful",
-    "bigcommerce",
-    "squarespace",
-    "custom_store",
   ];
 
   const {
-    data: connections,
-    error: connectionsError,
+    data: legacyConnections,
+    error: legacyError,
   } = await supabase
     .from("social_connections")
     .select(
@@ -123,14 +145,17 @@ export async function getStores({
       `
     )
     .eq("user_id", userId)
-    .in("platform", supportedStorePlatforms)
+    .in(
+      "platform",
+      supportedLegacyPlatforms
+    )
     .order("updated_at", {
       ascending: false,
     });
 
-  if (connectionsError) {
+  if (legacyError) {
     throw new Error(
-      `Unable to load store connections: ${connectionsError.message}`
+      `Unable to load legacy store connections: ${legacyError.message}`
     );
   }
 
@@ -139,7 +164,9 @@ export async function getStores({
     error: productError,
   } = await supabase
     .from("products")
-    .select("store_type, store_name")
+    .select(
+      "store_type, store_name, store_connection_id"
+    )
     .eq("user_id", userId);
 
   if (productError) {
@@ -148,19 +175,84 @@ export async function getStores({
     );
   }
 
-  const productCounts = {};
+  const countsByConnectionId = {};
+  const countsByTypeAndName = {};
 
   for (const product of productRows || []) {
-    const key = `${product.store_type || ""}::${
-      product.store_name || ""
-    }`;
+    if (product.store_connection_id) {
+      countsByConnectionId[
+        product.store_connection_id
+      ] =
+        (
+          countsByConnectionId[
+            product.store_connection_id
+          ] || 0
+        ) + 1;
+    }
 
-    productCounts[key] =
-      (productCounts[key] || 0) + 1;
+    const key = `${
+      product.store_type || ""
+    }::${product.store_name || ""}`;
+
+    countsByTypeAndName[key] =
+      (countsByTypeAndName[key] || 0) + 1;
   }
 
-  return (connections || []).map(
-    (connection) => {
+  const normalizedV2 = (
+    v2Connections || []
+  ).map((connection) => {
+    const storeType = String(
+      connection.platform || ""
+    ).toLowerCase();
+
+    const storeName =
+      connection.store_name ||
+      connection.store_url ||
+      connection.platform ||
+      "Store";
+
+    return {
+      id: connection.id,
+      storeType,
+      storeName,
+      storeUrl:
+        connection.store_url || null,
+      hostname:
+        connection.metadata?.hostname ||
+        null,
+      connectionMethod:
+        connection.metadata
+          ?.connectionMethod ||
+        connection.metadata?.importMethod ||
+        null,
+      connected:
+        connection.connected !== false,
+      productCount:
+        countsByConnectionId[
+          connection.id
+        ] ||
+        countsByTypeAndName[
+          `${storeType}::${storeName}`
+        ] ||
+        0,
+      connectedAt:
+        connection.connected_at || null,
+      updatedAt:
+        connection.updated_at || null,
+    };
+  });
+
+  const v2Keys = new Set(
+    normalizedV2.map(
+      (store) =>
+        `${store.storeType}::${store.storeName}`
+    )
+  );
+
+  const normalizedLegacy = (
+    legacyConnections || []
+  )
+    .map((connection) => {
       const storeType = String(
         connection.platform || ""
       ).toLowerCase();
@@ -170,25 +262,49 @@ export async function getStores({
         connection.platform ||
         "Store";
 
-      const countKey =
-        `${storeType}::${storeName}`;
-
       return {
         id: connection.id,
         storeType,
         storeName,
+        storeUrl:
+          connection.shop_domain
+            ? `https://${connection.shop_domain}`
+            : null,
+        hostname:
+          connection.shop_domain || null,
+        connectionMethod:
+          storeType === "shopify" ||
+          storeType === "etsy"
+            ? "oauth"
+            : "artwork_import",
         connected: Boolean(
           connection.connected
         ),
         productCount:
-          productCounts[countKey] || 0,
+          countsByConnectionId[
+            connection.id
+          ] ||
+          countsByTypeAndName[
+            `${storeType}::${storeName}`
+          ] ||
+          0,
         connectedAt:
           connection.connected_at || null,
         updatedAt:
           connection.updated_at || null,
       };
-    }
-  );
+    })
+    .filter(
+      (store) =>
+        !v2Keys.has(
+          `${store.storeType}::${store.storeName}`
+        )
+    );
+
+  return [
+    ...normalizedV2,
+    ...normalizedLegacy,
+  ];
 }
 
 /*
@@ -229,23 +345,26 @@ export async function getNextAutomationProduct({
     : null;
 
   /*
-   * If only storeId is provided, resolve the connected store
-   * from social_connections.
+   * If only storeId is provided, resolve the connected store.
+   * New universal connections live in store_connections.
+   * Shopify and older integrations may still live in
+   * social_connections.
    */
   if (
     storeId &&
     (!resolvedStoreType || !resolvedStoreName)
   ) {
     const {
-      data: connection,
-      error: connectionError,
+      data: universalConnection,
+      error: universalError,
     } = await supabase
-      .from("social_connections")
+      .from("store_connections")
       .select(
         `
           id,
           platform,
-          shop_domain,
+          store_name,
+          store_url,
           connected
         `
       )
@@ -253,32 +372,73 @@ export async function getNextAutomationProduct({
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (connectionError) {
+    if (universalError) {
       throw new Error(
-        `Unable to resolve store connection: ${connectionError.message}`
+        `Unable to resolve store connection: ${universalError.message}`
       );
     }
 
-    if (!connection) {
-      throw new Error(
-        "The selected store connection was not found."
-      );
+    if (universalConnection) {
+      if (!universalConnection.connected) {
+        throw new Error(
+          "The selected store is not currently connected."
+        );
+      }
+
+      resolvedStoreType = String(
+        universalConnection.platform || ""
+      ).toLowerCase();
+
+      resolvedStoreName =
+        universalConnection.store_name ||
+        universalConnection.store_url ||
+        universalConnection.platform ||
+        null;
+    } else {
+      const {
+        data: legacyConnection,
+        error: legacyError,
+      } = await supabase
+        .from("social_connections")
+        .select(
+          `
+            id,
+            platform,
+            shop_domain,
+            connected
+          `
+        )
+        .eq("id", storeId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (legacyError) {
+        throw new Error(
+          `Unable to resolve legacy store connection: ${legacyError.message}`
+        );
+      }
+
+      if (!legacyConnection) {
+        throw new Error(
+          "The selected store connection was not found."
+        );
+      }
+
+      if (!legacyConnection.connected) {
+        throw new Error(
+          "The selected store is not currently connected."
+        );
+      }
+
+      resolvedStoreType = String(
+        legacyConnection.platform || ""
+      ).toLowerCase();
+
+      resolvedStoreName =
+        legacyConnection.shop_domain ||
+        legacyConnection.platform ||
+        null;
     }
-
-    if (!connection.connected) {
-      throw new Error(
-        "The selected store is not currently connected."
-      );
-    }
-
-    resolvedStoreType = String(
-      connection.platform || ""
-    ).toLowerCase();
-
-    resolvedStoreName =
-      connection.shop_domain ||
-      connection.platform ||
-      null;
   }
 
   if (!resolvedStoreType) {
