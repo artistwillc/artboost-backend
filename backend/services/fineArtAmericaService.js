@@ -246,41 +246,6 @@ function listingBelongsToProfile({
   } catch {
     return false;
   }
-}) {
-  const normalizedExpected =
-    normalizeArtistName(expectedArtistName);
-
-  const normalizedArtist =
-    normalizeArtistName(artistName);
-
-  if (
-    normalizedArtist &&
-    normalizedExpected &&
-    normalizedArtist === normalizedExpected
-  ) {
-    return true;
-  }
-
-  try {
-    const parsed = new URL(productUrl);
-    const normalizedPath = decodeURIComponent(
-      parsed.pathname
-    )
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-");
-
-    if (
-      profileSlug &&
-      normalizedPath.includes(profileSlug)
-    ) {
-      return true;
-    }
-  } catch {
-    return false;
-  }
-
-  return false;
-}
 
 function normalizeUrl(value, baseUrl) {
   try {
