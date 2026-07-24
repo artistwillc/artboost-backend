@@ -1451,6 +1451,31 @@ app.patch("/notifications/read-all/:userId", async (req, res) => {
   }
 });
 
+app.delete("/notifications/clear-all", async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .not("id", "is", null);
+
+    if (error) {
+      return res.status(500).json({
+        error: "Failed to clear notifications.",
+        details: error.message,
+      });
+    }
+
+    res.json({
+      success: true,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Clear notifications failed.",
+      details: err.message,
+    });
+  }
+});
+
 app.delete("/notifications/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1479,32 +1504,6 @@ app.delete("/notifications/:id", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: "Notification deletion failed.",
-      details: err.message,
-    });
-  }
-});
-
-
-app.delete("/notifications/all", async (req, res) => {
-  try {
-    const { error } = await supabase
-      .from("notifications")
-      .delete()
-      .not("id", "is", null);
-
-    if (error) {
-      return res.status(500).json({
-        error: "Failed to clear notifications.",
-        details: error.message,
-      });
-    }
-
-    res.json({
-      success: true,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: "Clear notifications failed.",
       details: err.message,
     });
   }
