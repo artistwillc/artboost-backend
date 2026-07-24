@@ -246,6 +246,7 @@ function listingBelongsToProfile({
   } catch {
     return false;
   }
+}
 
 function normalizeUrl(value, baseUrl) {
   try {
