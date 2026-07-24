@@ -6279,6 +6279,16 @@ const validStorePlatforms = [
   "redbubble",
   "woocommerce",
   "printify",
+  "fine_art_america",
+  "amazon",
+  "ebay",
+  "artpal",
+  "society6",
+  "big_cartel",
+  "squarespace",
+  "wix",
+  "printful",
+  "custom_store",
 ];
 
 const mapStoreConnectionFromDb = (item) => ({
