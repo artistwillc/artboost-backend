@@ -198,6 +198,55 @@ function listingBelongsToProfile({
   profileSlug,
   expectedArtistName,
 }) {
+  if (!profileSlug) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(productUrl);
+
+    const pathname = decodeURIComponent(
+      parsed.pathname
+    )
+      .toLowerCase()
+      .replace(/\/+$/, "");
+
+    /*
+     * Fine Art America artwork URLs normally end with
+     * the artist's profile slug, for example:
+     *
+     * /featured/starry-frontier-will-cooper.html
+     *
+     * This strict suffix prevents recommendations,
+     * famous works, and other artists from being imported.
+     */
+    const expectedSuffix =
+      `-${profileSlug}.html`;
+
+    if (pathname.endsWith(expectedSuffix)) {
+      return true;
+    }
+
+    /*
+     * Allow an exact artist match only as a fallback when
+     * the URL itself contains the same profile slug.
+     */
+    const normalizedExpected =
+      normalizeArtistName(expectedArtistName);
+
+    const normalizedArtist =
+      normalizeArtistName(artistName);
+
+    return (
+      normalizedArtist &&
+      normalizedExpected &&
+      normalizedArtist === normalizedExpected &&
+      pathname.includes(profileSlug)
+    );
+  } catch {
+    return false;
+  }
+}) {
   const normalizedExpected =
     normalizeArtistName(expectedArtistName);
 
@@ -343,7 +392,11 @@ function isLikelyArtworkUrl(value) {
   }
 }
 
-function extractArtworkLinks(html, pageUrl) {
+function extractArtworkLinks(
+  html,
+  pageUrl,
+  profileSlug
+) {
   const links = new Set();
 
   const hrefRegex =
@@ -357,57 +410,29 @@ function extractArtworkLinks(html, pageUrl) {
       pageUrl
     );
 
-    if (
-      normalized &&
-      isLikelyArtworkUrl(normalized)
-    ) {
-      links.add(normalized);
+    if (!normalized) {
+      continue;
     }
-  }
 
-  for (const item of extractJsonLd(html)) {
-    const candidates = [
-      item?.url,
-      item?.mainEntityOfPage,
-      item?.offers?.url,
-      item?.contentUrl,
-    ];
+    try {
+      const parsed = new URL(normalized);
+      const pathname = decodeURIComponent(
+        parsed.pathname
+      )
+        .toLowerCase()
+        .replace(/\/+$/, "");
 
-    for (const candidate of candidates) {
-      const normalized = normalizeUrl(
-        typeof candidate === "string"
-          ? candidate
-          : candidate?.["@id"],
-        pageUrl
-      );
+      const expectedSuffix =
+        `-${profileSlug}.html`;
 
       if (
-        normalized &&
-        isLikelyArtworkUrl(normalized)
+        isLikelyArtworkUrl(normalized) &&
+        pathname.endsWith(expectedSuffix)
       ) {
         links.add(normalized);
       }
-    }
-
-    const itemList = item?.itemListElement || [];
-
-    for (const entry of itemList) {
-      const candidate =
-        entry?.url ||
-        entry?.item?.url ||
-        entry?.item?.["@id"];
-
-      const normalized = normalizeUrl(
-        candidate,
-        pageUrl
-      );
-
-      if (
-        normalized &&
-        isLikelyArtworkUrl(normalized)
-      ) {
-        links.add(normalized);
-      }
+    } catch {
+      // Ignore invalid links.
     }
   }
 
@@ -457,6 +482,7 @@ function getCandidateStorePages(
 
 async function discoverArtworkLinks({
   storeUrl,
+  profileSlug,
   maxPages = 20,
 }) {
   const links = new Set();
@@ -480,7 +506,8 @@ async function discoverArtworkLinks({
 
         const found = extractArtworkLinks(
           html,
-          responseUrl
+          responseUrl,
+          profileSlug
         );
 
         for (const link of found) {
@@ -767,6 +794,7 @@ export async function importFineArtAmericaStore({
   const discoveredLinks =
     await discoverArtworkLinks({
       storeUrl: resolvedStoreUrl,
+      profileSlug,
       maxPages: Math.min(
         Math.max(Number(maxPages) || 20, 1),
         50
@@ -783,7 +811,7 @@ export async function importFineArtAmericaStore({
 
   if (limitedLinks.length === 0) {
     throw new Error(
-      "No Fine Art America artwork listings could be found. The storefront may be private, blocked, or using a page layout the importer does not recognize yet."
+      `No Fine Art America listings ending in -${profileSlug}.html were found for ${expectedArtistName}.`
     );
   }
 
