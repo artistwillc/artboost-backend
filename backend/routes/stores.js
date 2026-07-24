@@ -49,18 +49,12 @@ router.get("/", async (req, res) => {
 /*
  * POST /stores/redbubble/import
  *
- * Saves a Redbubble storefront and imports its public products.
+ * Imports or reconnects a Redbubble storefront.
  *
- * Body:
+ * Expected body:
  * {
- *   "userId": "supabase-user-id",
+ *   "userId": "123",
  *   "storeUrl": "https://www.redbubble.com/people/artistwill/shop"
- * }
- *
- * The user may also send a Redbubble username:
- * {
- *   "userId": "supabase-user-id",
- *   "storeUrl": "artistwill"
  * }
  */
 router.post("/redbubble/import", async (req, res) => {
@@ -68,8 +62,12 @@ router.post("/redbubble/import", async (req, res) => {
     const {
       userId,
       storeUrl,
-      username,
-    } = req.body || {};
+      url,
+      storefrontUrl,
+    } = req.body ?? {};
+
+    const resolvedStoreUrl =
+      storeUrl ?? storefrontUrl ?? url;
 
     if (!userId) {
       return res.status(400).json({
@@ -78,56 +76,36 @@ router.post("/redbubble/import", async (req, res) => {
       });
     }
 
-    const redbubbleValue = String(
-      storeUrl || username || ""
-    ).trim();
-
-    if (!redbubbleValue) {
+    if (!resolvedStoreUrl) {
       return res.status(400).json({
         success: false,
-        error:
-          "Enter a Redbubble storefront URL or username.",
+        error: "Missing Redbubble store URL.",
       });
     }
 
     const result = await importRedbubbleStore({
       userId: String(userId),
-      storeUrl: redbubbleValue,
+      storeUrl: String(resolvedStoreUrl).trim(),
     });
 
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message:
-        "Redbubble store imported successfully.",
-      store: result.store,
-      productsImported:
-        result.productsImported || 0,
+      message: "Redbubble store imported successfully.",
+      ...result,
     });
   } catch (error) {
     console.error(
-      "Redbubble import route error:",
+      "Redbubble store import error:",
       error
     );
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : String(error);
-
-    const statusCode =
-      message.includes("Invalid Redbubble") ||
-      message.includes("Unable to find") ||
-      message.includes("No Redbubble products")
-        ? 400
-        : 500;
-
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
-      error:
-        statusCode === 400
-          ? message
-          : "Redbubble import failed.",
-      details: message,
+      error: "Redbubble store import failed.",
+      details:
+        error instanceof Error
+          ? error.message
+          : String(error),
     });
   }
 });
