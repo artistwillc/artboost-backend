@@ -9,6 +9,9 @@ import {
 import {
   importFineArtAmericaStore,
 } from "../services/fineArtAmericaService.js";
+import {
+  importUniversalStore,
+} from "../services/universalStoreImportService.js";
 
 const router = express.Router();
 
@@ -182,6 +185,65 @@ router.post(
         success: false,
         error:
           "Fine Art America store import failed.",
+        details:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      });
+    }
+  }
+);
+
+/*
+ * POST /stores/universal/import
+ *
+ * Used for ArtPal, personal websites, and
+ * other connected stores that do not have a
+ * dedicated API importer yet.
+ */
+router.post(
+  "/universal/import",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        storeId,
+        maxPages,
+        maxListings,
+      } = req.body ?? {};
+
+      if (!userId || !storeId) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Missing userId or storeId.",
+        });
+      }
+
+      const result =
+        await importUniversalStore({
+          userId: String(userId),
+          storeId: String(storeId),
+          maxPages,
+          maxListings,
+        });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Store imported successfully.",
+        ...result,
+      });
+    } catch (error) {
+      console.error(
+        "Universal store import error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Store import failed.",
         details:
           error instanceof Error
             ? error.message
