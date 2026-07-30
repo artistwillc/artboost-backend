@@ -41,6 +41,11 @@ const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
 const PINTEREST_REDIRECT_URI =
   process.env.PINTEREST_REDIRECT_URI ||
   "https://artboost-ai.onrender.com/auth/pinterest/callback";
+const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
+const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
+const INSTAGRAM_REDIRECT_URI =
+  process.env.INSTAGRAM_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/instagram/callback";
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_SCOPES =
@@ -2272,49 +2277,344 @@ app.get("/x/post-test", async (req, res) => {
     });
   }
 });
-app.get("/instagram/status", (req, res) => {
-  const hasToken = !!process.env.INSTAGRAM_ACCESS_TOKEN;
-  const hasUserId = !!process.env.INSTAGRAM_USER_ID;
+function createInstagramState(userId) {
+  const payload = Buffer.from(
+    JSON.stringify({
+      userId: String(userId),
+      timestamp: Date.now(),
+      nonce: crypto.randomBytes(16).toString("hex"),
+    })
+  ).toString("base64url");
 
-  res.json({
-    connected: hasToken && hasUserId,
-    hasToken,
-    hasUserId,
-    username: process.env.INSTAGRAM_USERNAME || "wills_custom_airbrushing",
-    message:
-      hasToken && hasUserId
-        ? "Instagram is configured and ready."
-        : "Missing Instagram environment variables.",
-  });
+  const signature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(payload)
+    .digest("base64url");
+
+  return `${payload}.${signature}`;
+}
+
+function verifyInstagramState(state) {
+  if (!state || !FACEBOOK_APP_SECRET) return null;
+
+  const [payload, suppliedSignature] = String(state).split(".");
+  if (!payload || !suppliedSignature) return null;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(payload)
+    .digest("base64url");
+
+  const supplied = Buffer.from(suppliedSignature);
+  const expected = Buffer.from(expectedSignature);
+
+  if (
+    supplied.length !== expected.length ||
+    !crypto.timingSafeEqual(supplied, expected)
+  ) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    );
+
+    if (
+      !decoded.userId ||
+      !decoded.timestamp ||
+      Date.now() - Number(decoded.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+async function saveInstagramConnection({
+  userId,
+  accessToken,
+  expiresIn,
+  instagramUserId,
+  instagramUsername,
+  facebookPageId,
+  facebookPageName,
+  pageAccessToken,
+}) {
+  const now = new Date();
+  const expiresAt = expiresIn
+    ? new Date(now.getTime() + Number(expiresIn) * 1000).toISOString()
+    : null;
+
+  const connectionData = {
+    user_id: String(userId),
+    platform: "instagram",
+    connected: true,
+    access_token: accessToken,
+    expires_in: Number(expiresIn) || null,
+    expires_at: expiresAt,
+    instagram_user_id: String(instagramUserId),
+    instagram_username: instagramUsername || null,
+    facebook_page_id: String(facebookPageId),
+    facebook_page_name: facebookPageName || null,
+    page_access_token: pageAccessToken || null,
+    scopes:
+      "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish",
+    connected_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
+
+  const { data: existing, error: findError } = await supabase
+    .from("social_connections")
+    .select("id")
+    .eq("user_id", String(userId))
+    .eq("platform", "instagram")
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(`Unable to check Instagram connection: ${findError.message}`);
+  }
+
+  const query = existing?.id
+    ? supabase
+        .from("social_connections")
+        .update(connectionData)
+        .eq("id", existing.id)
+    : supabase.from("social_connections").insert(connectionData);
+
+  const { error } = await query;
+  if (error) {
+    throw new Error(`Unable to save Instagram connection: ${error.message}`);
+  }
+}
+
+app.get("/auth/instagram", (req, res) => {
+  const { userId } = req.query;
+
+  if (!FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
+    return res.status(500).send("Instagram OAuth is not configured on the server.");
+  }
+
+  if (!userId) {
+    return res.status(400).send("Missing ArtBoost userId.");
+  }
+
+  const state = createInstagramState(userId);
+  const authUrl = new URL("https://www.facebook.com/v23.0/dialog/oauth");
+  authUrl.searchParams.set("client_id", FACEBOOK_APP_ID);
+  authUrl.searchParams.set("redirect_uri", INSTAGRAM_REDIRECT_URI);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set(
+    "scope",
+    [
+      "pages_show_list",
+      "pages_read_engagement",
+      "instagram_basic",
+      "instagram_content_publish",
+    ].join(",")
+  );
+
+  return res.redirect(authUrl.toString());
+});
+
+app.get("/auth/instagram/callback", async (req, res) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+
+    if (error) {
+      return res.status(400).send(`Instagram authorization was cancelled: ${
+        error_description || error
+      }`);
+    }
+
+    const statePayload = verifyInstagramState(state);
+    if (!statePayload) {
+      return res.status(401).send("Invalid or expired Instagram authorization request.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Missing Instagram authorization code.");
+    }
+
+    const tokenUrl = new URL("https://graph.facebook.com/v23.0/oauth/access_token");
+    tokenUrl.searchParams.set("client_id", FACEBOOK_APP_ID);
+    tokenUrl.searchParams.set("client_secret", FACEBOOK_APP_SECRET);
+    tokenUrl.searchParams.set("redirect_uri", INSTAGRAM_REDIRECT_URI);
+    tokenUrl.searchParams.set("code", String(code));
+
+    const shortResponse = await fetch(tokenUrl);
+    const shortData = await shortResponse.json();
+
+    if (!shortResponse.ok || !shortData.access_token) {
+      throw new Error(
+        shortData?.error?.message || "Instagram token exchange failed."
+      );
+    }
+
+    const longUrl = new URL("https://graph.facebook.com/v23.0/oauth/access_token");
+    longUrl.searchParams.set("grant_type", "fb_exchange_token");
+    longUrl.searchParams.set("client_id", FACEBOOK_APP_ID);
+    longUrl.searchParams.set("client_secret", FACEBOOK_APP_SECRET);
+    longUrl.searchParams.set("fb_exchange_token", shortData.access_token);
+
+    const longResponse = await fetch(longUrl);
+    const longData = await longResponse.json();
+    const userAccessToken =
+      longResponse.ok && longData.access_token
+        ? longData.access_token
+        : shortData.access_token;
+    const expiresIn = longData.expires_in || shortData.expires_in || null;
+
+    const pagesUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
+    pagesUrl.searchParams.set(
+      "fields",
+      "id,name,access_token,instagram_business_account{id,username}"
+    );
+    pagesUrl.searchParams.set("access_token", userAccessToken);
+
+    const pagesResponse = await fetch(pagesUrl);
+    const pagesData = await pagesResponse.json();
+
+    if (!pagesResponse.ok) {
+      throw new Error(
+        pagesData?.error?.message || "Unable to load Facebook Pages for Instagram."
+      );
+    }
+
+    const pages = Array.isArray(pagesData.data) ? pagesData.data : [];
+    const page = pages.find(
+      candidate => candidate.instagram_business_account?.id
+    );
+
+    if (!page) {
+      throw new Error(
+        "No Instagram Business or Creator account was found. Connect Instagram to a Facebook Page, then try again."
+      );
+    }
+
+    await saveInstagramConnection({
+      userId: statePayload.userId,
+      accessToken: userAccessToken,
+      expiresIn,
+      instagramUserId: page.instagram_business_account.id,
+      instagramUsername: page.instagram_business_account.username || null,
+      facebookPageId: page.id,
+      facebookPageName: page.name || null,
+      pageAccessToken: page.access_token || null,
+    });
+
+    await createNotification({
+      userId: String(statePayload.userId),
+      title: "Instagram Connected",
+      message: `Instagram ${
+        page.instagram_business_account.username
+          ? `@${page.instagram_business_account.username}`
+          : "account"
+      } was connected successfully.`,
+      type: "success",
+    });
+
+    return res.send(`
+      <html>
+        <body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;text-align:center;">
+          <h1>Instagram Connected</h1>
+          <p>Your Instagram Business account is now connected to ArtBoost AI.</p>
+          <p>You can close this page, return to ArtBoost, and refresh the connection status.</p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error("Instagram callback error:", error);
+    return res.status(500).send(`
+      <html>
+        <body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;">
+          <h1>Instagram Connection Error</h1>
+          <p>${error instanceof Error ? error.message : "Instagram connection failed."}</p>
+        </body>
+      </html>
+    `);
+  }
+});
+
+app.get("/instagram/status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ connected: false, error: "Missing userId." });
+    }
+
+    const { data, error } = await supabase
+      .from("social_connections")
+      .select(
+        "connected, access_token, expires_at, instagram_user_id, instagram_username, facebook_page_id, connected_at"
+      )
+      .eq("user_id", String(userId))
+      .eq("platform", "instagram")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    const expired = Boolean(
+      data?.expires_at && new Date(data.expires_at).getTime() <= Date.now()
+    );
+
+    return res.json({
+      configured: Boolean(FACEBOOK_APP_ID && FACEBOOK_APP_SECRET),
+      connected: Boolean(
+        data?.connected &&
+          data?.access_token &&
+          data?.instagram_user_id &&
+          !expired
+      ),
+      expired,
+      username: data?.instagram_username || null,
+      instagramUserId: data?.instagram_user_id || null,
+      facebookPageId: data?.facebook_page_id || null,
+      expiresAt: data?.expires_at || null,
+      connectedAt: data?.connected_at || null,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      connected: false,
+      error: error instanceof Error ? error.message : "Unable to check Instagram status.",
+    });
+  }
 });
 
 app.get("/instagram/test", async (req, res) => {
   try {
-    const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId." });
+    }
 
-    if (!token) {
-      return res.status(400).json({ error: "Missing INSTAGRAM_ACCESS_TOKEN" });
+    const { data: connection, error } = await supabase
+      .from("social_connections")
+      .select("access_token, instagram_user_id")
+      .eq("user_id", String(userId))
+      .eq("platform", "instagram")
+      .maybeSingle();
+
+    if (error || !connection?.access_token || !connection?.instagram_user_id) {
+      return res.status(404).json({ error: "Instagram is not connected." });
     }
 
     const response = await fetch(
-      `https://graph.instagram.com/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(
+        connection.instagram_user_id
+      )}?fields=id,username&access_token=${encodeURIComponent(
+        connection.access_token
+      )}`
     );
-
     const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json(data);
-    }
-
-    res.json({
-      ok: true,
-      instagram: data,
-    });
+    return res.status(response.status).json(data);
   } catch (error) {
-    console.error("Instagram test error:", error);
-    res.status(500).json({
-      error: "Instagram test failed",
-      details: error.message,
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : "Instagram test failed.",
     });
   }
 });
@@ -3912,18 +4212,46 @@ async function publishFacebookPost({
 }
 
 async function publishInstagramPost({
+  userId,
   title,
   description,
   hashtags,
   cta,
   imageUrl,
 }) {
-  const instagramUserId = process.env.INSTAGRAM_USER_ID;
-  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+  if (!userId) {
+    throw new Error("Instagram publishing requires an ArtBoost userId.");
+  }
 
-  if (!instagramUserId || !accessToken) {
+  const { data: connection, error: connectionError } = await supabase
+    .from("social_connections")
+    .select("connected, access_token, expires_at, instagram_user_id")
+    .eq("user_id", String(userId))
+    .eq("platform", "instagram")
+    .maybeSingle();
+
+  if (connectionError) {
     throw new Error(
-      "Instagram is not configured. Reconnect Instagram before posting."
+      `Unable to load Instagram connection: ${connectionError.message}`
+    );
+  }
+
+  if (
+    !connection?.connected ||
+    !connection?.access_token ||
+    !connection?.instagram_user_id
+  ) {
+    throw new Error(
+      "Instagram is not connected. Reconnect Instagram before posting."
+    );
+  }
+
+  if (
+    connection.expires_at &&
+    new Date(connection.expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "Instagram connection expired. Reconnect Instagram in ArtBoost, then run the automation again."
     );
   }
 
@@ -3940,80 +4268,57 @@ ${cta || "Tap the link in bio to grab yours today."}
 ${hashtags || ""}`.trim();
 
   const throwInstagramError = (errorData, stage) => {
-    const error = errorData?.error || errorData || {};
-    const errorCode = Number(error?.code || 0);
-    const errorSubcode = Number(error?.error_subcode || 0);
-    const errorMessage =
-      error?.message || `Instagram ${stage} failed.`;
+    const apiError = errorData?.error || {};
+    const code = Number(apiError.code || 0);
+    const messageText = apiError.message || `Instagram ${stage} failed.`;
 
-    const tokenExpired =
-      errorCode === 190 ||
-      errorSubcode === 463 ||
-      errorSubcode === 467 ||
-      /session has expired|access token.*expired|invalid.*access token/i.test(
-        errorMessage
-      );
-
-    if (tokenExpired) {
+    if (code === 190 || /expired|session/i.test(messageText)) {
       throw new Error(
         "Instagram connection expired. Reconnect Instagram in ArtBoost, then run the automation again."
       );
     }
 
-    throw new Error(`Instagram ${stage} failed: ${errorMessage}`);
+    throw new Error(messageText);
   };
 
   const createContainerResponse = await fetch(
-    `https://graph.instagram.com/v23.0/${instagramUserId}/media`,
+    `https://graph.facebook.com/v23.0/${connection.instagram_user_id}/media`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         image_url: imageUrl,
         caption: message,
-        access_token: accessToken,
+        access_token: connection.access_token,
       }),
     }
   );
 
   const createContainerData = await createContainerResponse.json();
-
-  if (!createContainerResponse.ok || createContainerData?.error) {
-    throwInstagramError(createContainerData, "container creation");
+  if (!createContainerResponse.ok || createContainerData.error) {
+    throwInstagramError(createContainerData, "media container creation");
   }
 
-  if (!createContainerData?.id) {
-    throw new Error(
-      "Instagram did not return a media container ID."
-    );
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, 8000));
+  await new Promise(resolve => setTimeout(resolve, 8000));
 
   const publishResponse = await fetch(
-    `https://graph.instagram.com/v23.0/${instagramUserId}/media_publish`,
+    `https://graph.facebook.com/v23.0/${connection.instagram_user_id}/media_publish`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         creation_id: createContainerData.id,
-        access_token: accessToken,
+        access_token: connection.access_token,
       }),
     }
   );
 
   const publishData = await publishResponse.json();
-
-  if (!publishResponse.ok || publishData?.error) {
+  if (!publishResponse.ok || publishData.error) {
     throwInstagramError(publishData, "publishing");
   }
 
-  return {
-    success: true,
-    platform: "instagram",
-    creationId: createContainerData.id,
-    result: publishData,
-  };
+  return publishData;
 }
 
 async function publishXPost({
