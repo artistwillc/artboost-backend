@@ -7,15 +7,12 @@ import { supabase } from "../../lib/supabase";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
-  Image,
   Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -48,9 +45,7 @@ export default function ProductsScreen() {
   productCount: number;
 };
 
-const [stores, setStores] = useState<Store[]>([]);
-  const [search, setSearch] = useState("");
-  const [selectedStore, setSelectedStore] = useState("All");
+const [stores, setSources] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -112,7 +107,7 @@ const [stores, setStores] = useState<Store[]>([]);
       }))
     );
 
-    setStores(storesData.stores || []);
+    setSources(storesData.stores || []);
   } catch (error: any) {
     console.log("Products or stores load failed:", error);
 
@@ -151,384 +146,475 @@ const [stores, setStores] = useState<Store[]>([]);
   }, [loadProducts])
 );
 
-  const filteredProducts = useMemo(() => {
-  const cleanSearch = search.trim().toLowerCase();
 
-  return products.filter((product) => {
-    const matchesStore =
-      selectedStore === "All" ||
-      product.storeName === selectedStore ||
-      product.storeType === selectedStore;
-
-    const matchesSearch =
-      !cleanSearch ||
-      [
-        product.title,
-        product.description,
-        product.storeName,
-        product.storeType,
-      ]
-        .filter(Boolean)
-        .some((value) =>
-          String(value).toLowerCase().includes(cleanSearch)
-        );
-
-    return matchesStore && matchesSearch;
-  });
-}, [products, search, selectedStore]);
 
   function openImportOptions() {
-    Alert.alert("Add Products", "Choose how you want to add products.", [
-      {
-        text: "Manual Product",
-        onPress: () => router.push("/product-create" as any),
-      },
-      {
-  text: "Connect Store",
-  onPress: () =>
-    router.push({
-      pathname: "/connections" as any,
-      params: {
-        section: "stores",
-      },
-    }),
-},
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-    ]);
+    Alert.alert(
+      "Add Artwork",
+      "Choose how you want to add artwork or products.",
+      [
+        {
+          text: "Upload Artwork",
+          onPress: () =>
+            router.push("/product-create" as any),
+        },
+        {
+          text: "Connect Store",
+          onPress: () =>
+            router.push({
+              pathname:
+                "/connect-store" as any,
+            }),
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
   }
 
-  function openProduct(product: Product) {
+  const activeAutomationCount =
+    products.filter(
+      (item) => item.automationEnabled
+    ).length;
+
+  const totalPostsCreated = products.reduce(
+    (total, item) =>
+      total + (item.timesPosted || 0),
+    0
+  );
+
+  const connectedSources = stores.filter(
+    (store) => store.connected
+  );
+
+  const manualProducts = products.filter(
+    (product) =>
+      !product.storeType &&
+      !product.storeName
+  );
+
+  function getStoreProductCount(store: Store) {
+    const matchingProducts = products.filter(
+      (product) =>
+        product.storeName === store.storeName ||
+        product.storeType === store.storeType
+    );
+
+    return Math.max(
+      store.productCount || 0,
+      matchingProducts.length
+    );
+  }
+
+  function getStoreAutomationCount(store: Store) {
+    return products.filter(
+      (product) =>
+        (product.storeName === store.storeName ||
+          product.storeType === store.storeType) &&
+        product.automationEnabled
+    ).length;
+  }
+
+  function openStore(store: Store) {
     router.push({
-      pathname: "/product-details" as any,
+      pathname: "/store-dashboard" as any,
       params: {
-        id: product.id,
+        storeId: store.id,
+        storeName: store.storeName,
+        storeType: store.storeType,
+        productCount: String(
+          getStoreProductCount(store)
+        ),
+        connected: String(store.connected),
       },
     });
   }
 
-  function formatPrice(product: Product) {
-    if (product.price === null || product.price === undefined) {
-      return null;
-    }
-
-    const currency = product.currency || "USD";
-
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-      }).format(product.price);
-    } catch {
-      return `$${Number(product.price).toFixed(2)}`;
-    }
+  function sourceLabel(_store: Store) {
+    return "Artwork Assets";
   }
 
-  function formatLastPosted(value?: string | null) {
-    if (!value) {
-      return "Never posted";
+  function displayStoreName(store: Store) {
+    const type = String(store.storeType || "")
+      .trim()
+      .toLowerCase();
+
+    if (
+      type === "shopify" &&
+      store.storeName.includes(
+        "myshopify.com"
+      )
+    ) {
+      return "Shopify Store";
     }
 
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return "Posted previously";
+    if (type === "redbubble") {
+      return store.storeName || "Redbubble Store";
     }
 
-    return `Last posted ${date.toLocaleDateString()}`;
-  }
+    if (type === "etsy") {
+      return store.storeName || "Etsy Store";
+    }
 
-  function renderProduct({ item }: { item: Product }) {
-    const price = formatPrice(item);
-
-    return (
-      <Pressable
-        style={styles.productCard}
-        onPress={() => openProduct(item)}
-      >
-        <View style={styles.imageWrap}>
-          {item.imageUrl ? (
-            <Image
-              source={{ uri: item.imageUrl }}
-              style={styles.productImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="image-outline" size={32} color="#777" />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.productContent}>
-          <View style={styles.productHeaderRow}>
-            <Text style={styles.productTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
-
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color="#666"
-            />
-          </View>
-
-          <Text style={styles.storeText}>
-            {item.storeName ||
-              item.storeType ||
-              "Manual Product"}
-          </Text>
-
-          {price ? <Text style={styles.priceText}>{price}</Text> : null}
-
-          <View style={styles.metaRow}>
-            <View
-              style={[
-                styles.statusPill,
-                item.automationEnabled
-                  ? styles.statusPillActive
-                  : styles.statusPillInactive,
-              ]}
-            >
-              <Ionicons
-                name={
-                  item.automationEnabled
-                    ? "flash"
-                    : "pause"
-                }
-                size={13}
-                color={
-                  item.automationEnabled
-                    ? "#c4b5fd"
-                    : "#aaa"
-                }
-              />
-
-              <Text
-                style={[
-                  styles.statusText,
-                  item.automationEnabled
-                    ? styles.statusTextActive
-                    : styles.statusTextInactive,
-                ]}
-              >
-                {item.automationEnabled
-                  ? "Auto enabled"
-                  : "Auto disabled"}
-              </Text>
-            </View>
-
-            <Text style={styles.postedText}>
-              {formatLastPosted(item.lastPostedAt)}
-            </Text>
-          </View>
-        </View>
-      </Pressable>
-    );
-  }
-
-  function renderEmptyState() {
-    return (
-      <View style={styles.emptyState}>
-        <View style={styles.emptyIconCircle}>
-          <Ionicons name="cube-outline" size={46} color="#a78bfa" />
-        </View>
-
-        <Text style={styles.emptyTitle}>No products yet</Text>
-
-        <Text style={styles.emptyText}>
-          Add a product manually or connect a store to start building your
-          automatic marketing library.
-        </Text>
-
-        <Pressable
-          style={styles.primaryButton}
-          onPress={openImportOptions}
-        >
-          <Ionicons name="add" size={21} color="#ffffff" />
-          <Text style={styles.primaryButtonText}>Add Products</Text>
-        </Pressable>
-      </View>
-    );
+    return store.storeName;
   }
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>ARTBOOST AI</Text>
-          <Text style={styles.title}>
-          Products
-          </Text>
-          <Text style={styles.subtitle}>
-            Build your product library and automate promotion.
-          </Text>
-        </View>
-
-        <Pressable
-          style={styles.headerButton}
-          onPress={openImportOptions}
-        >
-          <Ionicons name="add" size={25} color="#ffffff" />
-        </Pressable>
-      </View>
-
-      <View style={styles.summaryCard}>
-        <View>
-          <Text style={styles.summaryNumber}>{products.length}</Text>
-          <Text style={styles.summaryLabel}>Total Products</Text>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View>
-          <Text style={styles.summaryNumber}>
-            {products.filter((item) => item.automationEnabled).length}
-          </Text>
-          <Text style={styles.summaryLabel}>Auto Enabled</Text>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View>
-          <Text style={styles.summaryNumber}>
-            {products.reduce(
-              (total, item) => total + (item.timesPosted || 0),
-              0
-            )}
-          </Text>
-          <Text style={styles.summaryLabel}>Posts Created</Text>
-        </View>
-      </View>
-
       <ScrollView
-  horizontal
-  showsHorizontalScrollIndicator={false}
-  style={styles.storeTabsScroll}
-  contentContainerStyle={styles.storeTabs}
->
-  <Pressable
-    style={[
-      styles.storeTab,
-      selectedStore === "All" && styles.storeTabActive,
-    ]}
-    onPress={() => setSelectedStore("All")}
-  >
-    <Text
-      style={[
-        styles.storeTabText,
-        selectedStore === "All" && styles.storeTabTextActive,
-      ]}
-    >
-      All ({products.length})
-    </Text>
-  </Pressable>
-
-  {stores.map((store) => (
-    <Pressable
-      key={store.id}
-      style={[
-        styles.storeTab,
-        selectedStore === store.storeName && styles.storeTabActive,
-      ]}
-      onPress={() =>
-  router.push({
-    pathname: "/store-dashboard" as any,
-    params: {
-      storeId: store.id,
-      storeName: store.storeName,
-      storeType: store.storeType,
-      productCount: String(store.productCount),
-      connected: String(store.connected),
-    },
-  })
-}
-    >
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.storeTabText,
-          selectedStore === store.storeName &&
-            styles.storeTabTextActive,
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingBottom:
+              tabBarHeight + 32,
+          },
         ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+
+              if (userId) {
+                loadProducts(
+                  userId,
+                  false
+                );
+              }
+            }}
+            tintColor="#8b5cf6"
+          />
+        }
+        showsVerticalScrollIndicator={false}
       >
-        {store.storeName.includes("myshopify.com")
-          ? `Shopify (${store.productCount})`
-          : `${store.storeName} (${store.productCount})`}
-      </Text>
-    </Pressable>
-  ))}
+        <View style={styles.header}>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.eyebrow}>
+              ARTBOOST AI
+            </Text>
 
-  <Pressable
-    style={styles.addStoreTab}
-    onPress={() =>
-      router.push({
-        pathname: "/connections" as any,
-        params: {
-          section: "stores",
-        },
-      })
-    }
-  >
-    <Ionicons name="add" size={18} color="#ffffff" />
-    <Text style={styles.addStoreTabText}>Add Store</Text>
-  </Pressable>
-</ScrollView>
+            <Text style={styles.title}>
+              Artwork
+            </Text>
 
-      <View style={styles.searchWrap}>
-        <Ionicons name="search" size={20} color="#777" />
-
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search products"
-          placeholderTextColor="#666"
-          style={styles.searchInput}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        {search ? (
-          <Pressable onPress={() => setSearch("")}>
-            <Ionicons name="close-circle" size={20} color="#777" />
-          </Pressable>
-        ) : null}
-      </View>
-
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#8b5cf6" />
-          <Text style={styles.loadingText}>Loading products...</Text>
+            <Text style={styles.subtitle}>
+              Review your connected art businesses,
+              artwork sources, and automatic
+              marketing activity.
+            </Text>
+          </View>
         </View>
-      ) : (
-        <FlatList
-          style={styles.productList}
-          data={filteredProducts}
-          keyExtractor={(item) => item.id}
-          renderItem={renderProduct}
-          ListEmptyComponent={renderEmptyState}
-          contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: tabBarHeight + 30 },
-          filteredProducts.length === 0 && styles.listContentEmpty,
-        ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                if (userId) {
-  loadProducts(userId, false);
-}
-              }}
-              tintColor="#8b5cf6"
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>
+              {products.length}
+            </Text>
+
+            <Text style={styles.summaryLabel}>
+              Artwork Assets
+            </Text>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>
+              {connectedSources.length}
+            </Text>
+
+            <Text style={styles.summaryLabel}>
+              Sources
+            </Text>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>
+              {activeAutomationCount}
+            </Text>
+
+            <Text style={styles.summaryLabel}>
+              Active Auto
+            </Text>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>
+              {totalPostsCreated}
+            </Text>
+
+            <Text style={styles.summaryLabel}>
+              Posts Made
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>
+              Artwork Sources
+            </Text>
+
+            <Text style={styles.sectionSubtitle}>
+              Select a source to review its artwork,
+              products, and automation settings.
+            </Text>
+          </View>
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator
+              size="large"
+              color="#8b5cf6"
             />
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+
+            <Text style={styles.loadingText}>
+              Loading artwork sources...
+            </Text>
+          </View>
+        ) : connectedSources.length === 0 &&
+          manualProducts.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons
+                name="images-outline"
+                size={44}
+                color="#a78bfa"
+              />
+            </View>
+
+            <Text style={styles.emptyTitle}>
+              No artwork sources yet
+            </Text>
+
+            <Text style={styles.emptyText}>
+              Connect a store or upload artwork
+              to begin automatic marketing.
+            </Text>
+
+            <Pressable
+              style={styles.primaryButton}
+              onPress={openImportOptions}
+            >
+              <Ionicons
+                name="add"
+                size={21}
+                color="#ffffff"
+              />
+
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                Add Artwork
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.sourcesList}>
+            {connectedSources.map((store) => {
+              const count =
+                getStoreProductCount(store);
+
+              const automated =
+                getStoreAutomationCount(
+                  store
+                );
+
+              return (
+                <Pressable
+                  key={store.id}
+                  style={styles.sourceCard}
+                  onPress={() =>
+                    openStore(store)
+                  }
+                >
+                  <View
+                    style={
+                      styles.sourceIconWrap
+                    }
+                  >
+                    <Ionicons
+                      name={
+                        String(
+                          store.storeType
+                        ).toLowerCase() ===
+                        "redbubble"
+                          ? "color-palette-outline"
+                          : "storefront-outline"
+                      }
+                      size={28}
+                      color="#c4b5fd"
+                    />
+                  </View>
+
+                  <View
+                    style={
+                      styles.sourceContent
+                    }
+                  >
+                    <Text
+                      style={styles.sourceName}
+                      numberOfLines={1}
+                    >
+                      {displayStoreName(
+                        store
+                      )}
+                    </Text>
+
+                    <Text
+                      style={styles.sourceType}
+                    >
+                      {String(
+                        store.storeType
+                      ).toUpperCase()}
+                    </Text>
+
+                    <View
+                      style={
+                        styles.sourceMetricsRow
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.sourceMetric
+                        }
+                      >
+                        {count}{" "}
+                        {sourceLabel(store)}
+                      </Text>
+
+                      <Text
+                        style={
+                          styles.metricSeparator
+                        }
+                      >
+                        •
+                      </Text>
+
+                      <Text
+                        style={[
+                          styles.sourceMetric,
+                          automated > 0 &&
+                            styles.sourceMetricActive,
+                        ]}
+                      >
+                        {automated > 0
+                          ? `${automated} Active Auto`
+                          : "Automation Off"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Ionicons
+                    name="chevron-forward"
+                    size={22}
+                    color="#777777"
+                  />
+                </Pressable>
+              );
+            })}
+
+            {manualProducts.length > 0 ? (
+              <Pressable
+                style={styles.sourceCard}
+                onPress={() =>
+                  router.push(
+                    "/product-create" as any
+                  )
+                }
+              >
+                <View
+                  style={
+                    styles.sourceIconWrap
+                  }
+                >
+                  <Ionicons
+                    name="cloud-upload-outline"
+                    size={28}
+                    color="#c4b5fd"
+                  />
+                </View>
+
+                <View
+                  style={
+                    styles.sourceContent
+                  }
+                >
+                  <Text
+                    style={styles.sourceName}
+                  >
+                    Uploaded Artwork
+                  </Text>
+
+                  <Text
+                    style={styles.sourceType}
+                  >
+                    MANUAL UPLOADS
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.sourceMetric
+                    }
+                  >
+                    {manualProducts.length}{" "}
+                    Artwork
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={22}
+                  color="#777777"
+                />
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              style={styles.addSourceCard}
+              onPress={openImportOptions}
+            >
+              <View
+                style={
+                  styles.addSourceIconWrap
+                }
+              >
+                <Ionicons
+                  name="add"
+                  size={25}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.sourceContent}>
+                <Text
+                  style={styles.addSourceTitle}
+                >
+                  Add Artwork or Store
+                </Text>
+
+                <Text
+                  style={
+                    styles.addSourceDescription
+                  }
+                >
+                  Connect another business, import a
+                  store, or upload artwork directly.
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -539,6 +625,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#0b0b0b",
   },
 
+  scrollContent: {
+    paddingBottom: 40,
+  },
+
   header: {
     paddingHorizontal: 20,
     paddingTop: 18,
@@ -546,6 +636,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+  },
+
+  headerTextWrap: {
+    flex: 1,
+    paddingRight: 16,
   },
 
   eyebrow: {
@@ -570,160 +665,182 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  headerButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: "#8b5cf6",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-
   summaryCard: {
     marginHorizontal: 20,
-    marginBottom: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
+    marginBottom: 24,
+    paddingVertical: 17,
+    paddingHorizontal: 12,
     borderRadius: 20,
     backgroundColor: "#171717",
     borderWidth: 1,
     borderColor: "#292929",
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  summaryItem: {
+    flex: 1,
     alignItems: "center",
   },
 
   summaryNumber: {
     color: "#ffffff",
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: "900",
     textAlign: "center",
   },
 
   summaryLabel: {
     color: "#838383",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 3,
+    marginTop: 4,
   },
 
   summaryDivider: {
     width: 1,
-    height: 34,
-    backgroundColor: "#333",
+    height: 35,
+    backgroundColor: "#333333",
   },
 
-  storeTabsScroll: {
-  flexGrow: 0,
-  height: 54,
-  marginBottom: 8,
-},
+  sectionHeader: {
+    paddingHorizontal: 20,
+    marginBottom: 13,
+  },
 
-  storeTabs: {
-  paddingHorizontal: 20,
-  paddingBottom: 14,
-  gap: 10,
-},
+  sectionTitle: {
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+  },
 
-storeTab: {
-  height: 40,
-  paddingHorizontal: 18,
-  borderRadius: 20,
-  backgroundColor: "#171717",
-  borderWidth: 1,
-  borderColor: "#292929",
-  justifyContent: "center",
-  alignItems: "center",
-  marginRight: 10,
-},
+  sectionSubtitle: {
+    color: "#898989",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+  },
 
-storeTabActive: {
-  backgroundColor: "#8b5cf6",
-  borderColor: "#8b5cf6",
-},
+  sourcesList: {
+    paddingHorizontal: 20,
+  },
 
-storeTabText: {
-  color: "#bdbdbd",
-  fontSize: 14,
-  fontWeight: "700",
-},
-
-storeTabTextActive: {
-  color: "#ffffff",
-},
-
-addStoreTab: {
-  height: 40,
-  paddingHorizontal: 16,
-  borderRadius: 20,
-  backgroundColor: "#2b2145",
-  borderWidth: 1,
-  borderColor: "#5b3fa3",
-  flexDirection: "row",
-  justifyContent: "center",
-  alignItems: "center",
-  gap: 6,
-  marginRight: 20,
-},
-
-addStoreTabText: {
-  color: "#ffffff",
-  fontSize: 14,
-  fontWeight: "800",
-},
-
-searchWrap: {
-    marginHorizontal: 20,
-    marginBottom: 14,
-    minHeight: 52,
-    borderRadius: 16,
+  sourceCard: {
+    minHeight: 104,
+    borderRadius: 20,
     backgroundColor: "#171717",
     borderWidth: 1,
     borderColor: "#292929",
-    paddingHorizontal: 15,
+    padding: 15,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
   },
 
-  searchInput: {
+  sourceIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    backgroundColor: "#2b2145",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  sourceContent: {
     flex: 1,
+    paddingHorizontal: 14,
+  },
+
+  sourceName: {
     color: "#ffffff",
-    fontSize: 15,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  sourceType: {
+    color: "#a78bfa",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    marginTop: 4,
+  },
+
+  sourceMetricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginTop: 8,
+  },
+
+  sourceMetric: {
+    color: "#929292",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  sourceMetricActive: {
+    color: "#86efac",
+  },
+
+  metricSeparator: {
+    color: "#555555",
+    marginHorizontal: 7,
+  },
+
+  addSourceCard: {
+    minHeight: 92,
+    borderRadius: 20,
+    backgroundColor: "#1d1730",
+    borderWidth: 1,
+    borderColor: "#5b3fa3",
+    padding: 15,
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  addSourceIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  addSourceTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  addSourceDescription: {
+    color: "#aaa0ba",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 4,
   },
 
   loadingWrap: {
-    flex: 1,
+    minHeight: 280,
     alignItems: "center",
     justifyContent: "center",
   },
 
   loadingText: {
-    color: "#888",
+    color: "#888888",
     fontSize: 14,
     marginTop: 12,
   },
 
-  productList: {
-  flex: 1,
-},
-
-  listContent: {
-  paddingHorizontal: 20,
-},
-
-  listContentEmpty: {
-    flexGrow: 1,
-  },
-
   emptyState: {
-    flex: 1,
+    minHeight: 350,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 28,
-    paddingBottom: 50,
   },
 
   emptyIconCircle: {
@@ -740,14 +857,14 @@ searchWrap: {
 
   emptyTitle: {
     color: "#ffffff",
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: "900",
   },
 
   emptyText: {
-    color: "#999",
-    fontSize: 15,
-    lineHeight: 22,
+    color: "#999999",
+    fontSize: 14,
+    lineHeight: 21,
     textAlign: "center",
     marginTop: 9,
     marginBottom: 24,
@@ -768,110 +885,5 @@ searchWrap: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "900",
-  },
-
-  productCard: {
-    backgroundColor: "#171717",
-    borderWidth: 1,
-    borderColor: "#292929",
-    borderRadius: 20,
-    padding: 12,
-    marginBottom: 12,
-    flexDirection: "row",
-  },
-
-  imageWrap: {
-    width: 92,
-    height: 92,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "#222",
-  },
-
-  productImage: {
-    width: "100%",
-    height: "100%",
-  },
-
-  imagePlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  productContent: {
-    flex: 1,
-    paddingLeft: 14,
-  },
-
-  productHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-
-  productTitle: {
-    flex: 1,
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "900",
-    lineHeight: 21,
-    paddingRight: 8,
-  },
-
-  storeText: {
-    color: "#8b5cf6",
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "capitalize",
-    marginTop: 5,
-  },
-
-  priceText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
-    marginTop: 5,
-  },
-
-  metaRow: {
-    marginTop: 10,
-    gap: 7,
-  },
-
-  statusPill: {
-    alignSelf: "flex-start",
-    borderRadius: 99,
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-
-  statusPillActive: {
-    backgroundColor: "#2b2145",
-  },
-
-  statusPillInactive: {
-    backgroundColor: "#292929",
-  },
-
-  statusText: {
-    fontSize: 11,
-    fontWeight: "900",
-  },
-
-  statusTextActive: {
-    color: "#c4b5fd",
-  },
-
-  statusTextInactive: {
-    color: "#aaa",
-  },
-
-  postedText: {
-    color: "#777",
-    fontSize: 11,
-    fontWeight: "700",
   },
 });

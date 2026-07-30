@@ -64,7 +64,6 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
@@ -73,6 +72,12 @@
     },
     "androidStatusBar": {
       "backgroundColor": "#ffffff"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/52871925-f7ec-49ec-a141-d41dd224e930"
     }
   }
 }

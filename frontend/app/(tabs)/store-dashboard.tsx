@@ -191,10 +191,6 @@ const syncButtonLabel = useMemo(() => {
     .trim()
     .toLowerCase();
 
-  if (type === "redbubble") {
-    return "Import Catalog";
-  }
-
   if (type === "shopify") {
     return "Live Sync";
   }
@@ -203,25 +199,51 @@ const syncButtonLabel = useMemo(() => {
     return "Sync Listings";
   }
 
-  return "Sync Products";
-}, [storeType]);
+  if (type === "redbubble") {
+    return "Import Catalog";
+  }
+
+  return productCount > 0
+    ? "Import More"
+    : "Import Products";
+}, [productCount, storeType]);
 
   function openProducts() {
     router.push({
-      pathname: "/products" as any,
+      pathname: "/store-products" as any,
       params: {
+        storeId,
         storeName,
         storeType,
+        productCount: String(productCount),
+        connected: String(connected),
       },
     });
   }
 
   function syncProducts() {
-  const type = String(storeType)
-    .trim()
-    .toLowerCase();
+    const type = String(storeType)
+      .trim()
+      .toLowerCase();
 
-  if (type === "redbubble") {
+    if (type === "shopify") {
+      Alert.alert(
+        "Live Sync Active",
+        "Shopify products are synchronized through the connected Shopify store."
+      );
+
+      return;
+    }
+
+    if (type === "etsy") {
+      Alert.alert(
+        "Etsy Sync",
+        "Etsy listing synchronization will use the connected Etsy account."
+      );
+
+      return;
+    }
+
     router.push({
       pathname: "/catalog-importer" as any,
       params: {
@@ -230,24 +252,7 @@ const syncButtonLabel = useMemo(() => {
         storeType,
       },
     });
-
-    return;
   }
-
-  if (type === "shopify") {
-    Alert.alert(
-      "Live Sync",
-      "Shopify product synchronization is already connected through Live Sync."
-    );
-
-    return;
-  }
-
-  Alert.alert(
-    "Product Sync",
-    `The ${platformLabel} product import system will be connected in a future update.`
-  );
-}
 
   function openStoreConnection() {
     router.push({
@@ -265,9 +270,9 @@ const syncButtonLabel = useMemo(() => {
         <Pressable
   style={styles.backButton}
   onPress={() =>
-  router.navigate({
+  router.replace({
     pathname:
-      "/connections" as any,
+      "/(tabs)/connections" as any,
     params: {
       section: "stores",
     },
@@ -367,11 +372,21 @@ const syncButtonLabel = useMemo(() => {
 
           <View style={styles.metricsRow}>
             <View style={styles.metric}>
-              <Text style={styles.metricNumber}>
-                {productCount}
+              <Text
+                style={[
+                  styles.metricNumber,
+                  productCount === 0 &&
+                    styles.metricNumberPending,
+                ]}
+              >
+                {productCount > 0
+                  ? productCount
+                  : "Awaiting"}
               </Text>
               <Text style={styles.metricLabel}>
-                Products
+                {productCount > 0
+                  ? "Products"
+                  : "Import"}
               </Text>
             </View>
 
@@ -445,7 +460,11 @@ const syncButtonLabel = useMemo(() => {
         <DashboardAction
           icon="cube-outline"
           title="Products"
-          description={`View and manage ${productCount} imported products.`}
+          description={
+            productCount > 0
+              ? `View and manage ${productCount} imported products.`
+              : "Import your first product or open the empty product catalog."
+          }
           onPress={openProducts}
         />
 
@@ -721,6 +740,10 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 22,
     fontWeight: "900",
+  },
+
+  metricNumberPending: {
+    fontSize: 17,
   },
 
   metricLabel: {

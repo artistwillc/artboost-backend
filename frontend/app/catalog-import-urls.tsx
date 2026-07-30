@@ -26,6 +26,11 @@ const BACKEND_URL =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
   "https://artboost-ai.onrender.com";
 
+type RedbubbleImportMode =
+  | "store"
+  | "collection"
+  | "artwork";
+
 export default function CatalogImportUrlsScreen() {
   const params = useLocalSearchParams<{
     storeId?: string;
@@ -46,6 +51,16 @@ export default function CatalogImportUrlsScreen() {
 
   const [submitting, setSubmitting] =
     useState(false);
+
+  const [redbubbleImportMode, setRedbubbleImportMode] =
+    useState<RedbubbleImportMode>("store");
+
+  const cleanStoreType = String(storeType)
+    .trim()
+    .toLowerCase();
+
+  const isRedbubble =
+    cleanStoreType === "redbubble";
 
   const platformLabel = useMemo(() => {
     const cleanType = String(storeType)
@@ -127,6 +142,48 @@ export default function CatalogImportUrlsScreen() {
     );
   }, [parsedUrls, validUrls]);
 
+
+  const redbubbleModeCopy = useMemo(() => {
+    if (redbubbleImportMode === "collection") {
+      return {
+        title: "Redbubble Collection",
+        description:
+          "Paste the link for 1 Redbubble collection. ArtBoost will use it to find the artwork in that collection.",
+        example:
+          "https://www.redbubble.com/people/artistwill/shop?collections=4505410",
+        placeholder:
+          "Paste 1 Redbubble collection link here...",
+        buttonLabel: "Import Collection",
+      };
+    }
+
+    if (redbubbleImportMode === "artwork") {
+      return {
+        title: "Redbubble Artwork",
+        description:
+          "Paste 1 or more Redbubble artwork links. Each artwork page can represent many available products.",
+        example:
+          "https://www.redbubble.com/shop/ap/182131349",
+        placeholder:
+          "Paste Redbubble artwork links here...\n\nhttps://www.redbubble.com/shop/ap/182131349",
+        buttonLabel:
+          validUrls.length === 1
+            ? "Import Artwork"
+            : `Import ${validUrls.length || ""} Artworks`,
+      };
+    }
+
+    return {
+      title: "Entire Redbubble Store",
+      description:
+        "Paste your main Redbubble shop link. ArtBoost will use it to locate the artwork available in your store.",
+      example:
+        "https://www.redbubble.com/people/artistwill/shop",
+      placeholder:
+        "Paste 1 Redbubble store link here...",
+      buttonLabel: "Import Store",
+    };
+  }, [redbubbleImportMode, validUrls.length]);
   function clearUrls() {
     if (!urlText.trim()) {
       return;
@@ -176,6 +233,21 @@ export default function CatalogImportUrlsScreen() {
       return;
     }
 
+    if (
+      isRedbubble &&
+      redbubbleImportMode !== "artwork" &&
+      validUrls.length > 1
+    ) {
+      Alert.alert(
+        "Use 1 Redbubble Link",
+        redbubbleImportMode === "store"
+          ? "Paste only 1 Redbubble store link."
+          : "Paste only 1 Redbubble collection link."
+      );
+
+      return;
+    }
+
     if (validUrls.length > 25) {
       Alert.alert(
         "Too Many Product URLs",
@@ -214,6 +286,11 @@ export default function CatalogImportUrlsScreen() {
             storeName,
             storeType,
             urls: validUrls,
+            ...(isRedbubble
+              ? {
+                  redbubbleImportMode,
+                }
+              : {}),
           }),
         }
       );
@@ -350,7 +427,17 @@ export default function CatalogImportUrlsScreen() {
         <View style={styles.header}>
           <Pressable
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() =>
+              router.replace({
+                pathname:
+                  "/catalog-importer" as any,
+                params: {
+                  storeId,
+                  storeName,
+                  storeType,
+                },
+              })
+            }
           >
             <Ionicons
               name="arrow-back"
@@ -410,6 +497,78 @@ export default function CatalogImportUrlsScreen() {
             </View>
           </View>
 
+          {isRedbubble ? (
+            <View style={styles.modeCard}>
+              <Text style={styles.modeTitle}>
+                What would you like to import?
+              </Text>
+
+              <View style={styles.modeButtonRow}>
+                {(
+                  [
+                    {
+                      value: "store",
+                      label: "Store",
+                      icon: "storefront-outline",
+                    },
+                    {
+                      value: "collection",
+                      label: "Collection",
+                      icon: "albums-outline",
+                    },
+                    {
+                      value: "artwork",
+                      label: "Artwork",
+                      icon: "image-outline",
+                    },
+                  ] as const
+                ).map((option) => {
+                  const selected =
+                    redbubbleImportMode ===
+                    option.value;
+
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[
+                        styles.modeButton,
+                        selected &&
+                          styles.modeButtonSelected,
+                      ]}
+                      onPress={() => {
+                        setRedbubbleImportMode(
+                          option.value
+                        );
+                        setUrlText("");
+                      }}
+                      disabled={submitting}
+                    >
+                      <Ionicons
+                        name={option.icon}
+                        size={20}
+                        color={
+                          selected
+                            ? "#ffffff"
+                            : "#9b8fb5"
+                        }
+                      />
+
+                      <Text
+                        style={[
+                          styles.modeButtonText,
+                          selected &&
+                            styles.modeButtonTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           <View style={styles.instructionsCard}>
             <View
               style={styles.instructionsTitleRow}
@@ -430,30 +589,37 @@ export default function CatalogImportUrlsScreen() {
             <Text
               style={styles.instructionsText}
             >
-              Paste 1 product URL per line. You may
-              also separate URLs with commas.
+              {isRedbubble
+                ? redbubbleModeCopy.description
+                : "Paste 1 product URL per line. You may also separate URLs with commas."}
             </Text>
 
-            <Text
-              style={styles.instructionsText}
-            >
-              Use direct product listing links, not
-              your main storefront URL.
-            </Text>
+            {!isRedbubble ? (
+              <Text
+                style={styles.instructionsText}
+              >
+                Use direct product listing links, not
+                your main storefront URL.
+              </Text>
+            ) : null}
 
             <Text style={styles.exampleLabel}>
               Example
             </Text>
 
             <Text style={styles.exampleText}>
-              https://www.redbubble.com/i/t-shirt/example-product/123456
+              {isRedbubble
+                ? redbubbleModeCopy.example
+                : "https://www.redbubble.com/i/t-shirt/example-product/123456"}
             </Text>
           </View>
 
           <View style={styles.inputHeaderRow}>
             <View>
               <Text style={styles.sectionTitle}>
-                Product URLs
+                {isRedbubble
+                  ? redbubbleModeCopy.title
+                  : "Product URLs"}
               </Text>
 
               <Text
@@ -486,7 +652,9 @@ export default function CatalogImportUrlsScreen() {
             value={urlText}
             onChangeText={setUrlText}
             placeholder={
-              "Paste product URLs here...\n\nhttps://www.redbubble.com/i/...\nhttps://www.redbubble.com/i/..."
+              isRedbubble
+                ? redbubbleModeCopy.placeholder
+                : "Paste product URLs here...\n\nhttps://www.redbubble.com/i/...\nhttps://www.redbubble.com/i/..."
             }
             placeholderTextColor="#666666"
             autoCapitalize="none"
@@ -549,13 +717,15 @@ export default function CatalogImportUrlsScreen() {
             >
               {submitting
                 ? "Importing..."
-                : `Import ${
-                    validUrls.length || ""
-                  } ${
-                    validUrls.length === 1
-                      ? "Product"
-                      : "Products"
-                  }`}
+                : isRedbubble
+                  ? redbubbleModeCopy.buttonLabel
+                  : `Import ${
+                      validUrls.length || ""
+                    } ${
+                      validUrls.length === 1
+                        ? "Product"
+                        : "Products"
+                    }`}
             </Text>
           </Pressable>
 
@@ -567,9 +737,9 @@ export default function CatalogImportUrlsScreen() {
             />
 
             <Text style={styles.noticeText}>
-              ArtBoost will only import the product
-              links you provide. It will not crawl
-              your entire marketplace storefront.
+              {isRedbubble
+                ? "ArtBoost will only process the Redbubble link you provide. You remain in control of what is imported."
+                : "ArtBoost will only import the product links you provide. It will not crawl your entire marketplace storefront."}
             </Text>
           </View>
         </ScrollView>
@@ -676,6 +846,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 6,
+  },
+
+  modeCard: {
+    borderRadius: 18,
+    backgroundColor: "#171717",
+    borderWidth: 1,
+    borderColor: "#343434",
+    padding: 16,
+    marginBottom: 16,
+  },
+
+  modeTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 12,
+  },
+
+  modeButtonRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  modeButton: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 14,
+    backgroundColor: "#111111",
+    borderWidth: 1,
+    borderColor: "#303030",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 6,
+  },
+
+  modeButtonSelected: {
+    backgroundColor: "#6d28d9",
+    borderColor: "#a78bfa",
+  },
+
+  modeButtonText: {
+    color: "#9b8fb5",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  modeButtonTextSelected: {
+    color: "#ffffff",
   },
 
   instructionsCard: {

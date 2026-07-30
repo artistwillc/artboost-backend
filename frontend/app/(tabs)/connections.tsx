@@ -1,9 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   router,
   useLocalSearchParams,
 } from "expo-router";
+import React, {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,715 +18,244 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
-type ConnectionSection = "social" | "stores";
+type ConnectionSection =
+  | "social"
+  | "stores";
 
-type PlatformItem = {
+type SocialPlatform = {
   name: string;
   description: string;
   premium: boolean;
   available: boolean;
-  connectionType?: string;
 };
 
-const socialPlatforms: PlatformItem[] = [
+type ConnectedStore = {
+  id: string;
+  storeType: string;
+  storeName: string;
+  storeUrl?: string | null;
+  hostname?: string | null;
+  connectionMethod?: string | null;
+  connected: boolean;
+  productCount: number;
+  connectedAt?: string | null;
+  updatedAt?: string | null;
+};
+
+const socialPlatforms: SocialPlatform[] = [
   {
     name: "Pinterest",
-    description: "Publish pins, artwork, and product campaigns.",
+    description:
+      "Publish pins, artwork, and product campaigns.",
     premium: true,
     available: true,
   },
   {
     name: "Facebook",
-    description: "Post product and artwork campaigns to Facebook Pages.",
+    description:
+      "Post product and artwork campaigns to Facebook Pages.",
     premium: true,
     available: true,
   },
   {
     name: "Instagram",
-    description: "Publish images and captions to Instagram Business.",
+    description:
+      "Publish images and captions to Instagram Business.",
     premium: true,
     available: true,
   },
   {
     name: "X",
-    description: "Publish product links, artwork, images, and short posts.",
+    description:
+      "Publish product links, artwork, images, and short posts.",
     premium: true,
     available: true,
   },
 ];
 
-const storePlatforms: PlatformItem[] = [
-  {
-    name: "Shopify",
-    description: "Import products and automate store marketing.",
-    premium: true,
-    available: true,
-    connectionType: "Live Sync",
-  },
-  {
-    name: "Etsy",
-    description: "Import Etsy shop listings and product information.",
-    premium: true,
-    available: true,
-    connectionType: "Live Sync",
-  },
-  {
-    name: "eBay",
-    description: "Import active eBay listings and marketplace products.",
-    premium: true,
-    available: false,
-    connectionType: "Live Sync",
-  },
-  {
-    name: "Redbubble",
-    description: "Import products from a Redbubble storefront.",
-    premium: true,
-    available: true,
-    connectionType: "Catalog Import",
-  },
-  {
-    name: "ArtPal",
-    description: "Import artwork listings from an ArtPal gallery.",
-    premium: true,
-    available: false,
-    connectionType: "Catalog Import",
-  },
-  {
-    name: "Fine Art America",
-    description: "Import artwork and products from Fine Art America.",
-    premium: true,
-    available: false,
-    connectionType: "Catalog Import",
-  },
-  {
-    name: "Custom Store",
-    description:
-      "Add another store using a catalog feed, CSV file, store URL, or manual products.",
-    premium: true,
-    available: false,
-    connectionType: "Custom Import",
-  },
-];
+function formatStoreType(value: string) {
+  const clean = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  const names: Record<string, string> = {
+    shopify: "Live Sync",
+    etsy: "Live Sync",
+    redbubble: "Artwork Import",
+    amazon: "Product Link Import",
+    ebay: "Product Link Import",
+    fine_art_america:
+      "Product Link Import",
+    society6: "Product Link Import",
+    artpal: "Product Link Import",
+    gumroad: "Product Link Import",
+    big_cartel: "Product Link Import",
+    squarespace: "Product Link Import",
+    wix: "Product Link Import",
+    woocommerce:
+      "Product Link Import",
+    custom_store:
+      "Custom Store / URL Import",
+  };
+
+  return (
+    names[clean] ||
+    "Store / Product Link Import"
+  );
+}
+
+function platformDisplayName(store: ConnectedStore) {
+  const platform = String(store.storeType || "")
+    .trim()
+    .toLowerCase();
+
+  const names: Record<string, string> = {
+    shopify: "Shopify",
+    etsy: "Etsy",
+    redbubble: "Redbubble",
+    amazon: "Amazon",
+    ebay: "eBay",
+    fine_art_america: "Fine Art America",
+    society6: "Society6",
+    artpal: "ArtPal",
+    gumroad: "Gumroad",
+    big_cartel: "Big Cartel",
+    squarespace: "Squarespace",
+    wix: "Wix",
+    woocommerce: "WooCommerce",
+    printify: "Printify",
+    printful: "Printful",
+    custom_store: "Custom Store",
+  };
+
+  return names[platform] || "Connected Store";
+}
+
+function storeDisplayName(store: ConnectedStore) {
+  const rawName = String(
+    store.storeName || ""
+  ).trim();
+
+  if (!rawName) {
+    return "Connected Store";
+  }
+
+  try {
+    if (
+      rawName.startsWith("http://") ||
+      rawName.startsWith("https://")
+    ) {
+      return new URL(rawName).hostname.replace(
+        /^www\./i,
+        ""
+      );
+    }
+  } catch {}
+
+  return rawName;
+}
 
 export default function ConnectionsScreen() {
-  const { section } = useLocalSearchParams<{
-  section?: string;
-}>();
+  const params = useLocalSearchParams<{
+    section?: string;
+    refreshStores?: string;
+  }>();
+
   const [activeSection, setActiveSection] =
-    useState<ConnectionSection>("social");
-
-  const [connections, setConnections] = useState<Record<string, boolean>>({});
-  const [loadingStatus, setLoadingStatus] = useState(false);
-  const [shopifyStore, setShopifyStore] = useState("");
-  const [redbubbleStore, setRedbubbleStore] =
-  useState("");
-
-  const [redbubbleLoading, setRedbubbleLoading] =
-  useState(false);
-  const [shopifyDetails, setShopifyDetails] = useState<{
-  id: string;
-  storeType: string;
-  storeName: string;
-  productCount: number;
-} | null>(null);
-
-const [redbubbleDetails, setRedbubbleDetails] =
-  useState<{
-    id: string;
-    storeType: string;
-    storeName: string;
-    productCount: number;
-  } | null>(null);
-
-  const visiblePlatforms = useMemo(() => {
-    return activeSection === "social" ? socialPlatforms : storePlatforms;
-  }, [activeSection]);
-
-  const saveConnections = async (
-    updated: Record<string, boolean>
-  ) => {
-    setConnections(updated);
-
-    await AsyncStorage.setItem(
-      "artboost_connections",
-      JSON.stringify(updated)
-    );
-  };
-
-  const getStoredConnections = async () => {
-    const saved = await AsyncStorage.getItem(
-      "artboost_connections"
+    useState<ConnectionSection>(
+      params.section === "stores"
+        ? "stores"
+        : "social"
     );
 
-    return saved ? JSON.parse(saved) : {};
-  };
-
-  const updateStoredConnection = async (
-  platform: string,
-  connected: boolean
-) => {
-  setConnections(
-    (current) => {
-      const updated = {
-        ...current,
-        [platform]: connected,
-      };
-
-      AsyncStorage.setItem(
-        "artboost_connections",
-        JSON.stringify(updated)
-      ).catch((error) => {
-        console.log(
-          "Connection storage failed:",
-          error
-        );
-      });
-
-      return updated;
-    }
+  const [
+    socialConnections,
+    setSocialConnections,
+  ] = useState<Record<string, boolean>>(
+    {}
   );
-};
 
-  const checkPinterestStatus = async () => {
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/pinterest/status`
-      );
+  const [stores, setStores] = useState<
+    ConnectedStore[]
+  >([]);
 
-      const responseText =
-  await response.text();
+  const [loadingStatus, setLoadingStatus] =
+    useState(false);
 
-console.log(
-  "Resume response:",
-  response.status,
-  responseText
-);
+  const [disconnectingId, setDisconnectingId] =
+    useState<string | null>(null);
 
-let data: any;
-
-try {
-  data = JSON.parse(
-    responseText
+  const connectedStores = useMemo(
+    () =>
+      stores.filter(
+        store => store.connected !== false
+      ),
+    [stores]
   );
-} catch {
-  throw new Error(
-    `Backend returned ${response.status}: ${responseText.slice(
-      0,
-      200
-    )}`
-  );
-}
 
-      await updateStoredConnection(
-        "Pinterest",
-        Boolean(data.connected)
-      );
-    } catch (error) {
-      console.log(
-        "Pinterest status check failed:",
-        error
-      );
-    }
-  };
+  const getStoredConnections =
+    useCallback(async () => {
+      try {
+        const saved =
+          await AsyncStorage.getItem(
+            "artboost_connections"
+          );
 
-  const checkFacebookStatus = async () => {
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/facebook/test`
-      );
-
-      const data = await response.json();
-
-      await updateStoredConnection(
-        "Facebook",
-        Boolean(data.connected)
-      );
-    } catch (error) {
-      console.log(
-        "Facebook status check failed:",
-        error
-      );
-    }
-  };
-
-  const checkInstagramStatus = async () => {
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/instagram/status`
-      );
-
-      const data = await response.json();
-
-      await updateStoredConnection(
-        "Instagram",
-        Boolean(data.connected)
-      );
-    } catch (error) {
-      console.log(
-        "Instagram status check failed:",
-        error
-      );
-    }
-  };
-
-  const checkXStatus = async () => {
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/x/status`
-      );
-
-      const data = await response.json();
-
-      await updateStoredConnection(
-        "X",
-        Boolean(data.connected)
-      );
-    } catch (error) {
-      console.log("X status check failed:", error);
-    }
-  };
-
-  const checkShopifyStatus = async () => {
-    try {
-      const { data: sessionData } =
-        await supabase.auth.getSession();
-
-      const userId =
-        sessionData.session?.user?.id;
-
-      if (!userId) {
-        await updateStoredConnection(
-          "Shopify",
-          false
-        );
-
-        return;
+        return saved
+          ? JSON.parse(saved)
+          : {};
+      } catch {
+        return {};
       }
+    }, []);
 
-      const response = await fetch(
-        `${BACKEND_URL}/shopify/status?userId=${encodeURIComponent(
-          userId
-        )}`
-      );
+  const updateStoredConnection =
+    useCallback(
+      async (
+        platform: string,
+        connected: boolean
+      ) => {
+        setSocialConnections(current => {
+          const updated = {
+            ...current,
+            [platform]: connected,
+          };
 
-      const data = await response.json();
+          AsyncStorage.setItem(
+            "artboost_connections",
+            JSON.stringify(updated)
+          ).catch(error => {
+            console.log(
+              "Connection storage failed:",
+              error
+            );
+          });
 
-      await updateStoredConnection(
-        "Shopify",
-        Boolean(data.connected)
-      );
+          return updated;
+        });
+      },
+      []
+    );
 
-      if (data.shopDomain) {
-        setShopifyStore(
-          String(data.shopDomain).replace(
-            /\.myshopify\.com$/i,
-            ""
-          )
-        );
-      }
-
-const storesResponse = await fetch(
-  `${BACKEND_URL}/stores?userId=${encodeURIComponent(
-    userId
-  )}`
-);
-
-const storesData =
-  await storesResponse.json();
-
-if (
-  storesResponse.ok &&
-  storesData.success
-) {
-  const shopifyConnection = (
-    storesData.stores || []
-  ).find(
-    (store: any) =>
-      String(
-        store.storeType || ""
-      ).toLowerCase() === "shopify"
-  );
-
-  const redbubbleConnection = (
-  storesData.stores || []
-).find(
-  (store: any) =>
-    String(
-      store.storeType || ""
-    ).toLowerCase() === "redbubble"
-);
-
-  if (shopifyConnection) {
-  setShopifyDetails({
-    id: String(
-      shopifyConnection.id
-    ),
-    storeType: String(
-      shopifyConnection.storeType
-    ),
-    storeName: String(
-      shopifyConnection.storeName
-    ),
-    productCount:
-      Number(
-        shopifyConnection.productCount
-      ) || 0,
-  });
-} else {
-  setShopifyDetails(null);
-}
-
-if (redbubbleConnection) {
-  setRedbubbleDetails({
-    id: String(
-      redbubbleConnection.id
-    ),
-    storeType: String(
-      redbubbleConnection.storeType
-    ),
-    storeName: String(
-      redbubbleConnection.storeName
-    ),
-    productCount:
-      Number(
-        redbubbleConnection.productCount
-      ) || 0,
-  });
-
-  setRedbubbleStore(
-    String(
-      redbubbleConnection.storeName || ""
-    )
-  );
-
-  await updateStoredConnection(
-    "Redbubble",
-    Boolean(
-      redbubbleConnection.connected
-    )
-  );
-} else {
-  setRedbubbleDetails(null);
-
-  await updateStoredConnection(
-    "Redbubble",
-    false
-  );
-}
-
-}
-
-    } catch (error) {
-      console.log(
-        "Shopify status check failed:",
-        error
-      );
-    }
-  };
-
-  const checkEtsyStatus = async () => {
-  try {
-    const { data: sessionData } =
-      await supabase.auth.getSession();
-
-    const userId =
-      sessionData.session?.user?.id;
-
-       if (!userId) {
-        await updateStoredConnection(
-        "Etsy",
-        false
-      );
-
-      return;
-    }
-
+  const loadStores = useCallback(
+  async (userId: string) => {
     const response = await fetch(
-      `${BACKEND_URL}/etsy/status?userId=${encodeURIComponent(
+      `${BACKEND_URL}/stores?userId=${encodeURIComponent(
         userId
       )}`
     );
 
-    const responseText =
-      await response.text();
-
-      let data: any;
-
-    try {
-      data = JSON.parse(
-        responseText
-      );
-    } catch {
-      throw new Error(
-        `Backend returned ${response.status}: ${responseText.slice(
-          0,
-          200
-        )}`
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data.error ||
-          "Unable to check Etsy status."
-      );
-    }
-
-    await updateStoredConnection(
-  "Etsy",
-  Boolean(data.connected)
-);
-
-  } catch (error) {
-    console.log(
-      "Etsy status check failed:",
-      error
-    );
-
-    await updateStoredConnection(
-      "Etsy",
-      false
-    );
-  }
-};
-
-  const refreshAllStatuses = async () => {
-    try {
-      setLoadingStatus(true);
-
-      await checkPinterestStatus();
-      await checkFacebookStatus();
-      await checkInstagramStatus();
-      await checkXStatus();
-      await checkShopifyStatus();
-      await checkEtsyStatus();
-    } finally {
-      setLoadingStatus(false);
-    }
-  };
-
-  const loadConnections = async () => {
-    const current =
-      await getStoredConnections();
-
-    setConnections(current);
-
-    await refreshAllStatuses();
-  };
-
-  const connectPinterest = async () => {
-    await Linking.openURL(
-      `${BACKEND_URL}/auth/pinterest`
-    );
-
-    Alert.alert(
-      "Pinterest Login Opened",
-      "Complete the Pinterest authorization, return to ArtBoost, and refresh the connection status."
-    );
-  };
-
-  const connectFacebook = async () => {
-    await Linking.openURL(
-      `${BACKEND_URL}/auth/facebook`
-    );
-
-    Alert.alert(
-      "Facebook Login Opened",
-      "Complete the Facebook authorization, return to ArtBoost, and refresh the connection status."
-    );
-  };
-
-  const connectShopify = async () => {
-    try {
-      const { data: sessionData } =
-        await supabase.auth.getSession();
-
-      const userId =
-        sessionData.session?.user?.id;
-
-      if (!userId) {
-        Alert.alert(
-          "Login Required",
-          "Please log in before connecting Shopify."
-        );
-
-        return;
-      }
-
-      const cleanStore = shopifyStore
-        .trim()
-        .replace(/^https?:\/\//, "")
-        .replace(/\/.*$/, "")
-        .replace(/\.myshopify\.com$/i, "");
-
-      if (!cleanStore) {
-        Alert.alert(
-          "Store Required",
-          "Enter your Shopify store name before connecting."
-        );
-
-        return;
-      }
-
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/shopify?userId=${encodeURIComponent(
-          userId
-        )}&shop=${encodeURIComponent(cleanStore)}`
-      );
-
-      Alert.alert(
-        "Shopify Login Opened",
-        "Complete the Shopify authorization, return to ArtBoost, and refresh the connection status."
-      );
-    } catch (error: any) {
-      Alert.alert(
-        "Shopify Connection Failed",
-        error?.message ||
-          "Unable to open Shopify."
-      );
-    }
-  };
-
-  const openShopifyDashboard = () => {
-  if (!shopifyDetails) {
-    Alert.alert(
-      "Store Information Unavailable",
-      "Refresh the connection status and try again."
-    );
-
-    return;
-  }
-
-  router.push({
-    pathname: "/store-dashboard" as any,
-    params: {
-      storeId: shopifyDetails.id,
-      storeName:
-        shopifyDetails.storeName,
-      storeType:
-        shopifyDetails.storeType,
-      productCount: String(
-        shopifyDetails.productCount
-      ),
-      connected: "true",
-    },
-  });
-};
-
-const openRedbubbleDashboard = () => {
-  if (!redbubbleDetails) {
-    Alert.alert(
-      "Store Information Unavailable",
-      "Refresh the connection status and try again."
-    );
-
-    return;
-  }
-
-  router.push({
-    pathname: "/store-dashboard" as any,
-    params: {
-      storeId: redbubbleDetails.id,
-      storeName:
-        redbubbleDetails.storeName,
-      storeType:
-        redbubbleDetails.storeType,
-      productCount: String(
-        redbubbleDetails.productCount
-      ),
-      connected: "true",
-    },
-  });
-};
-
-const connectEtsy = async () => {
-  try {
-    const { data: sessionData } =
-      await supabase.auth.getSession();
-
-    const userId =
-      sessionData.session?.user?.id;
-
-    if (!userId) {
-      Alert.alert(
-        "Login Required",
-        "Please log in before connecting Etsy."
-      );
-
-      return;
-    }
-
-    const etsyUrl =
-      `${BACKEND_URL}/auth/etsy?userId=${encodeURIComponent(
-        userId
-      )}`;
-
-    await Linking.openURL(
-      etsyUrl
-    );
-  } catch (error: any) {
-    Alert.alert(
-      "Etsy Connection Failed",
-      error?.message ||
-        "Unable to open Etsy."
-    );
-  }
-};
-
-const connectRedbubble = async () => {
-  try {
-    const cleanStore = redbubbleStore.trim();
-
-    if (!cleanStore) {
-      Alert.alert(
-        "Redbubble Store Required",
-        "Enter your Redbubble username or storefront URL."
-      );
-
-      return;
-    }
-
-    const { data: sessionData } =
-      await supabase.auth.getSession();
-
-    const userId =
-      sessionData.session?.user?.id;
-
-    if (!userId) {
-      Alert.alert(
-        "Login Required",
-        "Please log in before connecting Redbubble."
-      );
-
-      return;
-    }
-
-    setRedbubbleLoading(true);
-
-    const response = await fetch(
-      `${BACKEND_URL}/stores/redbubble/import`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId,
-          storeUrl: cleanStore,
-        }),
-      }
-    );
-
-    const responseText =
-      await response.text();
+    const responseText = await response.text();
 
     let data: any;
 
@@ -728,158 +263,358 @@ const connectRedbubble = async () => {
       data = JSON.parse(responseText);
     } catch {
       throw new Error(
-        `Backend returned ${response.status}: ${responseText.slice(
-          0,
-          200
-        )}`
+        "ArtBoost received an invalid response while loading stores."
       );
     }
 
     if (!response.ok || !data.success) {
       throw new Error(
-        data.details ||
-          data.error ||
-          "Unable to import the Redbubble store."
+        data.error ||
+          data.details ||
+          "Unable to load connected stores."
       );
     }
 
-    await updateStoredConnection(
-      "Redbubble",
-      true
+    const loadedStores = Array.isArray(data.connections)
+      ? data.connections
+      : Array.isArray(data.stores)
+        ? data.stores
+        : [];
+
+    setStores(
+      loadedStores.map((store: any) => ({
+        id: String(store.id),
+        storeType:
+          store.platform ||
+          store.storeType ||
+          "custom_store",
+        storeName:
+          store.storeName ||
+          store.store_name ||
+          store.platform ||
+          "Connected Store",
+        storeUrl:
+          store.storeUrl ||
+          store.store_url ||
+          null,
+        hostname:
+          store.metadata?.hostname ||
+          store.hostname ||
+          null,
+        connectionMethod:
+          store.metadata?.connectionMethod ||
+          store.connectionMethod ||
+          null,
+        connected:
+          store.connected !== false,
+        productCount:
+          Number(
+            store.productCount ||
+              store.product_count ||
+              store.metadata?.productCount ||
+              0
+          ) || 0,
+        connectedAt:
+          store.connectedAt ||
+          store.connected_at ||
+          store.createdAt ||
+          store.created_at ||
+          null,
+        updatedAt:
+          store.updatedAt ||
+          store.updated_at ||
+          null,
+      }))
     );
-
-    await refreshAllStatuses();
-
-    Alert.alert(
-  "Redbubble Connected",
-  "Your Redbubble store has been connected. Product catalog importing is coming next."
+  },
+  []
 );
-  } catch (error: any) {
-    console.log(
-      "Redbubble connection failed:",
-      error
+
+  const checkSimpleStatus =
+    useCallback(
+      async (
+        platform: string,
+        path: string
+      ) => {
+        try {
+          const response = await fetch(
+            `${BACKEND_URL}${path}`
+          );
+
+          const responseText =
+            await response.text();
+
+          let data: any = {};
+
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            data = {};
+          }
+
+          await updateStoredConnection(
+            platform,
+            Boolean(data.connected)
+          );
+        } catch (error) {
+          console.log(
+            `${platform} status check failed:`,
+            error
+          );
+        }
+      },
+      [updateStoredConnection]
     );
 
-    Alert.alert(
-      "Redbubble Import Failed",
-      error?.message ||
-        "ArtBoost could not import this Redbubble store."
-    );
-  } finally {
-    setRedbubbleLoading(false);
-  }
-};
-       
-  const connectPlatform = async (
+  const refreshAllStatuses =
+    useCallback(async () => {
+      try {
+        setLoadingStatus(true);
+
+        const { data: sessionData } =
+          await supabase.auth.getSession();
+
+        const userId =
+          sessionData.session?.user?.id;
+
+        const localConnections =
+          await getStoredConnections();
+
+        setSocialConnections(
+          localConnections
+        );
+
+        await Promise.all([
+          checkSimpleStatus(
+            "Pinterest",
+            "/pinterest/status"
+          ),
+          checkSimpleStatus(
+            "Facebook",
+            "/facebook/test"
+          ),
+          checkSimpleStatus(
+            "Instagram",
+            "/instagram/status"
+          ),
+          checkSimpleStatus(
+            "X",
+            "/x/status"
+          ),
+        ]);
+
+        if (!userId) {
+          setStores([]);
+          return;
+        }
+
+        await loadStores(userId);
+      } catch (error: any) {
+        console.log(
+          "Connection refresh failed:",
+          error
+        );
+
+        Alert.alert(
+          "Unable to Refresh",
+          error?.message ||
+            "ArtBoost could not refresh your connections."
+        );
+      } finally {
+        setLoadingStatus(false);
+      }
+    }, [
+      checkSimpleStatus,
+      getStoredConnections,
+      loadStores,
+    ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (params.section === "stores") {
+        setActiveSection("stores");
+      } else if (
+        params.section === "social"
+      ) {
+        setActiveSection("social");
+      }
+
+      refreshAllStatuses();
+    }, [
+      params.section,
+      params.refreshStores,
+      refreshAllStatuses,
+    ])
+  );
+
+  async function connectSocialPlatform(
     platform: string
-  ) => {
+  ) {
     if (platform === "Pinterest") {
-      await connectPinterest();
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/pinterest`
+      );
+
+      Alert.alert(
+        "Pinterest Login Opened",
+        "Complete the Pinterest authorization, return to ArtBoost, and refresh the connection status."
+      );
+
       return;
     }
 
     if (platform === "Facebook") {
-      await connectFacebook();
-      return;
-    }
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/facebook`
+      );
 
-    if (platform === "Shopify") {
-      await connectShopify();
-      return;
-    }
-
-    if (platform === "Etsy") {
-  await connectEtsy();
-  return;
-}
-
-if (platform === "Redbubble") {
-  await connectRedbubble();
-  return;
-}
-
-    if (
-      platform === "Instagram" ||
-      platform === "X"
-    ) {
       Alert.alert(
-        `${platform} Connection`,
-        `${platform} is currently configured through the ArtBoost server. Account-level OAuth will be added in a later update.`
+        "Facebook Login Opened",
+        "Complete the Facebook authorization, return to ArtBoost, and refresh the connection status."
       );
 
       return;
     }
 
     Alert.alert(
-      `${platform} Coming Soon`,
-      `${platform} integration has been added to the ArtBoost roadmap but is not available yet.`
+      `${platform} Connection`,
+      `${platform} is currently configured through the ArtBoost server. Account-level authorization will be expanded in a later update.`
     );
-  };
+  }
 
-  const disconnectPlatform = async (
-    platform: string
-  ) => {
+  function openUniversalStoreConnector(
+    initialUrl?: string
+  ) {
+    router.push({
+      pathname: "/connect-store" as any,
+      params: initialUrl
+        ? {
+            initialUrl,
+          }
+        : undefined,
+    });
+  }
+
+  function manageStore(
+    store: ConnectedStore
+  ) {
+    router.push({
+      pathname: "/store-dashboard" as any,
+      params: {
+        storeId: store.id,
+        storeName:
+          storeDisplayName(store),
+        storeType:
+          store.storeType ||
+          "custom_store",
+        storeUrl:
+          store.storeUrl ||
+          store.hostname ||
+          "",
+        productCount: String(
+          Number(store.productCount) || 0
+        ),
+        connected: "true",
+      },
+    });
+  }
+
+  function reconnectStore(
+    store: ConnectedStore
+  ) {
+    const url =
+      store.storeUrl ||
+      store.hostname ||
+      store.storeName ||
+      "";
+
+    openUniversalStoreConnector(url);
+  }
+
+  async function disconnectStore(
+    store: ConnectedStore
+  ) {
     try {
+      setDisconnectingId(store.id);
+
       const { data: sessionData } =
         await supabase.auth.getSession();
 
       const userId =
-        sessionData.session?.user?.id || null;
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        throw new Error(
+          "Please log in before disconnecting a store."
+        );
+      }
 
       const response = await fetch(
-        `${BACKEND_URL}/disconnect-platform`,
+        `${BACKEND_URL}/api/v2/store-connections/${encodeURIComponent(
+          store.id
+        )}?userId=${encodeURIComponent(userId)}`,
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            platform,
-            userId,
-          }),
+          method: "DELETE",
         }
       );
 
-      const data = await response.json();
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          "ArtBoost could not complete this store request. Please try again."
+        );
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
           data.error ||
-            `Failed to disconnect ${platform}.`
+            data.details ||
+            "Unable to disconnect this store."
         );
       }
 
-      await updateStoredConnection(
-        platform,
-        false
+      setStores(current =>
+        current.filter(
+          item => item.id !== store.id
+        )
       );
 
-      await refreshAllStatuses();
-
       Alert.alert(
-        `${platform} Disconnected`,
-        `${platform} was disconnected successfully.`
+        "Store Disconnected",
+        `${storeDisplayName(
+          store
+        )} was disconnected successfully.`
       );
     } catch (error: any) {
       console.log(
-        `${platform} disconnect failed:`,
+        "Store disconnect failed:",
         error
       );
 
       Alert.alert(
         "Disconnect Failed",
         error?.message ||
-          `Failed to disconnect ${platform}.`
+          "ArtBoost could not disconnect this store."
       );
+    } finally {
+      setDisconnectingId(null);
     }
-  };
+  }
 
-  const confirmDisconnect = (
-    platform: string
-  ) => {
+  function confirmDisconnect(
+    store: ConnectedStore
+  ) {
     Alert.alert(
-      `Disconnect ${platform}?`,
-      `You will need to reconnect ${platform} before using it again.`,
+      `Disconnect ${storeDisplayName(
+        store
+      )}?`,
+      "The store will be removed from Connected Stores. Existing imported products will remain in your Library unless deleted separately.",
       [
         {
           text: "Cancel",
@@ -889,31 +624,18 @@ if (platform === "Redbubble") {
           text: "Disconnect",
           style: "destructive",
           onPress: () =>
-            disconnectPlatform(platform),
+            disconnectStore(store),
         },
       ]
     );
-  };
-
-  useEffect(() => {
-  if (section === "stores") {
-    setActiveSection("stores");
   }
 
-  if (section === "social") {
-    setActiveSection("social");
-  }
-}, [section]);
-
-  useEffect(() => {
-    loadConnections();
-  }, []);
-
-  const renderPlatformCard = (
-    platform: PlatformItem
-  ) => {
-    const connected =
-      Boolean(connections[platform.name]);
+  function renderSocialPlatform(
+    platform: SocialPlatform
+  ) {
+    const connected = Boolean(
+      socialConnections[platform.name]
+    );
 
     return (
       <View
@@ -930,7 +652,9 @@ if (platform === "Redbubble") {
               {platform.premium ? (
                 <View style={styles.proBadge}>
                   <Text
-                    style={styles.proBadgeText}
+                    style={
+                      styles.proBadgeText
+                    }
                   >
                     PRO
                   </Text>
@@ -938,13 +662,9 @@ if (platform === "Redbubble") {
               ) : null}
             </View>
 
-            {platform.connectionType ? (
-              <Text style={styles.connectionType}>
-                {platform.connectionType}
-              </Text>
-            ) : null}
-
-            <Text style={styles.description}>
+            <Text
+              style={styles.description}
+            >
               {platform.description}
             </Text>
 
@@ -958,100 +678,220 @@ if (platform === "Redbubble") {
             >
               {connected
                 ? "Connected"
-                : platform.available
-                ? "Not Connected"
-                : "Coming Soon"}
+                : "Not Connected"}
             </Text>
           </View>
 
-          <View style={styles.buttonColumn}>
-            {connected &&
-(
-  platform.name === "Shopify" ||
-  platform.name === "Redbubble"
-) ? (
-  <Pressable
-    style={[
-      styles.button,
-      styles.manageStoreButton,
-    ]}
-    onPress={
-  platform.name === "Shopify"
-    ? openShopifyDashboard
-    : openRedbubbleDashboard
-}
-  >
-    <Text style={styles.buttonText}>
-      Manage Store
-    </Text>
-  </Pressable>
-) : null}
+          <View style={styles.socialButtonColumn}>
             <Pressable
-  style={[
-    styles.button,
-    !platform.available
-      ? styles.comingSoonButton
-      : connected
-      ? styles.reconnectButton
-      : styles.connectButton,
-  ]}
-  disabled={
-    !platform.available ||
-    (platform.name === "Redbubble" &&
-      redbubbleLoading)
-  }
-  onPress={() =>
-    connectPlatform(platform.name)
-  }
->
-  <Text style={styles.buttonText}>
-    {platform.name === "Redbubble" &&
-    redbubbleLoading
-      ? "Importing..."
-      : !platform.available
-      ? "Coming Soon"
-      : connected
-      ? "Reconnect"
-      : "Connect"}
-  </Text>
-</Pressable>
-
-            {connected ? (
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.disconnectButton,
-                ]}
-                onPress={() =>
-                  confirmDisconnect(
-                    platform.name
-                  )
-                }
+              style={[
+                styles.button,
+                connected
+                  ? styles.reconnectButton
+                  : styles.connectButton,
+              ]}
+              onPress={() =>
+                connectSocialPlatform(
+                  platform.name
+                )
+              }
+            >
+              <Text
+                style={styles.buttonText}
               >
-                <Text style={styles.buttonText}>
-                  Disconnect
-                </Text>
-              </Pressable>
-            ) : null}
+                {connected
+                  ? "Reconnect"
+                  : "Connect"}
+              </Text>
+            </Pressable>
           </View>
         </View>
       </View>
     );
-  };
+  }
+
+  function renderStore(
+    store: ConnectedStore
+  ) {
+    const disconnecting =
+      disconnectingId === store.id;
+
+    return (
+      <View
+        key={store.id}
+        style={styles.storeCard}
+      >
+        <View style={styles.storeTopRow}>
+          <View style={styles.storeIcon}>
+            <Ionicons
+              name="storefront-outline"
+              size={25}
+              color="#c4b5fd"
+            />
+          </View>
+
+          <View style={styles.storeInfo}>
+            <View style={styles.titleRow}>
+              <Text
+                style={styles.storeName}
+                numberOfLines={2}
+              >
+                {platformDisplayName(store)}
+              </Text>
+
+              <View style={styles.proBadge}>
+                <Text
+                  style={styles.proBadgeText}
+                >
+                  PRO
+                </Text>
+              </View>
+            </View>
+
+            <Text
+              style={styles.connectionType}
+            >
+              {formatStoreType(
+                store.storeType
+              )}
+            </Text>
+
+            {store.storeName ||
+            store.hostname ||
+            store.storeUrl ? (
+              <Text
+                style={styles.storeDomain}
+                numberOfLines={1}
+              >
+                {storeDisplayName(store)}
+              </Text>
+            ) : null}
+
+            <View
+              style={styles.storeMetricsRow}
+            >
+              <Text
+                style={styles.storeMetric}
+              >
+                {Number(
+                  store.productCount
+                ) || 0}{" "}
+                Products
+              </Text>
+
+              <Text
+                style={styles.metricSeparator}
+              >
+                •
+              </Text>
+
+              <Text
+                style={styles.connectedText}
+              >
+                Connected
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.storeActions}>
+          <Pressable
+            style={[
+              styles.storeActionButton,
+              styles.manageStoreButton,
+            ]}
+            onPress={() => manageStore(store)}
+          >
+            <Ionicons
+              name="settings-outline"
+              size={17}
+              color="#ffffff"
+            />
+
+            <Text
+              style={styles.storeActionText}
+            >
+              Manage Store
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.storeActionButton,
+              styles.reconnectButton,
+            ]}
+            onPress={() =>
+              reconnectStore(store)
+            }
+          >
+            <Ionicons
+              name="refresh-outline"
+              size={17}
+              color="#ffffff"
+            />
+
+            <Text
+              style={styles.storeActionText}
+            >
+              Reconnect
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.storeActionButton,
+              styles.disconnectButton,
+              disconnecting &&
+                styles.disabledButton,
+            ]}
+            disabled={disconnecting}
+            onPress={() =>
+              confirmDisconnect(store)
+            }
+          >
+            {disconnecting ? (
+              <ActivityIndicator
+                size="small"
+                color="#ffffff"
+              />
+            ) : (
+              <Ionicons
+                name="unlink-outline"
+                size={17}
+                color="#ffffff"
+              />
+            )}
+
+            <Text
+              style={styles.storeActionText}
+            >
+              {disconnecting
+                ? "Disconnecting..."
+                : "Disconnect"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={
+        styles.container
+      }
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
       <Text style={styles.header}>
         Connections
       </Text>
 
       <Text style={styles.subheader}>
-        Connect social platforms for publishing
-        and stores for product imports and
-        automated marketing.
+        Connect social platforms for
+        publishing and connect any online
+        store where your artwork or products
+        are available.
       </Text>
 
       <View style={styles.segmentedControl}>
@@ -1102,13 +942,13 @@ if (platform === "Redbubble") {
         <Text style={styles.proTitle}>
           {activeSection === "social"
             ? "Social Publishing"
-            : "Store Connections"}
+            : "Universal Store Connections"}
         </Text>
 
         <Text style={styles.proText}>
           {activeSection === "social"
             ? "Connect publishing destinations for generated and scheduled campaigns."
-            : "Connect product sources so ArtBoost can import, organize, and promote listings."}
+            : "Connect Amazon, Shopify, Etsy, Redbubble, marketplaces, personal websites, and stores ArtBoost has never encountered before."}
         </Text>
       </View>
 
@@ -1123,89 +963,128 @@ if (platform === "Redbubble") {
               size="small"
               color="#ffffff"
             />
+
             <Text style={styles.buttonText}>
               Checking Connections...
             </Text>
           </View>
         ) : (
-          <Text style={styles.buttonText}>
-            Refresh Connection Status
-          </Text>
+          <View style={styles.loadingRow}>
+            <Ionicons
+              name="refresh-outline"
+              size={19}
+              color="#ffffff"
+            />
+
+            <Text style={styles.buttonText}>
+              Refresh Connection Status
+            </Text>
+          </View>
         )}
       </Pressable>
 
       {activeSection === "stores" ? (
-  <>
-    <View style={styles.shopifyEntryCard}>
-      <Text style={styles.name}>
-        Shopify Store
-      </Text>
+        <>
+          <Pressable
+            style={styles.connectStoreButton}
+            onPress={() =>
+              openUniversalStoreConnector()
+            }
+          >
+            <View style={styles.connectStorePlus}>
+              <Ionicons
+                name="add"
+                size={26}
+                color="#ffffff"
+              />
+            </View>
 
-      <Text style={styles.description}>
-        Enter the store prefix or full
-        myshopify.com address.
-      </Text>
+            <View
+              style={
+                styles.connectStoreTextWrap
+              }
+            >
+              <Text
+                style={styles.connectStoreTitle}
+              >
+                Connect Any Store
+              </Text>
 
-      <TextInput
-        style={styles.input}
-        value={shopifyStore}
-        onChangeText={setShopifyStore}
-        placeholder="artistwill"
-        placeholderTextColor="#777"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
+              <Text
+                style={
+                  styles.connectStoreDescription
+                }
+              >
+                Paste the main storefront link.
+                Connecting the store will not
+                automatically send you to product
+                importing.
+              </Text>
+            </View>
 
-      <Text style={styles.inputHint}>
-        Example: artistwill or
-        artistwill.myshopify.com
-      </Text>
-    </View>
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color="#c4b5fd"
+            />
+          </Pressable>
 
-    <View style={styles.shopifyEntryCard}>
-      <Text style={styles.name}>
-        Redbubble Store
-      </Text>
-
-      <Text style={styles.description}>
-        Enter your Redbubble username or
-        full storefront URL.
-      </Text>
-
-      <TextInput
-        style={styles.input}
-        value={redbubbleStore}
-        onChangeText={setRedbubbleStore}
-        placeholder="artistwill"
-        placeholderTextColor="#777"
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={!redbubbleLoading}
-      />
-
-      <Text style={styles.inputHint}>
-        Example: artistwill or
-        https://www.redbubble.com/people/artistwill/shop
-      </Text>
-
-      {redbubbleLoading ? (
-        <View style={styles.redbubbleLoadingRow}>
-          <ActivityIndicator
-            size="small"
-            color="#a78bfa"
-          />
-
-          <Text style={styles.redbubbleLoadingText}>
-            Importing Redbubble products...
+          <Text
+            style={
+              styles.connectedStoresTitle
+            }
+          >
+            Connected Stores
           </Text>
-        </View>
-      ) : null}
-    </View>
-  </>
-) : null}
 
-      {visiblePlatforms.map(
-        renderPlatformCard
+          {loadingStatus &&
+          connectedStores.length === 0 ? (
+            <View
+              style={styles.emptyStoresCard}
+            >
+              <ActivityIndicator
+                size="large"
+                color="#8b5cf6"
+              />
+
+              <Text
+                style={styles.emptyStoresText}
+              >
+                Loading connected stores...
+              </Text>
+            </View>
+          ) : connectedStores.length === 0 ? (
+            <View
+              style={styles.emptyStoresCard}
+            >
+              <Ionicons
+                name="storefront-outline"
+                size={36}
+                color="#716781"
+              />
+
+              <Text
+                style={styles.emptyStoresTitle}
+              >
+                No stores connected
+              </Text>
+
+              <Text
+                style={styles.emptyStoresText}
+              >
+                Connect your first storefront.
+                It will appear here with a
+                Manage Store button.
+              </Text>
+            </View>
+          ) : (
+            connectedStores.map(renderStore)
+          )}
+        </>
+      ) : (
+        socialPlatforms.map(
+          renderSocialPlatform
+        )
       )}
     </ScrollView>
   );
@@ -1214,7 +1093,7 @@ if (platform === "Redbubble") {
 const styles = StyleSheet.create({
   container: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 50,
     backgroundColor: "#101010",
     minHeight: "100%",
   },
@@ -1229,11 +1108,11 @@ const styles = StyleSheet.create({
 
   subheader: {
     color: "#aaaaaa",
-    fontSize: 15,
+    fontSize: 14,
     textAlign: "center",
     marginTop: 10,
     marginBottom: 20,
-    lineHeight: 22,
+    lineHeight: 21,
   },
 
   segmentedControl: {
@@ -1288,8 +1167,8 @@ const styles = StyleSheet.create({
 
   proText: {
     color: "#cfcfcf",
-    lineHeight: 22,
-    fontSize: 14,
+    lineHeight: 21,
+    fontSize: 13,
   },
 
   refreshButton: {
@@ -1303,16 +1182,79 @@ const styles = StyleSheet.create({
   loadingRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 9,
   },
 
-  shopifyEntryCard: {
-    backgroundColor: "#1b1b1b",
+  connectStoreButton: {
+    minHeight: 105,
     borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
+    backgroundColor: "#24183d",
     borderWidth: 1,
-    borderColor: "#343434",
+    borderColor: "#8b5cf6",
+    padding: 16,
+    marginBottom: 22,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  connectStorePlus: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  connectStoreTextWrap: {
+    flex: 1,
+    paddingHorizontal: 14,
+  },
+
+  connectStoreTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  connectStoreDescription: {
+    color: "#b7aec7",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
+
+  connectedStoresTitle: {
+    color: "#ffffff",
+    fontSize: 19,
+    fontWeight: "900",
+    marginBottom: 13,
+  },
+
+  emptyStoresCard: {
+    borderRadius: 18,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    padding: 24,
+    marginBottom: 16,
+    alignItems: "center",
+  },
+
+  emptyStoresTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: 12,
+  },
+
+  emptyStoresText: {
+    color: "#909090",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 7,
+    textAlign: "center",
   },
 
   card: {
@@ -1335,6 +1277,10 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
 
+  socialButtonColumn: {
+    width: 112,
+  },
+
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1347,37 +1293,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  connectionType: {
-    color: "#a78bfa",
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginTop: 7,
-  },
-
   description: {
     color: "#aaaaaa",
     marginTop: 8,
     lineHeight: 20,
     fontSize: 13,
-  },
-
-  input: {
-    backgroundColor: "#2b2b2b",
-    color: "#ffffff",
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 14,
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: "#3b3b3b",
-  },
-
-  inputHint: {
-    color: "#777777",
-    fontSize: 11,
-    marginTop: 8,
   },
 
   status: {
@@ -1388,14 +1308,11 @@ const styles = StyleSheet.create({
 
   connectedText: {
     color: "#12a86b",
+    fontWeight: "800",
   },
 
   disconnectedText: {
     color: "#999999",
-  },
-
-  buttonColumn: {
-    width: 112,
   },
 
   button: {
@@ -1405,27 +1322,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
   },
 
   connectButton: {
     backgroundColor: "#12a86b",
   },
 
-  manageStoreButton: {
-  backgroundColor: "#8b5cf6",
-},
-
   reconnectButton: {
     backgroundColor: "#2d6cdf",
-  },
-
-  disconnectButton: {
-    backgroundColor: "#a62828",
-  },
-
-  comingSoonButton: {
-    backgroundColor: "#3a3a3a",
   },
 
   buttonText: {
@@ -1449,16 +1353,105 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-  redbubbleLoadingRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  marginTop: 14,
-  gap: 8,
+  storeCard: {
+    backgroundColor: "#1b1b1b",
+    borderRadius: 19,
+    padding: 17,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#343434",
   },
 
-  redbubbleLoadingText: {
-  color: "#a78bfa",
-  fontSize: 12,
-  fontWeight: "700",
+  storeTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  storeIcon: {
+    width: 49,
+    height: 49,
+    borderRadius: 15,
+    backgroundColor: "#2b2145",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  storeInfo: {
+    flex: 1,
+  },
+
+  storeName: {
+    color: "#ffffff",
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "900",
+    flexShrink: 1,
+  },
+
+  connectionType: {
+    color: "#a78bfa",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+    marginTop: 6,
+  },
+
+  storeDomain: {
+    color: "#888888",
+    fontSize: 11,
+    marginTop: 6,
+  },
+
+  storeMetricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 9,
+  },
+
+  storeMetric: {
+    color: "#b0b0b0",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  metricSeparator: {
+    color: "#555555",
+    marginHorizontal: 7,
+  },
+
+  storeActions: {
+    marginTop: 15,
+    gap: 9,
+  },
+
+  storeActionButton: {
+    minHeight: 45,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+
+  manageStoreButton: {
+    backgroundColor: "#8b5cf6",
+  },
+
+  disconnectButton: {
+    backgroundColor: "#a62828",
+  },
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
+  storeActionText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

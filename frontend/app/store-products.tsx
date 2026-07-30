@@ -1,0 +1,827 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import * as Linking from "expo-linking";
+import {
+  router,
+  Stack,
+  useLocalSearchParams,
+} from "expo-router";
+import React, {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+
+import { supabase } from "@/lib/supabase";
+
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  "https://artboost-ai.onrender.com";
+
+type Product = {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  productUrl: string;
+  price?: number | null;
+  currency?: string | null;
+  storeType?: string | null;
+  storeName?: string | null;
+  status?: string | null;
+  automationEnabled?: boolean;
+  timesPosted?: number;
+  lastPostedAt?: string | null;
+};
+
+function normalize(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function platformLabel(value: string) {
+  const clean = normalize(value);
+
+  if (clean === "redbubble") return "Redbubble";
+  if (clean === "shopify") return "Shopify";
+  if (clean === "etsy") return "Etsy";
+  if (clean === "ebay") return "eBay";
+  if (clean === "gumroad") return "Gumroad";
+  if (
+    clean === "fine_art_america" ||
+    clean === "fineartamerica"
+  ) {
+    return "Fine Art America";
+  }
+
+  return clean
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map(
+      (word) =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1)
+    )
+    .join(" ");
+}
+
+export default function StoreProductsScreen() {
+  const params = useLocalSearchParams<{
+    storeId?: string;
+    storeName?: string;
+    storeType?: string;
+    productCount?: string;
+    connected?: string;
+  }>();
+
+  const storeId = String(params.storeId || "");
+  const storeName = String(
+    params.storeName || "Connected Store"
+  );
+  const storeType = String(
+    params.storeType || "store"
+  );
+
+  const [products, setProducts] = useState<
+    Product[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const displayPlatform = useMemo(
+    () => platformLabel(storeType),
+    [storeType]
+  );
+
+  const matchesStore = useCallback(
+    (product: Product) => {
+      const productType = normalize(
+        product.storeType
+      );
+      const selectedType = normalize(storeType);
+
+      const productStore = normalize(
+        product.storeName
+      );
+      const selectedStore = normalize(storeName);
+
+      // Prefer exact store name + type. Fall back to type
+      // because older imported records may not contain storeId.
+      if (
+        productStore &&
+        selectedStore &&
+        productStore === selectedStore &&
+        productType === selectedType
+      ) {
+        return true;
+      }
+
+      if (
+        productType === selectedType &&
+        (!productStore ||
+          !selectedStore ||
+          productStore === selectedStore)
+      ) {
+        return true;
+      }
+
+      return false;
+    },
+    [storeName, storeType]
+  );
+
+  const loadProducts = useCallback(
+    async (showLoader = true) => {
+      try {
+        if (showLoader) {
+          setLoading(true);
+        }
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error(
+            "Please sign in to view products."
+          );
+        }
+
+        const response = await fetch(
+          `${API_BASE}/products?userId=${encodeURIComponent(
+            user.id
+          )}`
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any;
+
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `Backend returned ${response.status}: ${responseText.slice(
+              0,
+              160
+            )}`
+          );
+        }
+
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.details ||
+              data.error ||
+              "Unable to load products."
+          );
+        }
+
+        const mappedProducts: Product[] = (
+          data.products || []
+        ).map((item: any) => ({
+          id: String(item.id),
+          title: String(
+            item.title || "Untitled Product"
+          ),
+          description:
+            item.description || null,
+          imageUrl: item.image_url || null,
+          productUrl: String(
+            item.product_url || ""
+          ),
+          price:
+            item.price === null ||
+            item.price === undefined
+              ? null
+              : Number(item.price),
+          currency: item.currency || "USD",
+          storeType: item.store_type || null,
+          storeName: item.store_name || null,
+          status: item.status || null,
+          automationEnabled:
+            Boolean(item.automation_enabled),
+          timesPosted:
+            Number(item.times_posted) || 0,
+          lastPostedAt:
+            item.last_posted_at || null,
+        }));
+
+        setProducts(
+          mappedProducts.filter(matchesStore)
+        );
+      } catch (error: any) {
+        console.log(
+          "Store product load failed:",
+          error
+        );
+
+        Alert.alert(
+          "Products Unavailable",
+          error?.message ||
+            "ArtBoost could not load this store catalog."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [matchesStore]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProducts();
+    }, [loadProducts])
+  );
+
+  function openProduct(product: Product) {
+    router.push({
+      pathname: "/product-details" as any,
+      params: {
+        productId: product.id,
+        title: product.title,
+        description:
+          product.description || "",
+        imageUrl: product.imageUrl || "",
+        productUrl: product.productUrl,
+        price:
+          product.price === null ||
+          product.price === undefined
+            ? ""
+            : String(product.price),
+        currency: product.currency || "USD",
+        storeId,
+        storeName,
+        storeType,
+        automationEnabled: String(
+          Boolean(product.automationEnabled)
+        ),
+        timesPosted: String(
+          product.timesPosted || 0
+        ),
+      },
+    });
+  }
+
+  function importProduct() {
+    if (normalize(storeType) === "redbubble") {
+      router.push({
+        pathname:
+          "/product-import-wizard" as any,
+        params: {
+          storeId,
+          storeName,
+          storeType,
+        },
+      });
+      return;
+    }
+
+    router.push({
+      pathname: "/catalog-importer" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    });
+  }
+
+  function createStoreAutomation() {
+    router.push({
+      pathname: "/store-automation" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+        productCount: String(products.length),
+      },
+    });
+  }
+
+  return (
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: false,
+        }}
+      />
+
+      <SafeAreaView style={styles.screen}>
+      <View style={styles.header}>
+        <Pressable
+          style={styles.headerButton}
+          onPress={() => router.back()}
+        >
+          <Ionicons
+            name="arrow-back"
+            size={23}
+            color="#ffffff"
+          />
+        </Pressable>
+
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.eyebrow}>
+            {displayPlatform.toUpperCase()}
+          </Text>
+          <Text
+            style={styles.headerTitle}
+            numberOfLines={1}
+          >
+            {storeName}
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.headerButton}
+          onPress={importProduct}
+        >
+          <Ionicons
+            name="add"
+            size={25}
+            color="#ffffff"
+          />
+        </Pressable>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={
+          styles.scrollContent
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              loadProducts(false);
+            }}
+            tintColor="#8b5cf6"
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryIcon}>
+            <Ionicons
+              name={
+                normalize(storeType) ===
+                "redbubble"
+                  ? "color-palette-outline"
+                  : "storefront-outline"
+              }
+              size={30}
+              color="#c4b5fd"
+            />
+          </View>
+
+          <View style={styles.summaryContent}>
+            <Text style={styles.summaryTitle}>
+              {products.length}{" "}
+              {products.length === 1
+                ? "Product"
+                : "Products"}
+            </Text>
+            <Text style={styles.summaryText}>
+              Imported products are ready for
+              campaigns, Post Now, and scheduled
+              promotions.
+            </Text>
+          </View>
+        </View>
+
+        {!loading && products.length > 0 ? (
+          <View style={styles.automationPrompt}>
+            <View style={styles.automationPromptIcon}>
+              <Ionicons
+                name="sparkles"
+                size={25}
+                color="#c4b5fd"
+              />
+            </View>
+
+            <View style={styles.automationPromptContent}>
+              <Text style={styles.automationPromptTitle}>
+                Would you like ArtBoost to create an
+                automation for this store?
+              </Text>
+
+              <Text style={styles.automationPromptText}>
+                Choose your schedule and let ArtBoost
+                cycle through these listings automatically.
+              </Text>
+
+              <Pressable
+                style={styles.automationPromptButton}
+                onPress={createStoreAutomation}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={18}
+                  color="#ffffff"
+                />
+
+                <Text
+                  style={
+                    styles.automationPromptButtonText
+                  }
+                >
+                  Create Automation
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator
+              size="large"
+              color="#8b5cf6"
+            />
+            <Text style={styles.loadingText}>
+              Loading store products...
+            </Text>
+          </View>
+        ) : products.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons
+              name="cube-outline"
+              size={48}
+              color="#a78bfa"
+            />
+            <Text style={styles.emptyTitle}>
+              No imported products
+            </Text>
+            <Text style={styles.emptyText}>
+              Import a product from this store to
+              use it in ArtBoost campaigns and
+              automations.
+            </Text>
+
+            <Pressable
+              style={styles.primaryButton}
+              onPress={importProduct}
+            >
+              <Ionicons
+                name="add"
+                size={21}
+                color="#ffffff"
+              />
+              <Text
+                style={styles.primaryButtonText}
+              >
+                Import Product
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          products.map((product) => (
+            <Pressable
+              key={product.id}
+              style={styles.productCard}
+              onPress={() =>
+                openProduct(product)
+              }
+            >
+              {product.imageUrl ? (
+                <Image
+                  source={{
+                    uri: product.imageUrl,
+                  }}
+                  style={styles.productImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.productImage,
+                    styles.imagePlaceholder,
+                  ]}
+                >
+                  <Ionicons
+                    name="image-outline"
+                    size={33}
+                    color="#777777"
+                  />
+                </View>
+              )}
+
+              <View
+                style={styles.productContent}
+              >
+                <Text
+                  style={styles.productTitle}
+                  numberOfLines={2}
+                >
+                  {product.title}
+                </Text>
+
+                <Text
+                  style={styles.productDescription}
+                  numberOfLines={2}
+                >
+                  {product.description ||
+                    "No description available."}
+                </Text>
+
+                <View
+                  style={styles.productMetaRow}
+                >
+                  {product.price !== null &&
+                  product.price !== undefined ? (
+                    <Text
+                      style={styles.productPrice}
+                    >
+                      {product.currency || "USD"}{" "}
+                      {product.price.toFixed(2)}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={styles.productPrice}
+                    >
+                      Price not imported
+                    </Text>
+                  )}
+
+                  <Text
+                    style={[
+                      styles.automationStatus,
+                      product.automationEnabled &&
+                        styles.automationStatusActive,
+                    ]}
+                  >
+                    {product.automationEnabled
+                      ? "Automation On"
+                      : "Automation Off"}
+                  </Text>
+                </View>
+              </View>
+
+              <Ionicons
+                name="chevron-forward"
+                size={22}
+                color="#777777"
+              />
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+      </SafeAreaView>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#0b0b0b",
+  },
+  header: {
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1d1d1d",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: "#171717",
+    borderWidth: 1,
+    borderColor: "#292929",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTextWrap: {
+    flex: 1,
+    paddingHorizontal: 13,
+  },
+  eyebrow: {
+    color: "#8b5cf6",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  headerTitle: {
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 48,
+  },
+  summaryCard: {
+    borderRadius: 20,
+    backgroundColor: "#1d1730",
+    borderWidth: 1,
+    borderColor: "#3c2d63",
+    padding: 16,
+    marginBottom: 19,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  summaryIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 17,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryContent: {
+    flex: 1,
+    paddingLeft: 14,
+  },
+  summaryTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  summaryText: {
+    color: "#aaa0ba",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
+  automationPrompt: {
+    borderRadius: 20,
+    backgroundColor: "#171717",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    padding: 16,
+    marginBottom: 19,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  automationPromptIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  automationPromptContent: {
+    flex: 1,
+    paddingLeft: 13,
+  },
+
+  automationPromptTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
+
+  automationPromptText: {
+    color: "#9990aa",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
+
+  automationPromptButton: {
+    minHeight: 43,
+    borderRadius: 13,
+    backgroundColor: "#8b5cf6",
+    marginTop: 12,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+
+  automationPromptButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  loadingWrap: {
+    minHeight: 320,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    color: "#888888",
+    fontSize: 13,
+    marginTop: 12,
+  },
+  emptyCard: {
+    minHeight: 330,
+    borderRadius: 22,
+    backgroundColor: "#171717",
+    borderWidth: 1,
+    borderColor: "#292929",
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+    marginTop: 15,
+  },
+  emptyText: {
+    color: "#999999",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  primaryButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: "#8b5cf6",
+    paddingHorizontal: 19,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  productCard: {
+    minHeight: 130,
+    borderRadius: 20,
+    backgroundColor: "#171717",
+    borderWidth: 1,
+    borderColor: "#292929",
+    padding: 12,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  productImage: {
+    width: 92,
+    height: 104,
+    borderRadius: 14,
+    backgroundColor: "#242424",
+  },
+  imagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productContent: {
+    flex: 1,
+    paddingHorizontal: 13,
+  },
+  productTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 20,
+  },
+  productDescription: {
+    color: "#8f8f8f",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+  },
+  productMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 10,
+  },
+  productPrice: {
+    color: "#c4b5fd",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  automationStatus: {
+    color: "#888888",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  automationStatusActive: {
+    color: "#86efac",
+  },
+});

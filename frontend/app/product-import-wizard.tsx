@@ -5,9 +5,11 @@ import {
 } from "expo-router";
 import React, {
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -19,12 +21,73 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
 
 import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
   "https://artboost-ai.onrender.com";
+
+const REDBUBBLE_EXTRACTION_SCRIPT = `
+(function () {
+  function readMeta(key) {
+    var element =
+      document.querySelector(
+        'meta[property="' + key + '"]'
+      ) ||
+      document.querySelector(
+        'meta[name="' + key + '"]'
+      );
+
+    return element && element.content
+      ? element.content.trim()
+      : "";
+  }
+
+  function extract() {
+    var currentUrl =
+      readMeta("og:url") ||
+      window.location.href;
+
+    var title =
+      readMeta("og:title") ||
+      readMeta("twitter:title") ||
+      document.title ||
+      "";
+
+    var description =
+      readMeta("og:description") ||
+      readMeta("description") ||
+      readMeta("twitter:description") ||
+      "";
+
+    var imageUrl =
+      readMeta("og:image") ||
+      readMeta("twitter:image") ||
+      readMeta("twitter:image:src") ||
+      "";
+
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: "REDBUBBLE_PRODUCT_DETAILS",
+        data: {
+          title: title,
+          description: description,
+          imageUrl: imageUrl,
+          productUrl: currentUrl
+        }
+      })
+    );
+  }
+
+  setTimeout(extract, 1200);
+  setTimeout(extract, 3000);
+  setTimeout(extract, 6000);
+
+  true;
+})();
+`;
 
 export default function ProductImportWizardScreen() {
   const params = useLocalSearchParams<{
@@ -63,6 +126,14 @@ export default function ProductImportWizardScreen() {
 
   const [submitting, setSubmitting] =
     useState(false);
+
+  const webViewRef = useRef<WebView>(null);
+
+  const [fetchingDetails, setFetchingDetails] =
+    useState(false);
+
+  const [scanUrl, setScanUrl] =
+    useState("");
 
   const platformLabel = useMemo(() => {
     const cleanType = String(storeType)
@@ -112,6 +183,25 @@ export default function ProductImportWizardScreen() {
       .join(" ");
   }, [storeType]);
 
+
+  function isRedbubbleProductUrl(value: string) {
+    try {
+      const parsed = new URL(value.trim());
+
+      const hostname = parsed.hostname
+        .toLowerCase()
+        .replace(/^www\./, "");
+
+      return (
+        (hostname === "redbubble.com" ||
+          hostname.endsWith(".redbubble.com")) &&
+        /\/shop\/ap\/\d+/i.test(parsed.pathname)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   function validateProductUrl() {
     if (!productUrl.trim()) {
       return true;
@@ -147,6 +237,91 @@ export default function ProductImportWizardScreen() {
       );
     } catch {
       return false;
+    }
+  }
+
+
+  function fetchProductDetails() {
+    const cleanUrl = productUrl.trim();
+
+    if (!cleanUrl) {
+      Alert.alert(
+        "Product Link Required",
+        "Paste a Redbubble artwork link first."
+      );
+      return;
+    }
+
+    if (!isRedbubbleProductUrl(cleanUrl)) {
+      Alert.alert(
+        "Redbubble Artwork Link Required",
+        "Paste a Redbubble artwork URL containing /shop/ap/ followed by the artwork number."
+      );
+      return;
+    }
+
+    setFetchingDetails(true);
+    setScanUrl(cleanUrl);
+  }
+
+  function handleProductDetailsMessage(event: any) {
+    try {
+      const message = JSON.parse(
+        event.nativeEvent.data
+      );
+
+      if (
+        message?.type !==
+        "REDBUBBLE_PRODUCT_DETAILS"
+      ) {
+        return;
+      }
+
+      const details = message.data || {};
+
+      if (details.title) {
+        setTitle(String(details.title));
+      }
+
+      if (details.description) {
+        setDescription(
+          String(details.description)
+        );
+      }
+
+      if (details.imageUrl) {
+        setImageUrl(
+          String(details.imageUrl)
+        );
+      }
+
+      if (details.productUrl) {
+        setProductUrl(
+          String(details.productUrl)
+        );
+      }
+
+      setProductType("Artwork");
+      setFetchingDetails(false);
+      setScanUrl("");
+
+      Alert.alert(
+        "Product Details Found",
+        "ArtBoost filled in the available Redbubble product information. Review it before importing."
+      );
+    } catch (error) {
+      console.log(
+        "Redbubble product details error:",
+        error
+      );
+
+      setFetchingDetails(false);
+      setScanUrl("");
+
+      Alert.alert(
+        "Unable to Read Product",
+        "ArtBoost could not read the Redbubble product information."
+      );
     }
   }
 
@@ -291,6 +466,7 @@ export default function ProductImportWizardScreen() {
                 pathname:
                   "/products" as any,
                 params: {
+                  storeId,
                   storeName,
                   storeType,
                 },
@@ -427,8 +603,42 @@ export default function ProductImportWizardScreen() {
             placeholderTextColor="#666666"
             autoCapitalize="none"
             autoCorrect={false}
-            editable={!submitting}
+            editable={!submitting && !fetchingDetails}
           />
+
+          <Pressable
+            style={[
+              styles.fetchButton,
+              (fetchingDetails ||
+                !productUrl.trim()) &&
+                styles.fetchButtonDisabled,
+            ]}
+            onPress={fetchProductDetails}
+            disabled={
+              fetchingDetails ||
+              !productUrl.trim() ||
+              submitting
+            }
+          >
+            {fetchingDetails ? (
+              <ActivityIndicator
+                size="small"
+                color="#ffffff"
+              />
+            ) : (
+              <Ionicons
+                name="sparkles-outline"
+                size={20}
+                color="#ffffff"
+              />
+            )}
+
+            <Text style={styles.fetchButtonText}>
+              {fetchingDetails
+                ? "Reading Product Details..."
+                : "Auto-Fill Product Details"}
+            </Text>
+          </Pressable>
 
           <Text style={styles.label}>
             Product Title *
@@ -547,6 +757,52 @@ export default function ProductImportWizardScreen() {
                 : "Import Product"}
             </Text>
           </Pressable>
+
+          {scanUrl ? (
+            <View
+              style={styles.hiddenBrowser}
+              pointerEvents="none"
+            >
+              <WebView
+                ref={webViewRef}
+                source={{ uri: scanUrl }}
+                javaScriptEnabled
+                domStorageEnabled
+                sharedCookiesEnabled
+                thirdPartyCookiesEnabled
+                injectedJavaScript={
+                  REDBUBBLE_EXTRACTION_SCRIPT
+                }
+                onMessage={
+                  handleProductDetailsMessage
+                }
+                onLoadEnd={() => {
+                  webViewRef.current?.injectJavaScript(
+                    REDBUBBLE_EXTRACTION_SCRIPT
+                  );
+                }}
+                onHttpError={(event) => {
+                  setFetchingDetails(false);
+                  setScanUrl("");
+
+                  Alert.alert(
+                    "Redbubble Page Error",
+                    `Redbubble returned HTTP ${event.nativeEvent.statusCode}.`
+                  );
+                }}
+                onError={(event) => {
+                  setFetchingDetails(false);
+                  setScanUrl("");
+
+                  Alert.alert(
+                    "Unable to Open Product",
+                    event.nativeEvent.description ||
+                      "The Redbubble product page could not be opened."
+                  );
+                }}
+              />
+            </View>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -738,4 +994,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
+
+  fetchButton: {
+  minHeight: 50,
+  borderRadius: 15,
+  backgroundColor: "#8b5cf6",
+  marginTop: 10,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  paddingHorizontal: 14,
+},
+
+fetchButtonDisabled: {
+  opacity: 0.5,
+},
+
+fetchButtonText: {
+  color: "#ffffff",
+  fontSize: 13,
+  fontWeight: "900",
+  marginLeft: 8,
+},
+
+hiddenBrowser: {
+  width: 1,
+  height: 1,
+  opacity: 0.01,
+  overflow: "hidden",
+},
 });

@@ -1,3205 +1,831 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import React, { useCallback, useEffect, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
+  ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
- 
+
 import { supabase } from "@/lib/supabase";
- 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
- 
-export default function ProScreen() {
-  const [session, setSession] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
- 
-  const [boards, setBoards] = useState<any[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState("");
-  const [boardError, setBoardError] = useState("");
- 
-  const [title, setTitle] = useState("");
-  const [facebookPages, setFacebookPages] = useState<any[]>([]);
-  const [selectedFacebookPage, setSelectedFacebookPage] = useState("");
-  const [description, setDescription] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [productLink, setProductLink] = useState("");
-  const [previewImage, setPreviewImage] = useState("");
-  const [hashtags, setHashtags] = useState("");
-  const [cta, setCta] = useState("");
- 
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
-  const [repostPreset, setRepostPreset] = useState<
-        "daily" | "3days" | "weekly" | "monthly" | null
-        >(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
- 
-  const [scheduledCampaigns, setScheduledCampaigns] = useState<any[]>([]);
-  const [queueFilter, setQueueFilter] = useState<
-  | "all"
-  | "active"
-  | "paused"
-  | "saved"
-  | "ended"
-  | "published"
-  | "failed"
->("all");
-  const [queueSearch, setQueueSearch] = useState("");
-  const [publishing, setPublishing] = useState(false);
-  const [loadingBoards, setLoadingBoards] = useState(false);
-  const [loadingQueue, setLoadingQueue] = useState(false);
-  const [variations, setVariations] = useState<any[]>([]);
-  const [loadingVariations, setLoadingVariations] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [openingBilling, setOpeningBilling] = useState(false);
-  const [syncingSubscription, setSyncingSubscription] = useState(false);
-  const [referralInput, setReferralInput] = useState("");
-  const [applyingReferral, setApplyingReferral] = useState(false);
-  const [facebookConnected, setFacebookConnected] = useState(false);
-  const [facebookConnectedAt, setFacebookConnectedAt] =
-  useState("");
-  const [selectedPlatform, setSelectedPlatform] =
-useState<"Pinterest" | "Facebook" | "Instagram" | "X">(
-"Pinterest"
-);
-  const cleanUrl = (value: string) => {
-    const trimmed = value.trim();
-    const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/);
-    return urlMatch ? urlMatch[0] : trimmed;
-  };
- 
-  const syncSubscription = async (userId: string, email: string) => {
-    try {
-      setSyncingSubscription(true);
- 
-      const response = await fetch(`${BACKEND_URL}/sync-subscription`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId,
-          email,
-        }),
-      });
- 
-      const data = await response.json();
 
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
-      if (!response.ok) {
-        console.log("Subscription sync error:", data);
-        return null;
-      }
- 
-      return data;
-    } catch (err) {
-      console.log("Subscription sync failed:", err);
-      return null;
-    } finally {
-      setSyncingSubscription(false);
-    }
-  };
- 
-  const loadSession = async () => {
-    const { data } = await supabase.auth.getSession();
- 
-    setSession(data.session);
- 
-    if (data.session?.user?.id) {
-      if (data.session.user.email) {
-        await syncSubscription(data.session.user.id, data.session.user.email);
-      }
- 
-      await loadProfile(data.session.user.id);
-    } else {
-      setProfile(null);
-    }
-  };
- 
-  const loadProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
- 
-    if (error) {
-  console.log("Profile load error:", error);
-  return;
+type CampaignSummary = {
+  id?: string;
+  status?: string;
+  campaignStatus?: string;
+};
+
+type StoreSummary = {
+  id: string;
+  connected: boolean;
+};
+
+function formatTier(value?: string | null) {
+  const normalized = String(value || "starter")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "business") {
+    return "Business";
+  }
+
+  if (
+    normalized === "pro" ||
+    normalized === "professional"
+  ) {
+    return "Pro";
+  }
+
+  if (normalized === "free") {
+    return "Starter";
+  }
+
+  return (
+    normalized.charAt(0).toUpperCase() +
+    normalized.slice(1)
+  );
 }
- 
-    console.log("PROFILE DATA:", data);
-    setProfile(data);
-  };
- 
-  const getPublishAtIso = () => {
-    if (!scheduledDate) return "";
-    return scheduledDate.toISOString();
-  };
- 
-  const getReadableDate = () => {
-  if (!scheduledDate) {
-    return "Not Selected";
-  }
 
-  return scheduledDate.toLocaleDateString(
-    undefined,
-    {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }
+export default function ProScreen() {
+  const [session, setSession] =
+    useState<any>(null);
+
+  const [profile, setProfile] =
+    useState<any>(null);
+
+  const [campaigns, setCampaigns] =
+    useState<CampaignSummary[]>([]);
+
+  const [stores, setStores] =
+    useState<StoreSummary[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [openingBilling, setOpeningBilling] =
+    useState(false);
+
+  const tierName = useMemo(
+    () =>
+      formatTier(
+        profile?.subscription_tier
+      ),
+    [profile?.subscription_tier]
   );
-};
 
-const getReadableTime = () => {
-  if (!scheduledDate) {
-    return "Not Selected";
-  }
+  const activeCampaigns = useMemo(
+    () =>
+      campaigns.filter((item) => {
+        const lifecycle =
+          item.campaignStatus ||
+          item.status ||
+          "";
 
-  return scheduledDate.toLocaleTimeString(
-    undefined,
-    {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }
+        return [
+          "active",
+          "scheduled",
+          "publishing",
+        ].includes(
+          lifecycle.toLowerCase()
+        );
+      }).length,
+    [campaigns]
   );
-};
-const applyRepostPreset = (
-  preset: "daily" | "3days" | "weekly" | "monthly"
-) => {
-  const nextDate = new Date();
- 
-  if (preset === "daily") {
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
- 
-  if (preset === "3days") {
-    nextDate.setDate(nextDate.getDate() + 3);
-  }
- 
-  if (preset === "weekly") {
-    nextDate.setDate(nextDate.getDate() + 7);
-  }
- 
-  if (preset === "monthly") {
-    nextDate.setMonth(nextDate.getMonth() + 1);
-  }
- 
-  setRepostPreset(preset);
-  setScheduledDate(nextDate);
-};
-  const getStatusStyle = (status: string) => {
-    if (status === "published") return styles.statusPublished;
-    if (status === "failed") return styles.statusFailed;
-    if (status === "publishing") return styles.statusPublishing;
-    if (status === "ended") return styles.statusFailed;
-    if (status === "saved") return styles.statusSaved;
-    return styles.statusScheduled;
-  };
-   const filteredCampaigns = scheduledCampaigns
-  .filter((item) => {
-    const matchesSearch =
-      !queueSearch ||
-      item.title?.toLowerCase().includes(queueSearch.toLowerCase()) ||
-      item.platform?.toLowerCase().includes(queueSearch.toLowerCase());
- 
-    if (!matchesSearch) return false;
- 
-    if (queueFilter === "all") return true;
- 
-    if (
-      queueFilter === "active" ||
-      queueFilter === "paused" ||
-      queueFilter === "saved" ||
-      queueFilter === "ended"
-    ) {
-      return item.campaignStatus === queueFilter;
+
+  const publishedCampaigns = useMemo(
+    () =>
+      campaigns.filter(
+        (item) =>
+          String(item.status).toLowerCase() ===
+          "published"
+      ).length,
+    [campaigns]
+  );
+
+  const connectedStores = useMemo(
+    () =>
+      stores.filter(
+        (store) => store.connected
+      ).length,
+    [stores]
+  );
+
+  const loadDashboard = useCallback(
+    async () => {
+      try {
+        setLoading(true);
+
+        const { data: sessionData } =
+          await supabase.auth.getSession();
+
+        const currentSession =
+          sessionData.session;
+
+        setSession(currentSession);
+
+        const userId =
+          currentSession?.user?.id;
+
+        if (!userId) {
+          setProfile(null);
+          setCampaigns([]);
+          setStores([]);
+          return;
+        }
+
+        const [
+          profileResult,
+          campaignsResponse,
+          storesResponse,
+        ] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", userId)
+            .single(),
+          fetch(
+            `${BACKEND_URL}/scheduled-campaigns?userId=${encodeURIComponent(
+              userId
+            )}`
+          ),
+          fetch(
+            `${BACKEND_URL}/stores?userId=${encodeURIComponent(
+              userId
+            )}`
+          ),
+        ]);
+
+        if (!profileResult.error) {
+          setProfile(profileResult.data);
+        }
+
+        const campaignsData =
+          await campaignsResponse.json();
+
+        const storesData =
+          await storesResponse.json();
+
+        setCampaigns(
+          Array.isArray(
+            campaignsData?.campaigns
+          )
+            ? campaignsData.campaigns
+            : []
+        );
+
+        setStores(
+          Array.isArray(storesData?.stores)
+            ? storesData.stores
+            : []
+        );
+      } catch (error) {
+        console.log(
+          "Business manager load failed:",
+          error
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [loadDashboard])
+  );
+
+  useEffect(() => {
+    const { data } =
+      supabase.auth.onAuthStateChange(
+        (_event, newSession) => {
+          setSession(newSession);
+        }
+      );
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function copyReferralCode() {
+    const code =
+      profile?.referral_code;
+
+    if (!code) {
+      Alert.alert(
+        "Referral Code Unavailable",
+        "Refresh this page and try again."
+      );
+      return;
     }
- 
-    return item.status === queueFilter;
-  })
-  .sort((a, b) => {
-    const aTime = new Date(a.publishAt || a.publishDate || 0).getTime();
-    const bTime = new Date(b.publishAt || b.publishDate || 0).getTime();
- 
-    return aTime - bTime;
-  });
-   
-  const startStripeCheckout = async (plan: "monthly" | "yearly") => {
+
+    await Clipboard.setStringAsync(code);
+
+    Alert.alert(
+      "Copied",
+      "Your referral code was copied."
+    );
+  }
+
+  async function openBillingPortal() {
     try {
-      if (!session?.user?.email) {
+      if (
+        !session?.user?.id ||
+        !session?.user?.email
+      ) {
         Alert.alert(
           "Login Required",
-          "Please log in or create an account before upgrading to Pro."
+          "Please sign in before managing your subscription."
         );
         return;
       }
- 
-      setCheckingOut(true);
- 
-      const response = await fetch(`${BACKEND_URL}/create-checkout-session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          plan,
-          userEmail: session.user.email,
-          userId: session.user.id,
-        }),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-  Alert.alert(
-    "Checkout Error",
-    data.error || "Unable to start Stripe checkout."
-  );
-  return;
-}
 
-if (data.usedFreeMonth) {
-  Alert.alert(
-    "Free Month Activated",
-    "Your referral reward was used to activate ArtBoost AI Pro for 30 days."
-  );
+      setOpeningBilling(true);
 
-  await loadProfile(session.user.id);
-  return;
-}
-
-if (!data.url) {
-  Alert.alert(
-    "Checkout Error",
-    "No Stripe checkout URL was returned."
-  );
-  return;
-}
-
-await Linking.openURL(data.url);
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Checkout Error", err.message || "Failed to open checkout.");
-    } finally {
-      setCheckingOut(false);
-    }
-  };
- 
-  const openBillingPortal = async () => {
-  try {
-    if (!session?.user?.email || !session?.user?.id) {
-      Alert.alert(
-        "Login Required",
-        "Please log in before managing your subscription."
-      );
-      return;
-    }
-
-    setOpeningBilling(true);
-
-    if (!profile?.stripe_customer_id) {
-      await syncSubscription(session.user.id, session.user.email);
-      await loadProfile(session.user.id);
-    }
-
-    const response = await fetch(`${BACKEND_URL}/create-billing-portal`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        customerId: profile?.stripe_customer_id || null,
-        email: session.user.email,
-        userId: session.user.id,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.url) {
-      Alert.alert(
-        "Billing Portal Error",
-        data.error || "Unable to open billing portal."
-      );
-      return;
-    }
-
-    await Linking.openURL(data.url);
-  } catch (err: any) {
-    console.log(err);
-
-    Alert.alert(
-      "Billing Portal Error",
-      err.message || "Failed to open billing portal."
-    );
-  } finally {
-    setOpeningBilling(false);
-  }
-};
- 
-  const loadCurrentCampaign = async () => {
-  try {
-    const saved =
-      (await AsyncStorage.getItem("artboost_current_campaign")) ||
-      (await AsyncStorage.getItem("generatedCampaign")) ||
-      (await AsyncStorage.getItem("currentCampaign"));
-
-    if (!saved) {
-      console.log("No saved campaign found.");
-      return;
-    }
-
-    const campaign = JSON.parse(saved);
-
-    const platform =
-      campaign.platform ||
-      campaign.selectedPlatform ||
-      selectedPlatform ||
-      "Pinterest";
-
-    setSelectedPlatform(platform);
-
-    const finalTitle =
-  campaign.title ||
-  campaign.instagramTitle ||
-  campaign.facebookTitle ||
-  campaign.pinterestTitle ||
-  campaign.xTitle ||
-  "";
-
-    let finalDescription =
-  campaign.description ||
-  campaign.pinterestDescription ||
-  campaign.instagramDescription ||
-  campaign.facebookDescription ||
-  campaign.xDescription ||
-  campaign.result ||
-  "";
-
-    let finalHashtags =
-  campaign.hashtags ||
-  campaign.instagramHashtags ||
-  "";
-
-    let finalCta =
-  campaign.cta ||
-  campaign.instagramCta ||
-  "";
-
-    if (platform === "Instagram") {
-      finalDescription = finalDescription
-        .replace(/https?:\/\/\S+/gi, "")
-        .replace(/www\.\S+/gi, "")
-        .replace(/Shop here:?/gi, "")
-        .replace(/Shop now:?/gi, "")
-        .replace(/Grab yours now:?/gi, "")
-        .replace(/Grab yours here:?/gi, "")
-        .replace(/Check it out here:?/gi, "")
-        .replace(/Visit our store:?/gi, "")
-        .replace(/Visit:?/gi, "")
-        .trim();
-
-      finalCta = finalCta
-        .replace(/https?:\/\/\S+/gi, "")
-        .replace(/www\.\S+/gi, "")
-        .replace(/visit\s*/gi, "")
-        .replace(/click the link in bio/gi, "Tap the link in bio")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-    }
-
-    finalHashtags = finalHashtags.replace(/\s+#/g, "\n#");
-
-    setTitle(finalTitle);
-    setDescription(finalDescription);
-    setHashtags(finalHashtags);
-    setCta(finalCta);
-    setProductLink(cleanUrl(campaign.productLink || ""));
-    setPreviewImage(campaign.image || campaign.previewImage || campaign.imageUrl || "");
-    setImageUrl(campaign.imageUrl || campaign.publicImageUrl || campaign.image || "");
-  } catch (err) {
-    console.log("Failed loading campaign:", err);
-  }
-};
- 
-  const loadScheduledCampaigns = async () => {
-    try {
-      setLoadingQueue(true);
- 
-      const userId = session?.user?.id;
-      const url = userId
-        ? `${BACKEND_URL}/scheduled-campaigns?userId=${userId}`
-        : `${BACKEND_URL}/scheduled-campaigns`;
- 
-      const response = await fetch(url);
-      const data = await response.json();
- 
-      if (data.campaigns) {
-        setScheduledCampaigns(data.campaigns);
-      }
-    } catch (err) {
-      console.log("Failed loading scheduled campaigns:", err);
-    } finally {
-      setLoadingQueue(false);
-    }
-  };
- 
-  const saveScheduledCampaign = async () => {
-    try {
-      if (!title || !description) {
-        Alert.alert("Missing Content", "Generate or enter campaign content first.");
-        return;
-      }
- 
-      if (!imageUrl) {
-        Alert.alert(
-          "Missing Image URL",
-          "A public image URL is required for scheduled publishing."
-        );
-        return;
-      }
- 
-      if (selectedPlatform?.toLowerCase() === "pinterest" && !selectedBoard) {
-  Alert.alert("Missing Board", "Please select a Pinterest board.");
-  return;
-}
- 
-      if (!scheduledDate) {
-        Alert.alert("Missing Schedule Time", "Choose a date and time first.");
-        return;
-      }
- 
-      const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-  userId: session?.user?.id || null,
-  title,
-  description,
-  hashtags,
-  cta,
-  imageUrl,
-  productLink,
-  boardId: selectedPlatform === "Pinterest" ? selectedBoard : null,
-  pageId: selectedPlatform === "Facebook" ? selectedFacebookPage : null,
-  publishAt: getPublishAtIso(),
-  platform: selectedPlatform,
- 
-  repeatType: repostPreset || "one_time",
- 
-  nextRunAt:
-    repostPreset && scheduledDate
-      ? scheduledDate.toISOString()
-      : null,
-}),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-        Alert.alert("Scheduling Error", data.error || "Failed to schedule campaign.");
-        return;
-      }
- 
-      await loadScheduledCampaigns();
-      setScheduledDate(null);
- 
-      Alert.alert("Scheduled", "Campaign added to backend automation queue.");
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Scheduling Error", err.message || "Failed to schedule campaign.");
-    }
-  };
-
-  const scheduleEverywhere = async () => {
-  try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "Schedule Everywhere is a Pro feature.");
-      return;
-    }
-
-    if (!title || !description) {
-      Alert.alert("Missing Content", "Generate or enter campaign content first.");
-      return;
-    }
-
-    if (!imageUrl) {
-      Alert.alert("Missing Image URL", "A public image URL is required for scheduled publishing.");
-      return;
-    }
-
-    if (!scheduledDate) {
-      Alert.alert("Missing Schedule Time", "Choose a date and time first.");
-      return;
-    }
-
-    if (!selectedFacebookPage) {
-      Alert.alert("Missing Facebook Page", "Please select a Facebook Page first.");
-      return;
-    }
-
-    const platforms = ["Facebook", "Instagram", "X"];
-
-    if (selectedBoard) {
-      platforms.unshift("Pinterest");
-    }
-
-    const finalProductLink = cleanUrl(productLink);
-
-    const campaignGroupId =
-  Date.now().toString() +
-  "-" +
-  Math.random().toString(36).substring(2, 8);
-
-    const scheduledPlatforms: string[] = [];
-const failedPlatforms: string[] = [];
-
-for (const platform of platforms) {
-  try {
-    const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: session?.user?.id || null,
-        title,
-        description,
-        hashtags,
-        cta,
-        imageUrl,
-        productLink: finalProductLink,
-        boardId: platform === "Pinterest" ? selectedBoard : null,
-        pageId: platform === "Facebook" ? selectedFacebookPage : null,
-        publishAt: getPublishAtIso(),
-        platform,
-        campaignGroupId,
-        repeatType: repostPreset || "one_time",
-        nextRunAt:
-          repostPreset && scheduledDate
-            ? scheduledDate.toISOString()
-            : null,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      failedPlatforms.push(platform);
-      console.log(`${platform} schedule failed:`, data);
-      continue;
-    }
-
-    scheduledPlatforms.push(platform);
-  } catch (err) {
-    failedPlatforms.push(platform);
-    console.log(`${platform} schedule error:`, err);
-  }
-}
-
-    await loadScheduledCampaigns();
-    setScheduledDate(null);
-
-    Alert.alert(
-  "Schedule Everywhere Complete",
-  `Scheduled: ${scheduledPlatforms.join(", ") || "None"}${
-    failedPlatforms.length
-      ? `\n\nSkipped/Failed: ${failedPlatforms.join(", ")}`
-      : ""
-  }`
-);
-  } catch (err: any) {
-    console.log(err);
-    Alert.alert(
-      "Schedule Everywhere Error",
-      err.message || "Failed to schedule campaign everywhere."
-    );
-  }
-};
- 
-  const deleteScheduledCampaign = async (id: string) => {
-    try {
-      const userId = session?.user?.id;
-      const url = userId
-        ? `${BACKEND_URL}/scheduled-campaigns/${id}?userId=${userId}`
-        : `${BACKEND_URL}/scheduled-campaigns/${id}`;
- 
-      const response = await fetch(url, {
-        method: "DELETE",
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-        Alert.alert("Delete Error", data.error || "Failed to delete campaign.");
-        return;
-      }
- 
-      setScheduledCampaigns(data.campaigns || []);
-      Alert.alert("Deleted", "Scheduled campaign removed.");
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Delete Error", err.message || "Failed to delete campaign.");
-    }
-  };
- 
-  const updateCampaignLifecycle = async (
-    id: string,
-    campaignStatus: "active" | "paused" | "ended" | "saved"
-  ) => {
-    try {
       const response = await fetch(
-        `${BACKEND_URL}/scheduled-campaigns/${id}/lifecycle`,
+        `${BACKEND_URL}/create-billing-portal`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
-            userId: session?.user?.id || null,
-            campaignStatus,
+            customerId:
+              profile?.stripe_customer_id ||
+              null,
+            email: session.user.email,
+            userId: session.user.id,
           }),
         }
       );
- 
+
       const data = await response.json();
- 
-      if (!response.ok) {
-        Alert.alert(
-          "Lifecycle Error",
-          data.error || "Failed to update campaign."
+
+      if (!response.ok || !data.url) {
+        throw new Error(
+          data.error ||
+            "Unable to open billing."
         );
-        return;
       }
- 
-      await loadScheduledCampaigns();
- 
-      Alert.alert("Campaign Updated", `Campaign marked as ${campaignStatus}.`);
-    } catch (err: any) {
-      console.log(err);
- 
+
+      await Linking.openURL(data.url);
+    } catch (error: any) {
       Alert.alert(
-        "Lifecycle Error",
-        err.message || "Failed to update campaign."
+        "Billing Error",
+        error?.message ||
+          "Unable to open billing."
       );
-    }
-  };
- 
-  const postScheduledNow = async (item: any) => {
-    try {
-      setTitle(item.title || "");
-      setDescription(item.description || "");
-      setImageUrl(item.imageUrl || "");
-      setProductLink(cleanUrl(item.productLink || ""));
- 
-      if (item.boardId) {
-        setSelectedBoard(item.boardId);
-      }
- 
-      Alert.alert(
-        "Loaded",
-        "Campaign loaded into publishing fields. Tap Post To Pinterest to publish now."
-      );
-    } catch (err) {
-      console.log(err);
-      Alert.alert("Queue Error", "Failed to load scheduled campaign.");
-    }
-  };
-
-const loadFacebookStatus = async () => {
-  try {
-    const response =
-      await fetch(
-        `${BACKEND_URL}/facebook/test`
-      );
-
-    const data =
-      await response.json();
-
-    setFacebookConnected(
-      data.connected || false
-    );
-
-    setFacebookConnectedAt(
-      data.connectedAt || ""
-    );
-
-  }
-
-  catch (err) {
-
-    console.log(
-      "Facebook status failed:",
-      err
-    );
-
-  }
-
-};
- 
-const loadFacebookPages = async () => {
-  try {
-    const response = await fetch(`${BACKEND_URL}/facebook/pages`);
-    const data = await response.json();
-console.log("Facebook Pages Response:", data);
-
-    if (!response.ok || !data.data) {
-      console.log("Facebook pages failed:", data);
-      setFacebookPages([]);
-      return;
-    }
-
-    setFacebookPages(data.data);
-
-    if (data.data.length > 0 && !selectedFacebookPage) {
-      setSelectedFacebookPage(data.data[0].id);
-    }
-  } catch (err) {
-    console.log("Facebook pages load failed:", err);
-    setFacebookPages([]);
-  }
-};
-
-  const loadBoards = async () => {
-    try {
-      setLoadingBoards(true);
-      setBoardError("");
- 
-      const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
-      const data = await response.json();
- 
-      if (!response.ok) {
-        setBoards([]);
-        setBoardError(data.error || "Pinterest boards could not be loaded.");
-        return;
-      }
- 
-      if (data.items && Array.isArray(data.items)) {
-        setBoards(data.items);
- 
-        const redbubbleBoard = data.items.find((b: any) => b.name === "Redbubble");
- 
-        if (redbubbleBoard) {
-          setSelectedBoard(redbubbleBoard.id);
-        } else if (data.items.length > 0) {
-          setSelectedBoard(data.items[0].id);
-        }
-      } else {
-        setBoards([]);
-        setBoardError("No Pinterest boards were returned.");
-      }
-    } catch (err: any) {
-      console.log(err);
-      setBoardError("Failed to load Pinterest boards. Refresh or reconnect Pinterest.");
     } finally {
-      setLoadingBoards(false);
+      setOpeningBilling(false);
     }
-  };
- 
-  const createPinterestPin = async () => {
-    try {
-      if (profile?.subscription_tier !== "pro") {
-        Alert.alert("Pro Required", "Pinterest publishing is a Pro feature.");
-        return;
-      }
- 
-      if (selectedPlatform?.toLowerCase() === "pinterest" && !selectedBoard) {
-  Alert.alert("Missing Board", "Please select a Pinterest board.");
-  return;
-}
- 
-      if (!imageUrl) {
-        Alert.alert("Missing Image URL", "This platform requires a public image URL.");
-        return;
-      }
- 
-      const finalProductLink = cleanUrl(productLink);
-      
- 
-      if (finalProductLink && !finalProductLink.startsWith("http")) {
-        Alert.alert(
-          "Invalid Product Link",
-          "The product link must start with https:// or http://."
-        );
-        return;
-      }
- 
-      setPublishing(true);
- 
-      const response = await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          boardId: selectedBoard,
-          title,
-          description,
-          link: finalProductLink,
-          imageUrl,
-        }),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-  console.log("Pinterest publish error:", data);
-
-  const errorMessage =
-  data?.details?.message ||
-  data?.details ||
-  data?.error?.details ||
-  data?.error?.message ||
-  data?.error ||
-  JSON.stringify(data, null, 2);
-
-  Alert.alert(
-    "Pinterest Publish Failed",
-    typeof errorMessage === "string"
-      ? errorMessage
-      : JSON.stringify(errorMessage, null, 2)
-  );
-
-  return;
-}
- 
-      Alert.alert(
-        "Pinterest Pin Published",
-        "Your artwork was successfully posted to Pinterest."
-      );
- 
-      await loadScheduledCampaigns();
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Publish Failed", err.message || "Failed to publish Pinterest pin.");
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-const createFacebookPost = async () => {
-  try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "Facebook publishing is a Pro feature.");
-      return;
-    }
-
-    if (!imageUrl) {
-  Alert.alert("Missing Image URL", "Facebook requires a public image URL.");
-  return;
-}
-
-const finalProductLink = cleanUrl(productLink);
-
-if (finalProductLink && !finalProductLink.startsWith("http")) {
-  Alert.alert(
-    "Invalid Product Link",
-    "The product link must start with https:// or http://."
-  );
-  return;
-}
-
-setPublishing(true);
-
-    const response = await fetch(`${BACKEND_URL}/facebook/post`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-  message: `${title}
-
-${description}
-
-${cta}
-
-${hashtags}
-
-${finalProductLink}`,
-  imageUrl,
-  pageId: selectedFacebookPage,
-  productLink: finalProductLink,
-}),
-    });
-
-    const data = await response.json();
-
-console.log("Facebook post response:", data);
-
-if (!response.ok || data.error) {
-  Alert.alert(
-    "Facebook Error",
-    data.error?.message || data.error || "Facebook post failed."
-  );
-  return;
-}
-
-    Alert.alert(
-      "Facebook Published",
-      "Your artwork was successfully posted to Facebook."
-    );
-  } catch (err: any) {
-    console.log(err);
-    Alert.alert(
-      "Facebook Publish Failed",
-      err.message || "Failed to publish Facebook post."
-    );
-  } finally {
-    setPublishing(false);
-  }
-};
-
-const createInstagramPost = async () => {
-  try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert(
-        "Pro Required",
-        "Instagram publishing is a Pro feature."
-      );
-      return;
-    }
-
-    if (!imageUrl) {
-      Alert.alert(
-        "Missing Image URL",
-        "Instagram requires a public image URL."
-      );
-      return;
-    }
-
-    setPublishing(true);
-
-    const response = await fetch(
-      `${BACKEND_URL}/instagram/post`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: `${title}
-
-${description}
-
-${cta}
-
-${hashtags}`,
-          imageUrl,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-        data.error ||
-        "Instagram publish failed"
-      );
-    }
-
-    Alert.alert(
-      "Instagram Published",
-      "Your artwork was successfully posted to Instagram."
-    );
-  } catch (err: any) {
-    console.log(err);
-
-    Alert.alert(
-      "Instagram Publish Failed",
-      err.message || "Failed to publish Instagram post."
-    );
-    } finally {
-    setPublishing(false);
-  }
-};
-
-const createXPost = async () => {
-  try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "X publishing is a Pro feature.");
-      return;
-    }
-
-    setPublishing(true);
-
-    const safeDescription =
-  description.length > 80
-    ? description.substring(0, 77).replace(/\s+\S*$/, "") + "..."
-    : description;
-
-const shortTags = hashtags
-  .split(/\s+/)
-  .filter((tag) => tag.startsWith("#"))
-  .slice(0, 3)
-  .join(" ");
-
-const message = [
-  title,
-  safeDescription,
-  shortTags,
-  productLink,
-]
-  .filter(Boolean)
-  .join("\n\n")
-  .trim();
-
-    const response = await fetch(`${BACKEND_URL}/x/post`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-  message,
-  imageUrl,
-  productLink,
-}),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      throw new Error(
-        data.error?.message || data.error || "X publish failed"
-      );
-    }
-
-    Alert.alert("X Published", "Your artwork was successfully posted to X.");
-  } catch (err: any) {
-    console.log(err);
-
-    Alert.alert(
-      "X Publish Failed",
-      err.message || "Failed to publish to X."
-    );
-  } finally {
-    setPublishing(false);
-  }
-};
-
-const postEverywhere = async () => {
-  try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "Post Everywhere is a Pro feature.");
-      return;
-    }
-
-    if (!title || !description || !imageUrl) {
-      Alert.alert("Missing Content", "Title, description, and image URL are required.");
-      return;
-    }
-
-    if (!selectedBoard) {
-      Alert.alert("Missing Pinterest Board", "Please select a Pinterest board first.");
-      return;
-    }
-
-    if (!selectedFacebookPage) {
-      Alert.alert("Missing Facebook Page", "Please select a Facebook Page first.");
-      return;
-    }
-
-    setPublishing(true);
-
-    const finalProductLink = cleanUrl(productLink);
-
-    const aiResponse = await fetch(`${BACKEND_URL}/generate-platform-content`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        title,
-        description,
-        hashtags,
-        cta,
-        productLink: finalProductLink,
-      }),
-    });
-
-    const aiData = await aiResponse.json();
-
-    if (!aiResponse.ok || !aiData.content) {
-      throw new Error(
-        aiData.error || "Failed to generate platform-specific content."
-      );
-    }
-
-    const platformContent = aiData.content;
-
-    const pinterestTitle =
-      platformContent.pinterest?.title || title;
-
-    const pinterestDescription =
-      platformContent.pinterest?.description || description;
-
-    const facebookMessage =
-      platformContent.facebook?.message || `${title}\n\n${description}`;
-
-    const instagramMessage =
-      platformContent.instagram?.message || `${title}\n\n${description}`;
-
-    const xMessage =
-      platformContent.x?.message || title;
-
-    await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        boardId: selectedBoard,
-        title: pinterestTitle,
-        description: pinterestDescription,
-        link: finalProductLink,
-        imageUrl,
-      }),
-    });
-
-    await fetch(`${BACKEND_URL}/facebook/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: facebookMessage,
-        imageUrl,
-        pageId: selectedFacebookPage,
-      }),
-    });
-
-    await fetch(`${BACKEND_URL}/instagram/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: instagramMessage,
-        imageUrl,
-      }),
-    });
-
-    await fetch(`${BACKEND_URL}/x/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: xMessage,
-        imageUrl,
-        productLink: finalProductLink,
-      }),
-    });
-
-    Alert.alert(
-      "Post Everywhere Complete",
-      "Your campaign was sent to Pinterest, Facebook, Instagram, and X with platform-specific content."
-    );
-  } catch (err: any) {
-    console.log("Post Everywhere failed:", err);
-
-    Alert.alert(
-      "Post Everywhere Failed",
-      err.message || "One or more platforms failed to publish."
-    );
-  } finally {
-    setPublishing(false);
-  }
-};
-
-const generateVariations = async () => {
-    try {
-      if (profile?.subscription_tier !== "pro") {
-        Alert.alert("Pro Required", "AI variations are a Pro feature.");
-        return;
-      }
- 
-      setLoadingVariations(true);
- 
-      const response = await fetch(`${BACKEND_URL}/generate-variations`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title,
-          description,
-          platform: "Pinterest",
-          productLink,
-        }),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-        console.log(data);
-        Alert.alert("Variation Error", data.error || "Failed to generate AI variations.");
-        return;
-      }
- 
-      if (!data.variations || !Array.isArray(data.variations)) {
-        Alert.alert("Variation Error", "Invalid AI response.");
-        return;
-      }
- 
-      setVariations(data.variations);
- 
-      Alert.alert(
-        "AI Variations Ready",
-        "Fresh AI campaign variations generated successfully."
-      );
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Variation Error", err.message || "Failed to generate AI variations.");
-    } finally {
-      setLoadingVariations(false);
-    }
-  };
- 
-  const copyVariation = async (variationTitle: string, variationText: string) => {
-    await Clipboard.setStringAsync(`${variationTitle}\n\n${variationText}`);
-    Alert.alert("Copied", "Variation copied to clipboard.");
-  };
- 
-  const useVariation = (variationTitle: string, variationText: string) => {
-    setTitle(variationTitle);
-    setDescription(variationText);
-    Alert.alert("Loaded", "Variation loaded into the publishing fields.");
-  };
- 
-  const simulateProFeature = (feature: string) => {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", `${feature} is a Pro feature.`);
-      return;
-    }
- 
-    Alert.alert(
-      feature,
-      `${feature} automation workflow will be activated as platform APIs are connected.`
-    );
-  };
- 
-  const handleDateChange = (event: any, selected: Date | undefined) => {
-    setShowDatePicker(false);
- 
-    if (!selected) return;
- 
-    const current = scheduledDate || new Date();
-    const updated = new Date(current);
- 
-    updated.setFullYear(selected.getFullYear());
-    updated.setMonth(selected.getMonth());
-    updated.setDate(selected.getDate());
- 
-    setScheduledDate(updated);
-  };
- 
-  const handleTimeChange = (event: any, selected: Date | undefined) => {
-    setShowTimePicker(false);
- 
-    if (!selected) return;
- 
-    const current = scheduledDate || new Date();
-    const updated = new Date(current);
- 
-    updated.setHours(selected.getHours());
-    updated.setMinutes(selected.getMinutes());
-    updated.setSeconds(0);
-    updated.setMilliseconds(0);
- 
-    setScheduledDate(updated);
-  };
-
-  const copyReferralCode = async () => {
-  if (!profile?.referral_code) {
-    Alert.alert("No Referral Code", "Your referral code is not available yet.");
-    return;
   }
 
-  await Clipboard.setStringAsync(profile.referral_code);
-  Alert.alert("Copied", "Referral code copied to clipboard.");
-};
-
-const applyReferralCode = async () => {
-  try {
-    if (!session?.user?.id) {
-      Alert.alert("Login Required", "Please log in before using a referral code.");
-      return;
-    }
-
-    if (!referralInput.trim()) {
-      Alert.alert("Missing Code", "Enter a referral code first.");
-      return;
-    }
-
-    setApplyingReferral(true);
-
-    const response = await fetch(`${BACKEND_URL}/apply-referral`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: session.user.id,
-        referralCode: referralInput.trim().toUpperCase(),
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      Alert.alert("Referral Error", data.error || "Unable to apply referral code.");
-      return;
-    }
-
-    setReferralInput("");
-    await loadProfile(session.user.id);
-
-    Alert.alert("Referral Applied", "Referral code applied successfully.");
-  } catch (err: any) {
-    Alert.alert("Referral Error", err.message || "Failed to apply referral code.");
-  } finally {
-    setApplyingReferral(false);
-  }
-};
-
-useFocusEffect(
-  useCallback(() => {
-    loadCurrentCampaign();
-  }, [])
-);
- 
-  useEffect(() => {
-
-  loadSession();
-
-  loadBoards();
-
-  loadFacebookStatus();
-
-  loadFacebookPages();
-
-  loadCurrentCampaign();
- 
-    const authSubscription = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
- 
-      if (newSession?.user?.id) {
-        loadProfile(newSession.user.id);
-      } else {
-        setProfile(null);
-      }
-    });
- 
-    return () => {
-      authSubscription.data.subscription.unsubscribe();
-    };
-  }, []);
- 
-  useEffect(() => {
-    loadScheduledCampaigns();
- 
-    const interval = setInterval(() => {
-      loadScheduledCampaigns();
- 
-      if (session?.user?.id) {
-        loadProfile(session.user.id);
-      }
-    }, 30000);
- 
-    return () => clearInterval(interval);
-  }, [session?.user?.id]);
- 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>ArtBoost Pro</Text>
- 
-      <Text style={styles.subheader}>Automation Control Center</Text>
- 
-      <View style={styles.heroBox}>
-        <Text style={styles.heroTitle}>Creator Automation</Text>
- 
-        <Text style={styles.heroText}>
-          Generate campaigns, auto-publish content, schedule posts, and
-          streamline your creator workflow.
-        </Text>
-      </View>
- 
-      <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Account Status</Text>
- 
-        <Text style={styles.heroText}>
-  {session?.user?.email
-    ? `Signed in as ${session.user.email}`
-    : "You are not signed in. Log in on the main screen before upgrading."}
-</Text>
-
-<Text style={styles.heroText}>
-  Plan: {(profile?.subscription_tier || "free").toUpperCase()}
-</Text>
-
-<Text style={styles.heroText}>
-  Campaigns Used This Month: {profile?.monthly_campaign_count || 0}
-</Text>
-
-<Text style={styles.heroText}>
-  Campaigns Remaining: {
-    profile?.subscription_tier === "pro"
-      ? "Unlimited"
-      : `${Math.max(
-          0,
-          5 - (profile?.monthly_campaign_count || 0)
-        )} of 5`
-  }
-</Text>
-
-<View
-  style={
-    profile?.subscription_tier === "pro"
-      ? styles.proActiveBadge
-      : styles.freeBadge
-  }
->
-          <Text style={styles.badgeText}>
-            {profile?.subscription_tier === "pro" ? "PRO ACTIVE" : "FREE ACCOUNT"}
-          </Text>
-        </View>
- 
-        <Pressable
-
-  style={styles.smallRefreshButton}
-
-  onPress={() => {
-
-  loadSession();
-
-  loadFacebookStatus();
-
-  loadFacebookPages();
-
-}}
-
->
-
-  <Text style={styles.smallRefreshText}>
-
-    {syncingSubscription
-
-      ? "Syncing Subscription..."
-
-      : "Refresh Connections"}
-
-  </Text>
-
-</Pressable>
- 
-        {profile?.subscription_tier === "pro" && (
-          <Pressable
-            style={styles.billingButton}
-            onPress={openBillingPortal}
-            disabled={openingBilling}
-          >
-            <Text style={styles.billingButtonText}>
-              {openingBilling ? "Opening Billing..." : "Manage Subscription"}
-            </Text>
-          </Pressable>
-        )}
-      </View>
-
-      <View style={styles.card}>
-  <Text style={styles.sectionHeader}>Referral Rewards</Text>
-
-  <Text style={styles.heroText}>
-    Share your referral code and earn up to 3 free months when new users join ArtBoost AI.
-  </Text>
-
-  <Text style={styles.heroText}>
-  Successful referrals earn 1 free month each, up to a maximum of 3 free months.
-</Text>
-
-  <View style={styles.queueCard}>
-    <Text style={styles.queueTitle}>Your Referral Code</Text>
-
-    <Text style={styles.queueText}>
-  Successful Referrals: {profile?.referral_count || 0}
-</Text>
-
-    <Text style={styles.queueText}>
-      {profile?.referral_code || "Loading..."}
-    </Text>
-
-    <Text style={styles.queueText}>
-      Free Months Earned: {profile?.free_months || 0}
-    </Text>
-
-    <Pressable
-      style={styles.smallRefreshButton}
-      onPress={copyReferralCode}
-    >
-      <Text style={styles.smallRefreshText}>Copy Referral Code</Text>
-    </Pressable>
-  </View>
-
-  {profile?.subscription_tier !== "pro" &&
- !profile?.referral_used && (
-    <>
-      <Text style={styles.label}>Enter Referral Code</Text>
-
-      <TextInput
-        style={styles.input}
-        value={referralInput}
-        onChangeText={setReferralInput}
-        placeholder="Example: ARTISTWILL"
-        placeholderTextColor="#777"
-        autoCapitalize="characters"
-      />
-
-      <Pressable
-        style={styles.upgradeButton}
-        onPress={applyReferralCode}
-        disabled={applyingReferral}
-      >
-        <Text style={styles.publishText}>
-          {applyingReferral ? "Applying..." : "Apply Referral Code"}
-        </Text>
-      </Pressable>
-    </>
-  )}
-
-  {profile?.referral_used && (
-    <Text style={styles.helperText}>
-      Referral code already applied to this account.
-    </Text>
-  )}
-</View>
- 
-      {profile?.subscription_tier !== "pro" && (
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>Upgrade to ArtBoost AI Pro</Text>
- 
-          <Text style={styles.heroText}>
-            Unlock premium automation tools, advanced AI variations, scheduling,
-            and multi-platform creator workflows.
-          </Text>
- 
-          <Pressable
-            style={styles.upgradeButton}
-            disabled={checkingOut}
-            onPress={() => startStripeCheckout("monthly")}
-          >
-            <Text style={styles.publishText}>
-              {checkingOut ? "Opening Checkout..." : "Start Pro Monthly - $14.99/mo"}
-            </Text>
-          </Pressable>
- 
-          <Pressable
-            style={styles.yearlyButton}
-            disabled={checkingOut}
-            onPress={() => startStripeCheckout("yearly")}
-          >
-            <Text style={styles.publishText}>
-              {checkingOut ? "Opening Checkout..." : "Start Pro Yearly - $149/yr"}
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-<View style={styles.card}>
-
-<Text style={styles.sectionHeader}>
-Connected Accounts
-</Text>
-
-<View style={styles.queueCard}>
-
-<Text style={styles.queueTitle}>
-Pinterest
-</Text>
-
-<Text style={styles.queueText}>
-🟢 Connected
-</Text>
-
-</View>
-
-<View style={styles.queueCard}>
-
-<Text style={styles.queueTitle}>
-Facebook
-</Text>
-
-<Text style={styles.queueText}>
-
-{facebookConnected
-? "🟢 Connected"
-: "⚪ Not Connected"}
-
-</Text>
-
-{facebookConnectedAt ? (
-
-<Text style={styles.queueText}>
-
-Connected:
-
-{" "}
-
-{new Date(
-facebookConnectedAt
-).toLocaleString()}
-
-</Text>
-
-) : null}
-
-<Text style={styles.label}>Choose Facebook Page</Text>
-
-{facebookPages.length > 0 ? (
-  facebookPages.map((page: any) => (
-    <Pressable
-      key={page.id}
-      style={[
-        styles.boardButton,
-        selectedFacebookPage === page.id && styles.boardSelected,
-      ]}
-      onPress={() => setSelectedFacebookPage(page.id)}
-    >
-      <Text style={styles.boardText}>{page.name}</Text>
-    </Pressable>
-  ))
-) : (
-  <Text style={styles.boardError}>
-    No Facebook Pages loaded. Refresh connections or reconnect Facebook.
-  </Text>
-)}
-
-</View>
-
-</View>
-
-<View style={styles.card}>
-
-<Text style={styles.sectionHeader}>
-Create Campaign
-</Text>
-
-<Text style={styles.heroText}>
-  Choose where ArtBoost should publish this campaign.
-</Text>
-
-<Pressable
-
-style={[
-
-styles.boardButton,
-
-selectedPlatform ===
-"Pinterest"
-
-&& styles.boardSelected,
-
-]}
-
-onPress={() =>
-
-setSelectedPlatform(
-
-"Pinterest"
-
-)}
-
->
-
-<Text style={styles.boardText}>
-Pinterest
-</Text>
-
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "Facebook" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("Facebook")
-  }
->
-  <Text style={styles.boardText}>
-    Facebook
-  </Text>
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "Instagram" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("Instagram")
-  }
->
-  <Text style={styles.boardText}>
-    Instagram
-  </Text>
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "X" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("X")
-  }
->
-  <Text style={styles.boardText}>
-    X
-  </Text>
-</Pressable>
-
-</View>
- 
-      <View style={styles.automationGrid}>
-        <Pressable
-          style={styles.automationCard}
-          onPress={postEverywhere}
-        >
-          <Text style={styles.automationTitle}>
-  Post Everywhere Now
-</Text>
-
-<Text style={styles.automationText}>
-  Publish this campaign now across all available connected platforms.
-</Text>
-        </Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={saveScheduledCampaign}>
-          <Text style={styles.automationTitle}>
-  Schedule This Platform
-</Text>
-
-<Text style={styles.automationText}>
-  Choose a date and time to publish on the selected platform.
-</Text>
-        </Pressable>
-
-        <Pressable
-  style={styles.automationCard}
-  onPress={scheduleEverywhere}
->
-  <Text style={styles.automationTitle}>
-  Schedule Everywhere
-</Text>
-
-<Text style={styles.automationText}>
-  Schedule this campaign across all available connected platforms.
-</Text>
-</Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={generateVariations}>
-          <Text style={styles.automationTitle}>
-  Generate More Versions
-</Text>
-
-<Text style={styles.automationText}>
-  {loadingVariations
-    ? "Creating new AI versions..."
-    : "Create more title, description, and caption options."}
-</Text>
-        </Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={loadScheduledCampaigns}>
-          <Text style={styles.automationTitle}>
-  Campaign Status
-</Text>
-
-<Text style={styles.automationText}>
-  {loadingQueue
-    ? "Refreshing campaign status..."
-    : "View scheduled, published, paused, and failed campaigns."}
-</Text>
-        </Pressable>
-      </View>
- 
-      {variations.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>AI Variations</Text>
- 
-          {variations.map((item, index) => (
-            <View key={`${item.title}-${index}`} style={styles.variationCard}>
-              <Text style={styles.variationStyle}>{item.style}</Text>
-              <Text style={styles.variationTitle}>{item.title}</Text>
-              <Text style={styles.variationDescription}>{item.description}</Text>
- 
-              <Pressable
-                style={styles.copyButton}
-                onPress={() => copyVariation(item.title, item.description)}
-              >
-                <Text style={styles.copyButtonText}>Copy Variation</Text>
-              </Pressable>
- 
-              <Pressable
-                style={styles.useButton}
-                onPress={() => useVariation(item.title, item.description)}
-              >
-                <Text style={styles.copyButtonText}>Use This Version</Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      )}
- 
-      {previewImage ? (
-        <Image source={{ uri: previewImage }} style={styles.preview} />
-      ) : null}
- 
-      {selectedPlatform === "Pinterest" && (
-  <View style={styles.card}>
-    <Text style={styles.sectionHeader}>
-      Pinterest Publishing
-    </Text>
-
-    <View style={styles.boardHeaderRow}>
-      <Text style={styles.label}>
-        Pinterest Board
-      </Text>
-
-      <Pressable
-        style={styles.smallRefreshButton}
-        onPress={loadBoards}
-      >
-        <Text style={styles.smallRefreshText}>
-          Refresh Boards
-        </Text>
-      </Pressable>
-    </View>
-
-    {loadingBoards ? (
-      <Text style={styles.loading}>
-        Loading boards...
-      </Text>
-    ) : boards.length > 0 ? (
-      boards.map((board: any) => (
-        <Pressable
-          key={board.id}
-          style={[
-            styles.boardButton,
-            selectedBoard === board.id &&
-              styles.boardSelected,
-          ]}
-          onPress={() =>
-            setSelectedBoard(board.id)
-          }
-        >
-          <Text style={styles.boardText}>
-            {board.name}
-          </Text>
-        </Pressable>
-      ))
-    ) : (
-      <Text style={styles.boardError}>
-        {boardError ||
-          "No boards loaded. Refresh boards or reconnect Pinterest."}
-      </Text>
-    )}
-  </View>
-)}
-
-{selectedPlatform === "Facebook" && (
-  <View style={styles.card}>
-    <Text style={styles.sectionHeader}>
-      Facebook Publishing
-    </Text>
-
-    <Text style={styles.heroText}>
-      Your connected Facebook Pages will be used
-      for direct publishing.
-    </Text>
-
-    <View style={styles.queueCard}>
-      <Text style={styles.queueTitle}>
-        Facebook Status
-      </Text>
-
-      <Text style={styles.queueText}>
-        {facebookConnected
-          ? "🟢 Connected"
-          : "⚪ Not Connected"}
-      </Text>
-
-      {facebookConnectedAt ? (
-        <Text style={styles.queueText}>
-          Connected:{" "}
-          {new Date(
-            facebookConnectedAt
-          ).toLocaleString()}
-        </Text>
-      ) : null}
-    </View>
-  </View>
-)}
- 
-      <View style={styles.card}>
-        <Text style={styles.label}>
-{selectedPlatform} Title
-</Text>
- 
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} />
- 
-        <Text style={styles.label}>
-{selectedPlatform} Description
-</Text>
- 
-        <TextInput
-          style={[styles.input, styles.textarea]}
-          multiline
-          value={description}
-          onChangeText={setDescription}
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="large"
+          color="#8b5cf6"
         />
 
-        <Text style={styles.label}>CTA</Text>
-
-<TextInput
-  style={[styles.input, styles.textarea]}
-  multiline
-  value={cta}
-  onChangeText={setCta}
-/>
-
-<Text style={styles.label}>Hashtags</Text>
-
-<TextInput
-  style={[styles.input, styles.textarea]}
-  multiline
-  value={hashtags}
-  onChangeText={setHashtags}
-/>
- 
-        <Text style={styles.label}>Campaign Image</Text>
-
-<View style={styles.queueCard}>
-  {previewImage || imageUrl ? (
-    <>
-      <Image
-        source={{
-          uri: previewImage || imageUrl,
-        }}
-        style={styles.campaignImagePreview}
-        resizeMode="cover"
-      />
-
-      <Text style={styles.readyText}>
-        ✓ Image Ready
-      </Text>
-    </>
-  ) : (
-    <Text style={styles.queueText}>
-      No campaign image loaded
-    </Text>
-  )}
-</View>
-
-<Text style={styles.label}>Product Link</Text>
-
-<View style={styles.queueCard}>
-  <Text style={styles.readyText}>
-    {productLink
-      ? "✓ Product Link Attached"
-      : "No product link attached"}
-  </Text>
-
-  {productLink ? (
-    <Pressable
-      style={styles.smallRefreshButton}
-      onPress={() => Linking.openURL(cleanUrl(productLink))}
-    >
-      <Text style={styles.smallRefreshText}>
-        View Product
-      </Text>
-    </Pressable>
-  ) : null}
-</View>
- 
-        <Text style={styles.label}>
-  Schedule Date & Time
-</Text>
-
-<View style={styles.scheduleBox}>
-
-  <Text style={styles.scheduleTitle}>
-    Date
-  </Text>
-
-  <Text style={styles.scheduleText}>
-    {getReadableDate()}
-  </Text>
-
-  <Text style={styles.scheduleTitle}>
-    Time
-  </Text>
-
-  <Text style={styles.scheduleText}>
-    {getReadableTime()}
-  </Text>
-
-  <View style={styles.scheduleButtons}>
-
-    <Pressable
-      style={styles.scheduleButton}
-      onPress={() => {
-        setShowTimePicker(false);
-        setShowDatePicker(!showDatePicker);
-      }}
-    >
-      <Text style={styles.scheduleButtonText}>
-        Select Date
-      </Text>
-    </Pressable>
-
-    <Pressable
-      style={styles.scheduleButton}
-      onPress={() => {
-        setShowDatePicker(false);
-        setShowTimePicker(!showTimePicker);
-      }}
-    >
-      <Text style={styles.scheduleButtonText}>
-        Select Time
-      </Text>
-    </Pressable>
-
-  </View>
-
-</View>
- 
-        {showDatePicker && (
-          <View style={styles.pickerBox}>
-            <DateTimePicker
-              value={scheduledDate || new Date()}
-              mode="date"
-              display="spinner"
-              themeVariant="dark"
-              onChange={handleDateChange}
-            />
- 
-            <Pressable
-              style={styles.donePickerButton}
-              onPress={() => setShowDatePicker(false)}
-            >
-              <Text style={styles.donePickerText}>Done</Text>
-            </Pressable>
-          </View>
-        )}
- 
-        {showTimePicker && (
-          <View style={styles.pickerBox}>
-            <DateTimePicker
-              value={scheduledDate || new Date()}
-              mode="time"
-              display="spinner"
-              themeVariant="dark"
-              onChange={handleTimeChange}
-            />
- 
-            <Pressable
-              style={styles.donePickerButton}
-              onPress={() => setShowTimePicker(false)}
-            >
-              <Text style={styles.donePickerText}>Done</Text>
-            </Pressable>
-          </View>
-        )}
-<View style={styles.presetRow}>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === null && styles.presetButtonActive,
-    ]}
-    onPress={() => {
-  setRepostPreset(null);
-}}
-  >
-    <Text style={styles.presetButtonText}>One Time</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "daily" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("daily")}
-  >
-    <Text style={styles.presetButtonText}>Daily</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "3days" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("3days")}
-  >
-    <Text style={styles.presetButtonText}>Every 3 Days</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "weekly" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("weekly")}
-  >
-    <Text style={styles.presetButtonText}>Weekly</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "monthly" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("monthly")}
-  >
-    <Text style={styles.presetButtonText}>Monthly</Text>
-  </Pressable>
-
-</View>
-        <Text style={styles.helperText}>
-          ArtBoost will convert your selected date and time into backend
-          automation format automatically.
+        <Text style={styles.loadingText}>
+          Loading your business manager...
         </Text>
       </View>
- 
-      {scheduledCampaigns.length > 0 && (
-        <View style={styles.card}>
-          <View style={styles.queueHeaderRow}>
-            <Text style={styles.sectionHeader}>
-{selectedPlatform} Publishing
-</Text>
- 
-            <Pressable
-              style={styles.smallRefreshButton}
-              onPress={loadScheduledCampaigns}
-            >
- 
-              <Text style={styles.smallRefreshText}>Refresh</Text>
-            </Pressable>
-          </View>
-<TextInput
-  style={styles.input}
-  placeholder="Search campaigns..."
-  placeholderTextColor="#777"
-  value={queueSearch}
-  onChangeText={setQueueSearch}
-/>
- 
-<View style={styles.analyticsRow}>
-  <View style={styles.analyticsCard}>
-    <Text style={styles.analyticsNumber}>{scheduledCampaigns.length}</Text>
-    <Text style={styles.analyticsLabel}>Total</Text>
-  </View>
- 
-  <View style={styles.analyticsCard}>
-    <Text style={styles.analyticsNumber}>
-      {scheduledCampaigns.filter((x) => x.campaignStatus === "active").length}
-    </Text>
-    <Text style={styles.analyticsLabel}>Active</Text>
-  </View>
- 
-  <View style={styles.analyticsCard}>
-    <Text style={styles.analyticsNumber}>
-      {scheduledCampaigns.filter((x) => x.campaignStatus === "paused").length}
-    </Text>
-    <Text style={styles.analyticsLabel}>Paused</Text>
-  </View>
- 
-  <View style={styles.analyticsCard}>
-    <Text style={styles.analyticsNumber}>
-      {scheduledCampaigns.filter((x) => x.campaignStatus === "saved").length}
-    </Text>
-    <Text style={styles.analyticsLabel}>Saved</Text>
-  </View>
- 
-  <View style={styles.analyticsCard}>
-    <Text style={styles.analyticsNumber}>
-      {scheduledCampaigns.filter((x) => x.status === "published").length}
-    </Text>
-    <Text style={styles.analyticsLabel}>Posted</Text>
-  </View>
-</View>
- 
-<View style={styles.filterRow}>
-  {["all", "active", "paused", "saved", "ended", "published", "failed"].map(
-    (filter) => (
-      <Pressable
-        key={filter}
-        style={[
-          styles.filterButton,
-          queueFilter === filter && styles.filterButtonActive,
-        ]}
-        onPress={() => setQueueFilter(filter as any)}
-      >
-        <Text style={styles.filterButtonText}>
-          {filter.toUpperCase()} (
-          {filter === "all"
-            ? scheduledCampaigns.length
-            : filteredCampaigns.filter((item) => {
-                if (
-                  filter === "active" ||
-                  filter === "paused" ||
-                  filter === "saved" ||
-                  filter === "ended"
-                ) {
-                  return item.campaignStatus === filter;
-                }
- 
-                return item.status === filter;
-              }).length}
-          )
-        </Text>
-      </Pressable>
-    )
-  )}
-</View>
-  {filteredCampaigns.length === 0 ? (
-  <View style={styles.emptyStateBox}>
-    <Text style={styles.emptyStateText}>
-      No {queueFilter} campaigns.
-    </Text>
-  </View>
-) : (
-    filteredCampaigns.map((item) => (
-            <View key={item.id} style={styles.queueCard}>
-              <View style={styles.statusRow}>
-                <Text style={styles.queueTitle}>{item.title}</Text>
- 
-                <View style={styles.statusBadgeContainer}>
-                  {item.status !== item.campaignStatus && (
-  <Text
-    style={[
-      styles.statusBadge,
-      getStatusStyle(item.status)
-    ]}
-  >
-    {item.status || "scheduled"}
-  </Text>
-)}
- 
-<Text
-  style={[
-    styles.lifecycleBadge,
- 
-    item.campaignStatus === "active" &&
-      styles.lifecycleActive,
- 
-    item.campaignStatus === "paused" &&
-      styles.lifecyclePaused,
- 
-    item.campaignStatus === "saved" &&
-      styles.lifecycleSaved,
- 
-    item.campaignStatus === "ended" &&
-      styles.lifecycleEnded,
-  ]}
->
-  {(item.campaignStatus || "active").toUpperCase()}
-</Text>
-                </View>
-              </View>
- 
-              <Text style={styles.queueText}>{item.platform}</Text>
- 
-              <Text style={styles.queueText}>
-  Scheduled:{" "}
-  {new Date(
-    item.publishAt || item.publishDate
-  ).toLocaleString()}
-</Text>
-              <Text style={styles.queueText}>
-               Repeat:{" "}
-               {(item.repeatType || "one_time")
-               .replace("3days", "Every 3 Days")
-               .replace("_", " ")
-               .toUpperCase()}
-               </Text>
-              <View style={styles.metricsRow}>
-  <View style={styles.metricBox}>
-    <Text style={styles.metricNumber}>
-      {item.views || 0}
-    </Text>
- 
-    <Text style={styles.metricLabel}>
-      Views
-    </Text>
-  </View>
- 
-  <View style={styles.metricBox}>
-    <Text style={styles.metricNumber}>
-      {item.clicks || 0}
-    </Text>
- 
-    <Text style={styles.metricLabel}>
-      Clicks
-    </Text>
-  </View>
- 
-  <View style={styles.metricBox}>
-    <Text style={styles.metricNumber}>
-      {item.posts || 0}
-    </Text>
- 
-    <Text style={styles.metricLabel}>
-      Posts
-    </Text>
-  </View>
-</View>
- 
-{item.publishedAt ? (
-  <Text style={styles.queueText}>
-    Last Published:{" "}
-    {new Date(item.publishedAt).toLocaleString()}
-  </Text>
-) : null}
- 
-              {item.error ? (
-                <Text style={styles.errorText}>Error: {item.error}</Text>
-              ) : null}
-<View style={styles.queueButtons}>
-  <Pressable
-    style={styles.queuePostButton}
-    onPress={() => postScheduledNow(item)}
-  >
-    <Text style={styles.queueButtonText}>Load</Text>
-  </Pressable>
- 
-  {item.campaignStatus === "active" && (
-    <>
-      <Pressable
-        style={styles.queuePauseButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "paused")
-        }
-      >
-        <Text style={styles.queueButtonText}>Pause</Text>
-      </Pressable>
- 
-      <Pressable
-        style={styles.queueEndButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "ended")
-        }
-      >
-        <Text style={styles.queueButtonText}>End</Text>
-      </Pressable>
- 
-      <Pressable
-        style={styles.queueSaveButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "saved")
-        }
-      >
-        <Text style={styles.queueButtonText}>Save</Text>
-      </Pressable>
-    </>
-  )}
- 
-  {item.campaignStatus === "paused" && (
-    <>
-      <Pressable
-        style={styles.queueReactivateButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "active")
-        }
-      >
-        <Text style={styles.queueButtonText}>Resume</Text>
-      </Pressable>
- 
-      <Pressable
-        style={styles.queueEndButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "ended")
-        }
-      >
-        <Text style={styles.queueButtonText}>End</Text>
-      </Pressable>
- 
-      <Pressable
-        style={styles.queueSaveButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "saved")
-        }
-      >
-        <Text style={styles.queueButtonText}>Save</Text>
-      </Pressable>
-    </>
-  )}
- 
-  {item.campaignStatus === "saved" && (
-    <>
-      <Pressable
-        style={styles.queueReactivateButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "active")
-        }
-      >
-        <Text style={styles.queueButtonText}>
-          Reactivate
-        </Text>
-      </Pressable>
- 
-      <Pressable
-        style={styles.queueEndButton}
-        onPress={() =>
-          updateCampaignLifecycle(item.id, "ended")
-        }
-      >
-        <Text style={styles.queueButtonText}>End</Text>
-      </Pressable>
-    </>
-  )}
- 
-  {item.campaignStatus === "ended" && (
-    <Pressable
-      style={styles.queueReactivateButton}
-      onPress={() =>
-        updateCampaignLifecycle(item.id, "active")
-      }
+    );
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.queueButtonText}>
-        Reactivate
+      <Text style={styles.eyebrow}>
+        ARTBOOST {tierName.toUpperCase()}
       </Text>
-    </Pressable>
-  )}
- 
-  <Pressable
-    style={styles.queueDeleteButton}
-    onPress={() =>
-      deleteScheduledCampaign(item.id)
-    }
-  >
-    <Text style={styles.queueButtonText}>Delete</Text>
-  </Pressable>
-</View>
-            </View>
-          ))
-)}
+
+      <Text style={styles.header}>
+        AI Business Manager
+      </Text>
+
+      <Text style={styles.subheader}>
+        Track marketing activity, review
+        business growth, and manage your
+        subscription.
+      </Text>
+
+      <View style={styles.tierCard}>
+        <View style={styles.tierTopRow}>
+          <View>
+            <Text style={styles.tierLabel}>
+              CURRENT PLAN
+            </Text>
+
+            <Text style={styles.tierName}>
+              {tierName}
+            </Text>
+          </View>
+
+          <View style={styles.activeBadge}>
+            <Text
+              style={styles.activeBadgeText}
+            >
+              ACTIVE
+            </Text>
+          </View>
         </View>
-      )}
- 
+
+        <Text style={styles.accountEmail}>
+          {session?.user?.email ||
+            "Not signed in"}
+        </Text>
+      </View>
+
+      <Text style={styles.sectionTitle}>
+        Business Overview
+      </Text>
+
+      <View style={styles.metricsGrid}>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricNumber}>
+            {activeCampaigns}
+          </Text>
+
+          <Text style={styles.metricLabel}>
+            Active Campaigns
+          </Text>
+        </View>
+
+        <View style={styles.metricCard}>
+          <Text style={styles.metricNumber}>
+            {publishedCampaigns}
+          </Text>
+
+          <Text style={styles.metricLabel}>
+            Posts Published
+          </Text>
+        </View>
+
+        <View style={styles.metricCard}>
+          <Text style={styles.metricNumber}>
+            {connectedStores}
+          </Text>
+
+          <Text style={styles.metricLabel}>
+            Connected Stores
+          </Text>
+        </View>
+
+        <View style={styles.metricCard}>
+          <Text style={styles.metricNumber}>
+            {profile?.monthly_campaign_count ||
+              0}
+          </Text>
+
+          <Text style={styles.metricLabel}>
+            Campaigns This Month
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.insightCard}>
+        <Text style={styles.insightEyebrow}>
+          AI BUSINESS INSIGHTS
+        </Text>
+
+        <Text style={styles.insightTitle}>
+          Performance insights are being
+          prepared.
+        </Text>
+
+        <Text style={styles.insightText}>
+          As ArtBoost collects campaign,
+          engagement, click, and store data,
+          this section will identify your
+          strongest artwork and recommend what
+          to market or create next.
+        </Text>
+      </View>
+
+      <View style={styles.actionCard}>
+        <View style={styles.actionTextWrap}>
+          <Text style={styles.actionTitle}>
+            Campaign Manager
+          </Text>
+
+          <Text style={styles.actionText}>
+            Create, schedule, publish, pause,
+            and manage marketing campaigns.
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.primaryButton}
+          onPress={() =>
+            router.push(
+              "/campaign-manager" as any
+            )
+          }
+        >
+          <Text
+            style={styles.primaryButtonText}
+          >
+            Open
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.actionCard}>
+        <View style={styles.actionTextWrap}>
+          <Text style={styles.actionTitle}>
+            Analytics
+          </Text>
+
+          <Text style={styles.actionText}>
+            Review trends, top artwork,
+            campaign performance, and growth.
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() =>
+            router.push(
+              "/analytics" as any
+            )
+          }
+        >
+          <Text
+            style={styles.secondaryButtonText}
+          >
+            View
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.referralCard}>
+        <Text style={styles.sectionTitle}>
+          Referral Rewards
+        </Text>
+
+        <Text style={styles.referralText}>
+          Share your code and earn up to 3
+          free months.
+        </Text>
+
+        <View style={styles.referralCodeBox}>
+          <Text style={styles.referralLabel}>
+            YOUR CODE
+          </Text>
+
+          <Text style={styles.referralCode}>
+            {profile?.referral_code ||
+              "Loading..."}
+          </Text>
+        </View>
+
+        <View style={styles.referralMetrics}>
+          <Text style={styles.referralMetric}>
+            Referrals:{" "}
+            {profile?.referral_count || 0}
+          </Text>
+
+          <Text style={styles.referralMetric}>
+            Free Months:{" "}
+            {profile?.free_months || 0}
+          </Text>
+        </View>
+
+        <Pressable
+          style={styles.copyButton}
+          onPress={copyReferralCode}
+        >
+          <Text style={styles.copyButtonText}>
+            Copy Referral Code
+          </Text>
+        </Pressable>
+      </View>
+
       <Pressable
-  style={[
-  styles.publishButton,
-  selectedPlatform === "Facebook"
-    ? styles.facebookButton
-    : styles.pinterestButton,
-]}
-  onPress={() => {
-
-  if (selectedPlatform === "Facebook") {
-
-  createFacebookPost();
-
-}
-
-else if (selectedPlatform === "Instagram") {
-
-  createInstagramPost();
-
-}
-
-else if (selectedPlatform === "X") {
-
-  createXPost();
-
-}
-
-else {
-
-  createPinterestPin();
-
-}
-
-}}
->
-        <Text style={styles.publishText}>
-          {publishing
-  ? "Publishing..."
-  : `Post To ${selectedPlatform}`}
+        style={styles.billingButton}
+        onPress={openBillingPortal}
+        disabled={openingBilling}
+      >
+        <Text style={styles.billingButtonText}>
+          {openingBilling
+            ? "Opening Billing..."
+            : "Manage Subscription"}
         </Text>
       </Pressable>
     </ScrollView>
   );
 }
- 
+
 const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#101010",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  loadingText: {
+    color: "#999999",
+    marginTop: 12,
+  },
+
   container: {
-    padding: 20,
+    padding: 22,
+    paddingBottom: 60,
     backgroundColor: "#101010",
     minHeight: "100%",
   },
- 
-  header: {
-    color: "#fff",
-    fontSize: 34,
-    fontWeight: "900",
-    textAlign: "center",
-    marginTop: 40,
-  },
- 
-  subheader: {
-    color: "#aaa",
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 24,
-    fontSize: 15,
-  },
- 
-  heroBox: {
-    backgroundColor: "#1b1b1b",
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#8b5cf6",
-    marginBottom: 20,
-  },
- 
-  heroTitle: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "900",
-    marginBottom: 10,
-  },
- 
-  heroText: {
-    color: "#d0d0d0",
-    lineHeight: 24,
-    fontSize: 15,
-  },
- 
-  proActiveBadge: {
-    backgroundColor: "#12a86b",
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: "center",
-    marginTop: 16,
-    marginBottom: 14,
-  },
- 
-  freeBadge: {
-    backgroundColor: "#555",
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: "center",
-    marginTop: 16,
-    marginBottom: 14,
-  },
- 
-  badgeText: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 14,
-  },
- 
-  billingButton: {
-    backgroundColor: "#12a86b",
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: "center",
-    marginTop: 6,
-  },
- 
-  billingButtonText: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 14,
-  },
- 
-  upgradeButton: {
-    backgroundColor: "#8b5cf6",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginTop: 18,
-  },
- 
-  yearlyButton: {
-    backgroundColor: "#12a86b",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginTop: 12,
-  },
- 
-  automationGrid: {
-    marginBottom: 20,
-  },
- 
-  automationCard: {
-    backgroundColor: "#1b1b1b",
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
-  },
- 
-  automationTitle: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 8,
-  },
- 
-  automationText: {
-    color: "#aaa",
-    lineHeight: 22,
-    fontSize: 14,
-  },
- 
-  variationCard: {
-    backgroundColor: "#2b2b2b",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-  },
- 
-  variationStyle: {
+
+  eyebrow: {
     color: "#8b5cf6",
-    fontSize: 13,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
- 
-  variationTitle: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 10,
-  },
- 
-  variationDescription: {
-    color: "#d0d0d0",
-    lineHeight: 22,
-    fontSize: 14,
-    marginBottom: 14,
-  },
- 
-  copyButton: {
-    backgroundColor: "#8b5cf6",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 10,
-  },
- 
-  useButton: {
-    backgroundColor: "#2d6cdf",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
- 
-  copyButtonText: {
-    color: "#fff",
-    fontWeight: "800",
-  },
- 
-  preview: {
-    width: "100%",
-    height: 260,
-    borderRadius: 18,
-    resizeMode: "contain",
-    backgroundColor: "#1a1a1a",
-    marginBottom: 20,
-  },
- 
-  card: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 20,
-  },
- 
-  sectionHeader: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "900",
-    marginBottom: 18,
-  },
- 
-  boardHeaderRow: {
-    marginBottom: 10,
-  },
- 
-  label: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-    marginBottom: 10,
-    marginTop: 10,
-  },
- 
-  input: {
-    backgroundColor: "#2b2b2b",
-    color: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 14,
-  },
- 
-  textarea: {
-    minHeight: 120,
-    textAlignVertical: "top",
-  },
- 
-  helperText: {
-    color: "#777",
-    fontSize: 12,
-    marginTop: 8,
-    lineHeight: 18,
-  },
- 
-  boardButton: {
-    backgroundColor: "#2b2b2b",
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
- 
-  boardSelected: {
-    backgroundColor: "#bd081c",
-  },
- 
-  boardText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
- 
-  boardError: {
-    color: "#ff6b6b",
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
-  },
- 
-  loading: {
-    color: "#aaa",
-  },
- 
-  scheduleBox: {
-    backgroundColor: "#2b2b2b",
-    borderRadius: 14,
-    padding: 14,
-  },
-
-  scheduleTitle: {
-  color: "#9ca3af",
-  fontSize: 13,
-  fontWeight: "700",
-  marginTop: 12,
-  marginBottom: 4,
-},
- 
-  scheduleText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-    marginBottom: 14,
-  },
- 
-  scheduleButtons: {
-    flexDirection: "row",
-  },
- 
-  scheduleButton: {
-    flex: 1,
-    backgroundColor: "#2d6cdf",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginRight: 8,
-  },
- 
-  scheduleButtonText: {
-    color: "#fff",
-    fontWeight: "800",
-  },
- 
-  pickerBox: {
-    backgroundColor: "#1b1b1b",
-    borderRadius: 16,
-    padding: 10,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: "#333",
-  },
- 
-  donePickerButton: {
-    backgroundColor: "#8b5cf6",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 8,
-  },
- 
-  donePickerText: {
-    color: "#fff",
-    fontWeight: "900",
-  },
- 
-  queueHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
- 
-  smallRefreshButton: {
-    backgroundColor: "#2d6cdf",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 18,
-  },
- 
-  smallRefreshText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-
-  campaignImagePreview: {
-  width: "100%",
-  height: 220,
-  borderRadius: 12,
-  marginBottom: 12,
-  backgroundColor: "#202020",
-},
-
-readyText: {
-  color: "#9be88f",
-  fontSize: 13,
-  fontWeight: "700",
-  marginBottom: 8,
-},
- 
-  queueCard: {
-    backgroundColor: "#2b2b2b",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-  },
- 
-  statusRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 6,
-  },
- 
-  statusBadgeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
- 
-  lifecycleBadge: {
-  color: "#fff",
-  fontSize: 11,
-  fontWeight: "900",
-  paddingHorizontal: 8,
-  paddingVertical: 4,
-  borderRadius: 8,
-  marginLeft: 6,
-  overflow: "hidden",
-},
- 
-lifecycleActive: {
-  backgroundColor: "#12a86b",
-},
- 
-lifecyclePaused: {
-  backgroundColor: "#555",
-},
- 
-lifecycleSaved: {
-  backgroundColor: "#8b5cf6",
-},
- 
-lifecycleEnded: {
-  backgroundColor: "#a62828",
-},
- 
-  queueTitle: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    marginBottom: 6,
-    flex: 1,
-    paddingRight: 8,
-  },
- 
-  statusBadge: {
-    color: "#fff",
     fontSize: 11,
     fontWeight: "900",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    overflow: "hidden",
-    textTransform: "uppercase",
+    letterSpacing: 1.5,
+    marginTop: 28,
   },
- 
-  statusScheduled: {
-    backgroundColor: "#8b5cf6",
+
+  header: {
+    color: "#ffffff",
+    fontSize: 31,
+    fontWeight: "900",
+    marginTop: 7,
   },
- 
-  statusPublishing: {
-    backgroundColor: "#f59e0b",
+
+  subheader: {
+    color: "#a4a4a4",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
+    marginBottom: 20,
   },
- 
-  statusPublished: {
+
+  tierCard: {
+    borderRadius: 20,
+    backgroundColor: "#1d1730",
+    borderWidth: 1,
+    borderColor: "#5b3fa3",
+    padding: 18,
+    marginBottom: 24,
+  },
+
+  tierTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  tierLabel: {
+    color: "#a78bfa",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  tierName: {
+    color: "#ffffff",
+    fontSize: 25,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+
+  activeBadge: {
+    borderRadius: 99,
     backgroundColor: "#12a86b",
+    paddingHorizontal: 11,
+    paddingVertical: 6,
   },
- 
-  statusFailed: {
-    backgroundColor: "#a62828",
+
+  activeBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "900",
   },
- 
-  statusSaved: {
-    backgroundColor: "#444",
+
+  accountEmail: {
+    color: "#aaa0ba",
+    fontSize: 12,
+    marginTop: 12,
   },
- 
-  queueText: {
-    color: "#aaa",
-    fontSize: 13,
-    lineHeight: 20,
+
+  sectionTitle: {
+    color: "#ffffff",
+    fontSize: 19,
+    fontWeight: "900",
+    marginBottom: 12,
   },
- 
-  errorText: {
-    color: "#ff6b6b",
-    fontSize: 13,
-    lineHeight: 20,
-    marginTop: 6,
+
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 22,
   },
- 
-  queueButtons: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  marginTop: 12,
-  gap: 6,
-},
- 
-  queuePostButton: {
-    flexGrow: 1,
+
+  metricCard: {
+    width: "48%",
+    minHeight: 100,
+    borderRadius: 18,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#2f2f2f",
+    padding: 14,
+    justifyContent: "center",
+  },
+
+  metricNumber: {
+    color: "#ffffff",
+    fontSize: 26,
+    fontWeight: "900",
+  },
+
+  metricLabel: {
+    color: "#8f8f8f",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+
+  insightCard: {
+    borderRadius: 20,
+    backgroundColor: "#14281e",
+    borderWidth: 1,
+    borderColor: "#28533d",
+    padding: 17,
+    marginBottom: 14,
+  },
+
+  insightEyebrow: {
+    color: "#86efac",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  insightTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+
+  insightText: {
+    color: "#9ed3b3",
+    fontSize: 12,
+    lineHeight: 19,
+    marginTop: 7,
+  },
+
+  actionCard: {
+    borderRadius: 18,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  actionTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  actionTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  actionText: {
+    color: "#919191",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
+
+  primaryButton: {
+    minWidth: 72,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  primaryButtonText: {
+    color: "#ffffff",
+    fontWeight: "900",
+  },
+
+  secondaryButton: {
+    minWidth: 72,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#2d6cdf",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  secondaryButtonText: {
+    color: "#ffffff",
+    fontWeight: "900",
+  },
+
+  referralCard: {
+    borderRadius: 20,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    padding: 17,
+    marginTop: 10,
+  },
+
+  referralText: {
+    color: "#a4a4a4",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  referralCodeBox: {
+    borderRadius: 14,
+    backgroundColor: "#292929",
+    padding: 14,
+    marginTop: 14,
+  },
+
+  referralLabel: {
+    color: "#8b5cf6",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  referralCode: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+
+  referralMetrics: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+
+  referralMetric: {
+    color: "#aaaaaa",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  copyButton: {
+    borderRadius: 12,
     backgroundColor: "#2d6cdf",
     paddingVertical: 12,
-    borderRadius: 12,
     alignItems: "center",
-    marginRight: 6,
-    marginBottom: 6,
+    marginTop: 14,
   },
-queuePauseButton: {
-  flexGrow: 1,
-  backgroundColor: "#444",
-  paddingVertical: 12,
-  borderRadius: 12,
-  alignItems: "center",
-  marginRight: 6,
-  marginBottom: 6,
-},
- 
-  queueEndButton: {
-    flexGrow: 1,
-    backgroundColor: "#f59e0b",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginRight: 8,
-    marginBottom: 8,
+
+  copyButtonText: {
+    color: "#ffffff",
+    fontWeight: "900",
   },
- 
-  queueSaveButton: {
-    flexGrow: 1,
-    backgroundColor: "#8b5cf6",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginRight: 8,
-    marginBottom: 8,
-  },
- 
-  queueReactivateButton: {
-    flexGrow: 1,
+
+  billingButton: {
+    borderRadius: 14,
     backgroundColor: "#12a86b",
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 15,
     alignItems: "center",
-    marginRight: 8,
-    marginBottom: 8,
+    marginTop: 16,
   },
- 
-  queueDeleteButton: {
-    flexGrow: 1,
-    backgroundColor: "#a62828",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 8,
-  },
- 
-  queueButtonText: {
-    color: "#fff",
-    fontWeight: "800",
-  },
- 
-  publishButton: {
-  paddingVertical: 18,
-  borderRadius: 18,
-  alignItems: "center",
-  marginBottom: 40,
-},
 
-pinterestButton: {
-  backgroundColor: "#bd081c",
-},
-
-facebookButton: {
-  backgroundColor: "#1877f2",
-},
- 
-  publishText: {
-  color: "#fff",
-  fontSize: 18,
-  fontWeight: "800",
-  textAlign: "center",
-},
-presetRow: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  marginTop: 14,
-  marginBottom: 6,
-},
- 
-presetButton: {
-  backgroundColor: "#2b2b2b",
-  paddingVertical: 10,
-  paddingHorizontal: 14,
-  borderRadius: 12,
-  marginRight: 8,
-  marginBottom: 8,
-},
- 
-presetButtonActive: {
-  backgroundColor: "#8b5cf6",
-},
- 
-presetButtonText: {
-  color: "#fff",
-  fontWeight: "800",
-  fontSize: 12,
-},
- 
-filterRow: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  marginBottom: 14,
-},
- 
-filterButton: {
-  backgroundColor: "#2b2b2b",
-  paddingVertical: 8,
-  paddingHorizontal: 12,
-  borderRadius: 10,
-  marginRight: 8,
-  marginBottom: 8,
-},
- 
-filterButtonActive: {
-  backgroundColor: "#8b5cf6",
-},
- 
-filterButtonText: {
-  color: "#fff",
-  fontSize: 11,
-  fontWeight: "800",
-},
- 
-emptyStateBox: {
-  backgroundColor: "#2b2b2b",
-  borderRadius: 14,
-  padding: 20,
-  alignItems: "center",
-  marginBottom: 10,
-},
- 
-emptyStateText: {
-  color: "#aaa",
-  fontSize: 14,
-  fontWeight: "700",
-},
-analyticsRow: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  justifyContent: "space-between",
-  marginBottom: 14,
-},
- 
-analyticsCard: {
-  backgroundColor: "#2b2b2b",
-  borderRadius: 10,
-  paddingVertical: 8,
-  paddingHorizontal: 8,
-  minWidth: 52,
-  alignItems: "center",
-  marginBottom: 8,
-},
- 
-analyticsNumber: {
-  color: "#8b5cf6",
-  fontSize: 15,
-  fontWeight: "900",
-},
- 
-analyticsLabel: {
-  color: "#aaa",
-  fontSize: 11,
-  fontWeight: "700",
-},
-metricsRow: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  marginTop: 12,
-  marginBottom: 10,
-},
- 
-metricBox: {
-  backgroundColor: "#222",
-  borderRadius: 10,
-  paddingVertical: 8,
-  paddingHorizontal: 12,
-  alignItems: "center",
-  minWidth: 70,
-},
- 
-metricNumber: {
-  color: "#8b5cf6",
-  fontSize: 16,
-  fontWeight: "900",
-},
- 
-metricLabel: {
-  color: "#888",
-  fontSize: 11,
-  marginTop: 2,
-},
+  billingButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
 });
-

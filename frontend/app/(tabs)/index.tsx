@@ -1,7 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
-import React, { useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -65,6 +71,20 @@ export default function HomeScreen() {
   const [repeatType, setRepeatType] = useState("one_time");
   const [scheduleDaysOut, setScheduleDaysOut] = useState("1");
   const [scheduling, setScheduling] = useState(false);
+
+  const [homeMode, setHomeMode] = useState<
+    "home" | "upload"
+  >("home");
+
+  const [
+    marketingProfileCompletion,
+    setMarketingProfileCompletion,
+  ] = useState(0);
+
+  const [
+    hasMarketingProfile,
+    setHasMarketingProfile,
+  ] = useState(false);
  
   useEffect(() => {
     loadSession();
@@ -109,6 +129,56 @@ export default function HomeScreen() {
  
     setProfile(data);
   };
+
+  const loadMarketingProfile = useCallback(async () => {
+    try {
+      const saved = await AsyncStorage.getItem(
+        "artboost_brand_profile"
+      );
+
+      if (!saved) {
+        setMarketingProfileCompletion(0);
+        setHasMarketingProfile(false);
+        return;
+      }
+
+      const marketingProfile = JSON.parse(saved);
+
+      const requiredFields = [
+        marketingProfile?.brandName,
+        marketingProfile?.brandVoice,
+        marketingProfile?.targetAudience,
+        marketingProfile?.defaultCTA,
+        marketingProfile?.defaultHashtags,
+        marketingProfile?.avoidWords,
+      ];
+
+      const completedFields = requiredFields.filter(value =>
+        String(value || "").trim()
+      ).length;
+
+      const completion = Math.round(
+        (completedFields / requiredFields.length) * 100
+      );
+
+      setMarketingProfileCompletion(completion);
+      setHasMarketingProfile(completedFields > 0);
+    } catch (error) {
+      console.log(
+        "Marketing profile load error:",
+        error
+      );
+
+      setMarketingProfileCompletion(0);
+      setHasMarketingProfile(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMarketingProfile();
+    }, [loadMarketingProfile])
+  );
  
   const signUp = async () => {
   if (!authEmail || !authPassword) {
@@ -346,90 +416,192 @@ const createFacebookPost = async () => {
  
   const postNow = async () => {
     if (String(profile?.subscription_tier).toLowerCase() !== "pro") {
-      Alert.alert("Pro Required", "Posting directly to platforms is a Pro feature.");
-      return;
-    }
- 
-    if (!result || !hostedImageUrl) {
-      Alert.alert("Missing Campaign", "Generate content before posting.");
-      return;
-    }
- 
-    if (selectedPlatform === "Facebook") {
- 
-  createFacebookPost();
- 
-  return;
- 
-}
- 
-    if (!selectedBoard) {
-      Alert.alert("Missing Board", "Select a Pinterest board before posting.");
-      return;
-    }
- 
-    const campaign = buildCurrentCampaign();
-    const finalProductLink = productLink.trim();
- 
-    if (finalProductLink && !finalProductLink.startsWith("http")) {
       Alert.alert(
-        "Invalid Product Link",
-        "The product link must start with https:// or http://."
+        "Pro Required",
+        "Posting directly to platforms is a Pro feature."
       );
       return;
     }
- 
+
+    if (!result || !hostedImageUrl) {
+      Alert.alert(
+        "Missing Campaign",
+        "Generate content before posting."
+      );
+      return;
+    }
+
+    const campaign = buildCurrentCampaign();
+    const rawProductLink = productLink.trim();
+    const finalProductLink = rawProductLink
+      ? /^https?:\/\//i.test(rawProductLink)
+        ? rawProductLink
+        : `https://${rawProductLink}`
+      : "";
+
     try {
       setPostingNow(true);
- 
+
       await AsyncStorage.setItem(
         "artboost_current_campaign",
         JSON.stringify(campaign)
       );
- 
-      const response = await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          boardId: selectedBoard,
-          title: campaign.pinterestTitle,
-          description: campaign.pinterestDescription,
-          link: finalProductLink,
-          imageUrl: hostedImageUrl,
-        }),
-      });
- 
-      const data = await response.json();
- 
-      if (!response.ok) {
-        console.log("Pinterest post error:", data);
- 
-        Alert.alert(
-          "Pinterest Approval Pending",
-          "Pinterest posting is ready, but your Pinterest Developer app is still pending production approval.\n\nUntil Pinterest approves Standard Access, live pin creation is blocked. Your campaign is saved and ready to post once approval is complete."
+
+      if (selectedPlatform === "Instagram") {
+        const instagramCta = finalProductLink
+          ? `Shop this design: ${finalProductLink}`
+          : campaign.cta;
+
+        const message = [
+          campaign.title,
+          campaign.description,
+          instagramCta,
+          campaign.hashtags,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        const response = await fetch(
+          `${BACKEND_URL}/instagram/post`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message,
+              imageUrl: hostedImageUrl,
+            }),
+          }
         );
- 
+
+        const data = await response.json();
+
+        if (!response.ok || data?.error) {
+          console.log("Instagram post error:", data);
+
+          Alert.alert(
+            "Instagram Post Failed",
+            data?.error?.message ||
+              data?.error ||
+              "Instagram could not publish this post."
+          );
+          return;
+        }
+
+        Alert.alert(
+          "Instagram Published",
+          "Your artwork was successfully posted to Instagram."
+        );
         return;
       }
- 
-      Alert.alert(
-        "Posted Successfully",
-        "Your campaign was posted to Pinterest."
-      );
+
+      if (selectedPlatform === "Facebook") {
+        Alert.alert(
+          "Facebook Posting",
+          "Use Campaign Manager to choose the Facebook Page before posting."
+        );
+        return;
+      }
+
+      if (selectedPlatform === "X") {
+        const messageWithoutLink = [
+          campaign.title,
+          campaign.description,
+          campaign.hashtags,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        const response = await fetch(`${BACKEND_URL}/x/post`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: messageWithoutLink,
+            imageUrl: hostedImageUrl,
+            productLink: finalProductLink || null,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data?.error) {
+          console.log("X post error:", data);
+
+          Alert.alert(
+            "X Post Failed",
+            data?.error?.message ||
+              data?.error ||
+              "X could not publish this post."
+          );
+          return;
+        }
+
+        Alert.alert(
+          "X Published",
+          "Your artwork was successfully posted to X."
+        );
+        return;
+      }
+
+      if (selectedPlatform === "Pinterest") {
+        if (!selectedBoard) {
+          Alert.alert(
+            "Missing Board",
+            "Select a Pinterest board before posting."
+          );
+          return;
+        }
+
+        const response = await fetch(
+          `${BACKEND_URL}/pinterest/create-pin`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              boardId: selectedBoard,
+              title: campaign.pinterestTitle,
+              description: campaign.pinterestDescription,
+              link: finalProductLink,
+              imageUrl: hostedImageUrl,
+            }),
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.log("Pinterest post error:", data);
+
+          Alert.alert(
+            "Pinterest Approval Pending",
+            "Pinterest posting is ready, but your Pinterest Developer app is still pending production approval.\n\nUntil Pinterest approves Standard Access, live pin creation is blocked."
+          );
+          return;
+        }
+
+        Alert.alert(
+          "Pinterest Published",
+          "Your campaign was posted to Pinterest."
+        );
+      }
     } catch (error: any) {
       console.log("Post now error:", error);
- 
+
       Alert.alert(
         "Post Failed",
-        error?.message || "Unable to post right now. Try again shortly."
+        error?.message ||
+          "Unable to post right now. Try again shortly."
       );
     } finally {
       setPostingNow(false);
     }
   };
- 
+
   const scheduleRepost = async () => {
     if (String(profile?.subscription_tier).toLowerCase() !== "pro") {
       Alert.alert("Pro Required", "Scheduled reposting is a Pro feature.");
@@ -552,11 +724,28 @@ const createFacebookPost = async () => {
  
       const generatedText = data.result || "No result returned.";
       const imageUrlFromBackend = data.imageUrl || "";
+      const rawProductLink = productLink.trim();
+      const normalizedProductLink = rawProductLink
+        ? /^https?:\/\//i.test(rawProductLink)
+          ? rawProductLink
+          : `https://${rawProductLink}`
+        : "";
+
+      const shouldUseDirectProductCta =
+        ["Instagram", "Facebook", "X"].includes(selectedPlatform) &&
+        Boolean(normalizedProductLink);
+
+      const finalGeneratedText = shouldUseDirectProductCta
+        ? generatedText.replace(
+            /CTA:\s*[\s\S]*?(?=(?:TITLE|DESCRIPTION|HASHTAGS):|$)/i,
+            `CTA: Shop this design: ${normalizedProductLink}\n`
+          )
+        : generatedText;
  
-      setResult(generatedText);
+      setResult(finalGeneratedText);
       setHostedImageUrl(imageUrlFromBackend);
  
-      await storeCurrentCampaign(generatedText, imageUrlFromBackend);
+      await storeCurrentCampaign(finalGeneratedText, imageUrlFromBackend);
     } catch (error: any) {
       console.log("Generate error:", error);
  
@@ -590,250 +779,729 @@ const createFacebookPost = async () => {
   };
  
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.logo}>ArtBoost AI</Text>
- 
-      <Text style={styles.subtitle}>
-        Upload artwork, choose a platform, and generate focused marketing content.
-      </Text>
- 
-      <View style={styles.authBox}>
-        {session?.user ? (
-          <>
-            <Text style={styles.authTitle}>Signed In</Text>
-            <Text style={styles.authText}>{session.user.email}</Text>
- 
-            <View style={styles.proBadge}>
-              <Text style={styles.proBadgeText}>
-                {profile?.subscription_tier === "pro" ? "PRO ACTIVE" : "FREE ACCOUNT"}
+    <ScrollView
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {homeMode === "home" ? (
+        <>
+          <Text style={styles.eyebrow}>
+            ARTBOOST AI
+          </Text>
+
+          <Text style={styles.logo}>
+            Your AI Marketing Manager
+          </Text>
+
+          <Text style={styles.subtitle}>
+            Built for artists and creative
+            businesses.
+          </Text>
+
+          <View style={styles.promiseCard}>
+            <Text style={styles.promiseText}>
+              Connect it.
+            </Text>
+
+            <Text style={styles.promiseText}>
+              Schedule it.
+            </Text>
+
+            <Text style={styles.promiseText}>
+              Forget it.
+            </Text>
+          </View>
+
+          {session?.user ? (
+            <View style={styles.accountStrip}>
+              <View style={styles.accountInfo}>
+                <Text style={styles.accountLabel}>
+                  SIGNED IN
+                </Text>
+
+                <Text
+                  style={styles.accountEmail}
+                  numberOfLines={1}
+                >
+                  {session.user.email}
+                </Text>
+              </View>
+
+              <View style={styles.accountBadge}>
+                <Text
+                  style={styles.accountBadgeText}
+                >
+                  {profile?.subscription_tier ===
+                  "pro"
+                    ? "PRO"
+                    : "FREE"}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.authBox}>
+              <Text style={styles.authTitle}>
+                Sign in to continue
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#777"
+                value={authEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                onChangeText={setAuthEmail}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#777"
+                value={authPassword}
+                secureTextEntry
+                onChangeText={setAuthPassword}
+              />
+
+              <Pressable
+                style={styles.loginButton}
+                onPress={signIn}
+                disabled={authLoading}
+              >
+                <Text style={styles.buttonText}>
+                  {authLoading
+                    ? "Working..."
+                    : "Log In"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.signupButton}
+                onPress={signUp}
+                disabled={authLoading}
+              >
+                <Text style={styles.buttonText}>
+                  Create Account
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          <Text style={styles.sectionHeading}>
+            What would you like to do today?
+          </Text>
+
+          <Pressable
+            style={styles.consultantCard}
+            onPress={() =>
+              router.push("/brand" as any)
+            }
+          >
+            <View style={styles.consultantIcon}>
+              <Text
+                style={styles.consultantIconText}
+              >
+                ✦
               </Text>
             </View>
- 
-            <Pressable style={styles.signOutButton} onPress={signOut}>
-              <Text style={styles.buttonText}>Sign Out</Text>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={styles.authTitle}>Account Login</Text>
- 
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              placeholderTextColor="#777"
-              value={authEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              onChangeText={setAuthEmail}
-            />
- 
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor="#777"
-              value={authPassword}
-              secureTextEntry
-              onChangeText={setAuthPassword}
-            />
- 
-            <Pressable style={styles.loginButton} onPress={signIn} disabled={authLoading}>
-              <Text style={styles.buttonText}>
-                {authLoading ? "Working..." : "Log In"}
-              </Text>
-            </Pressable>
- 
-            <Pressable style={styles.signupButton} onPress={signUp} disabled={authLoading}>
-              <Text style={styles.buttonText}>Create Account</Text>
-            </Pressable>
-          </>
-        )}
-      </View>
- 
-      <TextInput
-        style={styles.input}
-        placeholder="Paste product/shop link"
-        placeholderTextColor="#777"
-        value={productLink}
-        onChangeText={setProductLink}
-      />
- 
-      <View style={styles.platformContainer}>
-        <Text style={styles.platformLabel}>Choose Platform</Text>
- 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: "100%" }}>
-          {PLATFORMS.map((platform) => (
-            <Pressable
-              key={platform}
-              style={[
-                styles.platformButton,
-                selectedPlatform === platform && styles.platformButtonActive,
-              ]}
-              onPress={() => setSelectedPlatform(platform)}
+
+            <View
+              style={styles.consultantTextWrap}
             >
-              <Text style={styles.platformButtonText}>{platform}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
- 
-      <View style={styles.platformContainer}>
-        <Text style={styles.platformLabel}>Choose Style</Text>
- 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: "100%" }}>
-          {STYLE_PRESETS.map((style) => (
-            <Pressable
-              key={style}
-              style={[
-                styles.platformButton,
-                selectedStyle === style && styles.platformButtonActive,
-              ]}
-              onPress={() => setSelectedStyle(style)}
-            >
-              <Text style={styles.platformButtonText}>{style}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
- 
-      <Pressable style={styles.button} onPress={pickImage}>
-        <Text style={styles.buttonText}>Upload Artwork</Text>
-      </Pressable>
- 
-      {image && <Image source={{ uri: image }} style={styles.preview} />}
- 
-      {image && (
-        <Pressable style={styles.generateButton} onPress={generateContent}>
-          <Text style={styles.buttonText}>Generate {selectedPlatform} Content</Text>
-        </Pressable>
-      )}
- 
-      {loading && <ActivityIndicator size="large" style={{ marginTop: 24 }} />}
- 
-      {hostedImageUrl ? (
-        <View style={styles.imageUrlBox}>
-          <Text style={styles.imageUrlTitle}>Public Image URL Ready</Text>
-          <Text style={styles.imageUrlText}>{hostedImageUrl}</Text>
-        </View>
-      ) : null}
- 
-      {selectedPlatform === "Pinterest" && sections.length > 0 && (
-        <View style={styles.boardBox}>
-          <View style={styles.boardHeaderRow}>
-            <Text style={styles.platformLabel}>Pinterest Board</Text>
- 
-            <Pressable style={styles.refreshBoardsButton} onPress={loadBoards}>
-              <Text style={styles.smallButtonText}>
-                {loadingBoards ? "Loading..." : "Refresh Boards"}
-              </Text>
-            </Pressable>
-          </View>
- 
-          {boards.length > 0 ? (
-            boards.map((board: any) => (
-              <Pressable
-                key={board.id}
-                style={[
-                  styles.boardButton,
-                  selectedBoard === board.id && styles.boardButtonActive,
-                ]}
-                onPress={() => setSelectedBoard(board.id)}
+              <View
+                style={styles.consultantTitleRow}
               >
-                <Text style={styles.boardText}>{board.name}</Text>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={styles.boardHelpText}>
-              No boards loaded. Refresh boards or reconnect Pinterest.
+                <Text
+                  style={styles.consultantTitle}
+                >
+                  ArtBoost AI Marketing Consultant
+                </Text>
+
+                {hasMarketingProfile ? (
+                  <View
+                    style={styles.profileBadge}
+                  >
+                    <Text
+                      style={
+                        styles.profileBadgeText
+                      }
+                    >
+                      {marketingProfileCompletion}%
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <Text
+                style={
+                  styles.consultantDescription
+                }
+              >
+                {hasMarketingProfile
+                  ? "Review your brand voice, audience, hashtags, posting strategy, and AI marketing recommendations."
+                  : "Build your brand voice, target audience, hashtags, posting strategy, and automation recommendations."}
+              </Text>
+
+              <View
+                style={styles.consultantFooter}
+              >
+                <Text
+                  style={
+                    styles.consultantActionText
+                  }
+                >
+                  {hasMarketingProfile
+                    ? "View Marketing Profile"
+                    : "Build My Marketing Profile"}
+                </Text>
+
+                <Text
+                  style={styles.consultantArrow}
+                >
+                  ›
+                </Text>
+              </View>
+
+              {hasMarketingProfile ? (
+                <View
+                  style={
+                    styles.profileProgressTrack
+                  }
+                >
+                  <View
+                    style={[
+                      styles.profileProgressFill,
+                      {
+                        width: `${marketingProfileCompletion}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+
+          <Pressable
+            style={styles.actionCard}
+            onPress={() =>
+              setHomeMode("upload")
+            }
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>
+                +
+              </Text>
+            </View>
+
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>
+                Upload Artwork
+              </Text>
+
+              <Text style={styles.actionDescription}>
+                Upload a new piece, generate
+                content, and post or schedule it.
+              </Text>
+            </View>
+
+            <Text style={styles.actionArrow}>
+              ›
             </Text>
-          )}
-        </View>
-      )}
- 
-      {sections.length > 0 && (
-        <>
-          <View style={styles.masterActions}>
-            <Pressable style={styles.postNowButton} onPress={postNow} disabled={postingNow}>
-              <Text style={styles.buttonText}>
-                {postingNow ? "Posting..." : "POST NOW"}
+          </Pressable>
+
+          <Pressable
+            style={styles.actionCard}
+            onPress={() =>
+              router.push(
+                "/connect-store" as any
+              )
+            }
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>
+                ↗
+              </Text>
+            </View>
+
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>
+                Import Artwork
+              </Text>
+
+              <Text style={styles.actionDescription}>
+                Import from a store, website,
+                collection, or artwork link.
+              </Text>
+            </View>
+
+            <Text style={styles.actionArrow}>
+              ›
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.actionCard}
+            onPress={() =>
+              router.push(
+                "/campaign-manager" as any
+              )
+            }
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>
+                ✦
+              </Text>
+            </View>
+
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>
+                Create Marketing Campaign
+              </Text>
+
+              <Text style={styles.actionDescription}>
+                Promote artwork, a collection,
+                a store, or your entire business.
+              </Text>
+            </View>
+
+            <Text style={styles.actionArrow}>
+              ›
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.actionCard}
+            onPress={() =>
+              router.push(
+                "/schedule" as any
+              )
+            }
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.actionIconText}>
+                ✓
+              </Text>
+            </View>
+
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>
+                Manage Campaigns
+              </Text>
+
+              <Text style={styles.actionDescription}>
+                Review, pause, edit, and manage
+                scheduled marketing.
+              </Text>
+            </View>
+
+            <Text style={styles.actionArrow}>
+              ›
+            </Text>
+          </Pressable>
+
+          {session?.user ? (
+            <Pressable
+              style={styles.signOutLink}
+              onPress={signOut}
+            >
+              <Text style={styles.signOutLinkText}>
+                Sign Out
               </Text>
             </Pressable>
- 
+          ) : null}
+        </>
+      ) : (
+        <>
+          <View style={styles.workflowHeader}>
             <Pressable
-              style={styles.scheduleButton}
-              onPress={() => setShowScheduleOptions(!showScheduleOptions)}
+              style={styles.workflowBackButton}
+              onPress={() =>
+                setHomeMode("home")
+              }
             >
-              <Text style={styles.buttonText}>Schedule Repost</Text>
+              <Text
+                style={styles.workflowBackText}
+              >
+                ‹
+              </Text>
             </Pressable>
- 
-            {showScheduleOptions && (
-              <View style={styles.schedulePanel}>
-                <Text style={styles.scheduleTitle}>Repeat Options</Text>
- 
-                {REPEAT_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    style={[
-                      styles.repeatOption,
-                      repeatType === option.value && styles.repeatOptionActive,
-                    ]}
-                    onPress={() => setRepeatType(option.value)}
-                  >
-                    <Text style={styles.repeatOptionText}>{option.label}</Text>
-                  </Pressable>
-                ))}
- 
-                <Text style={styles.scheduleLabel}>Start repost in how many days?</Text>
- 
-                <TextInput
-                  style={styles.scheduleInput}
-                  value={scheduleDaysOut}
-                  onChangeText={setScheduleDaysOut}
-                  keyboardType="numeric"
-                  placeholder="Example: 1, 7, 14, 30"
-                  placeholderTextColor="#777"
-                />
- 
-                <Pressable
-                  style={styles.confirmScheduleButton}
-                  onPress={scheduleRepost}
-                  disabled={scheduling}
+
+            <View style={styles.workflowHeaderText}>
+              <Text style={styles.eyebrow}>
+                SINGLE ARTWORK
+              </Text>
+
+              <Text style={styles.workflowTitle}>
+                Create Content
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.workflowIntro}>
+            Upload your artwork, generate
+            platform-ready content, then post now
+            or schedule a campaign.
+          </Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Optional product or shop link"
+            placeholderTextColor="#777"
+            value={productLink}
+            onChangeText={setProductLink}
+          />
+
+          <Pressable
+            style={styles.uploadCard}
+            onPress={pickImage}
+          >
+            <Text style={styles.uploadTitle}>
+              {image
+                ? "Choose a Different Image"
+                : "Upload Artwork"}
+            </Text>
+
+            <Text style={styles.uploadDescription}>
+              Select a photo of finished artwork
+              or work in progress.
+            </Text>
+          </Pressable>
+
+          {image ? (
+            <Image
+              source={{ uri: image }}
+              style={styles.preview}
+            />
+          ) : null}
+
+          {image ? (
+            <>
+              <View
+                style={styles.platformContainer}
+              >
+                <Text
+                  style={styles.platformLabel}
                 >
-                  <Text style={styles.buttonText}>
-                    {scheduling ? "Scheduling..." : "Confirm Schedule Repost"}
+                  Where should ArtBoost market it?
+                </Text>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={
+                    false
+                  }
+                  style={{ width: "100%" }}
+                >
+                  {PLATFORMS.map(
+                    (platform) => (
+                      <Pressable
+                        key={platform}
+                        style={[
+                          styles.platformButton,
+                          selectedPlatform ===
+                            platform &&
+                            styles.platformButtonActive,
+                        ]}
+                        onPress={() =>
+                          setSelectedPlatform(
+                            platform
+                          )
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.platformButtonText
+                          }
+                        >
+                          {platform}
+                        </Text>
+                      </Pressable>
+                    )
+                  )}
+                </ScrollView>
+              </View>
+
+              <View
+                style={styles.platformContainer}
+              >
+                <Text
+                  style={styles.platformLabel}
+                >
+                  Marketing style
+                </Text>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={
+                    false
+                  }
+                  style={{ width: "100%" }}
+                >
+                  {STYLE_PRESETS.map(
+                    (style) => (
+                      <Pressable
+                        key={style}
+                        style={[
+                          styles.platformButton,
+                          selectedStyle === style &&
+                            styles.platformButtonActive,
+                        ]}
+                        onPress={() =>
+                          setSelectedStyle(style)
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.platformButtonText
+                          }
+                        >
+                          {style}
+                        </Text>
+                      </Pressable>
+                    )
+                  )}
+                </ScrollView>
+              </View>
+
+              <Pressable
+                style={styles.generateButton}
+                onPress={generateContent}
+              >
+                <Text style={styles.buttonText}>
+                  Generate {selectedPlatform} Content
+                </Text>
+              </Pressable>
+            </>
+          ) : null}
+
+          {loading ? (
+            <ActivityIndicator
+              size="large"
+              style={{ marginTop: 24 }}
+            />
+          ) : null}
+
+          {selectedPlatform === "Pinterest" &&
+          sections.length > 0 ? (
+            <View style={styles.boardBox}>
+              <View
+                style={styles.boardHeaderRow}
+              >
+                <Text
+                  style={styles.platformLabel}
+                >
+                  Pinterest Board
+                </Text>
+
+                <Pressable
+                  style={
+                    styles.refreshBoardsButton
+                  }
+                  onPress={loadBoards}
+                >
+                  <Text
+                    style={styles.smallButtonText}
+                  >
+                    {loadingBoards
+                      ? "Loading..."
+                      : "Refresh Boards"}
                   </Text>
                 </Pressable>
               </View>
-            )}
- 
-            <Pressable
-              style={styles.copyButton}
-              onPress={() => copyText(result, `${selectedPlatform} content`)}
-            >
-              <Text style={styles.buttonText}>Copy {selectedPlatform} Content</Text>
-            </Pressable>
- 
-            <Pressable style={styles.saveButton} onPress={saveResult}>
-              <Text style={styles.buttonText}>Save Campaign</Text>
-            </Pressable>
- 
-            <Pressable style={styles.postButton} onPress={sendToProTools}>
-              <Text style={styles.buttonText}>Advanced Pro Tools</Text>
-            </Pressable>
-          </View>
- 
-          {sections.map((section, index) => (
-            <View key={`${section.title}-${index}`} style={styles.card}>
-              <Text style={styles.cardTitle}>{section.title}</Text>
-              <Text style={styles.cardText}>{section.content}</Text>
- 
-              <Pressable
-                style={styles.smallCopyButton}
-                onPress={() => copyText(section.content, section.title)}
-              >
-                <Text style={styles.smallButtonText}>Copy {section.title}</Text>
-              </Pressable>
+
+              {boards.length > 0 ? (
+                boards.map((board: any) => (
+                  <Pressable
+                    key={board.id}
+                    style={[
+                      styles.boardButton,
+                      selectedBoard ===
+                        board.id &&
+                        styles.boardButtonActive,
+                    ]}
+                    onPress={() =>
+                      setSelectedBoard(board.id)
+                    }
+                  >
+                    <Text
+                      style={styles.boardText}
+                    >
+                      {board.name}
+                    </Text>
+                  </Pressable>
+                ))
+              ) : (
+                <Text
+                  style={styles.boardHelpText}
+                >
+                  No boards loaded. Refresh boards
+                  or reconnect Pinterest.
+                </Text>
+              )}
             </View>
-          ))}
+          ) : null}
+
+          {sections.length > 0 ? (
+            <>
+              <View style={styles.masterActions}>
+                <Pressable
+                  style={styles.postNowButton}
+                  onPress={postNow}
+                  disabled={postingNow}
+                >
+                  <Text style={styles.buttonText}>
+                    {postingNow
+                      ? "Posting..."
+                      : "Post Now"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.scheduleButton}
+                  onPress={() =>
+                    setShowScheduleOptions(
+                      !showScheduleOptions
+                    )
+                  }
+                >
+                  <Text style={styles.buttonText}>
+                    Create Campaign
+                  </Text>
+                </Pressable>
+
+                {showScheduleOptions ? (
+                  <View
+                    style={styles.schedulePanel}
+                  >
+                    <Text
+                      style={
+                        styles.scheduleTitle
+                      }
+                    >
+                      Campaign Schedule
+                    </Text>
+
+                    {REPEAT_OPTIONS.map(
+                      (option) => (
+                        <Pressable
+                          key={option.value}
+                          style={[
+                            styles.repeatOption,
+                            repeatType ===
+                              option.value &&
+                              styles.repeatOptionActive,
+                          ]}
+                          onPress={() =>
+                            setRepeatType(
+                              option.value
+                            )
+                          }
+                        >
+                          <Text
+                            style={
+                              styles.repeatOptionText
+                            }
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      )
+                    )}
+
+                    <Text
+                      style={
+                        styles.scheduleLabel
+                      }
+                    >
+                      Start in how many days?
+                    </Text>
+
+                    <TextInput
+                      style={
+                        styles.scheduleInput
+                      }
+                      value={scheduleDaysOut}
+                      onChangeText={
+                        setScheduleDaysOut
+                      }
+                      keyboardType="numeric"
+                      placeholder="Example: 1, 7, 14, 30"
+                      placeholderTextColor="#777"
+                    />
+
+                    <Pressable
+                      style={
+                        styles.confirmScheduleButton
+                      }
+                      onPress={scheduleRepost}
+                      disabled={scheduling}
+                    >
+                      <Text
+                        style={
+                          styles.buttonText
+                        }
+                      >
+                        {scheduling
+                          ? "Scheduling..."
+                          : "Schedule Campaign"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                <Pressable
+                  style={styles.saveButton}
+                  onPress={saveResult}
+                >
+                  <Text style={styles.buttonText}>
+                    Save Campaign
+                  </Text>
+                </Pressable>
+              </View>
+
+              {sections.map(
+                (section, index) => (
+                  <View
+                    key={`${section.title}-${index}`}
+                    style={styles.card}
+                  >
+                    <Text
+                      style={styles.cardTitle}
+                    >
+                      {section.title}
+                    </Text>
+
+                    <Text
+                      style={styles.cardText}
+                    >
+                      {section.content}
+                    </Text>
+
+                    <Pressable
+                      style={
+                        styles.smallCopyButton
+                      }
+                      onPress={() =>
+                        copyText(
+                          section.content,
+                          section.title
+                        )
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.smallButtonText
+                        }
+                      >
+                        Copy {section.title}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )
+              )}
+            </>
+          ) : null}
         </>
       )}
     </ScrollView>
@@ -843,63 +1511,282 @@ const createFacebookPost = async () => {
 const styles = StyleSheet.create({
   container: {
     padding: 24,
+    paddingBottom: 60,
     backgroundColor: "#101010",
     minHeight: "100%",
+  },
+
+  eyebrow: {
+    color: "#8b5cf6",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+    marginTop: 26,
+  },
+
+  logo: {
+    fontSize: 31,
+    fontWeight: "900",
+    color: "#ffffff",
+    marginTop: 8,
+    lineHeight: 38,
+  },
+
+  subtitle: {
+    fontSize: 15,
+    color: "#b8b8b8",
+    marginTop: 8,
+    lineHeight: 21,
+  },
+
+  promiseCard: {
+    marginTop: 18,
+    borderRadius: 18,
+    backgroundColor: "#1d1730",
+    borderWidth: 1,
+    borderColor: "#3c2d63",
+    padding: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  promiseText: {
+    color: "#d8ccf4",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  accountStrip: {
+    marginTop: 18,
+    borderRadius: 16,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    padding: 14,
+    flexDirection: "row",
     alignItems: "center",
   },
- 
-  logo: {
-    fontSize: 34,
-    fontWeight: "800",
+
+  accountInfo: {
+    flex: 1,
+  },
+
+  accountLabel: {
+    color: "#8b5cf6",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  accountEmail: {
     color: "#ffffff",
-    marginTop: 40,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4,
   },
- 
-  subtitle: {
-    fontSize: 16,
-    color: "#cfcfcf",
-    textAlign: "center",
+
+  accountBadge: {
+    borderRadius: 99,
+    backgroundColor: "#8b5cf6",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  accountBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  sectionHeading: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 26,
+    marginBottom: 12,
+  },
+
+  consultantCard: {
+    minHeight: 166,
+    borderRadius: 22,
+    backgroundColor: "#1d1730",
+    borderWidth: 1,
+    borderColor: "#5a3d91",
+    padding: 17,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  consultantIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  consultantIconText: {
+    color: "#ffffff",
+    fontSize: 26,
+    fontWeight: "900",
+  },
+
+  consultantTextWrap: {
+    flex: 1,
+    paddingLeft: 14,
+  },
+
+  consultantTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  consultantTitle: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+    paddingRight: 8,
+  },
+
+  profileBadge: {
+    minWidth: 44,
+    borderRadius: 99,
+    backgroundColor: "#8b5cf6",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    alignItems: "center",
+  },
+
+  profileBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  consultantDescription: {
+    color: "#b8add0",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 7,
+  },
+
+  consultantFooter: {
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 12,
-    marginBottom: 24,
   },
- 
+
+  consultantActionText: {
+    flex: 1,
+    color: "#d8b4fe",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  consultantArrow: {
+    color: "#d8b4fe",
+    fontSize: 25,
+    lineHeight: 25,
+  },
+
+  profileProgressTrack: {
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: "#34294a",
+    overflow: "hidden",
+    marginTop: 11,
+  },
+
+  profileProgressFill: {
+    height: "100%",
+    borderRadius: 99,
+    backgroundColor: "#a78bfa",
+  },
+
+  actionCard: {
+    minHeight: 96,
+    borderRadius: 19,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    padding: 15,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  actionIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  actionIconText: {
+    color: "#c4b5fd",
+    fontSize: 25,
+    fontWeight: "900",
+  },
+
+  actionTextWrap: {
+    flex: 1,
+    paddingHorizontal: 14,
+  },
+
+  actionTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  actionDescription: {
+    color: "#919191",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+
+  actionArrow: {
+    color: "#6f6f6f",
+    fontSize: 27,
+  },
+
+  signOutLink: {
+    alignSelf: "center",
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+
+  signOutLinkText: {
+    color: "#d45a5a",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
   authBox: {
     width: "100%",
     backgroundColor: "#1b1b1b",
     borderRadius: 16,
     padding: 18,
-    marginBottom: 20,
+    marginTop: 18,
     borderWidth: 1,
     borderColor: "#333",
   },
- 
+
   authTitle: {
     color: "#fff",
     fontSize: 20,
     fontWeight: "900",
     marginBottom: 12,
   },
- 
-  authText: {
-    color: "#cfcfcf",
-    fontSize: 14,
-    marginBottom: 12,
-  },
- 
-  proBadge: {
-    backgroundColor: "#2b2b2b",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 12,
-  },
- 
-  proBadgeText: {
-    color: "#fff",
-    fontWeight: "900",
-  },
- 
+
   loginButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 14,
@@ -908,7 +1795,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 6,
   },
- 
+
   signupButton: {
     backgroundColor: "#8b5cf6",
     paddingVertical: 14,
@@ -917,16 +1804,50 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
- 
-  signOutButton: {
-    backgroundColor: "#a62828",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
+
+  workflowHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 22,
   },
- 
+
+  workflowBackButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  workflowBackText: {
+    color: "#ffffff",
+    fontSize: 32,
+    lineHeight: 34,
+  },
+
+  workflowHeaderText: {
+    flex: 1,
+    paddingLeft: 14,
+  },
+
+  workflowTitle: {
+    color: "#ffffff",
+    fontSize: 25,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+
+  workflowIntro: {
+    color: "#aaaaaa",
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 18,
+    marginBottom: 16,
+  },
+
   input: {
     width: "100%",
     backgroundColor: "#1b1b1b",
@@ -936,19 +1857,50 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     fontSize: 15,
   },
- 
+
+  uploadCard: {
+    width: "100%",
+    borderRadius: 18,
+    backgroundColor: "#2d6cdf",
+    padding: 18,
+    alignItems: "center",
+  },
+
+  uploadTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  uploadDescription: {
+    color: "#dbeafe",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 5,
+  },
+
+  preview: {
+    width: "100%",
+    height: 300,
+    borderRadius: 16,
+    marginTop: 20,
+    resizeMode: "contain",
+    backgroundColor: "#222",
+  },
+
   platformContainer: {
     width: "100%",
-    marginBottom: 20,
+    marginTop: 20,
   },
- 
+
   platformLabel: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,
   },
- 
+
   platformButton: {
     backgroundColor: "#222",
     paddingVertical: 12,
@@ -956,25 +1908,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 10,
   },
- 
+
   platformButtonActive: {
     backgroundColor: "#8b5cf6",
   },
- 
+
   platformButtonText: {
     color: "#fff",
     fontWeight: "700",
   },
- 
-  button: {
-    backgroundColor: "#1f8cff",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-  },
- 
+
   generateButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 14,
@@ -982,38 +1925,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: "100%",
     alignItems: "center",
-    marginTop: 18,
+    marginTop: 20,
   },
- 
-  preview: {
-    width: "100%",
-    height: 300,
-    borderRadius: 16,
-    marginTop: 24,
-    resizeMode: "contain",
-    backgroundColor: "#222",
-  },
- 
-  imageUrlBox: {
-    width: "100%",
-    marginTop: 18,
-    backgroundColor: "#142012",
-    borderRadius: 14,
-    padding: 14,
-  },
- 
-  imageUrlTitle: {
-    color: "#12a86b",
-    fontWeight: "800",
-    marginBottom: 6,
-  },
- 
-  imageUrlText: {
-    color: "#d1ffd6",
-    fontSize: 12,
-    lineHeight: 18,
-  },
- 
+
   boardBox: {
     width: "100%",
     backgroundColor: "#1b1b1b",
@@ -1021,12 +1935,12 @@ const styles = StyleSheet.create({
     padding: 14,
     marginTop: 18,
   },
- 
+
   boardHeaderRow: {
     width: "100%",
     marginBottom: 10,
   },
- 
+
   refreshBoardsButton: {
     backgroundColor: "#2d6cdf",
     paddingVertical: 10,
@@ -1035,33 +1949,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
- 
+
   boardButton: {
     backgroundColor: "#2b2b2b",
     padding: 13,
     borderRadius: 10,
     marginBottom: 8,
   },
- 
+
   boardButtonActive: {
     backgroundColor: "#bd081c",
   },
- 
+
   boardText: {
     color: "#fff",
     fontWeight: "700",
   },
- 
+
   boardHelpText: {
     color: "#aaa",
     lineHeight: 20,
   },
- 
+
   masterActions: {
     width: "100%",
     marginTop: 22,
   },
- 
+
   postNowButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 16,
@@ -1070,7 +1984,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
- 
+
   scheduleButton: {
     backgroundColor: "#0f766e",
     paddingVertical: 15,
@@ -1079,7 +1993,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
- 
+
   schedulePanel: {
     backgroundColor: "#1b1b1b",
     borderRadius: 14,
@@ -1088,37 +2002,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333",
   },
- 
+
   scheduleTitle: {
     color: "#fff",
     fontWeight: "900",
     fontSize: 18,
     marginBottom: 12,
   },
- 
+
   repeatOption: {
     backgroundColor: "#2b2b2b",
     padding: 12,
     borderRadius: 10,
     marginBottom: 8,
   },
- 
+
   repeatOptionActive: {
     backgroundColor: "#0f766e",
   },
- 
+
   repeatOptionText: {
     color: "#fff",
     fontWeight: "800",
   },
- 
+
   scheduleLabel: {
     color: "#fff",
     fontWeight: "700",
     marginTop: 10,
     marginBottom: 8,
   },
- 
+
   scheduleInput: {
     backgroundColor: "#2b2b2b",
     color: "#fff",
@@ -1126,7 +2040,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 12,
   },
- 
+
   confirmScheduleButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 14,
@@ -1134,15 +2048,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
- 
-  copyButton: {
-    backgroundColor: "#f59e0b",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-  },
- 
+
   saveButton: {
     backgroundColor: "#8b5cf6",
     paddingVertical: 14,
@@ -1151,16 +2057,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
- 
-  postButton: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-    marginTop: 12,
-  },
- 
+
   card: {
     marginTop: 18,
     backgroundColor: "#1b1b1b",
@@ -1168,20 +2065,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     width: "100%",
   },
- 
+
   cardTitle: {
     color: "#ffffff",
     fontSize: 19,
     fontWeight: "900",
     marginBottom: 10,
   },
- 
+
   cardText: {
     color: "#e6e6e6",
     fontSize: 15,
     lineHeight: 22,
   },
- 
+
   smallCopyButton: {
     backgroundColor: "#2d6cdf",
     paddingVertical: 11,
@@ -1189,14 +2086,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 14,
   },
- 
+
   buttonText: {
     color: "#ffffff",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
     textAlign: "center",
   },
- 
+
   smallButtonText: {
     color: "#ffffff",
     fontSize: 14,
