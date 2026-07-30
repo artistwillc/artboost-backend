@@ -349,7 +349,12 @@ export async function runAutomation({
   const productImageUrl =
     product.image_url ??
     product.imageUrl ??
+    product.featured_image ??
+    product.featuredImage ??
     product.image ??
+    product.images?.[0]?.src ??
+    product.images?.[0]?.url ??
+    product.images?.[0] ??
     null;
 
   if (!productLink) {
@@ -552,6 +557,7 @@ ${productLink}`,
         },
         boardId,
         pageId,
+        userId,
       });
   } catch (error) {
     const message =
