@@ -10,6 +10,7 @@ const VALID_FREQUENCIES = new Set([
   "daily",
   "weekdays",
   "weekly",
+  "every_x_days",
 ]);
 
 const VALID_SELECTION_MODES = new Set([
@@ -43,6 +44,12 @@ enabled: Boolean(row.enabled),
 
 facebookPageId:
   row.facebook_page_id || null,
+
+pinterestBoardId:
+  row.board_id || null,
+
+postingIntervalDays:
+  Number(row.posting_interval_days) || 1,
 
 selectionMode:
   row.selection_mode ||
@@ -507,6 +514,8 @@ export async function createOrUpdateAutomation({
   timezone = "America/Chicago",
   platforms = [],
   facebookPageId = null,
+  pinterestBoardId = null,
+  postingIntervalDays = 1,
   selectionMode =
     "least_recently_posted",
   repeatDelayDays = 30,
@@ -559,6 +568,12 @@ export async function createOrUpdateAutomation({
     ),
   ];
 
+  const parsedPostingIntervalDays =
+    Math.max(
+      Number(postingIntervalDays) || 1,
+      1
+    );
+
   const parsedRepeatDelayDays =
     Math.max(
       Number(repeatDelayDays) || 0,
@@ -602,6 +617,16 @@ facebook_page_id:
         facebookPageId
       )
     : null,
+
+board_id:
+  pinterestBoardId
+    ? String(
+        pinterestBoardId
+      )
+    : null,
+
+posting_interval_days:
+  parsedPostingIntervalDays,
 
 selection_mode: selectionMode,
     repeat_delay_days:

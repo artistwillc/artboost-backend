@@ -48,6 +48,11 @@ type FacebookPage = {
   name: string;
 };
 
+type PinterestBoard = {
+  id: string;
+  name: string;
+};
+
 const PLATFORM_OPTIONS: PlatformOption[] = [
   {
     id: "facebook",
@@ -486,6 +491,24 @@ const [
     setFacebookPagesError,
   ] = useState("");
 
+  const [pinterestBoards, setPinterestBoards] =
+    useState<PinterestBoard[]>([]);
+
+  const [
+    selectedPinterestBoardId,
+    setSelectedPinterestBoardId,
+  ] = useState("");
+
+  const [
+    loadingPinterestBoards,
+    setLoadingPinterestBoards,
+  ] = useState(false);
+
+  const [
+    pinterestBoardsError,
+    setPinterestBoardsError,
+  ] = useState("");
+
   useEffect(() => {
     let screenIsActive = true;
 
@@ -635,6 +658,16 @@ if (savedStartDate) {
 
         setSelectedFacebookPageId(
           String(savedFacebookPageId)
+        );
+
+        const savedPinterestBoardId =
+          automation.board_id ??
+          automation.pinterestBoardId ??
+          automation.pinterest_board_id ??
+          "";
+
+        setSelectedPinterestBoardId(
+          String(savedPinterestBoardId)
         );
 
         const savedSelectionMode =
@@ -831,6 +864,124 @@ if (
     }
 
     loadFacebookPages();
+
+    return () => {
+      screenIsActive = false;
+    };
+  }, [selectedPlatforms]);
+
+  useEffect(() => {
+    let screenIsActive = true;
+
+    async function loadPinterestBoards() {
+      if (
+        !selectedPlatforms.includes(
+          "pinterest"
+        )
+      ) {
+        if (screenIsActive) {
+          setPinterestBoards([]);
+          setPinterestBoardsError("");
+        }
+
+        return;
+      }
+
+      try {
+        setLoadingPinterestBoards(true);
+        setPinterestBoardsError("");
+
+        const response = await fetch(
+          `${API_BASE}/pinterest/boards`
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any;
+
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `Backend returned ${response.status}: ${responseText.slice(
+              0,
+              150
+            )}`
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              data.details ||
+              "Unable to load Pinterest boards."
+          );
+        }
+
+        const rawBoards =
+          Array.isArray(data.items)
+            ? data.items
+            : Array.isArray(data.data)
+              ? data.data
+              : [];
+
+        const boards: PinterestBoard[] =
+          rawBoards
+            .filter(
+              (board: any) =>
+                board?.id &&
+                board?.name
+            )
+            .map(
+              (board: any) => ({
+                id: String(board.id),
+                name: String(board.name),
+              })
+            );
+
+        if (!screenIsActive) {
+          return;
+        }
+
+        setPinterestBoards(boards);
+
+        setSelectedPinterestBoardId(
+          (current) => {
+            if (
+              current &&
+              boards.some(
+                (board) =>
+                  board.id === current
+              )
+            ) {
+              return current;
+            }
+
+            return "";
+          }
+        );
+      } catch (error: any) {
+        console.log(
+          "Pinterest boards load failed:",
+          error
+        );
+
+        if (screenIsActive) {
+          setPinterestBoards([]);
+          setPinterestBoardsError(
+            error?.message ||
+              "ArtBoost could not load your Pinterest boards."
+          );
+        }
+      } finally {
+        if (screenIsActive) {
+          setLoadingPinterestBoards(false);
+        }
+      }
+    }
+
+    loadPinterestBoards();
 
     return () => {
       screenIsActive = false;
@@ -1077,6 +1228,17 @@ if (
     return;
   }
 
+  if (
+    selectedPlatforms.includes("pinterest") &&
+    !selectedPinterestBoardId
+  ) {
+    Alert.alert(
+      "Select Pinterest Board",
+      "Choose which Pinterest board should receive posts from this store."
+    );
+    return;
+  }
+
   if (!validateTime(postingTime)) {
     Alert.alert(
       "Invalid Posting Time",
@@ -1181,6 +1343,10 @@ if (
 
             facebookPageId:
               selectedFacebookPageId ||
+              null,
+
+            pinterestBoardId:
+              selectedPinterestBoardId ||
               null,
 
             selectionMode,
@@ -1500,6 +1666,21 @@ Alert.alert(
     return;
   }
 
+  if (
+    enabled &&
+    selectedPlatforms.includes(
+      "pinterest"
+    ) &&
+    !selectedPinterestBoardId
+  ) {
+    Alert.alert(
+      "Select Pinterest Board",
+      "Choose which Pinterest board should receive posts from this store before saving the automation."
+    );
+
+    return;
+  }
+
   if (!validateTime(postingTime)) {
     Alert.alert(
       "Invalid Posting Time",
@@ -1586,6 +1767,9 @@ if (
           platforms: selectedPlatforms,
           facebookPageId:
             selectedFacebookPageId ||
+            null,
+          pinterestBoardId:
+            selectedPinterestBoardId ||
             null,
           selectionMode,
           repeatDelayDays:
@@ -2500,6 +2684,164 @@ try {
                     No Facebook Pages were
                     found for the connected
                     account.
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {selectedPlatforms.includes(
+            "pinterest"
+          ) ? (
+            <View
+              style={styles.sectionCard}
+            >
+              <Text
+                style={styles.sectionTitle}
+              >
+                Pinterest Board
+              </Text>
+
+              <Text
+                style={
+                  styles.sectionDescription
+                }
+              >
+                Choose the board that should
+                receive posts from this store.
+                This choice is saved separately
+                for each store automation.
+              </Text>
+
+              {loadingPinterestBoards ? (
+                <View
+                  style={
+                    styles.facebookPageState
+                  }
+                >
+                  <Ionicons
+                    name="hourglass-outline"
+                    size={21}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageStateText
+                    }
+                  >
+                    Loading Pinterest boards...
+                  </Text>
+                </View>
+              ) : pinterestBoardsError ? (
+                <View
+                  style={
+                    styles.facebookPageError
+                  }
+                >
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={21}
+                    color="#fca5a5"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageErrorText
+                    }
+                  >
+                    {pinterestBoardsError}
+                  </Text>
+                </View>
+              ) : pinterestBoards.length > 0 ? (
+                <View
+                  style={styles.optionStack}
+                >
+                  {pinterestBoards.map(
+                    (board) => {
+                      const selected =
+                        selectedPinterestBoardId ===
+                        board.id;
+
+                      return (
+                        <Pressable
+                          key={board.id}
+                          style={[
+                            styles.facebookPageCard,
+                            selected &&
+                              styles.facebookPageCardSelected,
+                          ]}
+                          onPress={() =>
+                            setSelectedPinterestBoardId(
+                              board.id
+                            )
+                          }
+                        >
+                          <View
+                            style={[
+                              styles.radioOuter,
+                              selected &&
+                                styles.radioOuterSelected,
+                            ]}
+                          >
+                            {selected ? (
+                              <View
+                                style={
+                                  styles.radioInner
+                                }
+                              />
+                            ) : null}
+                          </View>
+
+                          <View
+                            style={
+                              styles.facebookPageIcon
+                            }
+                          >
+                            <Ionicons
+                              name="logo-pinterest"
+                              size={22}
+                              color={
+                                selected
+                                  ? "#ffffff"
+                                  : "#a78bfa"
+                              }
+                            />
+                          </View>
+
+                          <Text
+                            style={[
+                              styles.facebookPageName,
+                              selected &&
+                                styles.facebookPageNameSelected,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {board.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    }
+                  )}
+                </View>
+              ) : (
+                <View
+                  style={
+                    styles.facebookPageError
+                  }
+                >
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={21}
+                    color="#a78bfa"
+                  />
+
+                  <Text
+                    style={
+                      styles.facebookPageStateText
+                    }
+                  >
+                    No Pinterest boards were found.
                   </Text>
                 </View>
               )}

@@ -233,6 +233,8 @@ router.post(
         timezone = "America/Chicago",
         platforms = [],
         facebookPageId = null,
+        pinterestBoardId = null,
+        postingIntervalDays = 1,
         selectionMode =
         "least_recently_posted",
         repeatDelayDays = 30,
@@ -300,6 +302,14 @@ router.post(
           facebookPageId
           )
           : null,
+          pinterestBoardId:
+          pinterestBoardId
+          ? String(
+          pinterestBoardId
+          )
+          : null,
+          postingIntervalDays:
+            Number(postingIntervalDays) || 1,
           selectionMode: String(
           selectionMode
           ),

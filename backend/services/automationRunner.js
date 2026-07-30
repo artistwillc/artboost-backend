@@ -419,6 +419,7 @@ const shortDescription = cleanText(
 
 const hashtags = [
   "#art",
+  "#artwork",
   "#artist",
   "#shopsmall",
   "#supportartists",
@@ -430,68 +431,41 @@ for (const platform of platforms) {
     .trim()
     .toLowerCase();
 
-  // PINTEREST
-
   if (normalizedPlatform === "pinterest") {
     contentByPlatform.pinterest = {
       title: truncateText(title, 100),
-
       description: truncateText(
-        `${shortDescription}
-
-Shop now:
-${productLink}`,
+        `${shortDescription} Available here: ${productLink}`,
         500
       ),
-
       hashtags,
-
-      cta: "Shop now!",
+      cta: "View this listing",
     };
 
     continue;
   }
-
-  // FACEBOOK
 
   if (normalizedPlatform === "facebook") {
     contentByPlatform.facebook = {
       title,
-
-      description: `${shortDescription}
-
-Shop here:
-${productLink}`,
-
+      description: shortDescription,
       hashtags,
-
-      cta: "Shop now!",
+      cta: `View this listing: ${productLink}`,
     };
 
     continue;
   }
-
-  // INSTAGRAM
 
   if (normalizedPlatform === "instagram") {
     contentByPlatform.instagram = {
       title,
-
-      description: `${shortDescription}
-
-🎨 New artwork just dropped!
-
-Tap the link in bio to shop now.`,
-
+      description: shortDescription,
       hashtags,
-
-      cta: "Tap the link in bio.",
+      cta: `View this listing: ${productLink}`,
     };
 
     continue;
   }
-
-  // X / TWITTER
 
   if (
     normalizedPlatform === "x" ||
@@ -502,32 +476,19 @@ Tap the link in bio to shop now.`,
         title,
         productLink,
       }),
-
-      description: truncateText(
-        `${shortDescription}
-
-${productLink}`,
-        220
-      ),
-
+      description: "",
       hashtags: "",
-
       cta: "",
     };
 
     continue;
   }
 
-  // FALLBACK
-
   contentByPlatform[normalizedPlatform] = {
     title,
-
     description: shortDescription,
-
     hashtags,
-
-    cta: "Shop now!",
+    cta: `View this listing: ${productLink}`,
   };
 }
 

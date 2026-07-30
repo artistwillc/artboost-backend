@@ -3882,47 +3882,13 @@ async function publishPinterestPin({
     );
   }
 
-  let resolvedBoardId = boardId ? String(boardId) : "";
+  const resolvedBoardId =
+    boardId ? String(boardId) : "";
 
   if (!resolvedBoardId) {
-    const boardsResponse = await fetch(
-      `${PINTEREST_API_BASE}/v5/boards?page_size=100`,
-      {
-        headers: {
-          Authorization: `Bearer ${pinterestConnection.token}`,
-        },
-      }
+    throw new Error(
+      "Select a Pinterest board for this store automation before posting."
     );
-
-    const boardsData = await boardsResponse.json();
-
-    if (!boardsResponse.ok) {
-      const pinterestMessage =
-        boardsData?.message ||
-        boardsData?.error?.message ||
-        "Unable to load Pinterest boards.";
-
-      throw new Error(`Pinterest board lookup failed: ${pinterestMessage}`);
-    }
-
-    const boards = Array.isArray(boardsData?.items)
-      ? boardsData.items
-      : Array.isArray(boardsData?.data)
-        ? boardsData.data
-        : [];
-
-    if (boards.length === 0) {
-      throw new Error(
-        "No Pinterest boards were found. Create a Pinterest board, then run the automation again."
-      );
-    }
-
-    resolvedBoardId = String(boards[0].id);
-
-    console.log("Pinterest board selected automatically:", {
-      boardId: resolvedBoardId,
-      boardName: boards[0].name || null,
-    });
   }
 
   const pinPayload = {
@@ -4261,11 +4227,15 @@ async function publishInstagramPost({
     );
   }
 
-  const message = `${description}
-
-${cta || "Tap the link in bio to grab yours today."}
-
-${hashtags || ""}`.trim();
+  const message = [
+    String(title || "").trim(),
+    String(description || "").trim(),
+    String(cta || "").trim(),
+    String(hashtags || "").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 
   const throwInstagramError = (errorData, stage) => {
     const apiError = errorData?.error || {};
