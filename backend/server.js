@@ -3567,15 +3567,66 @@ async function publishPinterestPin({
   imageUrl,
 }) {
   if (!pinterestConnection.connected || !pinterestConnection.token) {
-    throw new Error("Pinterest is not connected.");
+    await loadPinterestConnection();
   }
 
-  if (!boardId || !imageUrl) {
-    throw new Error("Missing boardId or imageUrl.");
+  if (!pinterestConnection.connected || !pinterestConnection.token) {
+    throw new Error(
+      "Pinterest is not connected. Reconnect Pinterest and try again."
+    );
+  }
+
+  if (!imageUrl) {
+    throw new Error(
+      "Pinterest cannot publish because the selected product has no image URL."
+    );
+  }
+
+  let resolvedBoardId = boardId ? String(boardId) : "";
+
+  if (!resolvedBoardId) {
+    const boardsResponse = await fetch(
+      `${PINTEREST_API_BASE}/v5/boards?page_size=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${pinterestConnection.token}`,
+        },
+      }
+    );
+
+    const boardsData = await boardsResponse.json();
+
+    if (!boardsResponse.ok) {
+      const pinterestMessage =
+        boardsData?.message ||
+        boardsData?.error?.message ||
+        "Unable to load Pinterest boards.";
+
+      throw new Error(`Pinterest board lookup failed: ${pinterestMessage}`);
+    }
+
+    const boards = Array.isArray(boardsData?.items)
+      ? boardsData.items
+      : Array.isArray(boardsData?.data)
+        ? boardsData.data
+        : [];
+
+    if (boards.length === 0) {
+      throw new Error(
+        "No Pinterest boards were found. Create a Pinterest board, then run the automation again."
+      );
+    }
+
+    resolvedBoardId = String(boards[0].id);
+
+    console.log("Pinterest board selected automatically:", {
+      boardId: resolvedBoardId,
+      boardName: boards[0].name || null,
+    });
   }
 
   const pinPayload = {
-    board_id: boardId,
+    board_id: resolvedBoardId,
     title: title || "ArtBoost AI Pin",
     description: description || "",
     link: link || "",
@@ -3597,10 +3648,18 @@ async function publishPinterestPin({
   const pinData = await pinResponse.json();
 
   if (!pinResponse.ok) {
-    throw new Error(JSON.stringify(pinData));
+    const pinterestMessage =
+      pinData?.message ||
+      pinData?.error?.message ||
+      JSON.stringify(pinData);
+
+    throw new Error(`Pinterest publish failed: ${pinterestMessage}`);
   }
 
-  return pinData;
+  return {
+    ...pinData,
+    boardId: resolvedBoardId,
+  };
 }
 
 async function publishFacebookPost({
@@ -3863,18 +3922,46 @@ async function publishInstagramPost({
   const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
 
   if (!instagramUserId || !accessToken) {
-    throw new Error("Instagram not configured");
+    throw new Error(
+      "Instagram is not configured. Reconnect Instagram before posting."
+    );
   }
 
   if (!imageUrl) {
-    throw new Error("Instagram requires an imageUrl to publish.");
+    throw new Error(
+      "Instagram cannot publish because the selected product has no image URL."
+    );
   }
 
   const message = `${description}
- 
+
 ${cta || "Tap the link in bio to grab yours today."}
- 
-${hashtags || ""}`;
+
+${hashtags || ""}`.trim();
+
+  const throwInstagramError = (errorData, stage) => {
+    const error = errorData?.error || errorData || {};
+    const errorCode = Number(error?.code || 0);
+    const errorSubcode = Number(error?.error_subcode || 0);
+    const errorMessage =
+      error?.message || `Instagram ${stage} failed.`;
+
+    const tokenExpired =
+      errorCode === 190 ||
+      errorSubcode === 463 ||
+      errorSubcode === 467 ||
+      /session has expired|access token.*expired|invalid.*access token/i.test(
+        errorMessage
+      );
+
+    if (tokenExpired) {
+      throw new Error(
+        "Instagram connection expired. Reconnect Instagram in ArtBoost, then run the automation again."
+      );
+    }
+
+    throw new Error(`Instagram ${stage} failed: ${errorMessage}`);
+  };
 
   const createContainerResponse = await fetch(
     `https://graph.instagram.com/v23.0/${instagramUserId}/media`,
@@ -3891,8 +3978,14 @@ ${hashtags || ""}`;
 
   const createContainerData = await createContainerResponse.json();
 
-  if (createContainerData.error) {
-    throw new Error(createContainerData.error.message);
+  if (!createContainerResponse.ok || createContainerData?.error) {
+    throwInstagramError(createContainerData, "container creation");
+  }
+
+  if (!createContainerData?.id) {
+    throw new Error(
+      "Instagram did not return a media container ID."
+    );
   }
 
   await new Promise((resolve) => setTimeout(resolve, 8000));
@@ -3911,11 +4004,16 @@ ${hashtags || ""}`;
 
   const publishData = await publishResponse.json();
 
-  if (publishData.error) {
-    throw new Error(publishData.error.message);
+  if (!publishResponse.ok || publishData?.error) {
+    throwInstagramError(publishData, "publishing");
   }
 
-  return publishData;
+  return {
+    success: true,
+    platform: "instagram",
+    creationId: createContainerData.id,
+    result: publishData,
+  };
 }
 
 async function publishXPost({
