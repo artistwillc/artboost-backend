@@ -288,6 +288,7 @@ async function fetchProductMetadata(productUrl) {
 
 async function saveImportedProduct({
   userId,
+  storeId = null,
   storeType,
   storeName,
   metadata,
@@ -318,6 +319,8 @@ async function saveImportedProduct({
     user_id: userId,
     store_type: storeType,
     store_name: storeName,
+    store_connection_id:
+      storeId ? String(storeId) : null,
     title: metadata.title,
     description:
       metadata.description,
@@ -384,6 +387,7 @@ async function saveImportedProduct({
 
 export async function importCatalogUrls({
   userId,
+  storeId = null,
   storeName,
   storeType,
   urls,
@@ -459,6 +463,7 @@ export async function importCatalogUrls({
       const saved =
         await saveImportedProduct({
           userId,
+          storeId,
           storeType:
             resolvedStoreType,
           storeName:
@@ -609,6 +614,8 @@ export async function importSingleCatalogProduct({
       normalizedStoreType,
     store_name:
       String(storeName).trim(),
+    store_connection_id:
+      storeId ? String(storeId) : null,
     title: cleanTitle,
     description:
       String(

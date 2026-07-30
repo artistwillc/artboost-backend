@@ -453,34 +453,86 @@ export async function getNextAutomationProduct({
     );
   }
 
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("store_type", resolvedStoreType)
-    .eq("store_name", resolvedStoreName);
+  async function loadProductsByConnectionId() {
+    if (!storeId) {
+      return [];
+    }
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("products")
+      .select("*")
+      .eq("user_id", userId)
+      .eq(
+        "store_connection_id",
+        String(storeId)
+      )
+      .or(
+        "status.is.null,status.eq.active,status.eq.published"
+      );
+
+    if (error) {
+      throw new Error(
+        `Unable to load automation products by store connection: ${error.message}`
+      );
+    }
+
+    return data || [];
+  }
+
+  async function loadProductsByLegacyIdentity() {
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("products")
+      .select("*")
+      .eq("user_id", userId)
+      .eq(
+        "store_type",
+        resolvedStoreType
+      )
+      .eq(
+        "store_name",
+        resolvedStoreName
+      )
+      .or(
+        "status.is.null,status.eq.active,status.eq.published"
+      );
+
+    if (error) {
+      throw new Error(
+        `Unable to load automation products: ${error.message}`
+      );
+    }
+
+    return data || [];
+  }
 
   /*
-   * Only include active products when a status value exists.
+   * New store integrations, including ArtPal, are tied to
+   * store_connections.id. Use that stable relationship first.
+   * Fall back to store type + store name for legacy imports.
    */
-  query = query.or(
-    "status.is.null,status.eq.active,status.eq.published"
-  );
+  let products =
+    await loadProductsByConnectionId();
 
-  const {
-    data: products,
-    error: productsError,
-  } = await query;
-
-  if (productsError) {
-    throw new Error(
-      `Unable to load automation products: ${productsError.message}`
-    );
+  if (products.length === 0) {
+    products =
+      await loadProductsByLegacyIdentity();
   }
 
   const availableProducts = products || [];
 
   if (availableProducts.length === 0) {
+    if (resolvedStoreType === "artpal") {
+      throw new Error(
+        "No ArtPal artwork has been imported for this connected store. Import the ArtPal storefront or add an ArtPal artwork URL before running the automation."
+      );
+    }
+
     return null;
   }
 

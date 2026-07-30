@@ -175,12 +175,15 @@ function isLikelyProductUrl(value, storeHost) {
       return false;
     }
 
-    const path = parsed.pathname.toLowerCase();
+    const path = parsed.pathname
+      .replace(/\/{2,}/g, "/")
+      .toLowerCase();
 
     const excluded = [
       "/about",
       "/contact",
       "/login",
+      "/logout",
       "/signup",
       "/register",
       "/cart",
@@ -189,8 +192,17 @@ function isLikelyProductUrl(value, storeHost) {
       "/terms",
       "/collections",
       "/category",
+      "/categories",
       "/search",
       "/blog",
+      "/help",
+      "/faq",
+      "/account",
+      "/settings",
+      "/messages",
+      "/favorites",
+      "/following",
+      "/followers",
     ];
 
     if (
@@ -202,10 +214,19 @@ function isLikelyProductUrl(value, storeHost) {
       return false;
     }
 
+    if (
+      /\.(?:css|js|json|xml|txt|ico|svg|png|jpe?g|gif|webp|avif|woff2?|ttf|eot|pdf)$/i.test(
+        path
+      )
+    ) {
+      return false;
+    }
+
     const productSignals = [
       "/product/",
       "/products/",
       "/artwork/",
+      "/artworks/",
       "/art/",
       "/gallery/",
       "/item/",
@@ -214,9 +235,46 @@ function isLikelyProductUrl(value, storeHost) {
       ".html",
     ];
 
-    return productSignals.some((signal) =>
-      path.includes(signal)
-    );
+    if (
+      productSignals.some((signal) =>
+        path.includes(signal)
+      )
+    ) {
+      return true;
+    }
+
+    /*
+     * ArtPal storefronts commonly use artist-profile URLs
+     * and listing paths that do not contain a standard
+     * /product/ or /artwork/ segment. For ArtPal, accept
+     * deeper same-host pages as candidates, then let
+     * parseProductPage reject pages without product metadata.
+     */
+    if (
+      storeHost === "artpal.com" ||
+      storeHost.endsWith(".artpal.com")
+    ) {
+      const segments = path
+        .split("/")
+        .filter(Boolean);
+
+      if (segments.length >= 2) {
+        return true;
+      }
+
+      if (
+        segments.length === 1 &&
+        (
+          parsed.searchParams.has("id") ||
+          parsed.searchParams.has("artwork") ||
+          parsed.searchParams.has("product")
+        )
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -361,12 +419,20 @@ function parseProductPage({
     responseUrl ||
     originalUrl;
 
+  const artPalHost =
+    storeHost === "artpal.com" ||
+    storeHost.endsWith(".artpal.com");
+
   if (
     !title ||
     !productUrl ||
-    !isLikelyProductUrl(
-      productUrl,
-      storeHost
+    !imageUrl ||
+    (
+      !artPalHost &&
+      !isLikelyProductUrl(
+        productUrl,
+        storeHost
+      )
     )
   ) {
     return null;
@@ -624,9 +690,33 @@ export async function importUniversalStore({
     )
   );
 
+  /*
+   * Some ArtPal storefronts expose the first artwork directly
+   * through the storefront URL or render listing links in a
+   * nonstandard way. Include the storefront URL as a final
+   * candidate so the metadata parser can still recover a
+   * valid artwork when possible.
+   */
+  if (
+    (
+      storeHost === "artpal.com" ||
+      storeHost.endsWith(".artpal.com")
+    ) &&
+    limitedLinks.length === 0
+  ) {
+    limitedLinks.push(
+      normalizeUrl(
+        connection.store_url,
+        connection.store_url
+      ) || connection.store_url
+    );
+  }
+
   if (limitedLinks.length === 0) {
     throw new Error(
-      "ArtBoost could not identify product listings on this storefront. Try Product URLs or Single Product Import."
+      connection.platform === "artpal"
+        ? "ArtBoost could not identify ArtPal artwork listings from this storefront. Use the ArtPal artwork URL importer for any listings the storefront scanner cannot discover."
+        : "ArtBoost could not identify product listings on this storefront. Try Product URLs or Single Product Import."
     );
   }
 
