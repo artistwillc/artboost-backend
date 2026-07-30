@@ -395,7 +395,9 @@ export default function ConnectionsScreen() {
           ),
           checkSimpleStatus(
             "Instagram",
-            "/instagram/status"
+            userId
+              ? `/instagram/status?userId=${encodeURIComponent(userId)}`
+              : "/instagram/status"
           ),
           checkSimpleStatus(
             "X",
@@ -448,20 +450,22 @@ export default function ConnectionsScreen() {
   );
 
   async function connectSocialPlatform(
-    platform: string
-  ) {
-    if (platform === "Pinterest") {
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/pinterest`
-      );
+  platform: string
+) {
+  console.log("Platform pressed:", JSON.stringify(platform));
 
-      Alert.alert(
-        "Pinterest Login Opened",
-        "Complete the Pinterest authorization, return to ArtBoost, and refresh the connection status."
-      );
+  if (platform === "Pinterest") {
+    await Linking.openURL(
+      `${BACKEND_URL}/auth/pinterest`
+    );
 
-      return;
-    }
+    Alert.alert(
+      "Pinterest Login Opened",
+      "Complete the Pinterest authorization, return to ArtBoost, and refresh the connection status."
+    );
+
+    return;
+  }
 
     if (platform === "Facebook") {
       await Linking.openURL(
@@ -471,6 +475,33 @@ export default function ConnectionsScreen() {
       Alert.alert(
         "Facebook Login Opened",
         "Complete the Facebook authorization, return to ArtBoost, and refresh the connection status."
+      );
+
+      return;
+    }
+
+    if (platform === "Instagram") {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before connecting Instagram."
+        );
+        return;
+      }
+
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/instagram?userId=${encodeURIComponent(userId)}`
+      );
+
+      Alert.alert(
+        "Instagram Login Opened",
+        "Complete the Meta authorization, return to ArtBoost, and refresh the connection status."
       );
 
       return;
