@@ -519,9 +519,7 @@ export async function createOrUpdateAutomation({
   platforms = [],
   facebookPageId = null,
   pinterestBoardId = null,
-  postingIntervalDays = 1,
-  selectionMode =
-    "least_recently_posted",
+  selectionMode = "least_recently_posted",
   repeatDelayDays = 30,
 }) {
   if (!userId) {
