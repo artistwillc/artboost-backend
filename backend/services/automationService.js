@@ -636,13 +636,90 @@ selection_mode: selectionMode,
   };
 
   const {
-  data,
-  error,
-} = await supabase
-  .from("store_automations")
-  .insert(automationRow)
-  .select("*")
-  .single();
+    data: existingRows,
+    error: existingLoadError,
+  } = await supabase
+    .from("store_automations")
+    .select("id, created_at, updated_at")
+    .eq("user_id", userId)
+    .eq("store_id", String(storeId))
+    .order("updated_at", {
+      ascending: false,
+      nullsFirst: false,
+    })
+    .order("created_at", {
+      ascending: false,
+    });
+
+  if (existingLoadError) {
+    throw new Error(
+      `Unable to check the saved automation: ${existingLoadError.message}`
+    );
+  }
+
+  const existingAutomation =
+    Array.isArray(existingRows) &&
+    existingRows.length > 0
+      ? existingRows[0]
+      : null;
+
+  let data;
+  let error;
+
+  if (existingAutomation?.id) {
+    const updateResult = await supabase
+      .from("store_automations")
+      .update({
+        ...automationRow,
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq("id", existingAutomation.id)
+      .eq("user_id", userId)
+      .select("*")
+      .single();
+
+    data = updateResult.data;
+    error = updateResult.error;
+
+    const duplicateIds = existingRows
+      .slice(1)
+      .map((row) => row.id)
+      .filter(Boolean);
+
+    if (duplicateIds.length > 0) {
+      const {
+        error: duplicateDisableError,
+      } = await supabase
+        .from("store_automations")
+        .update({
+          enabled: false,
+          next_run_at: null,
+          last_error:
+            "Disabled automatically because a newer automation exists for this store.",
+          updated_at:
+            new Date().toISOString(),
+        })
+        .in("id", duplicateIds)
+        .eq("user_id", userId);
+
+      if (duplicateDisableError) {
+        console.error(
+          "Unable to disable duplicate store automations:",
+          duplicateDisableError
+        );
+      }
+    }
+  } else {
+    const insertResult = await supabase
+      .from("store_automations")
+      .insert(automationRow)
+      .select("*")
+      .single();
+
+    data = insertResult.data;
+    error = insertResult.error;
+  }
 
   if (error) {
     throw new Error(
