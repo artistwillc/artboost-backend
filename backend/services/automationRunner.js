@@ -37,6 +37,186 @@ function truncateText(
     .trim()}...`;
 }
 
+
+function cleanMultilineText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripHtml(value) {
+  return cleanMultilineText(
+    String(value || "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+  );
+}
+
+function removeDuplicateTitle(value, title) {
+  const description = cleanMultilineText(value);
+  const cleanTitle = cleanText(title).toLowerCase();
+
+  if (!description || !cleanTitle) {
+    return description;
+  }
+
+  const lines = description
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  while (
+    lines.length > 0 &&
+    lines[0].toLowerCase().includes(cleanTitle)
+  ) {
+    lines.shift();
+  }
+
+  return lines.join("\n\n").trim();
+}
+
+function detectContentTags({ title, description }) {
+  const text = `${title} ${description}`.toLowerCase();
+
+  const rules = [
+    {
+      terms: ["abstract", "pattern", "geometric", "kaleidoscope", "fractal"],
+      tags: ["#abstractart", "#modernart", "#wallart"],
+    },
+    {
+      terms: ["space", "cosmic", "galaxy", "astronaut", "planet", "star"],
+      tags: ["#spaceart", "#cosmicart", "#scifiart"],
+    },
+    {
+      terms: ["ocean", "sea", "scuba", "diver", "underwater", "shark", "turtle"],
+      tags: ["#oceanart", "#underwaterart", "#scubalife"],
+    },
+    {
+      terms: ["fish", "bass", "trout", "fishing", "marlin", "redfish"],
+      tags: ["#fishingart", "#fishinglife", "#outdoorart"],
+    },
+    {
+      terms: ["deer", "elk", "moose", "turkey", "wildlife", "bear", "duck"],
+      tags: ["#wildlifeart", "#natureart", "#outdoorart"],
+    },
+    {
+      terms: ["firefighter", "fire department", "fire brigade", "thin red line"],
+      tags: ["#firefighter", "#firefighterart", "#firstresponders"],
+    },
+    {
+      terms: ["motorcycle", "bike", "biker", "harley"],
+      tags: ["#motorcycleart", "#bikerlife", "#automotiveart"],
+    },
+    {
+      terms: ["car", "truck", "camaro", "mustang", "dodge", "ford", "chevy"],
+      tags: ["#carart", "#automotiveart", "#carlovers"],
+    },
+    {
+      terms: ["skull", "gothic", "dark art"],
+      tags: ["#skullart", "#darkart", "#gothicart"],
+    },
+  ];
+
+  const selected = [];
+
+  for (const rule of rules) {
+    if (rule.terms.some((term) => text.includes(term))) {
+      selected.push(...rule.tags);
+    }
+  }
+
+  return [...new Set(selected)].slice(0, 4);
+}
+
+function buildStoreHashtags({
+  storeType,
+  title,
+  description,
+}) {
+  const normalizedStore = String(storeType || "")
+    .trim()
+    .toLowerCase();
+
+  const subjectTags = detectContentTags({
+    title,
+    description,
+  });
+
+  const storeTags =
+    normalizedStore === "fine_art_america" ||
+    normalizedStore === "fineartamerica"
+      ? ["#fineartamerica", "#wallart"]
+      : normalizedStore === "redbubble"
+        ? ["#redbubble", "#artistmerch"]
+        : normalizedStore === "shopify"
+          ? ["#shopify", "#shopsmall"]
+          : normalizedStore === "artpal"
+            ? ["#artpal", "#wallart"]
+            : ["#shopsmall"];
+
+  return [
+    ...subjectTags,
+    ...storeTags,
+    "#supportartists",
+  ]
+    .filter(
+      (tag, index, values) =>
+        values.indexOf(tag) === index
+    )
+    .slice(0, 7)
+    .join(" ");
+}
+
+function buildStoreAvailabilityText(storeType) {
+  const normalizedStore = String(storeType || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalizedStore === "fine_art_america" ||
+    normalizedStore === "fineartamerica"
+  ) {
+    return "Available as wall art, canvas prints, framed prints, metal prints, acrylic prints, home décor, and more.";
+  }
+
+  if (normalizedStore === "redbubble") {
+    return "Available on apparel, stickers, accessories, home décor, and more.";
+  }
+
+  if (normalizedStore === "shopify") {
+    return "Available now from the online store.";
+  }
+
+  if (normalizedStore === "artpal") {
+    return "Available as artwork and wall décor from the artist's ArtPal store.";
+  }
+
+  return "Available now from the artist's online store.";
+}
+
+function buildProfessionalDescription({
+  title,
+  rawDescription,
+}) {
+  const cleaned = removeDuplicateTitle(
+    stripHtml(rawDescription),
+    title
+  );
+
+  if (cleaned) {
+    return truncateText(cleaned, 420);
+  }
+
+  return `${title} is an original artwork by Will Cooper, created to bring bold visual character to any space.`;
+}
+
 function buildXTitle({
   title,
   productLink,
@@ -407,97 +587,141 @@ export async function runAutomation({
 
   const contentByPlatform = {};
 
-const title = productTitle;
+  const title = productTitle;
 
-const shortDescription = cleanText(
-  (
+  const rawDescription =
     product.description ||
     product.body_html ||
-    `${productTitle} is now available in our store.`
-  ).replace(/<[^>]*>/g, "")
-);
+    product.product_description ||
+    "";
 
-const hashtags = [
-  "#art",
-  "#artwork",
-  "#artist",
-  "#shopsmall",
-  "#supportartists",
-]
-  .join(" ");
-
-for (const platform of platforms) {
-  const normalizedPlatform = String(platform)
-    .trim()
-    .toLowerCase();
-
-  if (normalizedPlatform === "pinterest") {
-    contentByPlatform.pinterest = {
-      title: truncateText(title, 100),
-      description: truncateText(
-        `${shortDescription} Available here: ${productLink}`,
-        500
-      ),
-      hashtags,
-      cta: "View this listing",
-    };
-
-    continue;
-  }
-
-  if (normalizedPlatform === "facebook") {
-    contentByPlatform.facebook = {
+  const professionalDescription =
+    buildProfessionalDescription({
       title,
-      description: shortDescription,
-      hashtags,
-      cta: `View this listing: ${productLink}`,
-    };
+      rawDescription,
+    });
 
-    continue;
-  }
+  const availabilityText =
+    buildStoreAvailabilityText(storeType);
 
-  if (normalizedPlatform === "instagram") {
-    contentByPlatform.instagram = {
+  const hashtags =
+    buildStoreHashtags({
+      storeType,
       title,
-      description: shortDescription,
-      hashtags,
-      cta: `View this listing: ${productLink}`,
-    };
+      description: professionalDescription,
+    });
 
-    continue;
-  }
+  for (const platform of platforms) {
+    const normalizedPlatform = String(platform)
+      .trim()
+      .toLowerCase();
 
-  if (
-    normalizedPlatform === "x" ||
-    normalizedPlatform === "twitter"
-  ) {
-    contentByPlatform.x = {
-      title: buildXTitle({
+    if (normalizedPlatform === "pinterest") {
+      contentByPlatform.pinterest = {
+        title: truncateText(title, 100),
+
+        description: truncateText(
+          `${professionalDescription}
+
+${availabilityText}
+
+View this listing:
+${productLink}
+
+${hashtags}`,
+          500
+        ),
+
+        hashtags: "",
+
+        cta: "",
+      };
+
+      continue;
+    }
+
+    if (normalizedPlatform === "facebook") {
+      contentByPlatform.facebook = {
         title,
-        productLink,
-      }),
-      description: "",
-      hashtags: "",
+
+        description: `New artwork available: "${title}"
+
+${professionalDescription}
+
+${availabilityText}
+
+View this listing:
+${productLink}`,
+
+        hashtags,
+
+        cta: "",
+      };
+
+      continue;
+    }
+
+    if (normalizedPlatform === "instagram") {
+      contentByPlatform.instagram = {
+        title: `✨ ${title}`,
+
+        description: `${professionalDescription}
+
+${availabilityText}
+
+View this listing:
+${productLink}`,
+
+        hashtags,
+
+        cta: "",
+      };
+
+      continue;
+    }
+
+    if (
+      normalizedPlatform === "x" ||
+      normalizedPlatform === "twitter"
+    ) {
+      contentByPlatform.x = {
+        title: buildXTitle({
+          title: `New artwork: ${title}`,
+          productLink,
+        }),
+
+        description: truncateText(
+          professionalDescription,
+          150
+        ),
+
+        hashtags: detectContentTags({
+          title,
+          description: professionalDescription,
+        })
+          .slice(0, 2)
+          .join(" "),
+
+        cta: "",
+      };
+
+      continue;
+    }
+
+    contentByPlatform[normalizedPlatform] = {
+      title,
+      description: professionalDescription,
+      hashtags,
       cta: "",
     };
-
-    continue;
   }
 
-  contentByPlatform[normalizedPlatform] = {
-    title,
-    description: shortDescription,
-    hashtags,
-    cta: `View this listing: ${productLink}`,
-  };
-}
-
   const boardId =
-  automation.board_id ??
-  automation.boardId ??
-  automation.pinterest_board_id ??
-  automation.pinterestBoardId ??
-  null;
+    automation.board_id ??
+    automation.boardId ??
+    automation.pinterest_board_id ??
+    automation.pinterestBoardId ??
+    null;
 
   const pageId =
     automation.facebook_page_id ??
