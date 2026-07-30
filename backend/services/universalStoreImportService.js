@@ -730,6 +730,25 @@ export async function importUniversalStore({
           responseUrl,
         } = await fetchPage(productUrl);
 
+        if (
+          storeHost === "artpal.com" ||
+          storeHost.endsWith(".artpal.com")
+        ) {
+          console.log(
+            "========== ARTPAL DEBUG START =========="
+          );
+          console.log("ARTPAL REQUEST URL:", productUrl);
+          console.log("ARTPAL RESPONSE URL:", responseUrl);
+          console.log("ARTPAL HTML LENGTH:", html.length);
+          console.log(
+            "ARTPAL HTML PREVIEW:",
+            html.substring(0, 5000)
+          );
+          console.log(
+            "========== ARTPAL DEBUG END =========="
+          );
+        }
+
         return parseProductPage({
           html,
           responseUrl,
