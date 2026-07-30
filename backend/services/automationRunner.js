@@ -493,8 +493,11 @@ for (const platform of platforms) {
 }
 
   const boardId =
-    automation.board_id ??
-    automation.boardId;
+  automation.board_id ??
+  automation.boardId ??
+  automation.pinterest_board_id ??
+  automation.pinterestBoardId ??
+  null;
 
   const pageId =
     automation.facebook_page_id ??
