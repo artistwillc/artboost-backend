@@ -46,10 +46,14 @@ facebookPageId:
   row.facebook_page_id || null,
 
 pinterestBoardId:
-  row.board_id || null,
+  row.board_id ||
+  row.pinterest_board_id ||
+  null,
 
-postingIntervalDays:
-  Number(row.posting_interval_days) || 1,
+boardId:
+  row.board_id ||
+  row.pinterest_board_id ||
+  null,
 
 selectionMode:
   row.selection_mode ||
