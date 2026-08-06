@@ -72,46 +72,96 @@ async function verifyRequestUser(req) {
   return data.user;
 }
 
-async function loadAutomations(userId) {
-  const candidates = [
-    {
-      table: "store_automations",
-      select:
-        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
-    },
-    {
-      table: "automations",
-      select:
-        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
-    },
-  ];
+async function loadAutomations({ userId, storeIds = [] }) {
+  const select =
+    "id,user_id,store_id,store_name,store_type,automation_name,enabled,frequency,posting_time,timezone,platforms,selection_mode,repeat_delay_days,last_run_at,next_run_at,last_product_id,last_error,facebook_page_id,start_date,board_id,posting_interval_days,created_at,updated_at";
 
-  for (const candidate of candidates) {
-    try {
-      const { data, error } = await supabase
-        .from(candidate.table)
-        .select(candidate.select)
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(40);
+  try {
+    const { data, error } = await supabase
+      .from("store_automations")
+      .select(select)
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(100);
 
-      if (!error) {
-        return { table: candidate.table, rows: data || [] };
-      }
-
+    if (error) {
       console.log(
-        `AI assistant automation table ${candidate.table} unavailable:`,
+        "AI assistant store_automations user query unavailable:",
         error.message
       );
-    } catch (error) {
-      console.log(
-        `AI assistant automation table ${candidate.table} failed:`,
-        error?.message || error
-      );
+    } else if (safeArray(data).length > 0) {
+      return {
+        table: "store_automations",
+        matchMethod: "user_id",
+        rows: data,
+      };
     }
+  } catch (error) {
+    console.log(
+      "AI assistant store_automations user query failed:",
+      error?.message || error
+    );
   }
 
-  return { table: null, rows: [] };
+  const cleanStoreIds = [
+    ...new Set(
+      safeArray(storeIds)
+        .map((value) => cleanString(value, 120))
+        .filter(Boolean)
+    ),
+  ];
+
+  if (cleanStoreIds.length === 0) {
+    return {
+      table: "store_automations",
+      matchMethod: null,
+      rows: [],
+    };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("store_automations")
+      .select(select)
+      .in("store_id", cleanStoreIds)
+      .order("updated_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.log(
+        "AI assistant store_automations store fallback unavailable:",
+        error.message
+      );
+
+      return {
+        table: "store_automations",
+        matchMethod: null,
+        rows: [],
+      };
+    }
+
+    console.log(
+      "AI assistant automation context matched by connected store IDs:",
+      safeArray(data).length
+    );
+
+    return {
+      table: "store_automations",
+      matchMethod: "store_id",
+      rows: safeArray(data),
+    };
+  } catch (error) {
+    console.log(
+      "AI assistant store_automations store fallback failed:",
+      error?.message || error
+    );
+
+    return {
+      table: "store_automations",
+      matchMethod: null,
+      rows: [],
+    };
+  }
 }
 
 function isExpired(value) {
@@ -165,10 +215,16 @@ async function loadAccountContext(userId) {
     };
   }
 
-  const automationResultPromise = loadAutomations(userId);
-  const storeResultPromise = loadStores(userId);
+  const storeResult = await loadStores(userId);
+  const storeIds = safeArray(storeResult?.rows)
+    .map((store) => store?.id)
+    .filter(Boolean);
+  const automationResultPromise = loadAutomations({
+    userId,
+    storeIds,
+  });
 
-  const [profile, storeResult, products, campaigns, connections, notifications, automationResult] =
+  const [profile, products, campaigns, connections, notifications, automationResult] =
     await Promise.all([
       safeQuery(
         "profile",
@@ -181,7 +237,6 @@ async function loadAccountContext(userId) {
           .maybeSingle(),
         null
       ),
-      storeResultPromise,
       safeQuery(
         "products",
         supabase
@@ -340,6 +395,7 @@ async function loadAccountContext(userId) {
     contextSources: {
       stores: storeResult?.source || null,
       automationsTable: automationResult?.table || null,
+      automationsMatchMethod: automationResult?.matchMethod || null,
     },
   };
 }
@@ -431,6 +487,28 @@ function formatNameList(values) {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
+
+function formatAutomationTime(value, timezone = "America/Chicago") {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return cleanString(value, 120);
+
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone || "America/Chicago",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+}
+
 function deterministicAccountAnswer(question, accountContext) {
   if (!accountContext?.authenticated) return null;
 
@@ -464,6 +542,47 @@ function deterministicAccountAnswer(question, accountContext) {
         followUps: ["How many active automations do I have?"],
         usedAccountData: true,
         severity: failed.length ? "warning" : "success",
+      };
+    }
+
+    const asksNextRun =
+      /\b(?:next|when|schedule|scheduled|run next|next run)\b/.test(q);
+
+    if (asksNextRun) {
+      const scheduled = active
+        .map((item) => {
+          const name = cleanString(
+            item?.store_name || item?.storeName || item?.automation_name,
+            120
+          );
+          const timezone = cleanString(
+            item?.timezone || "America/Chicago",
+            80
+          );
+          const nextRun = formatAutomationTime(
+            item?.next_run_at || item?.nextRunAt,
+            timezone
+          );
+
+          return name && nextRun ? `${name}: ${nextRun}` : "";
+        })
+        .filter(Boolean);
+
+      return {
+        answer:
+          active.length === 0
+            ? "You currently have no active store automations."
+            : scheduled.length
+              ? `Your next active automation runs are ${scheduled.join("; ")}.`
+              : `You have ${active.length} active ${active.length === 1 ? "automation" : "automations"}, but no next run time is currently available.`,
+        steps: [],
+        actions: action("open_connections"),
+        followUps: [
+          "Do any of my automations have errors?",
+          "Which platforms will each automation post to?",
+        ],
+        usedAccountData: true,
+        severity: "success",
       };
     }
 
