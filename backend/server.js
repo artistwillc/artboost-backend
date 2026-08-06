@@ -14,6 +14,7 @@ import {
   runAutomation as runStoreAutomation,
 } from "./services/automationRunner.js";
 import aiRouter from "./routes/ai.js";
+import creatorToolsRoutes from "./routes/creatorTools.js";
 import etsyRoutes from "./routes/etsy.js";
 import redbubbleRoutes from "./routes/redbubble.js";
 
@@ -1229,6 +1230,7 @@ app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/automations", automationRoutes);
 app.use("/ai", aiRouter);
+app.use("/creator-tools", creatorToolsRoutes);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
 app.use("/catalog", catalogRoutes);

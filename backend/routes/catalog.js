@@ -22,11 +22,12 @@ const router = express.Router();
 router.post("/import-urls", async (req, res) => {
   try {
     const {
-      userId,
-      storeName,
-      storeType,
-      urls,
-    } = req.body || {};
+  userId,
+  storeId,
+  storeName,
+  storeType,
+  urls,
+} = req.body || {};
 
     if (!userId) {
       return res.status(400).json({
@@ -51,13 +52,17 @@ router.post("/import-urls", async (req, res) => {
     }
 
     const result = await importCatalogUrls({
-      userId: String(userId),
-      storeName: String(storeName),
-      storeType: String(
-        storeType || "custom_store"
-      ),
-      urls,
-    });
+  userId: String(userId),
+  storeId:
+    storeId
+      ? String(storeId)
+      : null,
+  storeName: String(storeName),
+  storeType: String(
+    storeType || "custom_store"
+  ).toLowerCase(),
+  urls,
+});
 
     return res.json({
       success: true,
