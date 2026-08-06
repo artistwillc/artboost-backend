@@ -1,6 +1,7 @@
 import express from "express";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { getStores } from "../services/productService.js";
 import {
   ALLOWED_ASSISTANT_ACTIONS,
   ARTBOOST_SUPPORT_KNOWLEDGE,
@@ -125,6 +126,37 @@ function normalizePlatform(value) {
   return clean;
 }
 
+async function loadStores(userId) {
+  try {
+    const stores = await getStores({ userId });
+
+    return {
+      source: "productService.getStores",
+      rows: safeArray(stores),
+    };
+  } catch (error) {
+    console.log(
+      "AI assistant canonical store context failed:",
+      error?.message || error
+    );
+
+    return {
+      source: null,
+      rows: [],
+    };
+  }
+}
+
+function isSocialPublishingPlatform(value) {
+  return new Set([
+    "pinterest",
+    "facebook",
+    "instagram",
+    "x",
+    "twitter",
+  ]).has(normalizePlatform(value));
+}
+
 async function loadAccountContext(userId) {
   if (!userId) {
     return {
@@ -134,8 +166,9 @@ async function loadAccountContext(userId) {
   }
 
   const automationResultPromise = loadAutomations(userId);
+  const storeResultPromise = loadStores(userId);
 
-  const [profile, stores, products, campaigns, connections, notifications, automationResult] =
+  const [profile, storeResult, products, campaigns, connections, notifications, automationResult] =
     await Promise.all([
       safeQuery(
         "profile",
@@ -148,18 +181,7 @@ async function loadAccountContext(userId) {
           .maybeSingle(),
         null
       ),
-      safeQuery(
-        "stores",
-        supabase
-          .from("store_connections")
-          .select(
-            "id,user_id,store_type,store_name,connected,product_count,connection_method,connected_at,updated_at"
-          )
-          .eq("user_id", userId)
-          .order("updated_at", { ascending: false })
-          .limit(50),
-        []
-      ),
+      storeResultPromise,
       safeQuery(
         "products",
         supabase
@@ -209,11 +231,14 @@ async function loadAccountContext(userId) {
     ]);
 
   const automations = safeArray(automationResult?.rows);
-  const connectedStores = safeArray(stores).filter(
+  const stores = safeArray(storeResult?.rows);
+  const connectedStores = stores.filter(
     (store) => store?.connected !== false
   );
   const connectedPlatforms = safeArray(connections).filter(
-    (connection) => connection?.connected === true
+    (connection) =>
+      connection?.connected === true &&
+      isSocialPublishingPlatform(connection?.platform)
   );
   const expiredPlatforms = connectedPlatforms.filter((connection) =>
     isExpired(connection?.expires_at)
@@ -243,7 +268,7 @@ async function loadAccountContext(userId) {
   }, {});
 
   const storeNames = connectedStores
-    .map((store) => cleanString(store?.store_name || store?.store_type, 100))
+    .map((store) => cleanString(store?.storeName || store?.storeType, 100))
     .filter(Boolean);
   const platformNames = connectedPlatforms
     .map((connection) => normalizePlatform(connection?.platform))
@@ -281,12 +306,12 @@ async function loadAccountContext(userId) {
       ).length,
     },
     connectedStores: connectedStores.map((store) => ({
-      type: store.store_type,
-      name: store.store_name,
-      productCount: Number(store.product_count || 0),
-      connectionMethod: store.connection_method || null,
-      connectedAt: store.connected_at,
-      updatedAt: store.updated_at,
+      type: store.storeType,
+      name: store.storeName,
+      productCount: Number(store.productCount || 0),
+      connectionMethod: store.connectionMethod || null,
+      connectedAt: store.connectedAt || null,
+      updatedAt: store.updatedAt || null,
     })),
     connectedPlatforms: connectedPlatforms.map((connection) => ({
       platform: normalizePlatform(connection.platform),
@@ -313,6 +338,7 @@ async function loadAccountContext(userId) {
       lastPostedAt: product.last_posted_at,
     })),
     contextSources: {
+      stores: storeResult?.source || null,
       automationsTable: automationResult?.table || null,
     },
   };
