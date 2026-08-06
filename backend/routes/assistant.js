@@ -1228,6 +1228,30 @@ function deterministicAccountAnswer(question, accountContext) {
     };
   }
 
+  // Campaign Manager capability/help questions.
+  // Keep this BEFORE scheduled campaign account-status handling so questions like
+  // "What can I do with Campaign Manager?" explain the feature instead of
+  // answering with the user's current scheduled-campaign count.
+  if (
+    /\b(?:campaign manager|campaign|campaigns)\b/.test(q) &&
+    /\b(?:what can i do|what does|what is|how does|feature|features|capabilit|use|used for|help me|allows?|create|manage)\b/.test(q) &&
+    !/\b(?:how many|count|total|next|when|upcoming|scheduled for|platform|platforms|error|errors|failed|failure|problem|problems|issue|issues|attention|published|posts?)\b/.test(q)
+  ) {
+    return {
+      answer:
+        "Campaign Manager lets you create marketing campaigns for your artwork and products, choose where they will publish, post them immediately or schedule them for later, and manage their publishing status from one place.",
+      steps: [],
+      actions: action("open_campaign_manager"),
+      followUps: [
+        "How many scheduled campaigns do I currently have?",
+        "What campaign is scheduled to run next?",
+        "Do any of my campaigns have errors?",
+      ],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
   // Scheduled campaign awareness.
   if (/\b(?:campaign|campaigns)\b/.test(q)) {
     const campaigns = safeArray(accountContext.scheduledCampaigns);
