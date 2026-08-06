@@ -73,32 +73,45 @@ async function verifyRequestUser(req) {
 }
 
 async function loadAutomations(userId) {
-  try {
-    const { data, error } = await supabase
-      .from("store_automations")
-      .select(
-        "id,user_id,store_id,store_name,store_type,automation_name,enabled,frequency,posting_time,timezone,next_run_at,last_run_at,last_error,platforms,updated_at"
-      )
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(40);
+  const candidates = [
+    {
+      table: "store_automations",
+      select:
+        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
+    },
+    {
+      table: "automations",
+      select:
+        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
+    },
+  ];
 
-    if (error) {
+  for (const candidate of candidates) {
+    try {
+      const { data, error } = await supabase
+        .from(candidate.table)
+        .select(candidate.select)
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(40);
+
+      if (!error) {
+        return { table: candidate.table, rows: data || [] };
+      }
+
       console.log(
-        "AI assistant store_automations context unavailable:",
+        `AI assistant automation table ${candidate.table} unavailable:`,
         error.message
       );
-      return { table: null, rows: [] };
+    } catch (error) {
+      console.log(
+        `AI assistant automation table ${candidate.table} failed:`,
+        error?.message || error
+      );
     }
-
-    return { table: "store_automations", rows: data || [] };
-  } catch (error) {
-    console.log(
-      "AI assistant store_automations context failed:",
-      error?.message || error
-    );
-    return { table: null, rows: [] };
   }
+
+  return { table: null, rows: [] };
 }
 
 function isExpired(value) {
@@ -237,10 +250,12 @@ async function loadAccountContext(userId) {
     (campaign) => campaign?.campaign_status === "active"
   );
   const activeAutomations = automations.filter(
-    (automation) => automation?.enabled === true
+    (automation) =>
+      automation?.enabled === true || automation?.status === "active"
   );
   const failedAutomations = automations.filter(
-    (automation) => Boolean(cleanString(automation?.last_error))
+    (automation) =>
+      cleanString(automation?.last_error) || automation?.status === "failed"
   );
   const unpromotedProducts = safeArray(products).filter(
     (product) => Number(product?.times_posted || 0) === 0
@@ -349,52 +364,6 @@ function extractJson(text) {
   return JSON.parse(match[0]);
 }
 
-
-function buildFallbackAssistantResponse(question, accountContext) {
-  const q = cleanString(question, 1200).toLowerCase();
-  const summary = accountContext?.summary || {};
-
-  if (/social platform|connected platform|publishing account|facebook|instagram|pinterest|\bx\b/.test(q)) {
-    const names = safeArray(summary.connectedPlatformNames);
-    const expiredCount = Number(summary.expiredPlatformCount || 0);
-
-    return {
-      answer: names.length
-        ? `You currently have ${names.length} connected social platform${names.length === 1 ? "" : "s"}: ${names.join(", ")}.${expiredCount > 0 ? ` ${expiredCount} connection${expiredCount === 1 ? " is" : "s are"} expired and should be reconnected.` : ""}`
-        : "I do not currently see any connected social publishing platforms on your ArtBoost account.",
-      steps: [],
-      actions: [{ id: "open_connections" }],
-      followUps: ["Do any of my social connections need attention?"],
-      usedAccountData: accountContext?.authenticated === true,
-      severity: expiredCount > 0 ? "warning" : "info",
-    };
-  }
-
-  if (/how many stores|connected stores|what stores/.test(q)) {
-    const names = safeArray(summary.connectedStoreNames);
-    return {
-      answer: names.length
-        ? `You currently have ${names.length} connected store${names.length === 1 ? "" : "s"}: ${names.join(", ")}.`
-        : "I do not currently see any connected stores on your ArtBoost account.",
-      steps: [],
-      actions: [{ id: "open_connections" }, { id: "open_library" }],
-      followUps: ["How many products are in my Library?"],
-      usedAccountData: accountContext?.authenticated === true,
-      severity: "info",
-    };
-  }
-
-  return {
-    answer:
-      "I could not format the live AI response correctly, but your ArtBoost account data loaded successfully. Please try the question again.",
-    steps: [],
-    actions: inferActions(question),
-    followUps: [],
-    usedAccountData: false,
-    severity: "warning",
-  };
-}
-
 function validateActions(actions) {
   return safeArray(actions)
     .map((action) => {
@@ -453,6 +422,164 @@ function mergeActions(aiActions, inferredActions) {
     .slice(0, 3);
 }
 
+
+function formatNameList(values) {
+  const names = safeArray(values).map((value) => cleanString(value, 120)).filter(Boolean);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+function deterministicAccountAnswer(question, accountContext) {
+  if (!accountContext?.authenticated) return null;
+
+  const q = cleanString(question, 1200).toLowerCase();
+  const summary = accountContext.summary || {};
+  const action = (id) => validateActions([{ id }]);
+
+  // Connected stores: database fact, no model interpretation required.
+  if (
+    /\b(store|stores|shop|shops)\b/.test(q) &&
+    /\b(connect|connected|connection|connections|how many|which|what)\b/.test(q)
+  ) {
+    const stores = safeArray(accountContext.connectedStores);
+    const names = stores.map((store) => store?.name || store?.type).filter(Boolean);
+    const count = stores.length;
+
+    return {
+      answer:
+        count === 0
+          ? "You currently have no connected stores in ArtBoost."
+          : `You currently have ${count} connected ${count === 1 ? "store" : "stores"}: ${formatNameList(names)}.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: [
+        "How many products do I have?",
+        "Which stores have products imported?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  // Social publishing connections.
+  if (
+    /\b(social|platform|platforms|facebook|instagram|pinterest|twitter|\bx\b)\b/.test(q) &&
+    /\b(connect|connected|connection|connections|active|expired|which|what|how many)\b/.test(q)
+  ) {
+    const platforms = safeArray(accountContext.connectedPlatforms);
+    const names = platforms.map((item) => item?.platform).filter(Boolean);
+    const expired = platforms.filter((item) => item?.expired).map((item) => item?.platform);
+    const count = platforms.length;
+
+    let answer =
+      count === 0
+        ? "I do not currently see any active social publishing connections on your ArtBoost account."
+        : `You currently have ${count} connected social ${count === 1 ? "platform" : "platforms"}: ${formatNameList(names)}.`;
+
+    if (expired.length) {
+      answer += ` ${formatNameList(expired)} ${expired.length === 1 ? "is" : "are"} expired and should be reconnected.`;
+    }
+
+    return {
+      answer,
+      steps: [],
+      actions: action("open_connections"),
+      followUps: [
+        "Do any of my social connections need attention?",
+        "How many active automations do I have?",
+      ],
+      usedAccountData: true,
+      severity: expired.length ? "warning" : "success",
+    };
+  }
+
+  // Automations: derive status from enabled and last_error, matching store_automations schema.
+  if (/\bautomation|automations|scheduled posting|scheduled posts\b/.test(q)) {
+    const active = safeArray(accountContext.activeAutomations);
+    const failed = safeArray(accountContext.failedAutomations);
+    const asksFailed = /\b(fail|failed|error|errors|problem|problems|issue|issues)\b/.test(q);
+    const asksActive = /\b(active|enabled|running|how many|which|what)\b/.test(q);
+
+    if (asksFailed) {
+      const details = failed
+        .map((item) => {
+          const name = cleanString(item?.store_name || item?.storeName || item?.automation_name, 120);
+          const error = cleanString(item?.last_error || item?.lastError, 220);
+          return name ? `${name}${error ? ` — ${error}` : ""}` : "";
+        })
+        .filter(Boolean);
+
+      return {
+        answer:
+          failed.length === 0
+            ? "I do not currently see any store automations with a recorded error."
+            : `You currently have ${failed.length} ${failed.length === 1 ? "automation" : "automations"} with a recorded error: ${details.join("; ")}.`,
+        steps: [],
+        actions: action("open_connections"),
+        followUps: ["How many active automations do I have?"],
+        usedAccountData: true,
+        severity: failed.length ? "warning" : "success",
+      };
+    }
+
+    if (asksActive || q.includes("automation")) {
+      const names = active
+        .map((item) => item?.store_name || item?.storeName || item?.automation_name)
+        .filter(Boolean);
+
+      return {
+        answer:
+          active.length === 0
+            ? "You currently have no active store automations."
+            : `You currently have ${active.length} active ${active.length === 1 ? "automation" : "automations"}${names.length ? ` for ${formatNameList(names)}` : ""}.`,
+        steps: [],
+        actions: action("open_connections"),
+        followUps: [
+          "Do any of my automations have errors?",
+          "When are my automations scheduled to run next?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+  }
+
+  // Product totals.
+  if (
+    /\b(product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    /\b(how many|count|total|imported|have|currently)\b/.test(q)
+  ) {
+    const count = Number(summary.productCount || 0);
+    const unpromoted = Number(summary.unpromotedProductCount || 0);
+    return {
+      answer: `You currently have ${count} imported ${count === 1 ? "product" : "products"} in ArtBoost. ${unpromoted} ${unpromoted === 1 ? "has" : "have"} not been posted yet.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: ["Which stores have products imported?", "How many products have never been posted?"],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  // Subscription/account plan.
+  if (/\b(subscription|plan|tier|billing)\b/.test(q) && accountContext.profile) {
+    const tier = cleanString(accountContext.profile.subscriptionTier || "free", 80);
+    const status = cleanString(accountContext.profile.subscriptionStatus || "unknown", 80);
+    return {
+      answer: `Your current ArtBoost subscription tier is ${tier}, and its status is ${status}.`,
+      steps: [],
+      actions: [],
+      followUps: ["What features are included in my plan?"],
+      usedAccountData: true,
+      severity: status === "active" ? "success" : "info",
+    };
+  }
+
+  return null;
+}
+
 router.post("/assistant", async (req, res) => {
   try {
     const question = cleanString(req.body?.question, 1200);
@@ -472,6 +599,16 @@ router.post("/assistant", async (req, res) => {
 
     const verifiedUser = await verifyRequestUser(req);
     const accountContext = await loadAccountContext(verifiedUser?.id || null);
+
+    // Answer direct account-fact questions from ArtBoost data before calling the model.
+    // This prevents malformed model JSON from breaking factual account queries.
+    const directAnswer = deterministicAccountAnswer(question, accountContext);
+    if (directAnswer) {
+      return res.json({
+        success: true,
+        ...directAnswer,
+      });
+    }
 
     const allowedActions = Object.entries(ALLOWED_ASSISTANT_ACTIONS).map(
       ([id, action]) => ({ id, ...action })
@@ -535,20 +672,7 @@ ${JSON.stringify(accountContext)}`,
       ],
     });
 
-    let parsed;
-
-    try {
-      parsed = extractJson(response.output_text);
-    } catch (parseError) {
-      console.log(
-        "AI assistant response parsing failed:",
-        parseError?.message || parseError,
-        "Output preview:",
-        cleanString(response.output_text, 500)
-      );
-      parsed = buildFallbackAssistantResponse(question, accountContext);
-    }
-
+    const parsed = extractJson(response.output_text);
     const aiActions = validateActions(parsed?.actions);
     const inferredActions = inferActions(question);
 
