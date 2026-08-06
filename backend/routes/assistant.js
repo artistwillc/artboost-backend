@@ -498,6 +498,20 @@ async function loadAccountContext(userId) {
       connectedAt: store.connectedAt || null,
       updatedAt: store.updatedAt || null,
     })),
+    publishingConnections: safeArray(connections)
+      .filter((connection) =>
+        isSocialPublishingPlatform(connection?.platform)
+      )
+      .map((connection) => ({
+        platform: normalizePlatform(connection.platform),
+        connected: connection?.connected === true,
+        expired: isExpired(connection.expires_at),
+        expiresAt: connection.expires_at,
+        connectedAt: connection.connected_at,
+        updatedAt: connection.updated_at,
+        source: connection.source || null,
+        unavailable: connection.unavailable === true,
+      })),
     connectedPlatforms: connectedPlatforms.map((connection) => ({
       platform: normalizePlatform(connection.platform),
       expired: isExpired(connection.expires_at),
@@ -778,6 +792,66 @@ function deterministicAccountAnswer(question, accountContext) {
         severity: "success",
       };
     }
+  }
+
+  // Social publishing connection health.
+  if (
+    /\b(?:social|platform|platforms|facebook|instagram|pinterest|twitter|x|connection|connections)\b/.test(q) &&
+    /\b(?:attention|health|healthy|issue|issues|problem|problems|expired|expire|reconnect|disconnected|working|status|need help)\b/.test(q)
+  ) {
+    const publishingConnections = safeArray(
+      accountContext.publishingConnections
+    );
+
+    const expired = publishingConnections.filter(
+      (item) => item?.connected === true && item?.expired === true
+    );
+
+    const disconnected = publishingConnections.filter(
+      (item) =>
+        item?.connected !== true &&
+        item?.unavailable !== true
+    );
+
+    const unavailable = publishingConnections.filter(
+      (item) => item?.unavailable === true
+    );
+
+    const issues = [];
+
+    for (const item of expired) {
+      issues.push(`${item.platform} is connected but expired`);
+    }
+
+    for (const item of disconnected) {
+      issues.push(`${item.platform} is not currently connected`);
+    }
+
+    for (const item of unavailable) {
+      issues.push(`${item.platform} status could not be verified`);
+    }
+
+    return {
+      answer:
+        issues.length === 0
+          ? `Your ${publishingConnections.filter((item) => item?.connected === true).length} social publishing connections are currently connected, and I do not see any connection issues requiring attention.`
+          : `The following social connections need attention: ${issues.join("; ")}.`,
+      steps:
+        issues.length === 0
+          ? []
+          : [
+              "Open Connections.",
+              "Reconnect any expired or disconnected platform.",
+              "Refresh Connection Status after completing authorization.",
+            ],
+      actions: action("open_connections"),
+      followUps: [
+        "What social platforms do I currently have connected?",
+        "Which platforms will my automations post to?",
+      ],
+      usedAccountData: true,
+      severity: issues.length === 0 ? "success" : "warning",
+    };
   }
 
   // Social publishing connections.
