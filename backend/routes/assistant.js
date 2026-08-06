@@ -893,7 +893,11 @@ function deterministicAccountAnswer(question, accountContext) {
 
   // Publishing and analytics awareness.
   if (
-    /\b(?:post|posts|published|publishing|analytics|automation run|automation runs|attempt|attempts)\b/.test(q) &&
+    (
+      /\b(?:post|posts|published|publishing|analytics|attempt|attempts|skip|skipped)\b/.test(q) ||
+      /\b(?:automation|automations)\b/.test(q) &&
+        /\b(?:successful|success|run|runs|fail|fails|failed|failing|failure|failures|history|historical)\b/.test(q)
+    ) &&
     !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
   ) {
     const analytics = accountContext.publishingAnalytics || {};
