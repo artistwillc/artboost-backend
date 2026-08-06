@@ -344,6 +344,171 @@ async function loadPublishingConnections(userId) {
   return [...merged.values()];
 }
 
+
+async function resolveAccountUserIds(userId) {
+  const ids = new Set([cleanString(userId, 120)].filter(Boolean));
+
+  try {
+    const { data: authData } = await supabase.auth.admin.getUserById(userId);
+    const email = cleanString(authData?.user?.email, 320).toLowerCase();
+
+    if (email) {
+      const { data: matchingProfiles, error } = await supabase
+        .from("profiles")
+        .select("id,email")
+        .ilike("email", email)
+        .limit(20);
+
+      if (!error) {
+        for (const profile of safeArray(matchingProfiles)) {
+          const id = cleanString(profile?.id, 120);
+          if (id) ids.add(id);
+        }
+      }
+    }
+  } catch (error) {
+    console.log(
+      "AI assistant legacy account ID resolution failed:",
+      error?.message || error
+    );
+  }
+
+  return [...ids];
+}
+
+async function loadAutomationLogs({
+  userIds = [],
+  storeIds = [],
+}) {
+  const select =
+    "id,automation_id,user_id,store_id,event_type,status,product_id,product_title,platforms,publish_result,message,error_message,created_at";
+
+  const cleanUserIds = [
+    ...new Set(
+      safeArray(userIds)
+        .map((value) => cleanString(value, 120))
+        .filter(Boolean)
+    ),
+  ];
+
+  if (cleanUserIds.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from("store_automation_logs")
+        .select(select)
+        .in("user_id", cleanUserIds)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+
+      if (!error && safeArray(data).length > 0) {
+        return {
+          matchMethod: "user_id",
+          rows: safeArray(data),
+        };
+      }
+
+      if (error) {
+        console.log(
+          "AI assistant automation log user query unavailable:",
+          error.message
+        );
+      }
+    } catch (error) {
+      console.log(
+        "AI assistant automation log user query failed:",
+        error?.message || error
+      );
+    }
+  }
+
+  const cleanStoreIds = [
+    ...new Set(
+      safeArray(storeIds)
+        .map((value) => cleanString(value, 120))
+        .filter(Boolean)
+    ),
+  ];
+
+  if (cleanStoreIds.length === 0) {
+    return {
+      matchMethod: null,
+      rows: [],
+    };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("store_automation_logs")
+      .select(select)
+      .in("store_id", cleanStoreIds)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (error) {
+      console.log(
+        "AI assistant automation log store fallback unavailable:",
+        error.message
+      );
+
+      return {
+        matchMethod: null,
+        rows: [],
+      };
+    }
+
+    return {
+      matchMethod: "store_id",
+      rows: safeArray(data),
+    };
+  } catch (error) {
+    console.log(
+      "AI assistant automation log store fallback failed:",
+      error?.message || error
+    );
+
+    return {
+      matchMethod: null,
+      rows: [],
+    };
+  }
+}
+
+function parseJsonValue(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function countSuccessfulPlatformPosts(log) {
+  const result = parseJsonValue(log?.publish_result);
+
+  if (Number.isFinite(Number(result?.successful))) {
+    return Math.max(0, Number(result.successful));
+  }
+
+  const successfulResults = safeArray(result?.results).filter(
+    (item) => item?.success === true
+  );
+
+  if (successfulResults.length > 0) {
+    return successfulResults.length;
+  }
+
+  if (
+    log?.event_type === "post_success" ||
+    log?.status === "success"
+  ) {
+    return 1;
+  }
+
+  return 0;
+}
+
 async function loadAccountContext(userId) {
   if (!userId) {
     return {
@@ -352,6 +517,7 @@ async function loadAccountContext(userId) {
     };
   }
 
+  const accountUserIds = await resolveAccountUserIds(userId);
   const storeResult = await loadStores(userId);
   const storeIds = safeArray(storeResult?.rows)
     .map((store) => store?.id)
@@ -360,11 +526,15 @@ async function loadAccountContext(userId) {
     userId,
     storeIds,
   });
+  const automationLogsPromise = loadAutomationLogs({
+    userIds: accountUserIds,
+    storeIds,
+  });
 
   const publishingConnectionsPromise =
     loadPublishingConnections(userId);
 
-  const [profile, products, campaigns, connections, notifications, automationResult] =
+  const [profile, products, campaigns, connections, notifications, automationResult, automationLogResult] =
     await Promise.all([
       safeQuery(
         "profile",
@@ -396,9 +566,9 @@ async function loadAccountContext(userId) {
           .select(
             "id,user_id,platform,title,description,image_url,product_link,board_id,publish_at,status,published_at,error,created_at,updated_at,repeat_type,repeat_until,next_run_at,original_campaign_id,campaign_status,ended_at,views,clicks,posts,page_id,campaign_group_id,hashtags,cta"
           )
-          .eq("user_id", userId)
+          .in("user_id", accountUserIds)
           .order("created_at", { ascending: false })
-          .limit(75),
+          .limit(250),
         []
       ),
       publishingConnectionsPromise,
@@ -413,9 +583,11 @@ async function loadAccountContext(userId) {
         []
       ),
       automationResultPromise,
+      automationLogsPromise,
     ]);
 
   const automations = safeArray(automationResult?.rows);
+  const automationLogs = safeArray(automationLogResult?.rows);
   const stores = safeArray(storeResult?.rows);
   const connectedStores = stores.filter(
     (store) => store?.connected !== false
@@ -459,6 +631,50 @@ async function loadAccountContext(userId) {
     .map((connection) => normalizePlatform(connection?.platform))
     .filter(Boolean);
 
+  const successfulAutomationRuns = automationLogs.filter(
+    (log) =>
+      log?.event_type === "post_success" ||
+      log?.status === "success"
+  );
+
+  const failedAutomationAttempts = automationLogs.filter(
+    (log) =>
+      log?.event_type === "post_failed" ||
+      log?.status === "failed"
+  );
+
+  const skippedAutomationAttempts = automationLogs.filter(
+    (log) =>
+      log?.event_type === "post_skipped" ||
+      log?.status === "skipped"
+  );
+
+  const automationPlatformPostCount =
+    successfulAutomationRuns.reduce(
+      (total, log) =>
+        total + countSuccessfulPlatformPosts(log),
+      0
+    );
+
+  const publishedCampaigns = safeArray(campaigns).filter(
+    (campaign) =>
+      cleanString(campaign?.status, 80).toLowerCase() ===
+        "published" ||
+      Boolean(campaign?.published_at)
+  );
+
+  const campaignRecordedPostCount = publishedCampaigns.reduce(
+    (total, campaign) => {
+      const posts = Number(campaign?.posts);
+      return total + (Number.isFinite(posts) && posts > 0 ? posts : 1);
+    },
+    0
+  );
+
+  const totalRecordedPlatformPosts =
+    automationPlatformPostCount +
+    campaignRecordedPostCount;
+
   return {
     authenticated: true,
     profile: profile
@@ -474,6 +690,16 @@ async function loadAccountContext(userId) {
       : null,
     products: safeArray(products),
     scheduledCampaigns: safeArray(campaigns),
+    automationLogs,
+    publishingAnalytics: {
+      totalRecordedPlatformPosts,
+      automationPlatformPostCount,
+      campaignRecordedPostCount,
+      successfulAutomationRunCount: successfulAutomationRuns.length,
+      failedAutomationAttemptCount: failedAutomationAttempts.length,
+      skippedAutomationAttemptCount: skippedAutomationAttempts.length,
+      publishedCampaignCount: publishedCampaigns.length,
+    },
     summary: {
       connectedStoreCount: connectedStores.length,
       connectedStoreNames: storeNames,
@@ -543,6 +769,8 @@ async function loadAccountContext(userId) {
       automationsTable: automationResult?.table || null,
       automationsMatchMethod: automationResult?.matchMethod || null,
       socialConnections: "Connections status endpoints + social_connections",
+      automationLogsMatchMethod: automationLogResult?.matchMethod || null,
+      accountUserIds,
     },
   };
 }
@@ -885,6 +1113,114 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: expired.length ? "warning" : "success",
+    };
+  }
+
+  // Publishing and analytics awareness.
+  if (
+    /\b(?:post|posts|published|publishing|analytics|automation run|automation runs|attempt|attempts)\b/.test(q) &&
+    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
+  ) {
+    const analytics = accountContext.publishingAnalytics || {};
+    const totalPosts = Number(
+      analytics.totalRecordedPlatformPosts || 0
+    );
+    const automationPosts = Number(
+      analytics.automationPlatformPostCount || 0
+    );
+    const campaignPosts = Number(
+      analytics.campaignRecordedPostCount || 0
+    );
+    const successfulRuns = Number(
+      analytics.successfulAutomationRunCount || 0
+    );
+    const failedAttempts = Number(
+      analytics.failedAutomationAttemptCount || 0
+    );
+    const skippedAttempts = Number(
+      analytics.skippedAutomationAttemptCount || 0
+    );
+    const publishedCampaigns = Number(
+      analytics.publishedCampaignCount || 0
+    );
+
+    if (
+      /\b(?:fail|failed|failure|failures|error|errors)\b/.test(q) &&
+      /\b(?:automation|attempt|attempts|run|runs|post|posts)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${failedAttempts} recorded failed automation ${failedAttempts === 1 ? "attempt" : "attempts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many successful automation runs have I had?",
+          "How many posts have I published?",
+        ],
+        usedAccountData: true,
+        severity: failedAttempts ? "warning" : "success",
+      };
+    }
+
+    if (
+      /\b(?:skip|skipped)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${skippedAttempts} recorded skipped automation ${skippedAttempts === 1 ? "attempt" : "attempts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many successful automation runs have I had?",
+          "How many automation failures have I had?",
+        ],
+        usedAccountData: true,
+        severity: "info",
+      };
+    }
+
+    if (
+      /\b(?:successful automation|automation run|automation runs|successful run|successful runs)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${successfulRuns} recorded successful automation ${successfulRuns === 1 ? "run" : "runs"}. Those runs produced ${automationPosts} successful platform ${automationPosts === 1 ? "post" : "posts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many posts have I published?",
+          "How many automation failures have I had?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    if (
+      /\b(?:campaign manager|campaign|campaigns)\b/.test(q) &&
+      /\b(?:published|post|posts)\b/.test(q)
+    ) {
+      return {
+        answer: `Campaign Manager currently has ${publishedCampaigns} published ${publishedCampaigns === 1 ? "campaign" : "campaigns"}, representing ${campaignPosts} recorded ${campaignPosts === 1 ? "post" : "posts"}.`,
+        steps: [],
+        actions: action("open_campaign_manager"),
+        followUps: [
+          "How many posts have I published in total?",
+          "Do any of my campaigns have errors?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    return {
+      answer: `ArtBoost currently records ${totalPosts} published platform ${totalPosts === 1 ? "post" : "posts"}: ${automationPosts} from successful store automations and ${campaignPosts} from published Campaign Manager campaigns.`,
+      steps: [],
+      actions: action("open_analytics"),
+      followUps: [
+        "How many successful automation runs have I had?",
+        "How many automation failures have I had?",
+        "How many posts were skipped?",
+      ],
+      usedAccountData: true,
+      severity: "success",
     };
   }
 
