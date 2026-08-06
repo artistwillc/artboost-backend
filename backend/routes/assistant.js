@@ -920,8 +920,8 @@ function deterministicAccountAnswer(question, accountContext) {
     );
 
     if (
-      /\b(?:fail|failed|failure|failures|error|errors)\b/.test(q) &&
-      /\b(?:automation|attempt|attempts|run|runs|post|posts)\b/.test(q)
+      /\b(?:fail|fails|failed|failing|failure|failures|error|errors)\b/.test(q) &&
+      /\b(?:automation|automations|attempt|attempts|run|runs|post|posts)\b/.test(q)
     ) {
       return {
         answer: `You currently have ${failedAttempts} recorded failed automation ${failedAttempts === 1 ? "attempt" : "attempts"}.`,
