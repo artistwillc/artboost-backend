@@ -169,17 +169,19 @@ export default function CustomerServiceScreen() {
 
     try {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
       const response = await fetch(`${BACKEND_URL}/ai/assistant`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
         },
         body: JSON.stringify({
           question: finalQuestion,
-          userId: user?.id || null,
           currentScreen: "customer-service",
           appVersion:
             Constants.expoConfig?.version ||
