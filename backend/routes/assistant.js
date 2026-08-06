@@ -891,6 +891,114 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
+  // Publishing and analytics awareness.
+  if (
+    /\b(?:post|posts|published|publishing|analytics|automation run|automation runs|attempt|attempts)\b/.test(q) &&
+    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
+  ) {
+    const analytics = accountContext.publishingAnalytics || {};
+    const totalPosts = Number(
+      analytics.totalRecordedPlatformPosts || 0
+    );
+    const automationPosts = Number(
+      analytics.automationPlatformPostCount || 0
+    );
+    const campaignPosts = Number(
+      analytics.campaignRecordedPostCount || 0
+    );
+    const successfulRuns = Number(
+      analytics.successfulAutomationRunCount || 0
+    );
+    const failedAttempts = Number(
+      analytics.failedAutomationAttemptCount || 0
+    );
+    const skippedAttempts = Number(
+      analytics.skippedAutomationAttemptCount || 0
+    );
+    const publishedCampaigns = Number(
+      analytics.publishedCampaignCount || 0
+    );
+
+    if (
+      /\b(?:fail|failed|failure|failures|error|errors)\b/.test(q) &&
+      /\b(?:automation|attempt|attempts|run|runs|post|posts)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${failedAttempts} recorded failed automation ${failedAttempts === 1 ? "attempt" : "attempts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many successful automation runs have I had?",
+          "How many posts have I published?",
+        ],
+        usedAccountData: true,
+        severity: failedAttempts ? "warning" : "success",
+      };
+    }
+
+    if (
+      /\b(?:skip|skipped)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${skippedAttempts} recorded skipped automation ${skippedAttempts === 1 ? "attempt" : "attempts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many successful automation runs have I had?",
+          "How many automation failures have I had?",
+        ],
+        usedAccountData: true,
+        severity: "info",
+      };
+    }
+
+    if (
+      /\b(?:successful automation|automation run|automation runs|successful run|successful runs)\b/.test(q)
+    ) {
+      return {
+        answer: `You currently have ${successfulRuns} recorded successful automation ${successfulRuns === 1 ? "run" : "runs"}. Those runs produced ${automationPosts} successful platform ${automationPosts === 1 ? "post" : "posts"}.`,
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: [
+          "How many posts have I published?",
+          "How many automation failures have I had?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    if (
+      /\b(?:campaign manager|campaign|campaigns)\b/.test(q) &&
+      /\b(?:published|post|posts)\b/.test(q)
+    ) {
+      return {
+        answer: `Campaign Manager currently has ${publishedCampaigns} published ${publishedCampaigns === 1 ? "campaign" : "campaigns"}, representing ${campaignPosts} recorded ${campaignPosts === 1 ? "post" : "posts"}.`,
+        steps: [],
+        actions: action("open_campaign_manager"),
+        followUps: [
+          "How many posts have I published in total?",
+          "Do any of my campaigns have errors?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    return {
+      answer: `ArtBoost currently records ${totalPosts} published platform ${totalPosts === 1 ? "post" : "posts"}: ${automationPosts} from successful store automations and ${campaignPosts} from published Campaign Manager campaigns.`,
+      steps: [],
+      actions: action("open_analytics"),
+      followUps: [
+        "How many successful automation runs have I had?",
+        "How many automation failures have I had?",
+        "How many posts were skipped?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
   // Automations: derive status from enabled and last_error, matching store_automations schema.
   if (/\b(?:automation|automations|scheduled posting|scheduled posts)\b/.test(q)) {
     const active = safeArray(accountContext.activeAutomations);
@@ -1113,114 +1221,6 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: expired.length ? "warning" : "success",
-    };
-  }
-
-  // Publishing and analytics awareness.
-  if (
-    /\b(?:post|posts|published|publishing|analytics|automation run|automation runs|attempt|attempts)\b/.test(q) &&
-    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
-  ) {
-    const analytics = accountContext.publishingAnalytics || {};
-    const totalPosts = Number(
-      analytics.totalRecordedPlatformPosts || 0
-    );
-    const automationPosts = Number(
-      analytics.automationPlatformPostCount || 0
-    );
-    const campaignPosts = Number(
-      analytics.campaignRecordedPostCount || 0
-    );
-    const successfulRuns = Number(
-      analytics.successfulAutomationRunCount || 0
-    );
-    const failedAttempts = Number(
-      analytics.failedAutomationAttemptCount || 0
-    );
-    const skippedAttempts = Number(
-      analytics.skippedAutomationAttemptCount || 0
-    );
-    const publishedCampaigns = Number(
-      analytics.publishedCampaignCount || 0
-    );
-
-    if (
-      /\b(?:fail|failed|failure|failures|error|errors)\b/.test(q) &&
-      /\b(?:automation|attempt|attempts|run|runs|post|posts)\b/.test(q)
-    ) {
-      return {
-        answer: `You currently have ${failedAttempts} recorded failed automation ${failedAttempts === 1 ? "attempt" : "attempts"}.`,
-        steps: [],
-        actions: action("open_analytics"),
-        followUps: [
-          "How many successful automation runs have I had?",
-          "How many posts have I published?",
-        ],
-        usedAccountData: true,
-        severity: failedAttempts ? "warning" : "success",
-      };
-    }
-
-    if (
-      /\b(?:skip|skipped)\b/.test(q)
-    ) {
-      return {
-        answer: `You currently have ${skippedAttempts} recorded skipped automation ${skippedAttempts === 1 ? "attempt" : "attempts"}.`,
-        steps: [],
-        actions: action("open_analytics"),
-        followUps: [
-          "How many successful automation runs have I had?",
-          "How many automation failures have I had?",
-        ],
-        usedAccountData: true,
-        severity: "info",
-      };
-    }
-
-    if (
-      /\b(?:successful automation|automation run|automation runs|successful run|successful runs)\b/.test(q)
-    ) {
-      return {
-        answer: `You currently have ${successfulRuns} recorded successful automation ${successfulRuns === 1 ? "run" : "runs"}. Those runs produced ${automationPosts} successful platform ${automationPosts === 1 ? "post" : "posts"}.`,
-        steps: [],
-        actions: action("open_analytics"),
-        followUps: [
-          "How many posts have I published?",
-          "How many automation failures have I had?",
-        ],
-        usedAccountData: true,
-        severity: "success",
-      };
-    }
-
-    if (
-      /\b(?:campaign manager|campaign|campaigns)\b/.test(q) &&
-      /\b(?:published|post|posts)\b/.test(q)
-    ) {
-      return {
-        answer: `Campaign Manager currently has ${publishedCampaigns} published ${publishedCampaigns === 1 ? "campaign" : "campaigns"}, representing ${campaignPosts} recorded ${campaignPosts === 1 ? "post" : "posts"}.`,
-        steps: [],
-        actions: action("open_campaign_manager"),
-        followUps: [
-          "How many posts have I published in total?",
-          "Do any of my campaigns have errors?",
-        ],
-        usedAccountData: true,
-        severity: "success",
-      };
-    }
-
-    return {
-      answer: `ArtBoost currently records ${totalPosts} published platform ${totalPosts === 1 ? "post" : "posts"}: ${automationPosts} from successful store automations and ${campaignPosts} from published Campaign Manager campaigns.`,
-      steps: [],
-      actions: action("open_analytics"),
-      followUps: [
-        "How many successful automation runs have I had?",
-        "How many automation failures have I had?",
-        "How many posts were skipped?",
-      ],
-      usedAccountData: true,
-      severity: "success",
     };
   }
 
