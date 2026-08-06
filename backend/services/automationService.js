@@ -58,6 +58,8 @@ boardId:
 selectionMode:
   row.selection_mode ||
   "least_recently_posted",
+    postingIntervalDays:
+      Math.max(Number(row.posting_interval_days) || 1, 1),
     repeatDelayDays:
       Number(row.repeat_delay_days) || 0,
     lastRunAt: row.last_run_at || null,
@@ -519,6 +521,7 @@ export async function createOrUpdateAutomation({
   platforms = [],
   facebookPageId = null,
   pinterestBoardId = null,
+  postingIntervalDays = 1,
   selectionMode = "least_recently_posted",
   repeatDelayDays = 30,
 }) {

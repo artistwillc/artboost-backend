@@ -1,7 +1,10 @@
 import supabase from "../lib/supabase.js";
 
 import {
+  calculateNextRun,
+  disableAutomation,
   getAutomationById,
+  updateAutomationRun,
 } from "./automationService.js";
 
 import {
@@ -345,6 +348,57 @@ async function createAutomationLog({
       error
     );
   }
+}
+
+function calculateFollowingRun(automation, fromDate = new Date()) {
+  if (automation.frequency === "one_time") {
+    return null;
+  }
+
+  return calculateNextRun({
+    frequency: automation.frequency || "daily",
+    postingTime: automation.posting_time ?? automation.postingTime ?? "09:00:00",
+    timezone: automation.timezone || "America/Chicago",
+    fromDate,
+  });
+}
+
+async function finalizeAutomationSchedule({
+  automation,
+  userId,
+  lastRunAt,
+  lastProductId = null,
+  lastError = null,
+}) {
+  if (automation.frequency === "one_time") {
+    await updateAutomationRun({
+      automationId: automation.id,
+      lastRunAt,
+      nextRunAt: null,
+      lastProductId,
+      lastError,
+    });
+
+    await disableAutomation({
+      automationId: automation.id,
+      userId,
+      reason: lastError,
+    });
+
+    return null;
+  }
+
+  const nextRunAt = calculateFollowingRun(automation, new Date(lastRunAt));
+
+  await updateAutomationRun({
+    automationId: automation.id,
+    lastRunAt,
+    nextRunAt,
+    lastProductId,
+    lastError,
+  });
+
+  return nextRunAt;
 }
 
 export async function runAutomation({
@@ -770,6 +824,14 @@ ${productLink}`,
         message,
     });
 
+    await finalizeAutomationSchedule({
+      automation,
+      userId,
+      lastRunAt: new Date().toISOString(),
+      lastProductId: product?.id ?? null,
+      lastError: message,
+    });
+
     throw error;
   }
 
@@ -783,27 +845,16 @@ ${productLink}`,
       userId,
     });
 
-    const {
-      error: updateError,
-    } = await supabase
-      .from("store_automations")
-      .update({
-        last_run_at:
-          new Date().toISOString(),
-        last_product_id:
-          product.id,
-      })
-      .eq(
-        "id",
-        automation.id
-      );
+    const runCompletedAt =
+      new Date().toISOString();
 
-    if (updateError) {
-      console.error(
-        "Failed to update automation last_run_at:",
-        updateError
-      );
-    }
+    await finalizeAutomationSchedule({
+      automation,
+      userId,
+      lastRunAt: runCompletedAt,
+      lastProductId: product.id,
+      lastError: null,
+    });
 
     const partialSuccess =
       Boolean(
@@ -832,6 +883,10 @@ ${productLink}`,
           : "The product posted successfully.",
     });
   } else {
+    const publishError =
+      publishResult?.error ||
+      "Publishing was unsuccessful.";
+
     await createAutomationLog({
       automationId:
         automation.id,
@@ -847,8 +902,15 @@ ${productLink}`,
       message:
         "The selected platforms did not confirm a successful post.",
       errorMessage:
-        publishResult?.error ||
-        "Publishing was unsuccessful.",
+        publishError,
+    });
+
+    await finalizeAutomationSchedule({
+      automation,
+      userId,
+      lastRunAt: new Date().toISOString(),
+      lastProductId: product?.id ?? null,
+      lastError: publishError,
     });
   }
 

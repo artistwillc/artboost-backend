@@ -4,6 +4,15 @@ import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import automationRoutes from "./routes/automations.js";
+import {
+  calculateNextRun,
+  getAutomationsReadyToRun,
+  getEnabledAutomations,
+  updateAutomationRun,
+} from "./services/automationService.js";
+import {
+  runAutomation as runStoreAutomation,
+} from "./services/automationRunner.js";
 import aiRouter from "./routes/ai.js";
 import etsyRoutes from "./routes/etsy.js";
 import redbubbleRoutes from "./routes/redbubble.js";
@@ -4957,6 +4966,110 @@ registerSocialPublishers({
   publishXPost,
 });
 
+let storeAutomationSchedulerRunning = false;
+
+async function repairMissingStoreAutomationDates() {
+  const enabledAutomations =
+    await getEnabledAutomations();
+
+  const missingDates = enabledAutomations.filter(
+    (automation) => !automation.nextRunAt
+  );
+
+  for (const automation of missingDates) {
+    try {
+      const nextRunAt = calculateNextRun({
+        frequency: automation.frequency || "daily",
+        postingTime: automation.postingTime || "09:00:00",
+        startDate: automation.startDate,
+        timezone: automation.timezone || "America/Chicago",
+        fromDate: new Date(),
+        initialSchedule: true,
+      });
+
+      await updateAutomationRun({
+        automationId: automation.id,
+        nextRunAt,
+        lastError: null,
+      });
+
+      console.log(
+        "Repaired missing store automation next run:",
+        automation.id,
+        nextRunAt
+      );
+    } catch (error) {
+      console.error(
+        "Unable to repair store automation schedule:",
+        automation.id,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+}
+
+async function runDueStoreAutomations() {
+  if (storeAutomationSchedulerRunning) {
+    console.log(
+      "Store automation scheduler skipped because the previous cycle is still running."
+    );
+    return;
+  }
+
+  storeAutomationSchedulerRunning = true;
+
+  try {
+    await repairMissingStoreAutomationDates();
+
+    const dueAutomations =
+      await getAutomationsReadyToRun({
+        now: new Date(),
+        limit: 25,
+      });
+
+    if (dueAutomations.length > 0) {
+      console.log(
+        `Store automation scheduler found ${dueAutomations.length} due automation(s).`
+      );
+    }
+
+    for (const automation of dueAutomations) {
+      try {
+        const result =
+          await runStoreAutomation({
+            automationId: automation.id,
+            userId: automation.userId,
+          });
+
+        console.log(
+          "Store automation completed:",
+          automation.id,
+          {
+            success: result?.success === true,
+            partialSuccess:
+              result?.partialSuccess === true,
+          }
+        );
+      } catch (error) {
+        console.error(
+          "Store automation failed:",
+          automation.id,
+          error instanceof Error
+            ? error.message
+            : error
+        );
+      }
+    }
+  } catch (error) {
+    console.error(
+      "Store automation scheduler cycle failed:",
+      error instanceof Error ? error.message : error
+    );
+  } finally {
+    storeAutomationSchedulerRunning = false;
+  }
+}
+
 async function runScheduledCampaigns() {
   const nowIso = new Date().toISOString();
 
@@ -5174,6 +5287,7 @@ async function expireFreeMonthSubscriptions() {
 }
 
 setInterval(runScheduledCampaigns, 60 * 1000);
+setInterval(runDueStoreAutomations, 60 * 1000);
 setInterval(expireFreeMonthSubscriptions, 60 * 60 * 1000);
 
 app.post("/generate", upload.single("image"), async (req, res) => {
@@ -7283,6 +7397,10 @@ app.listen(PORT, async () => {
 
   await loadFacebookConnection();
   await loadPinterestConnection();
+
+  // Run both schedulers immediately after Render starts.
+  void runScheduledCampaigns();
+  void runDueStoreAutomations();
 
   console.log(
     "Facebook saved connection loaded:",
