@@ -394,7 +394,7 @@ async function loadAccountContext(userId) {
         supabase
           .from("scheduled_campaigns")
           .select(
-            "id,title,platform,status,campaign_status,publish_at,next_run_at,error,posts,created_at,updated_at"
+            "id,user_id,platform,title,description,image_url,product_link,board_id,publish_at,status,published_at,error,created_at,updated_at,repeat_type,repeat_until,next_run_at,original_campaign_id,campaign_status,ended_at,views,clicks,posts,page_id,campaign_group_id,hashtags,cta"
           )
           .eq("user_id", userId)
           .order("created_at", { ascending: false })
@@ -473,6 +473,7 @@ async function loadAccountContext(userId) {
         }
       : null,
     products: safeArray(products),
+    scheduledCampaigns: safeArray(campaigns),
     summary: {
       connectedStoreCount: connectedStores.length,
       connectedStoreNames: storeNames,
@@ -884,6 +885,101 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: expired.length ? "warning" : "success",
+    };
+  }
+
+  // Scheduled campaign awareness.
+  if (/\b(?:campaign|campaigns)\b/.test(q)) {
+    const campaigns = safeArray(accountContext.scheduledCampaigns);
+    const now = Date.now();
+
+    const statusOf = (item) => cleanString(item?.status, 80).toLowerCase();
+    const lifecycleOf = (item) => cleanString(item?.campaign_status, 80).toLowerCase();
+    const isFailed = (item) =>
+      Boolean(cleanString(item?.error, 500)) ||
+      ["failed", "error"].includes(statusOf(item));
+    const isEnded = (item) =>
+      ["ended", "completed", "cancelled", "canceled", "inactive"].includes(lifecycleOf(item)) ||
+      Boolean(item?.ended_at);
+    const runTime = (item) => {
+      const raw = item?.next_run_at || item?.publish_at;
+      const time = raw ? new Date(raw).getTime() : NaN;
+      return Number.isFinite(time) ? time : null;
+    };
+    const isUpcoming = (item) => {
+      if (isFailed(item) || isEnded(item)) return false;
+      const next = item?.next_run_at ? new Date(item.next_run_at).getTime() : NaN;
+      const publish = item?.publish_at ? new Date(item.publish_at).getTime() : NaN;
+      if (Number.isFinite(next) && next >= now) return true;
+      if (statusOf(item) !== "published" && !item?.published_at &&
+          Number.isFinite(publish) && publish >= now) return true;
+      return false;
+    };
+
+    const upcoming = campaigns.filter(isUpcoming)
+      .sort((a,b)=>(runTime(a) ?? Infinity)-(runTime(b) ?? Infinity));
+    const failed = campaigns.filter(isFailed);
+
+    if (/\b(?:error|errors|failed|failure|problem|problems|issue|issues|attention)\b/.test(q)) {
+      const details = failed.map((item) => {
+        const title = cleanString(item?.title || "Untitled campaign", 140);
+        const platform = normalizePlatform(item?.platform);
+        const error = cleanString(item?.error, 240);
+        return `${title}${platform ? ` (${platform})` : ""}${error ? ` — ${error}` : ""}`;
+      });
+      return {
+        answer: failed.length === 0
+          ? "I do not currently see any scheduled campaigns with a recorded error."
+          : `You currently have ${failed.length} ${failed.length === 1 ? "campaign" : "campaigns"} with a recorded error: ${details.join("; ")}.`,
+        steps: [], actions: action("open_campaign_manager"),
+        followUps: ["How many scheduled campaigns do I currently have?","What campaign is scheduled to run next?"],
+        usedAccountData: true, severity: failed.length ? "warning" : "success",
+      };
+    }
+
+    if (/\b(?:next|when|upcoming|soonest|run next|publish next)\b/.test(q)) {
+      const next = upcoming[0];
+      if (!next) return {
+        answer: "You do not currently have an upcoming scheduled campaign.",
+        steps: [], actions: action("open_campaign_manager"),
+        followUps: ["How many scheduled campaigns do I currently have?","Do any of my campaigns have errors?"],
+        usedAccountData: true, severity: "info",
+      };
+      const title = cleanString(next?.title || "Untitled campaign",160);
+      const platform = normalizePlatform(next?.platform);
+      const formatted = formatAutomationTime(next?.next_run_at || next?.publish_at,"America/Chicago");
+      return {
+        answer: `Your next scheduled campaign is "${title}"${platform ? ` for ${platform}` : ""}${formatted ? ` on ${formatted}` : ""}.`,
+        steps: [], actions: action("open_campaign_manager"),
+        followUps: ["Which platforms are my campaigns scheduled for?","Do any of my campaigns have errors?"],
+        usedAccountData: true, severity: "success",
+      };
+    }
+
+    if (/\b(?:platform|platforms|post to|posting to|publish to|publishing to)\b/.test(q)) {
+      const source = upcoming.length ? upcoming : campaigns.filter((item)=>!isEnded(item));
+      const counts = new Map();
+      for (const item of source) {
+        const platform = normalizePlatform(item?.platform);
+        if (platform) counts.set(platform,(counts.get(platform)||0)+1);
+      }
+      const details=[...counts.entries()].map(([p,c])=>`${p} (${c})`);
+      return {
+        answer: details.length ? `Your campaigns are scheduled across: ${details.join(", ")}.` :
+          "I do not currently see any campaign platforms to report.",
+        steps: [], actions: action("open_campaign_manager"),
+        followUps: ["What campaign is scheduled to run next?","Do any of my campaigns have errors?"],
+        usedAccountData: true, severity: "success",
+      };
+    }
+
+    return {
+      answer: upcoming.length === 0
+        ? "You currently have no upcoming scheduled campaigns."
+        : `You currently have ${upcoming.length} upcoming scheduled ${upcoming.length === 1 ? "campaign" : "campaigns"}.`,
+      steps: [], actions: action("open_campaign_manager"),
+      followUps: ["What campaign is scheduled to run next?","Which platforms are my campaigns scheduled for?","Do any of my campaigns have errors?"],
+      usedAccountData: true, severity: "success",
     };
   }
 
