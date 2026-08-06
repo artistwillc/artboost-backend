@@ -73,45 +73,32 @@ async function verifyRequestUser(req) {
 }
 
 async function loadAutomations(userId) {
-  const candidates = [
-    {
-      table: "store_automations",
-      select:
-        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
-    },
-    {
-      table: "automations",
-      select:
-        "id,user_id,store_id,store_name,store_type,enabled,status,next_run_at,last_run_at,last_error,platforms,updated_at",
-    },
-  ];
+  try {
+    const { data, error } = await supabase
+      .from("store_automations")
+      .select(
+        "id,user_id,store_id,store_name,store_type,automation_name,enabled,frequency,posting_time,timezone,next_run_at,last_run_at,last_error,platforms,updated_at"
+      )
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(40);
 
-  for (const candidate of candidates) {
-    try {
-      const { data, error } = await supabase
-        .from(candidate.table)
-        .select(candidate.select)
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(40);
-
-      if (!error) {
-        return { table: candidate.table, rows: data || [] };
-      }
-
+    if (error) {
       console.log(
-        `AI assistant automation table ${candidate.table} unavailable:`,
+        "AI assistant store_automations context unavailable:",
         error.message
       );
-    } catch (error) {
-      console.log(
-        `AI assistant automation table ${candidate.table} failed:`,
-        error?.message || error
-      );
+      return { table: null, rows: [] };
     }
-  }
 
-  return { table: null, rows: [] };
+    return { table: "store_automations", rows: data || [] };
+  } catch (error) {
+    console.log(
+      "AI assistant store_automations context failed:",
+      error?.message || error
+    );
+    return { table: null, rows: [] };
+  }
 }
 
 function isExpired(value) {
@@ -250,12 +237,10 @@ async function loadAccountContext(userId) {
     (campaign) => campaign?.campaign_status === "active"
   );
   const activeAutomations = automations.filter(
-    (automation) =>
-      automation?.enabled === true || automation?.status === "active"
+    (automation) => automation?.enabled === true
   );
   const failedAutomations = automations.filter(
-    (automation) =>
-      cleanString(automation?.last_error) || automation?.status === "failed"
+    (automation) => Boolean(cleanString(automation?.last_error))
   );
   const unpromotedProducts = safeArray(products).filter(
     (product) => Number(product?.times_posted || 0) === 0
@@ -362,6 +347,52 @@ function extractJson(text) {
   }
 
   return JSON.parse(match[0]);
+}
+
+
+function buildFallbackAssistantResponse(question, accountContext) {
+  const q = cleanString(question, 1200).toLowerCase();
+  const summary = accountContext?.summary || {};
+
+  if (/social platform|connected platform|publishing account|facebook|instagram|pinterest|\bx\b/.test(q)) {
+    const names = safeArray(summary.connectedPlatformNames);
+    const expiredCount = Number(summary.expiredPlatformCount || 0);
+
+    return {
+      answer: names.length
+        ? `You currently have ${names.length} connected social platform${names.length === 1 ? "" : "s"}: ${names.join(", ")}.${expiredCount > 0 ? ` ${expiredCount} connection${expiredCount === 1 ? " is" : "s are"} expired and should be reconnected.` : ""}`
+        : "I do not currently see any connected social publishing platforms on your ArtBoost account.",
+      steps: [],
+      actions: [{ id: "open_connections" }],
+      followUps: ["Do any of my social connections need attention?"],
+      usedAccountData: accountContext?.authenticated === true,
+      severity: expiredCount > 0 ? "warning" : "info",
+    };
+  }
+
+  if (/how many stores|connected stores|what stores/.test(q)) {
+    const names = safeArray(summary.connectedStoreNames);
+    return {
+      answer: names.length
+        ? `You currently have ${names.length} connected store${names.length === 1 ? "" : "s"}: ${names.join(", ")}.`
+        : "I do not currently see any connected stores on your ArtBoost account.",
+      steps: [],
+      actions: [{ id: "open_connections" }, { id: "open_library" }],
+      followUps: ["How many products are in my Library?"],
+      usedAccountData: accountContext?.authenticated === true,
+      severity: "info",
+    };
+  }
+
+  return {
+    answer:
+      "I could not format the live AI response correctly, but your ArtBoost account data loaded successfully. Please try the question again.",
+    steps: [],
+    actions: inferActions(question),
+    followUps: [],
+    usedAccountData: false,
+    severity: "warning",
+  };
 }
 
 function validateActions(actions) {
@@ -504,7 +535,20 @@ ${JSON.stringify(accountContext)}`,
       ],
     });
 
-    const parsed = extractJson(response.output_text);
+    let parsed;
+
+    try {
+      parsed = extractJson(response.output_text);
+    } catch (parseError) {
+      console.log(
+        "AI assistant response parsing failed:",
+        parseError?.message || parseError,
+        "Output preview:",
+        cleanString(response.output_text, 500)
+      );
+      parsed = buildFallbackAssistantResponse(question, accountContext);
+    }
+
     const aiActions = validateActions(parsed?.actions);
     const inferredActions = inferActions(question);
 
