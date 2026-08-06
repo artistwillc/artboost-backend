@@ -1469,14 +1469,47 @@ function deterministicAccountAnswer(question, accountContext) {
     };
   }
 
-  // Subscription/account plan.
+  // Subscription plan features. Keep this intent BEFORE the generic plan/status
+  // handler so questions such as "What features are included in my plan?" do
+  // not collapse into the tier/status answer.
+  if (
+    accountContext.profile &&
+    /\b(feature|features|include|included|includes|access|benefit|benefits|come with|what can i do)\b/.test(q) &&
+    /\b(subscription|plan|tier|pro)\b/.test(q)
+  ) {
+    const tier = cleanString(accountContext.profile.subscriptionTier || "free", 80);
+    const status = cleanString(accountContext.profile.subscriptionStatus || "unknown", 80);
+    const normalizedTier = tier.toLowerCase();
+
+    if (normalizedTier === "pro") {
+      return {
+        answer: `Your ArtBoost Pro plan is ${status}. Pro includes paid Pro access such as direct social posting and scheduled reposting, along with the Pro features available throughout ArtBoost.`,
+        steps: [],
+        actions: action("open_subscription"),
+        followUps: ["What ArtBoost subscription plan am I currently on?", "What can I do with Campaign Manager?"],
+        usedAccountData: true,
+        severity: status === "active" ? "success" : "info",
+      };
+    }
+
+    return {
+      answer: `Your current ArtBoost subscription tier is ${tier}, and its status is ${status}. Open Subscription to review the features currently available with this plan.`,
+      steps: [],
+      actions: action("open_subscription"),
+      followUps: ["What ArtBoost subscription plan am I currently on?"],
+      usedAccountData: true,
+      severity: status === "active" ? "success" : "info",
+    };
+  }
+
+  // Subscription/account plan identity and status.
   if (/\b(subscription|plan|tier|billing)\b/.test(q) && accountContext.profile) {
     const tier = cleanString(accountContext.profile.subscriptionTier || "free", 80);
     const status = cleanString(accountContext.profile.subscriptionStatus || "unknown", 80);
     return {
       answer: `Your current ArtBoost subscription tier is ${tier}, and its status is ${status}.`,
       steps: [],
-      actions: [],
+      actions: action("open_subscription"),
       followUps: ["What features are included in my plan?"],
       usedAccountData: true,
       severity: status === "active" ? "success" : "info",
