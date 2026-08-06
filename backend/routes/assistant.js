@@ -972,6 +972,50 @@ function deterministicAccountAnswer(question, accountContext) {
     };
   }
 
+  // Product posting history.
+  if (
+    /\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    /\b(?:never|not|unposted)\b/.test(q) &&
+    /\b(?:post|posted|posting|promoted)\b/.test(q)
+  ) {
+    const total = Number(summary.productCount || 0);
+    const unposted = Number(summary.unpromotedProductCount || 0);
+
+    return {
+      answer: `You currently have ${unposted} ${unposted === 1 ? "product" : "products"} that ${unposted === 1 ? "has" : "have"} never been posted.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: [
+        "How many products have been posted?",
+        "Which stores have products imported?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  if (
+    /\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    /\b(?:post|posted|posting|promoted)\b/.test(q) &&
+    !/\b(?:never|not|unposted)\b/.test(q)
+  ) {
+    const total = Number(summary.productCount || 0);
+    const unposted = Number(summary.unpromotedProductCount || 0);
+    const posted = Math.max(0, total - unposted);
+
+    return {
+      answer: `You currently have ${posted} ${posted === 1 ? "product" : "products"} that ${posted === 1 ? "has" : "have"} been posted at least once. ${unposted} ${unposted === 1 ? "product has" : "products have"} never been posted.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: [
+        "How many products have never been posted?",
+        "Which stores have products imported?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
   // Product totals.
   if (
     /\b(product|products|artwork|artworks|listing|listings)\b/.test(q) &&
