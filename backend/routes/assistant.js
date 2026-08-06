@@ -1347,6 +1347,27 @@ function deterministicAccountAnswer(question, accountContext) {
     };
   }
 
+  // Creator Tools capability/help questions.
+  // Handle these deterministically so the answer does not depend on the live AI provider.
+  if (
+    /\b(?:creator tool|creator tools|tools for creators|art tools|business tools)\b/.test(q) &&
+    /\b(?:what|which|available|include|included|do|use|help|features|list|show)\b/.test(q)
+  ) {
+    return {
+      answer:
+        "ArtBoost Creator Tools include the AI Title Generator, AI Description Generator, AI Hashtag Generator, AI CTA Generator, Art Pricing Calculator, POD Profit Calculator, Collection Builder, AI Store Critique, Trending Artwork Ideas, Holiday Marketing Calendar, Opportunity Scanner, and AI Business Coach.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: [
+        "What does the AI Title Generator do?",
+        "How does the Art Pricing Calculator work?",
+        "What can the AI Business Coach help me with?",
+      ],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
   // Imported products grouped by store.
   if (
     /\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
