@@ -28,6 +28,7 @@ type RecommendationCardProps = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   value: string;
+  onPress: () => void;
 };
 
 const ARTWORK_TYPES = [
@@ -173,6 +174,13 @@ export default function BrandScreen() {
   const [previewVisible, setPreviewVisible] =
     useState(false);
 
+  const [selectedRecommendation, setSelectedRecommendation] =
+    useState<{
+      title: string;
+      value: string;
+      icon: keyof typeof Ionicons.glyphMap;
+    } | null>(null);
+
   const [wizardStep, setWizardStep] =
     useState(1);
 
@@ -246,6 +254,31 @@ export default function BrandScreen() {
     defaultHashtags,
     avoidWords,
   ]);
+
+  const marketingScore = useMemo(() => {
+    const recommendationBonus = [
+      recommendedPlatforms,
+      recommendedSchedule,
+      recommendedAutomation,
+      recommendedCampaigns,
+    ].filter(value => value.trim()).length * 5;
+
+    return Math.min(100, profileCompletion + recommendationBonus);
+  }, [
+    profileCompletion,
+    recommendedPlatforms,
+    recommendedSchedule,
+    recommendedAutomation,
+    recommendedCampaigns,
+  ]);
+
+  const openRecommendation = (
+    title: string,
+    value: string,
+    icon: keyof typeof Ionicons.glyphMap
+  ) => {
+    setSelectedRecommendation({ title, value, icon });
+  };
 
   const loadBrand = async () => {
     try {
@@ -757,22 +790,41 @@ export default function BrandScreen() {
           </View>
         </View>
 
-        <View style={styles.completionCard}>
-          <View style={styles.completionTopRow}>
+        <View style={styles.snapshotCard}>
+          <View style={styles.snapshotHeader}>
             <View>
-              <Text style={styles.completionTitle}>
-                Marketing Profile
-              </Text>
-
-              <Text style={styles.completionSubtitle}>
-                {profileCompletion}% complete
-              </Text>
+              <Text style={styles.snapshotEyebrow}>BUSINESS SNAPSHOT</Text>
+              <Text style={styles.snapshotTitle}>Marketing readiness</Text>
             </View>
 
-            <View style={styles.scoreCircle}>
-              <Text style={styles.scoreText}>
-                {profileCompletion}%
+            <View style={styles.marketingScoreCircle}>
+              <Text style={styles.marketingScoreValue}>{marketingScore}</Text>
+              <Text style={styles.marketingScoreLabel}>SCORE</Text>
+            </View>
+          </View>
+
+          <View style={styles.snapshotMetrics}>
+            <View style={styles.snapshotMetric}>
+              <Text style={styles.snapshotMetricValue}>{profileCompletion}%</Text>
+              <Text style={styles.snapshotMetricLabel}>Profile complete</Text>
+            </View>
+
+            <View style={styles.snapshotDivider} />
+
+            <View style={styles.snapshotMetric}>
+              <Text style={styles.snapshotMetricValue}>
+                {[recommendedPlatforms, recommendedSchedule, recommendedAutomation, recommendedCampaigns].filter(Boolean).length}/4
               </Text>
+              <Text style={styles.snapshotMetricLabel}>Strategies ready</Text>
+            </View>
+
+            <View style={styles.snapshotDivider} />
+
+            <View style={styles.snapshotMetric}>
+              <Text style={styles.snapshotMetricValue}>
+                {hasMarketingProfile ? "Ready" : "Start"}
+              </Text>
+              <Text style={styles.snapshotMetricLabel}>Consultant status</Text>
             </View>
           </View>
 
@@ -780,9 +832,7 @@ export default function BrandScreen() {
             <View
               style={[
                 styles.progressFill,
-                {
-                  width: `${profileCompletion}%`,
-                },
+                { width: `${profileCompletion}%` },
               ]}
             />
           </View>
@@ -903,6 +953,14 @@ export default function BrandScreen() {
               recommendedPlatforms ||
               "Generate your marketing profile to receive platform recommendations."
             }
+            onPress={() =>
+              openRecommendation(
+                "Recommended Platforms",
+                recommendedPlatforms ||
+                  "Generate your marketing profile to receive platform recommendations.",
+                "share-social-outline"
+              )
+            }
           />
 
           <RecommendationCard
@@ -911,6 +969,14 @@ export default function BrandScreen() {
             value={
               recommendedSchedule ||
               "Generate your marketing profile to receive a posting recommendation."
+            }
+            onPress={() =>
+              openRecommendation(
+                "Recommended Posting Schedule",
+                recommendedSchedule ||
+                  "Generate your marketing profile to receive a posting recommendation.",
+                "calendar-outline"
+              )
             }
           />
 
@@ -921,6 +987,14 @@ export default function BrandScreen() {
               recommendedAutomation ||
               "Generate your marketing profile to receive an automation strategy."
             }
+            onPress={() =>
+              openRecommendation(
+                "Recommended Automation",
+                recommendedAutomation ||
+                  "Generate your marketing profile to receive an automation strategy.",
+                "repeat-outline"
+              )
+            }
           />
 
           <RecommendationCard
@@ -929,6 +1003,14 @@ export default function BrandScreen() {
             value={
               recommendedCampaigns ||
               "Generate your marketing profile to receive campaign ideas."
+            }
+            onPress={() =>
+              openRecommendation(
+                "Campaign Ideas",
+                recommendedCampaigns ||
+                  "Generate your marketing profile to receive campaign ideas.",
+                "megaphone-outline"
+              )
             }
           />
         </View>
@@ -1344,6 +1426,54 @@ export default function BrandScreen() {
       </Modal>
 
       <Modal
+        visible={Boolean(selectedRecommendation)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setSelectedRecommendation(null)}
+      >
+        <View style={styles.previewOverlay}>
+          <View style={styles.recommendationModal}>
+            <View style={styles.recommendationModalHeader}>
+              <View style={styles.recommendationModalIcon}>
+                <Ionicons
+                  name={selectedRecommendation?.icon || "sparkles-outline"}
+                  size={25}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.recommendationModalTitleWrap}>
+                <Text style={styles.recommendationModalEyebrow}>AI RECOMMENDATION</Text>
+                <Text style={styles.recommendationModalTitle}>
+                  {selectedRecommendation?.title}
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.previewCloseButton}
+                onPress={() => setSelectedRecommendation(null)}
+              >
+                <Ionicons name="close" size={23} color="#ffffff" />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.recommendationModalText}>
+                {selectedRecommendation?.value}
+              </Text>
+
+              <View style={styles.actionPlanCard}>
+                <Text style={styles.actionPlanTitle}>How to use this</Text>
+                <Text style={styles.actionPlanText}>
+                  Apply this recommendation when creating campaigns, choosing automation settings, and planning your weekly marketing. Update your profile whenever your audience, catalog, or goals change.
+                </Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={previewVisible}
         animationType="fade"
         transparent
@@ -1537,9 +1667,18 @@ function RecommendationCard({
   icon,
   title,
   value,
+  onPress,
 }: RecommendationCardProps) {
   return (
-    <View style={styles.recommendationCard}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.recommendationCard,
+        pressed && styles.recommendationCardPressed,
+      ]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${title}`}
+    >
       <View style={styles.recommendationIcon}>
         <Ionicons
           name={icon}
@@ -1549,19 +1688,21 @@ function RecommendationCard({
       </View>
 
       <View style={styles.recommendationTextWrap}>
-        <Text
-          style={styles.recommendationTitle}
-        >
+        <Text style={styles.recommendationTitle}>
           {title}
         </Text>
 
-        <Text
-          style={styles.recommendationValue}
-        >
+        <Text style={styles.recommendationValue} numberOfLines={2}>
           {value}
         </Text>
       </View>
-    </View>
+
+      <Ionicons
+        name="chevron-forward"
+        size={20}
+        color="#8b5cf6"
+      />
+    </Pressable>
   );
 }
 
@@ -1675,6 +1816,91 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 19,
     marginTop: 6,
+  },
+
+  snapshotCard: {
+    backgroundColor: "#171719",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#343038",
+    padding: 18,
+    marginBottom: 16,
+  },
+
+  snapshotHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  snapshotEyebrow: {
+    color: "#a78bfa",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+  },
+
+  snapshotTitle: {
+    color: "#ffffff",
+    fontSize: 19,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+
+  marketingScoreCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#2c1f47",
+    borderWidth: 1,
+    borderColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  marketingScoreValue: {
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "900",
+  },
+
+  marketingScoreLabel: {
+    color: "#c4b5fd",
+    fontSize: 8,
+    fontWeight: "900",
+    marginTop: 1,
+  },
+
+  snapshotMetrics: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 18,
+    marginBottom: 16,
+  },
+
+  snapshotMetric: {
+    flex: 1,
+    alignItems: "center",
+  },
+
+  snapshotMetricValue: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  snapshotMetricLabel: {
+    color: "#88888f",
+    fontSize: 9,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 4,
+  },
+
+  snapshotDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: "#343438",
   },
 
   completionCard: {
@@ -2216,6 +2442,83 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 13,
     fontWeight: "900",
+  },
+
+  recommendationCardPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.99 }],
+  },
+
+  recommendationModal: {
+    width: "88%",
+    maxHeight: "72%",
+    backgroundColor: "#171719",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#49336f",
+    padding: 18,
+  },
+
+  recommendationModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+
+  recommendationModalIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  recommendationModalTitleWrap: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+
+  recommendationModalEyebrow: {
+    color: "#a78bfa",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+
+  recommendationModalTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+
+  recommendationModalText: {
+    color: "#dddddf",
+    fontSize: 14,
+    lineHeight: 22,
+  },
+
+  actionPlanCard: {
+    marginTop: 18,
+    borderRadius: 16,
+    backgroundColor: "#201a2e",
+    borderWidth: 1,
+    borderColor: "#3f3159",
+    padding: 15,
+  },
+
+  actionPlanTitle: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  actionPlanText: {
+    color: "#b9b1c7",
+    fontSize: 12,
+    lineHeight: 19,
+    marginTop: 6,
   },
 
   previewOverlay: {

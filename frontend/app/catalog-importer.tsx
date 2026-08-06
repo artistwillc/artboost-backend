@@ -302,6 +302,17 @@ export default function CatalogImporterScreen() {
   });
 }
 
+function openAIStoreScanner() {
+  router.push({
+    pathname: "/ai-store-scanner" as any,
+    params: {
+      storeId,
+      storeName,
+      storeType,
+    },
+  });
+}
+
   function showCsvComingSoon() {
     Alert.alert(
       "CSV Catalog Import",
@@ -450,6 +461,13 @@ export default function CatalogImporterScreen() {
         <Text style={styles.advancedLabel}>
           Advanced Import Options
         </Text>
+
+        <ImportOption
+  icon="sparkles-outline"
+  title="AI Universal Scanner"
+  description="Scan any storefront displayed in ArtBoost and import detected artwork."
+  onPress={openAIStoreScanner}
+/>
 
         <ImportOption
           icon="link-outline"

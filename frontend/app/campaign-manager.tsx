@@ -1,9 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import React, { useCallback, useEffect, useState } from "react";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   Alert,
   Image,
@@ -1554,671 +1555,307 @@ useFocusEffect(
   }, [session?.user?.id]);
  
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>Campaign Manager</Text>
- 
-      <Text style={styles.subheader}>Create, schedule, publish, and manage campaigns.</Text>
- 
-      <View style={styles.heroBox}>
-        <Text style={styles.heroTitle}>Creator Automation</Text>
- 
-        <Text style={styles.heroText}>
-          Generate campaigns, auto-publish content, schedule posts, and
-          streamline your creator workflow.
-        </Text>
-      </View>
- 
-      <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Account Status</Text>
- 
-        <Text style={styles.heroText}>
-  {session?.user?.email
-    ? `Signed in as ${session.user.email}`
-    : "You are not signed in. Log in on the main screen before upgrading."}
-</Text>
-
-<Text style={styles.heroText}>
-  Plan: {(profile?.subscription_tier || "free").toUpperCase()}
-</Text>
-
-<Text style={styles.heroText}>
-  Campaigns Used This Month: {profile?.monthly_campaign_count || 0}
-</Text>
-
-<Text style={styles.heroText}>
-  Campaigns Remaining: {
-    profile?.subscription_tier === "pro"
-      ? "Unlimited"
-      : `${Math.max(
-          0,
-          5 - (profile?.monthly_campaign_count || 0)
-        )} of 5`
-  }
-</Text>
-
-<View
-  style={
-    profile?.subscription_tier === "pro"
-      ? styles.proActiveBadge
-      : styles.freeBadge
-  }
->
-          <Text style={styles.badgeText}>
-            {profile?.subscription_tier === "pro" ? "PRO ACTIVE" : "FREE ACCOUNT"}
-          </Text>
-        </View>
- 
-        <Pressable
-
-  style={styles.smallRefreshButton}
-
-  onPress={() => {
-
-  loadSession();
-
-  loadFacebookStatus();
-
-  loadFacebookPages();
-
-}}
-
->
-
-  <Text style={styles.smallRefreshText}>
-
-    {syncingSubscription
-
-      ? "Syncing Subscription..."
-
-      : "Refresh Connections"}
-
-  </Text>
-
-</Pressable>
- 
-        {profile?.subscription_tier === "pro" && (
-          <Pressable
-            style={styles.billingButton}
-            onPress={openBillingPortal}
-            disabled={openingBilling}
-          >
-            <Text style={styles.billingButtonText}>
-              {openingBilling ? "Opening Billing..." : "Manage Subscription"}
-            </Text>
-          </Pressable>
-        )}
-      </View>
-
-      <View style={styles.card}>
-  <Text style={styles.sectionHeader}>Referral Rewards</Text>
-
-  <Text style={styles.heroText}>
-    Share your referral code and earn up to 3 free months when new users join ArtBoost AI.
-  </Text>
-
-  <Text style={styles.heroText}>
-  Successful referrals earn 1 free month each, up to a maximum of 3 free months.
-</Text>
-
-  <View style={styles.queueCard}>
-    <Text style={styles.queueTitle}>Your Referral Code</Text>
-
-    <Text style={styles.queueText}>
-  Successful Referrals: {profile?.referral_count || 0}
-</Text>
-
-    <Text style={styles.queueText}>
-      {profile?.referral_code || "Loading..."}
-    </Text>
-
-    <Text style={styles.queueText}>
-      Free Months Earned: {profile?.free_months || 0}
-    </Text>
-
-    <Pressable
-      style={styles.smallRefreshButton}
-      onPress={copyReferralCode}
+    <ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.smallRefreshText}>Copy Referral Code</Text>
-    </Pressable>
-  </View>
-
-  {profile?.subscription_tier !== "pro" &&
- !profile?.referral_used && (
-    <>
-      <Text style={styles.label}>Enter Referral Code</Text>
-
-      <TextInput
-        style={styles.input}
-        value={referralInput}
-        onChangeText={setReferralInput}
-        placeholder="Example: ARTISTWILL"
-        placeholderTextColor="#777"
-        autoCapitalize="characters"
-      />
-
-      <Pressable
-        style={styles.upgradeButton}
-        onPress={applyReferralCode}
-        disabled={applyingReferral}
-      >
-        <Text style={styles.publishText}>
-          {applyingReferral ? "Applying..." : "Apply Referral Code"}
-        </Text>
-      </Pressable>
-    </>
-  )}
-
-  {profile?.referral_used && (
-    <Text style={styles.helperText}>
-      Referral code already applied to this account.
-    </Text>
-  )}
-</View>
- 
-      {profile?.subscription_tier !== "pro" && (
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>Upgrade to ArtBoost AI Pro</Text>
- 
-          <Text style={styles.heroText}>
-            Unlock premium automation tools, advanced AI variations, scheduling,
-            and multi-platform creator workflows.
-          </Text>
- 
-          <Pressable
-            style={styles.upgradeButton}
-            disabled={checkingOut}
-            onPress={() => startStripeCheckout("monthly")}
-          >
-            <Text style={styles.publishText}>
-              {checkingOut ? "Opening Checkout..." : "Start Pro Monthly - $14.99/mo"}
-            </Text>
-          </Pressable>
- 
-          <Pressable
-            style={styles.yearlyButton}
-            disabled={checkingOut}
-            onPress={() => startStripeCheckout("yearly")}
-          >
-            <Text style={styles.publishText}>
-              {checkingOut ? "Opening Checkout..." : "Start Pro Yearly - $149/yr"}
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-<View style={styles.card}>
-
-<Text style={styles.sectionHeader}>
-Connected Accounts
-</Text>
-
-<View style={styles.queueCard}>
-
-<Text style={styles.queueTitle}>
-Pinterest
-</Text>
-
-<Text style={styles.queueText}>
-🟢 Connected
-</Text>
-
-</View>
-
-<View style={styles.queueCard}>
-
-<Text style={styles.queueTitle}>
-Facebook
-</Text>
-
-<Text style={styles.queueText}>
-
-{facebookConnected
-? "🟢 Connected"
-: "⚪ Not Connected"}
-
-</Text>
-
-{facebookConnectedAt ? (
-
-<Text style={styles.queueText}>
-
-Connected:
-
-{" "}
-
-{new Date(
-facebookConnectedAt
-).toLocaleString()}
-
-</Text>
-
-) : null}
-
-<Text style={styles.label}>Choose Facebook Page</Text>
-
-{facebookPages.length > 0 ? (
-  facebookPages.map((page: any) => (
-    <Pressable
-      key={page.id}
-      style={[
-        styles.boardButton,
-        selectedFacebookPage === page.id && styles.boardSelected,
-      ]}
-      onPress={() => setSelectedFacebookPage(page.id)}
-    >
-      <Text style={styles.boardText}>{page.name}</Text>
-    </Pressable>
-  ))
-) : (
-  <Text style={styles.boardError}>
-    No Facebook Pages loaded. Refresh connections or reconnect Facebook.
-  </Text>
-)}
-
-</View>
-
-</View>
-
-<View style={styles.card}>
-
-<Text style={styles.sectionHeader}>
-Create Campaign
-</Text>
-
-<Text style={styles.heroText}>
-  Choose where ArtBoost should publish this campaign.
-</Text>
-
-<Pressable
-
-style={[
-
-styles.boardButton,
-
-selectedPlatform ===
-"Pinterest"
-
-&& styles.boardSelected,
-
-]}
-
-onPress={() =>
-
-setSelectedPlatform(
-
-"Pinterest"
-
-)}
-
->
-
-<Text style={styles.boardText}>
-Pinterest
-</Text>
-
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "Facebook" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("Facebook")
-  }
->
-  <Text style={styles.boardText}>
-    Facebook
-  </Text>
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "Instagram" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("Instagram")
-  }
->
-  <Text style={styles.boardText}>
-    Instagram
-  </Text>
-</Pressable>
-
-<Pressable
-  style={[
-    styles.boardButton,
-    selectedPlatform === "X" &&
-      styles.boardSelected,
-  ]}
-  onPress={() =>
-    setSelectedPlatform("X")
-  }
->
-  <Text style={styles.boardText}>
-    X
-  </Text>
-</Pressable>
-
-</View>
- 
-      <View style={styles.automationGrid}>
+      <View style={styles.titleRow}>
         <Pressable
-          style={styles.automationCard}
-          onPress={postEverywhere}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)");
+            }
+          }}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
-          <Text style={styles.automationTitle}>
-  Post Everywhere Now
-</Text>
-
-<Text style={styles.automationText}>
-  Publish this campaign now across all available connected platforms.
-</Text>
-        </Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={saveScheduledCampaign}>
-          <Text style={styles.automationTitle}>
-  Schedule This Platform
-</Text>
-
-<Text style={styles.automationText}>
-  Choose a date and time to publish on the selected platform.
-</Text>
+          <Ionicons name="arrow-back" size={23} color="#ffffff" />
         </Pressable>
 
-        <Pressable
-  style={styles.automationCard}
-  onPress={scheduleEverywhere}
->
-  <Text style={styles.automationTitle}>
-  Schedule Everywhere
-</Text>
-
-<Text style={styles.automationText}>
-  Schedule this campaign across all available connected platforms.
-</Text>
-</Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={generateVariations}>
-          <Text style={styles.automationTitle}>
-  Generate More Versions
-</Text>
-
-<Text style={styles.automationText}>
-  {loadingVariations
-    ? "Creating new AI versions..."
-    : "Create more title, description, and caption options."}
-</Text>
-        </Pressable>
- 
-        <Pressable style={styles.automationCard} onPress={loadScheduledCampaigns}>
-          <Text style={styles.automationTitle}>
-  Campaign Status
-</Text>
-
-<Text style={styles.automationText}>
-  {loadingQueue
-    ? "Refreshing campaign status..."
-    : "View scheduled, published, paused, and failed campaigns."}
-</Text>
-        </Pressable>
-      </View>
- 
-      {variations.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.sectionHeader}>AI Variations</Text>
- 
-          {variations.map((item, index) => (
-            <View key={`${item.title}-${index}`} style={styles.variationCard}>
-              <Text style={styles.variationStyle}>{item.style}</Text>
-              <Text style={styles.variationTitle}>{item.title}</Text>
-              <Text style={styles.variationDescription}>{item.description}</Text>
- 
-              <Pressable
-                style={styles.copyButton}
-                onPress={() => copyVariation(item.title, item.description)}
-              >
-                <Text style={styles.copyButtonText}>Copy Variation</Text>
-              </Pressable>
- 
-              <Pressable
-                style={styles.useButton}
-                onPress={() => useVariation(item.title, item.description)}
-              >
-                <Text style={styles.copyButtonText}>Use This Version</Text>
-              </Pressable>
-            </View>
-          ))}
+        <View style={styles.titleCopy}>
+          <Text style={styles.header}>Campaign Manager</Text>
+          <Text style={styles.subheader}>
+            Create, schedule, and publish your artwork.
+          </Text>
         </View>
-      )}
- 
-      {previewImage ? (
-        <Image source={{ uri: previewImage }} style={styles.preview} />
+      </View>
+
+      {previewImage || imageUrl ? (
+        <View style={styles.artworkCard}>
+          <Image
+            source={{ uri: previewImage || imageUrl }}
+            style={styles.heroImage}
+            resizeMode="cover"
+          />
+          <View style={styles.artworkMeta}>
+            <Text style={styles.artworkLabel}>Selected artwork</Text>
+            <Text style={styles.artworkTitle} numberOfLines={2}>
+              {title || "Untitled campaign"}
+            </Text>
+            {productLink ? (
+              <Pressable
+                style={styles.linkButton}
+                onPress={() => Linking.openURL(cleanUrl(productLink))}
+              >
+                <Ionicons name="open-outline" size={16} color="#ffffff" />
+                <Text style={styles.linkButtonText}>View product</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
       ) : null}
- 
+
+      <View style={styles.card}>
+        <Text style={styles.sectionHeader}>Publish to</Text>
+        <Text style={styles.sectionHint}>
+          Select the platform for this campaign.
+        </Text>
+
+        <View style={styles.platformGrid}>
+          {(["Pinterest", "Facebook", "Instagram", "X"] as const).map(
+            (platform) => (
+              <Pressable
+                key={platform}
+                style={[
+                  styles.platformButton,
+                  selectedPlatform === platform && styles.platformButtonActive,
+                ]}
+                onPress={() => setSelectedPlatform(platform)}
+              >
+                <Ionicons
+                  name={
+                    platform === "Pinterest"
+                      ? "logo-pinterest"
+                      : platform === "Facebook"
+                      ? "logo-facebook"
+                      : platform === "Instagram"
+                      ? "logo-instagram"
+                      : "logo-twitter"
+                  }
+                  size={18}
+                  color={selectedPlatform === platform ? "#ffffff" : "#b7b7b7"}
+                />
+                <Text
+                  style={[
+                    styles.platformButtonText,
+                    selectedPlatform === platform &&
+                      styles.platformButtonTextActive,
+                  ]}
+                >
+                  {platform}
+                </Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      </View>
+
       {selectedPlatform === "Pinterest" && (
-  <View style={styles.card}>
-    <Text style={styles.sectionHeader}>
-      Pinterest Publishing
-    </Text>
+        <View style={styles.card}>
+          <View style={styles.sectionRow}>
+            <View style={styles.sectionRowText}>
+              <Text style={styles.sectionHeader}>Pinterest board</Text>
+              <Text style={styles.sectionHint}>Choose where this pin will publish.</Text>
+            </View>
+            <Pressable style={styles.iconButton} onPress={loadBoards}>
+              <Ionicons name="refresh" size={18} color="#ffffff" />
+            </Pressable>
+          </View>
 
-    <View style={styles.boardHeaderRow}>
-      <Text style={styles.label}>
-        Pinterest Board
-      </Text>
+          {loadingBoards ? (
+            <Text style={styles.loading}>Loading boards...</Text>
+          ) : boards.length > 0 ? (
+            <View style={styles.optionWrap}>
+              {boards.map((board: any) => (
+                <Pressable
+                  key={board.id}
+                  style={[
+                    styles.optionPill,
+                    selectedBoard === board.id && styles.optionPillActive,
+                  ]}
+                  onPress={() => setSelectedBoard(board.id)}
+                >
+                  <Text style={styles.optionPillText}>{board.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.boardError}>
+              {boardError || "No boards loaded. Refresh or reconnect Pinterest."}
+            </Text>
+          )}
+        </View>
+      )}
 
-      <Pressable
-        style={styles.smallRefreshButton}
-        onPress={loadBoards}
-      >
-        <Text style={styles.smallRefreshText}>
-          Refresh Boards
-        </Text>
-      </Pressable>
-    </View>
-
-    {loadingBoards ? (
-      <Text style={styles.loading}>
-        Loading boards...
-      </Text>
-    ) : boards.length > 0 ? (
-      boards.map((board: any) => (
-        <Pressable
-          key={board.id}
-          style={[
-            styles.boardButton,
-            selectedBoard === board.id &&
-              styles.boardSelected,
-          ]}
-          onPress={() =>
-            setSelectedBoard(board.id)
-          }
-        >
-          <Text style={styles.boardText}>
-            {board.name}
+      {selectedPlatform === "Facebook" && (
+        <View style={styles.card}>
+          <Text style={styles.sectionHeader}>Facebook page</Text>
+          <Text style={styles.sectionHint}>
+            Select the Page that should publish this campaign.
           </Text>
-        </Pressable>
-      ))
-    ) : (
-      <Text style={styles.boardError}>
-        {boardError ||
-          "No boards loaded. Refresh boards or reconnect Pinterest."}
-      </Text>
-    )}
-  </View>
-)}
+          {facebookPages.length > 0 ? (
+            <View style={styles.optionWrap}>
+              {facebookPages.map((page: any) => (
+                <Pressable
+                  key={page.id}
+                  style={[
+                    styles.optionPill,
+                    selectedFacebookPage === page.id && styles.optionPillActive,
+                  ]}
+                  onPress={() => setSelectedFacebookPage(page.id)}
+                >
+                  <Text style={styles.optionPillText}>{page.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.boardError}>
+              No Facebook Pages loaded. Refresh or reconnect Facebook.
+            </Text>
+          )}
+        </View>
+      )}
 
-{selectedPlatform === "Facebook" && (
-  <View style={styles.card}>
-    <Text style={styles.sectionHeader}>
-      Facebook Publishing
-    </Text>
-
-    <Text style={styles.heroText}>
-      Your connected Facebook Pages will be used
-      for direct publishing.
-    </Text>
-
-    <View style={styles.queueCard}>
-      <Text style={styles.queueTitle}>
-        Facebook Status
-      </Text>
-
-      <Text style={styles.queueText}>
-        {facebookConnected
-          ? "🟢 Connected"
-          : "⚪ Not Connected"}
-      </Text>
-
-      {facebookConnectedAt ? (
-        <Text style={styles.queueText}>
-          Connected:{" "}
-          {new Date(
-            facebookConnectedAt
-          ).toLocaleString()}
-        </Text>
-      ) : null}
-    </View>
-  </View>
-)}
- 
       <View style={styles.card}>
-        <Text style={styles.label}>
-{selectedPlatform} Title
-</Text>
- 
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} />
- 
-        <Text style={styles.label}>
-{selectedPlatform} Description
-</Text>
- 
+        <Text style={styles.sectionHeader}>Campaign content</Text>
+
+        <Text style={styles.label}>{selectedPlatform} title</Text>
+        <TextInput
+          style={styles.input}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Campaign title"
+          placeholderTextColor="#777"
+        />
+
+        <Text style={styles.label}>{selectedPlatform} description</Text>
         <TextInput
           style={[styles.input, styles.textarea]}
           multiline
           value={description}
           onChangeText={setDescription}
+          placeholder="Campaign description"
+          placeholderTextColor="#777"
         />
 
-        <Text style={styles.label}>CTA</Text>
+        <Text style={styles.label}>Call to action</Text>
+        <TextInput
+          style={[styles.input, styles.compactTextarea]}
+          multiline
+          value={cta}
+          onChangeText={setCta}
+          placeholder="Add a clear call to action"
+          placeholderTextColor="#777"
+        />
 
-<TextInput
-  style={[styles.input, styles.textarea]}
-  multiline
-  value={cta}
-  onChangeText={setCta}
-/>
+        <Text style={styles.label}>Hashtags</Text>
+        <TextInput
+          style={[styles.input, styles.compactTextarea]}
+          multiline
+          value={hashtags}
+          onChangeText={setHashtags}
+          placeholder="#art #artist #shopsmall"
+          placeholderTextColor="#777"
+        />
+      </View>
 
-<Text style={styles.label}>Hashtags</Text>
+      <View style={styles.card}>
+        <Text style={styles.sectionHeader}>Quick actions</Text>
+        <View style={styles.actionGrid}>
+          <Pressable style={styles.actionButton} onPress={postEverywhere}>
+            <Ionicons name="send" size={19} color="#ffffff" />
+            <Text style={styles.actionButtonTitle}>Post everywhere</Text>
+            <Text style={styles.actionButtonText}>Publish on all connected platforms.</Text>
+          </Pressable>
 
-<TextInput
-  style={[styles.input, styles.textarea]}
-  multiline
-  value={hashtags}
-  onChangeText={setHashtags}
-/>
- 
-        <Text style={styles.label}>Campaign Image</Text>
+          <Pressable style={styles.actionButton} onPress={generateVariations}>
+            <Ionicons name="sparkles" size={19} color="#ffffff" />
+            <Text style={styles.actionButtonTitle}>
+              {loadingVariations ? "Generating..." : "AI variations"}
+            </Text>
+            <Text style={styles.actionButtonText}>Create alternate campaign copy.</Text>
+          </Pressable>
 
-<View style={styles.queueCard}>
-  {previewImage || imageUrl ? (
-    <>
-      <Image
-        source={{
-          uri: previewImage || imageUrl,
-        }}
-        style={styles.campaignImagePreview}
-        resizeMode="cover"
-      />
+          <Pressable style={styles.actionButton} onPress={saveScheduledCampaign}>
+            <Ionicons name="calendar" size={19} color="#ffffff" />
+            <Text style={styles.actionButtonTitle}>Schedule platform</Text>
+            <Text style={styles.actionButtonText}>Schedule the selected platform.</Text>
+          </Pressable>
 
-      <Text style={styles.readyText}>
-        ✓ Image Ready
-      </Text>
-    </>
-  ) : (
-    <Text style={styles.queueText}>
-      No campaign image loaded
-    </Text>
-  )}
-</View>
+          <Pressable style={styles.actionButton} onPress={scheduleEverywhere}>
+            <Ionicons name="albums" size={19} color="#ffffff" />
+            <Text style={styles.actionButtonTitle}>Schedule all</Text>
+            <Text style={styles.actionButtonText}>Schedule every available platform.</Text>
+          </Pressable>
+        </View>
+      </View>
 
-<Text style={styles.label}>Product Link</Text>
+      {variations.length > 0 && (
+        <View style={styles.card}>
+          <Text style={styles.sectionHeader}>AI variations</Text>
+          {variations.map((item, index) => (
+            <View key={`${item.title}-${index}`} style={styles.variationCard}>
+              <Text style={styles.variationStyle}>{item.style}</Text>
+              <Text style={styles.variationTitle}>{item.title}</Text>
+              <Text style={styles.variationDescription}>{item.description}</Text>
+              <View style={styles.inlineActions}>
+                <Pressable
+                  style={styles.secondaryAction}
+                  onPress={() => copyVariation(item.title, item.description)}
+                >
+                  <Text style={styles.secondaryActionText}>Copy</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.primaryAction}
+                  onPress={() => useVariation(item.title, item.description)}
+                >
+                  <Text style={styles.primaryActionText}>Use version</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
-<View style={styles.queueCard}>
-  <Text style={styles.readyText}>
-    {productLink
-      ? "✓ Product Link Attached"
-      : "No product link attached"}
-  </Text>
+      <View style={styles.card}>
+        <Text style={styles.sectionHeader}>Schedule</Text>
+        <View style={styles.scheduleSummary}>
+          <View style={styles.scheduleValue}>
+            <Text style={styles.scheduleTitle}>Date</Text>
+            <Text style={styles.scheduleText}>{getReadableDate()}</Text>
+          </View>
+          <View style={styles.scheduleValue}>
+            <Text style={styles.scheduleTitle}>Time</Text>
+            <Text style={styles.scheduleText}>{getReadableTime()}</Text>
+          </View>
+        </View>
 
-  {productLink ? (
-    <Pressable
-      style={styles.smallRefreshButton}
-      onPress={() => Linking.openURL(cleanUrl(productLink))}
-    >
-      <Text style={styles.smallRefreshText}>
-        View Product
-      </Text>
-    </Pressable>
-  ) : null}
-</View>
- 
-        <Text style={styles.label}>
-  Schedule Date & Time
-</Text>
+        <View style={styles.scheduleButtons}>
+          <Pressable
+            style={styles.scheduleButton}
+            onPress={() => {
+              setShowTimePicker(false);
+              setShowDatePicker(!showDatePicker);
+            }}
+          >
+            <Ionicons name="calendar-outline" size={17} color="#ffffff" />
+            <Text style={styles.scheduleButtonText}>Select date</Text>
+          </Pressable>
+          <Pressable
+            style={styles.scheduleButton}
+            onPress={() => {
+              setShowDatePicker(false);
+              setShowTimePicker(!showTimePicker);
+            }}
+          >
+            <Ionicons name="time-outline" size={17} color="#ffffff" />
+            <Text style={styles.scheduleButtonText}>Select time</Text>
+          </Pressable>
+        </View>
 
-<View style={styles.scheduleBox}>
-
-  <Text style={styles.scheduleTitle}>
-    Date
-  </Text>
-
-  <Text style={styles.scheduleText}>
-    {getReadableDate()}
-  </Text>
-
-  <Text style={styles.scheduleTitle}>
-    Time
-  </Text>
-
-  <Text style={styles.scheduleText}>
-    {getReadableTime()}
-  </Text>
-
-  <View style={styles.scheduleButtons}>
-
-    <Pressable
-      style={styles.scheduleButton}
-      onPress={() => {
-        setShowTimePicker(false);
-        setShowDatePicker(!showDatePicker);
-      }}
-    >
-      <Text style={styles.scheduleButtonText}>
-        Select Date
-      </Text>
-    </Pressable>
-
-    <Pressable
-      style={styles.scheduleButton}
-      onPress={() => {
-        setShowDatePicker(false);
-        setShowTimePicker(!showTimePicker);
-      }}
-    >
-      <Text style={styles.scheduleButtonText}>
-        Select Time
-      </Text>
-    </Pressable>
-
-  </View>
-
-</View>
- 
         {showDatePicker && (
           <View style={styles.pickerBox}>
             <DateTimePicker
@@ -2228,16 +1865,12 @@ Pinterest
               themeVariant="dark"
               onChange={handleDateChange}
             />
- 
-            <Pressable
-              style={styles.donePickerButton}
-              onPress={() => setShowDatePicker(false)}
-            >
+            <Pressable style={styles.donePickerButton} onPress={() => setShowDatePicker(false)}>
               <Text style={styles.donePickerText}>Done</Text>
             </Pressable>
           </View>
         )}
- 
+
         {showTimePicker && (
           <View style={styles.pickerBox}>
             <DateTimePicker
@@ -2247,76 +1880,47 @@ Pinterest
               themeVariant="dark"
               onChange={handleTimeChange}
             />
- 
-            <Pressable
-              style={styles.donePickerButton}
-              onPress={() => setShowTimePicker(false)}
-            >
+            <Pressable style={styles.donePickerButton} onPress={() => setShowTimePicker(false)}>
               <Text style={styles.donePickerText}>Done</Text>
             </Pressable>
           </View>
         )}
-<View style={styles.presetRow}>
 
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === null && styles.presetButtonActive,
-    ]}
-    onPress={() => {
-  setRepostPreset(null);
-}}
-  >
-    <Text style={styles.presetButtonText}>One Time</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "daily" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("daily")}
-  >
-    <Text style={styles.presetButtonText}>Daily</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "3days" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("3days")}
-  >
-    <Text style={styles.presetButtonText}>Every 3 Days</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "weekly" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("weekly")}
-  >
-    <Text style={styles.presetButtonText}>Weekly</Text>
-  </Pressable>
-
-  <Pressable
-    style={[
-      styles.presetButton,
-      repostPreset === "monthly" && styles.presetButtonActive,
-    ]}
-    onPress={() => applyRepostPreset("monthly")}
-  >
-    <Text style={styles.presetButtonText}>Monthly</Text>
-  </Pressable>
-
-</View>
-        <Text style={styles.helperText}>
-          ArtBoost will convert your selected date and time into backend
-          automation format automatically.
-        </Text>
+        <Text style={styles.label}>Repeat</Text>
+        <View style={styles.presetRow}>
+          <Pressable
+            style={[styles.presetButton, repostPreset === null && styles.presetButtonActive]}
+            onPress={() => setRepostPreset(null)}
+          >
+            <Text style={styles.presetButtonText}>One time</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.presetButton, repostPreset === "daily" && styles.presetButtonActive]}
+            onPress={() => applyRepostPreset("daily")}
+          >
+            <Text style={styles.presetButtonText}>Daily</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.presetButton, repostPreset === "3days" && styles.presetButtonActive]}
+            onPress={() => applyRepostPreset("3days")}
+          >
+            <Text style={styles.presetButtonText}>Every 3 days</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.presetButton, repostPreset === "weekly" && styles.presetButtonActive]}
+            onPress={() => applyRepostPreset("weekly")}
+          >
+            <Text style={styles.presetButtonText}>Weekly</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.presetButton, repostPreset === "monthly" && styles.presetButtonActive]}
+            onPress={() => applyRepostPreset("monthly")}
+          >
+            <Text style={styles.presetButtonText}>Monthly</Text>
+          </Pressable>
+        </View>
       </View>
- 
+
       {scheduledCampaigns.length > 0 && (
         <View style={styles.card}>
           <View style={styles.queueHeaderRow}>
@@ -2634,6 +2238,7 @@ Pinterest
       )}
  
       <Pressable
+  disabled={publishing}
   style={[
   styles.publishButton,
   selectedPlatform === "Facebook"
@@ -2671,7 +2276,7 @@ else {
         <Text style={styles.publishText}>
           {publishing
   ? "Publishing..."
-  : `Post To ${selectedPlatform}`}
+  : `Publish to ${selectedPlatform}`}
         </Text>
       </Pressable>
     </ScrollView>
@@ -2685,20 +2290,265 @@ const styles = StyleSheet.create({
     minHeight: "100%",
   },
  
-  header: {
-    color: "#fff",
-    fontSize: 34,
+  titleCopy: {
+    flex: 1,
+  },
+
+  artworkCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#2b2b2b",
+    overflow: "hidden",
+    marginBottom: 14,
+  },
+
+  heroImage: {
+    width: "100%",
+    height: 220,
+    backgroundColor: "#242424",
+  },
+
+  artworkMeta: {
+    padding: 14,
+  },
+
+  artworkLabel: {
+    color: "#9a9a9a",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+
+  artworkTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
+
+  linkButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "#2f6fe4",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    marginTop: 12,
+  },
+
+  linkButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  sectionHint: {
+    color: "#a7a7a7",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+    marginBottom: 12,
+  },
+
+  platformGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+  },
+
+  platformButton: {
+    width: "48%",
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: "#292929",
+    borderWidth: 1,
+    borderColor: "#343434",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  platformButtonActive: {
+    backgroundColor: "#7c3aed",
+    borderColor: "#9b6cff",
+  },
+
+  platformButtonText: {
+    color: "#b7b7b7",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  platformButtonTextActive: {
+    color: "#ffffff",
+  },
+
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  sectionRowText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#2b2b2b",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  optionWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  optionPill: {
+    backgroundColor: "#292929",
+    borderWidth: 1,
+    borderColor: "#3a3a3a",
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+
+  optionPillActive: {
+    backgroundColor: "#7c3aed",
+    borderColor: "#9b6cff",
+  },
+
+  optionPillText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  compactTextarea: {
+    minHeight: 82,
+    textAlignVertical: "top",
+  },
+
+  actionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  actionButton: {
+    width: "48%",
+    minHeight: 118,
+    backgroundColor: "#242424",
+    borderWidth: 1,
+    borderColor: "#343434",
+    borderRadius: 14,
+    padding: 13,
+  },
+
+  actionButtonTitle: {
+    color: "#ffffff",
+    fontSize: 14,
     fontWeight: "900",
-    textAlign: "center",
-    marginTop: 40,
+    marginTop: 11,
+  },
+
+  actionButtonText: {
+    color: "#a8a8a8",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 5,
+  },
+
+  inlineActions: {
+    flexDirection: "row",
+    gap: 9,
+    marginTop: 12,
+  },
+
+  secondaryAction: {
+    flex: 1,
+    backgroundColor: "#303030",
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+
+  secondaryActionText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
+  primaryAction: {
+    flex: 1,
+    backgroundColor: "#7c3aed",
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+
+  primaryActionText: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  scheduleSummary: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+
+  scheduleValue: {
+    flex: 1,
+    backgroundColor: "#282828",
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 70,
+  },
+
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 28,
+    marginBottom: 6,
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#1f1f1f",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  header: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 30,
+    fontWeight: "900",
   },
  
   subheader: {
     color: "#aaa",
-    textAlign: "center",
-    marginTop: 10,
+    marginLeft: 52,
     marginBottom: 24,
     fontSize: 15,
+    lineHeight: 21,
   },
  
   heroBox: {

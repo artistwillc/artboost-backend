@@ -233,7 +233,7 @@ const [stores, setSources] = useState<Store[]>([]);
   }
 
   function sourceLabel(_store: Store) {
-    return "Artwork Assets";
+    return "Products";
   }
 
   function displayStoreName(store: Store) {
@@ -296,13 +296,12 @@ const [stores, setSources] = useState<Store[]>([]);
             </Text>
 
             <Text style={styles.title}>
-              Artwork
+              Library
             </Text>
 
             <Text style={styles.subtitle}>
-              Review your connected art businesses,
-              artwork sources, and automatic
-              marketing activity.
+              Manage your connected stores, products,
+              artwork, and marketing automations.
             </Text>
           </View>
         </View>
@@ -314,7 +313,7 @@ const [stores, setSources] = useState<Store[]>([]);
             </Text>
 
             <Text style={styles.summaryLabel}>
-              Artwork Assets
+              Products
             </Text>
           </View>
 
@@ -326,7 +325,7 @@ const [stores, setSources] = useState<Store[]>([]);
             </Text>
 
             <Text style={styles.summaryLabel}>
-              Sources
+              Stores
             </Text>
           </View>
 
@@ -338,7 +337,7 @@ const [stores, setSources] = useState<Store[]>([]);
             </Text>
 
             <Text style={styles.summaryLabel}>
-              Active Auto
+              Active Automations
             </Text>
           </View>
 
@@ -350,7 +349,7 @@ const [stores, setSources] = useState<Store[]>([]);
             </Text>
 
             <Text style={styles.summaryLabel}>
-              Posts Made
+              Published
             </Text>
           </View>
         </View>
@@ -358,12 +357,12 @@ const [stores, setSources] = useState<Store[]>([]);
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionTitle}>
-              Artwork Sources
+              Connected Stores
             </Text>
 
             <Text style={styles.sectionSubtitle}>
-              Select a source to review its artwork,
-              products, and automation settings.
+              Select a store to manage its products
+              and marketing automations.
             </Text>
           </View>
         </View>
@@ -376,7 +375,7 @@ const [stores, setSources] = useState<Store[]>([]);
             />
 
             <Text style={styles.loadingText}>
-              Loading artwork sources...
+              Loading connected stores...
             </Text>
           </View>
         ) : connectedSources.length === 0 &&
@@ -391,12 +390,12 @@ const [stores, setSources] = useState<Store[]>([]);
             </View>
 
             <Text style={styles.emptyTitle}>
-              No artwork sources yet
+              No products yet
             </Text>
 
             <Text style={styles.emptyText}>
-              Connect a store or upload artwork
-              to begin automatic marketing.
+              Connect a store from the Connections tab
+              or upload artwork to build your Library.
             </Text>
 
             <Pressable
@@ -508,7 +507,7 @@ const [stores, setSources] = useState<Store[]>([]);
                         ]}
                       >
                         {automated > 0
-                          ? `${automated} Active Auto`
+                          ? `${automated} Active Automations`
                           : "Automation Off"}
                       </Text>
                     </View>
@@ -552,7 +551,7 @@ const [stores, setSources] = useState<Store[]>([]);
                   <Text
                     style={styles.sourceName}
                   >
-                    Uploaded Artwork
+                    Manual Uploads
                   </Text>
 
                   <Text
@@ -567,7 +566,7 @@ const [stores, setSources] = useState<Store[]>([]);
                     }
                   >
                     {manualProducts.length}{" "}
-                    Artwork
+                    Products
                   </Text>
                 </View>
 
@@ -579,39 +578,6 @@ const [stores, setSources] = useState<Store[]>([]);
               </Pressable>
             ) : null}
 
-            <Pressable
-              style={styles.addSourceCard}
-              onPress={openImportOptions}
-            >
-              <View
-                style={
-                  styles.addSourceIconWrap
-                }
-              >
-                <Ionicons
-                  name="add"
-                  size={25}
-                  color="#ffffff"
-                />
-              </View>
-
-              <View style={styles.sourceContent}>
-                <Text
-                  style={styles.addSourceTitle}
-                >
-                  Add Artwork or Store
-                </Text>
-
-                <Text
-                  style={
-                    styles.addSourceDescription
-                  }
-                >
-                  Connect another business, import a
-                  store, or upload artwork directly.
-                </Text>
-              </View>
-            </Pressable>
           </View>
         )}
       </ScrollView>
@@ -790,39 +756,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 7,
   },
 
-  addSourceCard: {
-    minHeight: 92,
-    borderRadius: 20,
-    backgroundColor: "#1d1730",
-    borderWidth: 1,
-    borderColor: "#5b3fa3",
-    padding: 15,
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-  },
 
-  addSourceIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 17,
-    backgroundColor: "#8b5cf6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
-  addSourceTitle: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "900",
-  },
 
-  addSourceDescription: {
-    color: "#aaa0ba",
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: 4,
-  },
 
   loadingWrap: {
     minHeight: 280,

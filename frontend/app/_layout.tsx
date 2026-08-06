@@ -21,9 +21,7 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <StripeProvider
-      publishableKey={stripePublishableKey}
-    >
+    <StripeProvider publishableKey={stripePublishableKey}>
       <ThemeProvider
         value={
           colorScheme === "dark"
@@ -31,45 +29,46 @@ export default function RootLayout() {
             : DefaultTheme
         }
       >
-        <Stack>
-          <Stack.Screen
-            name="(tabs)"
-            options={{
-              headerShown: false,
-            }}
-          />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: {
+              backgroundColor: "#101010",
+            },
+          }}
+        >
+          <Stack.Screen name="(tabs)" />
 
-          <Stack.Screen
-            name="catalog-importer"
-            options={{
-              headerShown: false,
-            }}
-          />
+          <Stack.Screen name="catalog-importer" />
 
-          <Stack.Screen
-            name="catalog-import-urls"
-            options={{
-              headerShown: false,
-            }}
-          />
+          <Stack.Screen name="catalog-import-urls" />
 
           <Stack.Screen
             name="modal"
             options={{
               presentation: "modal",
-              title: "Modal",
+              headerShown: false,
             }}
           />
 
-          <Stack.Screen
-            name="product-import-wizard"
-            options={{
-            headerShown: false,
-            }}
-          />
+          <Stack.Screen name="product-import-wizard" />
+
+          <Stack.Screen name="campaign-manager" />
+
+          <Stack.Screen name="customer-service" />
+
+          <Stack.Screen name="faq" />
+
+          <Stack.Screen name="analytics" />
+
+          <Stack.Screen name="history" />
+
+          <Stack.Screen name="notifications" />
+
+          <Stack.Screen name="explore" />
         </Stack>
 
-        <StatusBar style="auto" />
+        <StatusBar style="light" />
       </ThemeProvider>
     </StripeProvider>
   );

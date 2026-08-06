@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -190,6 +191,9 @@ export default function ConnectionsScreen() {
   >([]);
 
   const [loadingStatus, setLoadingStatus] =
+    useState(false);
+
+  const [socialModalOpen, setSocialModalOpen] =
     useState(false);
 
   const [disconnectingId, setDisconnectingId] =
@@ -907,243 +911,461 @@ export default function ConnectionsScreen() {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={
-        styles.container
-      }
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.header}>
-        Connections
-      </Text>
-
-      <Text style={styles.subheader}>
-        Connect social platforms for
-        publishing and connect any online
-        store where your artwork or products
-        are available.
-      </Text>
-
-      <View style={styles.segmentedControl}>
-        <Pressable
-          style={[
-            styles.segmentButton,
-            activeSection === "social" &&
-              styles.segmentButtonActive,
-          ]}
-          onPress={() =>
-            setActiveSection("social")
-          }
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              activeSection === "social" &&
-                styles.segmentTextActive,
-            ]}
-          >
-            Social Platforms
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.segmentButton,
-            activeSection === "stores" &&
-              styles.segmentButtonActive,
-          ]}
-          onPress={() =>
-            setActiveSection("stores")
-          }
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              activeSection === "stores" &&
-                styles.segmentTextActive,
-            ]}
-          >
-            Stores
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.proBox}>
-        <Text style={styles.proTitle}>
-          {activeSection === "social"
-            ? "Social Publishing"
-            : "Universal Store Connections"}
-        </Text>
-
-        <Text style={styles.proText}>
-          {activeSection === "social"
-            ? "Connect publishing destinations for generated and scheduled campaigns."
-            : "Connect Amazon, Shopify, Etsy, Redbubble, marketplaces, personal websites, and stores ArtBoost has never encountered before."}
-        </Text>
-      </View>
-
-      <Pressable
-        style={styles.refreshButton}
-        onPress={refreshAllStatuses}
-        disabled={loadingStatus}
+    <>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {loadingStatus ? (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator
-              size="small"
-              color="#ffffff"
-            />
-
-            <Text style={styles.buttonText}>
-              Checking Connections...
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.loadingRow}>
-            <Ionicons
-              name="refresh-outline"
-              size={19}
-              color="#ffffff"
-            />
-
-            <Text style={styles.buttonText}>
-              Refresh Connection Status
-            </Text>
-          </View>
-        )}
-      </Pressable>
-
-      {activeSection === "stores" ? (
-        <>
+        <View style={styles.pageHeader}>
           <Pressable
-            style={styles.connectStoreButton}
-            onPress={() =>
-              openUniversalStoreConnector()
-            }
-          >
-            <View style={styles.connectStorePlus}>
-              <Ionicons
-                name="add"
-                size={26}
-                color="#ffffff"
-              />
-            </View>
-
-            <View
-              style={
-                styles.connectStoreTextWrap
+            style={styles.backButton}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)" as any);
               }
-            >
-              <Text
-                style={styles.connectStoreTitle}
-              >
-                Connect Any Store
-              </Text>
-
-              <Text
-                style={
-                  styles.connectStoreDescription
-                }
-              >
-                Paste the main storefront link.
-                Connecting the store will not
-                automatically send you to product
-                importing.
-              </Text>
-            </View>
-
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <Ionicons
-              name="chevron-forward"
-              size={22}
-              color="#c4b5fd"
+              name="arrow-back"
+              size={23}
+              color="#ffffff"
             />
           </Pressable>
 
-          <Text
-            style={
-              styles.connectedStoresTitle
-            }
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.header}>
+              Connections
+            </Text>
+
+            <Text style={styles.subheader}>
+              Connect publishing platforms and online stores.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.segmentedControl}>
+          <Pressable
+            style={[
+              styles.segmentButton,
+              activeSection === "social" &&
+                styles.segmentButtonActive,
+            ]}
+            onPress={() => setActiveSection("social")}
           >
-            Connected Stores
-          </Text>
+            <Ionicons
+              name="share-social-outline"
+              size={18}
+              color={
+                activeSection === "social"
+                  ? "#ffffff"
+                  : "#8e8e8e"
+              }
+            />
 
-          {loadingStatus &&
-          connectedStores.length === 0 ? (
-            <View
-              style={styles.emptyStoresCard}
+            <Text
+              style={[
+                styles.segmentText,
+                activeSection === "social" &&
+                  styles.segmentTextActive,
+              ]}
             >
-              <ActivityIndicator
-                size="large"
-                color="#8b5cf6"
-              />
+              Social Platforms
+            </Text>
+          </Pressable>
 
-              <Text
-                style={styles.emptyStoresText}
-              >
-                Loading connected stores...
-              </Text>
+          <Pressable
+            style={[
+              styles.segmentButton,
+              activeSection === "stores" &&
+                styles.segmentButtonActive,
+            ]}
+            onPress={() => setActiveSection("stores")}
+          >
+            <Ionicons
+              name="storefront-outline"
+              size={18}
+              color={
+                activeSection === "stores"
+                  ? "#ffffff"
+                  : "#8e8e8e"
+              }
+            />
+
+            <Text
+              style={[
+                styles.segmentText,
+                activeSection === "stores" &&
+                  styles.segmentTextActive,
+              ]}
+            >
+              Stores
+            </Text>
+          </Pressable>
+        </View>
+
+        {activeSection === "social" ? (
+          <>
+            <View style={styles.sectionIntroCard}>
+              <View style={styles.sectionIntroIcon}>
+                <Ionicons
+                  name="megaphone-outline"
+                  size={24}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.sectionIntroTextWrap}>
+                <Text style={styles.sectionIntroTitle}>
+                  Social Publishing
+                </Text>
+
+                <Text style={styles.sectionIntroText}>
+                  Connect destinations for generated, immediate, and scheduled campaigns.
+                </Text>
+              </View>
             </View>
-          ) : connectedStores.length === 0 ? (
-            <View
-              style={styles.emptyStoresCard}
+
+            <Pressable
+              style={styles.connectSocialButton}
+              onPress={() => setSocialModalOpen(true)}
             >
+              <View style={styles.primaryActionIcon}>
+                <Ionicons
+                  name="add"
+                  size={25}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.primaryActionTextWrap}>
+                <Text style={styles.primaryActionTitle}>
+                  Connect Social Platform
+                </Text>
+
+                <Text style={styles.primaryActionDescription}>
+                  Add or authorize Pinterest, Facebook, Instagram, or X.
+                </Text>
+              </View>
+
               <Ionicons
-                name="storefront-outline"
-                size={36}
-                color="#716781"
+                name="chevron-forward"
+                size={22}
+                color="#d8ccff"
               />
+            </Pressable>
 
-              <Text
-                style={styles.emptyStoresTitle}
-              >
-                No stores connected
+            <Pressable
+              style={styles.refreshButton}
+              onPress={refreshAllStatuses}
+              disabled={loadingStatus}
+            >
+              {loadingStatus ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#ffffff"
+                />
+              ) : (
+                <Ionicons
+                  name="refresh-outline"
+                  size={19}
+                  color="#ffffff"
+                />
+              )}
+
+              <Text style={styles.buttonText}>
+                {loadingStatus
+                  ? "Checking Connections..."
+                  : "Refresh Connection Status"}
+              </Text>
+            </Pressable>
+
+            <View style={styles.listHeaderRow}>
+              <Text style={styles.listHeaderTitle}>
+                Publishing Accounts
               </Text>
 
-              <Text
-                style={styles.emptyStoresText}
-              >
-                Connect your first storefront.
-                It will appear here with a
-                Manage Store button.
+              <Text style={styles.listHeaderCount}>
+                {
+                  socialPlatforms.filter(platform =>
+                    Boolean(socialConnections[platform.name])
+                  ).length
+                }
+                /{socialPlatforms.length} connected
               </Text>
             </View>
-          ) : (
-            connectedStores.map(renderStore)
-          )}
-        </>
-      ) : (
-        socialPlatforms.map(
-          renderSocialPlatform
-        )
-      )}
-    </ScrollView>
+
+            {socialPlatforms.map(renderSocialPlatform)}
+          </>
+        ) : (
+          <>
+            <View style={styles.sectionIntroCard}>
+              <View style={styles.sectionIntroIcon}>
+                <Ionicons
+                  name="storefront-outline"
+                  size={24}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.sectionIntroTextWrap}>
+                <Text style={styles.sectionIntroTitle}>
+                  Store Connections
+                </Text>
+
+                <Text style={styles.sectionIntroText}>
+                  Connect storefronts and marketplaces where your artwork and products are sold.
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.connectStoreButton}
+              onPress={() => openUniversalStoreConnector()}
+            >
+              <View style={styles.connectStorePlus}>
+                <Ionicons
+                  name="add"
+                  size={26}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={styles.connectStoreTextWrap}>
+                <Text style={styles.connectStoreTitle}>
+                  Connect Any Store
+                </Text>
+
+                <Text style={styles.connectStoreDescription}>
+                  Paste the main storefront link. Product importing remains a separate step.
+                </Text>
+              </View>
+
+              <Ionicons
+                name="chevron-forward"
+                size={22}
+                color="#c4b5fd"
+              />
+            </Pressable>
+
+            <Pressable
+              style={styles.refreshButton}
+              onPress={refreshAllStatuses}
+              disabled={loadingStatus}
+            >
+              {loadingStatus ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#ffffff"
+                />
+              ) : (
+                <Ionicons
+                  name="refresh-outline"
+                  size={19}
+                  color="#ffffff"
+                />
+              )}
+
+              <Text style={styles.buttonText}>
+                {loadingStatus
+                  ? "Checking Connections..."
+                  : "Refresh Store Status"}
+              </Text>
+            </Pressable>
+
+            <View style={styles.listHeaderRow}>
+              <Text style={styles.listHeaderTitle}>
+                Connected Stores
+              </Text>
+
+              <Text style={styles.listHeaderCount}>
+                {connectedStores.length}
+              </Text>
+            </View>
+
+            {loadingStatus && connectedStores.length === 0 ? (
+              <View style={styles.emptyStoresCard}>
+                <ActivityIndicator
+                  size="large"
+                  color="#8b5cf6"
+                />
+
+                <Text style={styles.emptyStoresText}>
+                  Loading connected stores...
+                </Text>
+              </View>
+            ) : connectedStores.length === 0 ? (
+              <View style={styles.emptyStoresCard}>
+                <Ionicons
+                  name="storefront-outline"
+                  size={36}
+                  color="#716781"
+                />
+
+                <Text style={styles.emptyStoresTitle}>
+                  No stores connected
+                </Text>
+
+                <Text style={styles.emptyStoresText}>
+                  Connect your first storefront. It will appear here with management controls.
+                </Text>
+              </View>
+            ) : (
+              connectedStores.map(renderStore)
+            )}
+          </>
+        )}
+      </ScrollView>
+
+      <Modal
+        visible={socialModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSocialModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSocialModalOpen(false)}
+        >
+          <Pressable
+            style={styles.modalCard}
+            onPress={event => event.stopPropagation()}
+          >
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.modalTitleWrap}>
+                <Text style={styles.modalTitle}>
+                  Connect Social Platform
+                </Text>
+
+                <Text style={styles.modalSubtitle}>
+                  Choose the account you want to authorize or reconnect.
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.modalCloseButton}
+                onPress={() => setSocialModalOpen(false)}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color="#ffffff"
+                />
+              </Pressable>
+            </View>
+
+            {socialPlatforms.map(platform => {
+              const connected = Boolean(
+                socialConnections[platform.name]
+              );
+
+              const iconName =
+                platform.name === "Pinterest"
+                  ? "logo-pinterest"
+                  : platform.name === "Facebook"
+                    ? "logo-facebook"
+                    : platform.name === "Instagram"
+                      ? "logo-instagram"
+                      : "logo-twitter";
+
+              return (
+                <Pressable
+                  key={platform.name}
+                  style={styles.modalPlatformRow}
+                  onPress={async () => {
+                    setSocialModalOpen(false);
+                    await connectSocialPlatform(platform.name);
+                  }}
+                >
+                  <View style={styles.modalPlatformIcon}>
+                    <Ionicons
+                      name={iconName as any}
+                      size={23}
+                      color="#ffffff"
+                    />
+                  </View>
+
+                  <View style={styles.modalPlatformTextWrap}>
+                    <Text style={styles.modalPlatformName}>
+                      {platform.name}
+                    </Text>
+
+                    <Text style={styles.modalPlatformStatus}>
+                      {connected
+                        ? "Connected — authorize again"
+                        : "Not connected — connect now"}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.modalStatusDot,
+                      connected && styles.modalStatusDotConnected,
+                    ]}
+                  />
+
+                  <Ionicons
+                    name="chevron-forward"
+                    size={21}
+                    color="#777777"
+                  />
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
-    paddingBottom: 50,
+    paddingHorizontal: 20,
+    paddingTop: 54,
+    paddingBottom: 110,
     backgroundColor: "#101010",
     minHeight: "100%",
   },
 
+  pageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 22,
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#202020",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  headerTextWrap: {
+    flex: 1,
+  },
+
   header: {
     color: "#ffffff",
-    fontSize: 32,
-    fontWeight: "800",
-    marginTop: 40,
-    textAlign: "center",
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: "900",
   },
 
   subheader: {
-    color: "#aaaaaa",
-    fontSize: 14,
-    textAlign: "center",
-    marginTop: 10,
-    marginBottom: 20,
-    lineHeight: 21,
+    color: "#a5a5a5",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
 
   segmentedControl: {
@@ -1151,18 +1373,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#1b1b1b",
     borderRadius: 16,
     padding: 5,
-    marginBottom: 20,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#303030",
+    gap: 5,
   },
 
   segmentButton: {
     flex: 1,
     minHeight: 48,
     borderRadius: 12,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
+    gap: 7,
   },
 
   segmentButtonActive: {
@@ -1171,7 +1396,7 @@ const styles = StyleSheet.create({
 
   segmentText: {
     color: "#8e8e8e",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
     textAlign: "center",
   },
@@ -1180,51 +1405,128 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
 
-  proBox: {
+  sectionIntroCard: {
     backgroundColor: "#1b1b1b",
     borderRadius: 18,
-    padding: 18,
-    marginBottom: 18,
+    padding: 16,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: "#8b5cf6",
-  },
-
-  proTitle: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-
-  proText: {
-    color: "#cfcfcf",
-    lineHeight: 21,
-    fontSize: 13,
-  },
-
-  refreshButton: {
-    backgroundColor: "#2d6cdf",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-
-  loadingRow: {
+    borderColor: "#3f2e68",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
   },
 
-  connectStoreButton: {
-    minHeight: 105,
+  sectionIntroIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 13,
+  },
+
+  sectionIntroTextWrap: {
+    flex: 1,
+  },
+
+  sectionIntroTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  sectionIntroText: {
+    color: "#b8b8b8",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  connectSocialButton: {
+    minHeight: 94,
     borderRadius: 18,
     backgroundColor: "#24183d",
     borderWidth: 1,
     borderColor: "#8b5cf6",
-    padding: 16,
-    marginBottom: 22,
+    padding: 15,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  primaryActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  primaryActionTextWrap: {
+    flex: 1,
+    paddingHorizontal: 13,
+  },
+
+  primaryActionTitle: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  primaryActionDescription: {
+    color: "#b7aec7",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+
+  refreshButton: {
+    minHeight: 47,
+    backgroundColor: "#2d6cdf",
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    marginBottom: 20,
+  },
+
+  buttonText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 13,
+    textAlign: "center",
+  },
+
+  listHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  listHeaderTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  listHeaderCount: {
+    color: "#9a9a9a",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  connectStoreButton: {
+    minHeight: 94,
+    borderRadius: 18,
+    backgroundColor: "#24183d",
+    borderWidth: 1,
+    borderColor: "#8b5cf6",
+    padding: 15,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -1240,27 +1542,20 @@ const styles = StyleSheet.create({
 
   connectStoreTextWrap: {
     flex: 1,
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
   },
 
   connectStoreTitle: {
     color: "#ffffff",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "900",
   },
 
   connectStoreDescription: {
     color: "#b7aec7",
     fontSize: 11,
-    lineHeight: 17,
-    marginTop: 5,
-  },
-
-  connectedStoresTitle: {
-    color: "#ffffff",
-    fontSize: 19,
-    fontWeight: "900",
-    marginBottom: 13,
+    lineHeight: 16,
+    marginTop: 4,
   },
 
   emptyStoresCard: {
@@ -1291,10 +1586,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#1b1b1b",
     borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
+    padding: 17,
+    marginBottom: 13,
     borderWidth: 1,
-    borderColor: "#282828",
+    borderColor: "#2d2d2d",
   },
 
   row: {
@@ -1305,11 +1600,11 @@ const styles = StyleSheet.create({
 
   platformInfo: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: 10,
   },
 
   socialButtonColumn: {
-    width: 112,
+    width: 100,
   },
 
   titleRow: {
@@ -1320,25 +1615,25 @@ const styles = StyleSheet.create({
 
   name: {
     color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "800",
+    fontSize: 18,
+    fontWeight: "900",
   },
 
   description: {
-    color: "#aaaaaa",
-    marginTop: 8,
-    lineHeight: 20,
-    fontSize: 13,
+    color: "#a9a9a9",
+    marginTop: 7,
+    lineHeight: 18,
+    fontSize: 12,
   },
 
   status: {
-    marginTop: 10,
-    fontSize: 14,
-    fontWeight: "700",
+    marginTop: 9,
+    fontSize: 12,
+    fontWeight: "800",
   },
 
   connectedText: {
-    color: "#12a86b",
+    color: "#16c784",
     fontWeight: "800",
   },
 
@@ -1347,9 +1642,9 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    minHeight: 43,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    minHeight: 42,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
@@ -1363,24 +1658,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#2d6cdf",
   },
 
-  buttonText: {
-    color: "#ffffff",
-    fontWeight: "700",
-    fontSize: 13,
-    textAlign: "center",
-  },
-
   proBadge: {
     backgroundColor: "#8b5cf6",
     borderRadius: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    marginLeft: 10,
+    marginLeft: 8,
   },
 
   proBadgeText: {
     color: "#ffffff",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "900",
   },
 
@@ -1484,5 +1772,114 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 13,
     fontWeight: "800",
+  },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
+    justifyContent: "flex-end",
+  },
+
+  modalCard: {
+    backgroundColor: "#171717",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: "#303030",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+  },
+
+  modalHandle: {
+    width: 46,
+    height: 5,
+    borderRadius: 99,
+    backgroundColor: "#484848",
+    alignSelf: "center",
+    marginBottom: 18,
+  },
+
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 18,
+  },
+
+  modalTitleWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  modalTitle: {
+    color: "#ffffff",
+    fontSize: 23,
+    fontWeight: "900",
+  },
+
+  modalSubtitle: {
+    color: "#999999",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+
+  modalCloseButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#282828",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalPlatformRow: {
+    minHeight: 72,
+    borderRadius: 16,
+    backgroundColor: "#222222",
+    borderWidth: 1,
+    borderColor: "#303030",
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  modalPlatformIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 13,
+    backgroundColor: "#8b5cf6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  modalPlatformTextWrap: {
+    flex: 1,
+  },
+
+  modalPlatformName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  modalPlatformStatus: {
+    color: "#999999",
+    fontSize: 11,
+    marginTop: 4,
+  },
+
+  modalStatusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 99,
+    backgroundColor: "#666666",
+    marginRight: 10,
+  },
+
+  modalStatusDotConnected: {
+    backgroundColor: "#16c784",
   },
 });

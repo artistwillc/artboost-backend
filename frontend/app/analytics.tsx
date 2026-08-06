@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -11,8 +11,7 @@ import {
   View,
 } from "react-native";
 
-const BACKEND_URL =
-  "https://artboost-ai.onrender.com";
+const BACKEND_URL = "https://artboost-ai.onrender.com";
 
 type AnalyticsData = {
   totalCampaigns: number;
@@ -33,65 +32,50 @@ type AnalyticsData = {
   upcoming: any | null;
 };
 
+type PlatformSummary = {
+  name: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  posts: number;
+};
+
 export default function AnalyticsScreen() {
-  const [analytics, setAnalytics] =
-    useState<AnalyticsData | null>(null);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
   async function loadAnalytics() {
     try {
       setError("");
 
-      const response = await fetch(
-        `${BACKEND_URL}/analytics`
-      );
-
+      const response = await fetch(`${BACKEND_URL}/analytics`);
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.error ||
-            "Failed to load analytics."
-        );
+        throw new Error(data.error || "Failed to load analytics.");
       }
 
       setAnalytics({
-        totalCampaigns:
-          data.totalCampaigns || 0,
-        scheduled: data.scheduled || 0,
-        published: data.published || 0,
-        failed: data.failed || 0,
-        saved: data.saved || 0,
-        ended: data.ended || 0,
-        active: data.active || 0,
-        paused: data.paused || 0,
-        totalPosts: data.totalPosts || 0,
-        successRate:
-          data.successRate || 0,
+        totalCampaigns: Number(data.totalCampaigns) || 0,
+        scheduled: Number(data.scheduled) || 0,
+        published: Number(data.published) || 0,
+        failed: Number(data.failed) || 0,
+        saved: Number(data.saved) || 0,
+        ended: Number(data.ended) || 0,
+        active: Number(data.active) || 0,
+        paused: Number(data.paused) || 0,
+        totalPosts: Number(data.totalPosts) || 0,
+        successRate: Number(data.successRate) || 0,
         averagePostsPerCampaign:
-          data.averagePostsPerCampaign || 0,
-        pinterestPosts:
-          data.pinterestPosts || 0,
-        facebookPosts:
-          data.facebookPosts || 0,
-        instagramPosts:
-          data.instagramPosts || 0,
-        xPosts: data.xPosts || 0,
+          Number(data.averagePostsPerCampaign) || 0,
+        pinterestPosts: Number(data.pinterestPosts) || 0,
+        facebookPosts: Number(data.facebookPosts) || 0,
+        instagramPosts: Number(data.instagramPosts) || 0,
+        xPosts: Number(data.xPosts) || 0,
         upcoming: data.upcoming || null,
       });
     } catch (err: any) {
-      setError(
-        err.message ||
-          "Something went wrong."
-      );
+      setError(err?.message || "Something went wrong.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -102,40 +86,81 @@ export default function AnalyticsScreen() {
     loadAnalytics();
   }, []);
 
+  const platforms = useMemo<PlatformSummary[]>(
+    () => [
+      {
+        name: "Pinterest",
+        icon: "logo-pinterest",
+        posts: analytics?.pinterestPosts || 0,
+      },
+      {
+        name: "Facebook",
+        icon: "logo-facebook",
+        posts: analytics?.facebookPosts || 0,
+      },
+      {
+        name: "Instagram",
+        icon: "logo-instagram",
+        posts: analytics?.instagramPosts || 0,
+      },
+      {
+        name: "X",
+        icon: "logo-twitter",
+        posts: analytics?.xPosts || 0,
+      },
+    ],
+    [analytics]
+  );
+
+  const highestPlatformPostCount = Math.max(
+    1,
+    ...platforms.map((platform) => platform.posts)
+  );
+
+  const bestPlatform = useMemo(() => {
+    const best = [...platforms].sort((a, b) => b.posts - a.posts)[0];
+    return best?.posts > 0 ? best.name : "Waiting for more data";
+  }, [platforms]);
+
   function formatDate(value?: string) {
     if (!value) {
-      return "No upcoming posts";
+      return "No upcoming campaigns";
     }
 
-    return new Date(value).toLocaleString(
-      [],
-      {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      }
-    );
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "Schedule unavailable";
+    }
+
+    return parsed.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  function goBack() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/(tabs)/pro" as any);
   }
 
   if (loading) {
     return (
       <>
-        <Stack.Screen
-          options={{
-            headerShown: false,
-          }}
-        />
+        <Stack.Screen options={{ headerShown: false }} />
 
         <View style={styles.center}>
-          <ActivityIndicator
-            size="large"
-            color="#8b5cf6"
-          />
-
+          <ActivityIndicator size="large" color="#8b5cf6" />
+          <Text style={styles.loadingTitle}>Loading Analytics</Text>
           <Text style={styles.loadingText}>
-            Loading business analytics...
+            Gathering your latest campaign performance.
           </Text>
         </View>
       </>
@@ -144,45 +169,29 @@ export default function AnalyticsScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: false,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.screen}>
         <View style={styles.header}>
           <Pressable
             style={styles.backButton}
-            onPress={() =>
-              router.replace({
-                pathname:
-                  "/(tabs)/pro" as any,
-              })
-            }
+            onPress={goBack}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            <Ionicons
-              name="arrow-back"
-              size={23}
-              color="#ffffff"
-            />
+            <Ionicons name="arrow-back" size={23} color="#ffffff" />
           </Pressable>
 
           <View style={styles.headerTextWrap}>
-            <Text style={styles.eyebrow}>
-              BUSINESS PERFORMANCE
-            </Text>
-
-            <Text style={styles.headerTitle}>
-              Analytics
+            <Text style={styles.headerTitle}>Analytics</Text>
+            <Text style={styles.headerSubtitle}>
+              Your business performance at a glance.
             </Text>
           </View>
         </View>
 
         <ScrollView
-          contentContainerStyle={
-            styles.content
-          }
+          contentContainerStyle={styles.content}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -196,180 +205,195 @@ export default function AnalyticsScreen() {
           showsVerticalScrollIndicator={false}
         >
           {error ? (
-            <Text style={styles.error}>
-              {error}
-            </Text>
+            <View style={styles.errorCard}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={22}
+                color="#fca5a5"
+              />
+              <View style={styles.errorTextWrap}>
+                <Text style={styles.errorTitle}>Analytics unavailable</Text>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+              <Pressable style={styles.retryButton} onPress={loadAnalytics}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </Pressable>
+            </View>
           ) : null}
 
-          <Text style={styles.sectionTitle}>
-            Business Performance
-          </Text>
+          <Text style={styles.sectionTitle}>Business Performance</Text>
 
-          <View style={styles.grid}>
-            <StatCard
-              label="Posts Published"
-              value={analytics?.published || 0}
-            />
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View>
+                <Text style={styles.heroEyebrow}>POSTS PUBLISHED</Text>
+                <Text style={styles.heroValue}>
+                  {analytics?.published || 0}
+                </Text>
+              </View>
 
-            <StatCard
-              label="Active Campaigns"
-              value={analytics?.active || 0}
-            />
+              <View style={styles.successBadge}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color="#86efac"
+                />
+                <Text style={styles.successBadgeText}>
+                  {analytics?.successRate || 0}% success
+                </Text>
+              </View>
+            </View>
 
-            <StatCard
-              label="Success Rate"
-              value={`${analytics?.successRate || 0}%`}
-            />
+            <View style={styles.heroDivider} />
 
-            <StatCard
-              label="Total Posts"
-              value={analytics?.totalPosts || 0}
-            />
-          </View>
-
-          <Text style={styles.sectionTitle}>
-            Platform Performance
-          </Text>
-
-          <View style={styles.platformList}>
-            <PlatformCard
-              name="Pinterest"
-              icon="logo-pinterest"
-              posts={
-                analytics?.pinterestPosts || 0
-              }
-            />
-
-            <PlatformCard
-              name="Facebook"
-              icon="logo-facebook"
-              posts={
-                analytics?.facebookPosts || 0
-              }
-            />
-
-            <PlatformCard
-              name="Instagram"
-              icon="logo-instagram"
-              posts={
-                analytics?.instagramPosts || 0
-              }
-            />
-
-            <PlatformCard
-              name="X"
-              icon="logo-twitter"
-              posts={analytics?.xPosts || 0}
-            />
-          </View>
-
-          <Text style={styles.sectionTitle}>
-            Top Performers
-          </Text>
-
-          <View style={styles.insightCard}>
-            <Text style={styles.insightLabel}>
-              TOP ARTWORK
-            </Text>
-
-            <Text style={styles.insightTitle}>
-              Not enough data yet
-            </Text>
-
-            <Text style={styles.insightText}>
-              ArtBoost will identify your
-              highest-performing artwork after
-              engagement and click tracking are
-              connected.
-            </Text>
-          </View>
-
-          <View style={styles.insightCard}>
-            <Text style={styles.insightLabel}>
-              BEST PLATFORM
-            </Text>
-
-            <Text style={styles.insightTitle}>
-              {getBestPlatform(analytics)}
-            </Text>
-
-            <Text style={styles.insightText}>
-              Based on published post volume.
-              Reach, clicks, and engagement will
-              improve this recommendation later.
-            </Text>
-          </View>
-
-          <Text style={styles.sectionTitle}>
-            Growth Insights
-          </Text>
-
-          <View style={styles.growthCard}>
-            <Ionicons
-              name="sparkles-outline"
-              size={25}
-              color="#86efac"
-            />
-
-            <View style={styles.growthTextWrap}>
-              <Text style={styles.growthTitle}>
-                AI recommendations are coming
-              </Text>
-
-              <Text style={styles.growthText}>
-                ArtBoost will use campaign and
-                store performance to tell you
-                what to market more and what to
-                create next.
-              </Text>
+            <View style={styles.heroMetricsRow}>
+              <HeroMetric
+                icon="flash-outline"
+                value={analytics?.active || 0}
+                label="Active"
+              />
+              <HeroMetric
+                icon="calendar-outline"
+                value={analytics?.scheduled || 0}
+                label="Scheduled"
+              />
+              <HeroMetric
+                icon="layers-outline"
+                value={analytics?.totalCampaigns || 0}
+                label="Campaigns"
+              />
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>
-            Campaign Health
-          </Text>
+          <View style={styles.miniGrid}>
+            <MiniMetricCard
+              icon="paper-plane-outline"
+              label="Total Posts"
+              value={analytics?.totalPosts || 0}
+            />
+            <MiniMetricCard
+              icon="analytics-outline"
+              label="Avg. per Campaign"
+              value={formatAverage(
+                analytics?.averagePostsPerCampaign || 0
+              )}
+            />
+          </View>
 
-          <View style={styles.compactGrid}>
-            <SmallStat
+          <Text style={styles.sectionTitle}>Platform Performance</Text>
+
+          <View style={styles.platformCardList}>
+            {platforms.map((platform) => (
+              <PlatformPerformanceCard
+                key={platform.name}
+                platform={platform}
+                maxPosts={highestPlatformPostCount}
+              />
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle}>Top Performers</Text>
+
+          <View style={styles.insightGrid}>
+            <InsightCard
+              icon="images-outline"
+              eyebrow="TOP ARTWORK"
+              title="Waiting for more data"
+              description="ArtBoost will identify your top artwork after engagement and click tracking are connected."
+            />
+
+            <InsightCard
+              icon="trophy-outline"
+              eyebrow="BEST PLATFORM"
+              title={bestPlatform}
+              description="Currently based on published post volume. Engagement and click data will improve this recommendation."
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>AI Business Coach</Text>
+
+          <View style={styles.coachCard}>
+            <View style={styles.coachIconWrap}>
+              <Ionicons name="sparkles" size={24} color="#86efac" />
+            </View>
+
+            <View style={styles.coachContent}>
+              <Text style={styles.coachTitle}>
+                Keep publishing to unlock recommendations
+              </Text>
+
+              <Text style={styles.coachText}>
+                ArtBoost will use your campaign and store performance to
+                identify the best platforms, posting times, stores, and
+                artwork opportunities.
+              </Text>
+
+              <View style={styles.coachFeatureList}>
+                <CoachFeature label="Best posting times" />
+                <CoachFeature label="Top-performing platforms" />
+                <CoachFeature label="Artwork and store opportunities" />
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Campaign Health</Text>
+
+          <View style={styles.healthGrid}>
+            <HealthCard
               label="Scheduled"
               value={analytics?.scheduled || 0}
+              icon="calendar-outline"
+              tone="blue"
             />
-
-            <SmallStat
+            <HealthCard
               label="Paused"
               value={analytics?.paused || 0}
+              icon="pause-circle-outline"
+              tone="yellow"
             />
-
-            <SmallStat
+            <HealthCard
               label="Failed"
               value={analytics?.failed || 0}
+              icon="alert-circle-outline"
+              tone="red"
             />
-
-            <SmallStat
+            <HealthCard
               label="Saved"
               value={analytics?.saved || 0}
+              icon="bookmark-outline"
+              tone="purple"
             />
           </View>
 
           <View style={styles.upcomingCard}>
-            <Text style={styles.upcomingLabel}>
-              NEXT SCHEDULED POST
-            </Text>
+            <View style={styles.upcomingIconWrap}>
+              <Ionicons name="time-outline" size={24} color="#c4b5fd" />
+            </View>
 
-            <Text style={styles.upcomingTitle}>
-              {analytics?.upcoming
-                ? analytics.upcoming.title
-                : "No upcoming campaign found"}
-            </Text>
+            <View style={styles.upcomingContent}>
+              <Text style={styles.upcomingLabel}>NEXT SCHEDULED CAMPAIGN</Text>
+              <Text style={styles.upcomingTitle}>
+                {analytics?.upcoming
+                  ? analytics.upcoming.title || "Scheduled Campaign"
+                  : "No upcoming campaign"}
+              </Text>
+              <Text style={styles.upcomingText}>
+                {analytics?.upcoming
+                  ? formatDate(
+                      analytics.upcoming.publish_at ||
+                        analytics.upcoming.publishAt
+                    )
+                  : "Create or schedule a campaign to see it here."}
+              </Text>
 
-            <Text style={styles.upcomingText}>
-              {analytics?.upcoming
-                ? formatDate(
-                    analytics.upcoming
-                      .publish_at
-                  )
-                : "Create or schedule a campaign to see it here."}
-            </Text>
+              {analytics?.upcoming?.platform ? (
+                <View style={styles.upcomingPlatformBadge}>
+                  <Text style={styles.upcomingPlatformText}>
+                    {String(analytics.upcoming.platform)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         </ScrollView>
       </View>
@@ -377,113 +401,163 @@ export default function AnalyticsScreen() {
   );
 }
 
-function getBestPlatform(
-  analytics: AnalyticsData | null
-) {
-  if (!analytics) {
-    return "Not enough data yet";
+function formatAverage(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0";
   }
 
-  const platforms = [
-    {
-      name: "Pinterest",
-      value: analytics.pinterestPosts,
-    },
-    {
-      name: "Facebook",
-      value: analytics.facebookPosts,
-    },
-    {
-      name: "Instagram",
-      value: analytics.instagramPosts,
-    },
-    {
-      name: "X",
-      value: analytics.xPosts,
-    },
-  ];
-
-  const best = [...platforms].sort(
-    (a, b) => b.value - a.value
-  )[0];
-
-  return best.value > 0
-    ? best.name
-    : "Not enough data yet";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function StatCard({
+function HeroMetric({
+  icon,
+  value,
+  label,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  value: number | string;
+  label: string;
+}) {
+  return (
+    <View style={styles.heroMetric}>
+      <Ionicons name={icon} size={18} color="#c4b5fd" />
+      <Text style={styles.heroMetricValue}>{value}</Text>
+      <Text style={styles.heroMetricLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function MiniMetricCard({
+  icon,
   label,
   value,
 }: {
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: number | string;
 }) {
   return (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>
-        {value}
-      </Text>
-
-      <Text style={styles.statLabel}>
-        {label}
-      </Text>
+    <View style={styles.miniMetricCard}>
+      <View style={styles.miniMetricIconWrap}>
+        <Ionicons name={icon} size={20} color="#c4b5fd" />
+      </View>
+      <Text style={styles.miniMetricValue}>{value}</Text>
+      <Text style={styles.miniMetricLabel}>{label}</Text>
     </View>
   );
 }
 
-function SmallStat({
+function PlatformPerformanceCard({
+  platform,
+  maxPosts,
+}: {
+  platform: PlatformSummary;
+  maxPosts: number;
+}) {
+  const widthPercent =
+    platform.posts > 0
+      ? Math.max(8, Math.round((platform.posts / maxPosts) * 100))
+      : 0;
+
+  return (
+    <View style={styles.platformCard}>
+      <View style={styles.platformTopRow}>
+        <View style={styles.platformIdentity}>
+          <View style={styles.platformIconWrap}>
+            <Ionicons
+              name={platform.icon}
+              size={21}
+              color="#c4b5fd"
+            />
+          </View>
+
+          <View>
+            <Text style={styles.platformName}>{platform.name}</Text>
+            <Text style={styles.platformMetric}>
+              {platform.posts} published {platform.posts === 1 ? "post" : "posts"}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.platformValue}>{platform.posts}</Text>
+      </View>
+
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${widthPercent}%` as any },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
+function InsightCard({
+  icon,
+  eyebrow,
+  title,
+  description,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <View style={styles.insightCard}>
+      <View style={styles.insightIconWrap}>
+        <Ionicons name={icon} size={21} color="#c4b5fd" />
+      </View>
+      <Text style={styles.insightLabel}>{eyebrow}</Text>
+      <Text style={styles.insightTitle}>{title}</Text>
+      <Text style={styles.insightText}>{description}</Text>
+    </View>
+  );
+}
+
+function CoachFeature({ label }: { label: string }) {
+  return (
+    <View style={styles.coachFeatureRow}>
+      <Ionicons name="checkmark-circle" size={16} color="#86efac" />
+      <Text style={styles.coachFeatureText}>{label}</Text>
+    </View>
+  );
+}
+
+type HealthTone = "blue" | "yellow" | "red" | "purple";
+
+function HealthCard({
   label,
   value,
+  icon,
+  tone,
 }: {
   label: string;
   value: number;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: HealthTone;
 }) {
+  const toneStyles = {
+    blue: styles.healthBlue,
+    yellow: styles.healthYellow,
+    red: styles.healthRed,
+    purple: styles.healthPurple,
+  };
+
+  const iconColors: Record<HealthTone, string> = {
+    blue: "#93c5fd",
+    yellow: "#fde68a",
+    red: "#fca5a5",
+    purple: "#c4b5fd",
+  };
+
   return (
-    <View style={styles.smallStat}>
-      <Text style={styles.smallStatValue}>
-        {value}
-      </Text>
-
-      <Text style={styles.smallStatLabel}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function PlatformCard({
-  name,
-  icon,
-  posts,
-}: {
-  name: string;
-  icon: any;
-  posts: number;
-}) {
-  return (
-    <View style={styles.platformCard}>
-      <View style={styles.platformIconWrap}>
-        <Ionicons
-          name={icon}
-          size={22}
-          color="#c4b5fd"
-        />
-      </View>
-
-      <View style={styles.platformContent}>
-        <Text style={styles.platformName}>
-          {name}
-        </Text>
-
-        <Text style={styles.platformMetric}>
-          {posts} published posts
-        </Text>
-      </View>
-
-      <Text style={styles.platformValue}>
-        {posts}
-      </Text>
+    <View style={[styles.healthCard, toneStyles[tone]]}>
+      <Ionicons name={icon} size={21} color={iconColors[tone]} />
+      <Text style={styles.healthValue}>{value}</Text>
+      <Text style={styles.healthLabel}>{label}</Text>
     </View>
   );
 }
@@ -507,7 +581,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 15,
+    borderRadius: 22,
     backgroundColor: "#1b1b1b",
     borderWidth: 1,
     borderColor: "#303030",
@@ -520,23 +594,22 @@ const styles = StyleSheet.create({
     paddingLeft: 14,
   },
 
-  eyebrow: {
-    color: "#8b5cf6",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-  },
-
   headerTitle: {
     color: "#ffffff",
     fontSize: 24,
     fontWeight: "900",
+  },
+
+  headerSubtitle: {
+    color: "#929292",
+    fontSize: 11,
+    lineHeight: 16,
     marginTop: 3,
   },
 
   content: {
     padding: 20,
-    paddingBottom: 48,
+    paddingBottom: 56,
   },
 
   center: {
@@ -544,19 +617,64 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#101010",
+    paddingHorizontal: 30,
+  },
+
+  loadingTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 15,
   },
 
   loadingText: {
-    color: "#ffffff",
-    marginTop: 12,
+    color: "#8f8f8f",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 6,
   },
 
-  error: {
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#3a1111",
-    color: "#ffb4b4",
-    marginBottom: 16,
+  errorCard: {
+    backgroundColor: "#301717",
+    borderWidth: 1,
+    borderColor: "#653131",
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+
+  errorTextWrap: {
+    flex: 1,
+    paddingHorizontal: 11,
+  },
+
+  errorTitle: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  errorText: {
+    color: "#fca5a5",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+
+  retryButton: {
+    backgroundColor: "#a62828",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+
+  retryButtonText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "900",
   },
 
   sectionTitle: {
@@ -567,63 +685,153 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-
-  statCard: {
-    width: "48%",
-    minHeight: 112,
-    backgroundColor: "#1b1b1b",
+  heroCard: {
+    backgroundColor: "#1d1730",
     borderWidth: 1,
-    borderColor: "#303030",
-    padding: 16,
-    borderRadius: 18,
-    justifyContent: "center",
+    borderColor: "#4b3478",
+    borderRadius: 22,
+    padding: 18,
   },
 
-  statValue: {
-    fontSize: 29,
+  heroTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+
+  heroEyebrow: {
+    color: "#a78bfa",
+    fontSize: 9,
     fontWeight: "900",
+    letterSpacing: 1.1,
+  },
+
+  heroValue: {
     color: "#ffffff",
+    fontSize: 46,
+    lineHeight: 52,
+    fontWeight: "900",
+    marginTop: 4,
   },
 
-  statLabel: {
-    color: "#999999",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 5,
-  },
-
-  platformList: {
-    gap: 10,
-  },
-
-  platformCard: {
-    minHeight: 82,
-    backgroundColor: "#1b1b1b",
-    borderWidth: 1,
-    borderColor: "#303030",
-    borderRadius: 18,
-    padding: 14,
+  successBadge: {
     flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#173426",
+    borderWidth: 1,
+    borderColor: "#28533d",
+    borderRadius: 99,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+
+  successBadgeText: {
+    color: "#bbf7d0",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  heroDivider: {
+    height: 1,
+    backgroundColor: "#44375b",
+    marginVertical: 16,
+  },
+
+  heroMetricsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  heroMetric: {
+    flex: 1,
     alignItems: "center",
   },
 
-  platformIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
+  heroMetricValue: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+
+  heroMetricLabel: {
+    color: "#aaa0ba",
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  miniGrid: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+
+  miniMetricCard: {
+    flex: 1,
+    minHeight: 108,
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    borderRadius: 18,
+    padding: 15,
+  },
+
+  miniMetricIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     backgroundColor: "#2b2145",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  platformContent: {
-    flex: 1,
-    paddingHorizontal: 13,
+  miniMetricValue: {
+    color: "#ffffff",
+    fontSize: 24,
+    fontWeight: "900",
+    marginTop: 9,
+  },
+
+  miniMetricLabel: {
+    color: "#8f8f8f",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  platformCardList: {
+    gap: 10,
+  },
+
+  platformCard: {
+    backgroundColor: "#1b1b1b",
+    borderWidth: 1,
+    borderColor: "#303030",
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  platformTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  platformIdentity: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  platformIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
 
   platformName: {
@@ -634,14 +842,32 @@ const styles = StyleSheet.create({
 
   platformMetric: {
     color: "#8f8f8f",
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 10,
+    marginTop: 3,
   },
 
   platformValue: {
     color: "#c4b5fd",
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: "900",
+  },
+
+  progressTrack: {
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: "#2d2d2d",
+    marginTop: 13,
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    height: "100%",
+    borderRadius: 99,
+    backgroundColor: "#8b5cf6",
+  },
+
+  insightGrid: {
+    gap: 10,
   },
 
   insightCard: {
@@ -650,7 +876,16 @@ const styles = StyleSheet.create({
     borderColor: "#303030",
     borderRadius: 18,
     padding: 16,
-    marginBottom: 10,
+  },
+
+  insightIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
   },
 
   insightLabel: {
@@ -669,76 +904,136 @@ const styles = StyleSheet.create({
 
   insightText: {
     color: "#999999",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 17,
     marginTop: 6,
   },
 
-  growthCard: {
-    borderRadius: 18,
+  coachCard: {
+    borderRadius: 20,
     backgroundColor: "#14281e",
     borderWidth: 1,
     borderColor: "#28533d",
-    padding: 16,
+    padding: 17,
     flexDirection: "row",
     alignItems: "flex-start",
   },
 
-  growthTextWrap: {
-    flex: 1,
-    paddingLeft: 12,
+  coachIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#1d3b2b",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  growthTitle: {
+  coachContent: {
+    flex: 1,
+    paddingLeft: 13,
+  },
+
+  coachTitle: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "900",
   },
 
-  growthText: {
+  coachText: {
     color: "#9ed3b3",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 17,
     marginTop: 5,
   },
 
-  compactGrid: {
+  coachFeatureList: {
+    marginTop: 11,
+    gap: 7,
+  },
+
+  coachFeatureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  coachFeatureText: {
+    color: "#d1fae5",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+  healthGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },
 
-  smallStat: {
+  healthCard: {
     width: "48%",
-    minHeight: 78,
-    borderRadius: 16,
-    backgroundColor: "#171717",
+    minHeight: 104,
+    borderRadius: 18,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#292929",
-    padding: 13,
-    justifyContent: "center",
   },
 
-  smallStatValue: {
+  healthBlue: {
+    backgroundColor: "#17243a",
+    borderColor: "#294973",
+  },
+
+  healthYellow: {
+    backgroundColor: "#332b16",
+    borderColor: "#635329",
+  },
+
+  healthRed: {
+    backgroundColor: "#331919",
+    borderColor: "#683333",
+  },
+
+  healthPurple: {
+    backgroundColor: "#251b3a",
+    borderColor: "#49356f",
+  },
+
+  healthValue: {
     color: "#ffffff",
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "900",
+    marginTop: 9,
   },
 
-  smallStatLabel: {
-    color: "#8d8d8d",
+  healthLabel: {
+    color: "#b4b4b4",
     fontSize: 10,
-    fontWeight: "700",
-    marginTop: 4,
+    fontWeight: "800",
+    marginTop: 2,
   },
 
   upcomingCard: {
-    borderRadius: 18,
+    borderRadius: 20,
     backgroundColor: "#1d1730",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 17,
     marginTop: 20,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  upcomingIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#2b2145",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  upcomingContent: {
+    flex: 1,
+    paddingLeft: 13,
   },
 
   upcomingLabel: {
@@ -757,8 +1052,23 @@ const styles = StyleSheet.create({
 
   upcomingText: {
     color: "#aaa0ba",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 17,
     marginTop: 5,
+  },
+
+  upcomingPlatformBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#8b5cf6",
+    borderRadius: 99,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 10,
+  },
+
+  upcomingPlatformText: {
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "900",
   },
 });
