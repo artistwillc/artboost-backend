@@ -472,6 +472,7 @@ async function loadAccountContext(userId) {
           currentPeriodEnd: profile.current_period_end || null,
         }
       : null,
+    products: safeArray(products),
     summary: {
       connectedStoreCount: connectedStores.length,
       connectedStoreNames: storeNames,
@@ -883,6 +884,62 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: expired.length ? "warning" : "success",
+    };
+  }
+
+  // Imported products grouped by store.
+  if (
+    /\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    /\b(?:store|stores|shop|shops|import|imported|from|which)\b/.test(q)
+  ) {
+    const products = safeArray(accountContext.products);
+    const stores = safeArray(accountContext.connectedStores);
+
+    const storeNameById = new Map(
+      stores
+        .filter((store) => store?.id)
+        .map((store) => [
+          String(store.id),
+          cleanString(store?.name || store?.type, 120),
+        ])
+    );
+
+    const counts = new Map();
+
+    for (const product of products) {
+      const storeId = product?.store_id || product?.storeId || null;
+      const rawName =
+        product?.store_name ||
+        product?.storeName ||
+        product?.store_type ||
+        product?.storeType ||
+        product?.source ||
+        (storeId ? storeNameById.get(String(storeId)) : null);
+
+      const name = cleanString(rawName, 120);
+      if (!name) continue;
+
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+
+    const breakdown = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1]);
+
+    return {
+      answer:
+        breakdown.length === 0
+          ? "I do not currently see any imported products associated with a connected store."
+          : `You currently have imported products from ${breakdown
+              .map(([name, count]) => `${name} (${count})`)
+              .join(", ")}.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: [
+        "How many products do I currently have in ArtBoost?",
+        "How many products have never been posted?",
+      ],
+      usedAccountData: true,
+      severity: "success",
     };
   }
 
