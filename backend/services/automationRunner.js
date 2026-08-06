@@ -485,40 +485,49 @@ export async function runAutomation({
 
   let product;
 
-  try {
-    product =
-      await getNextAutomationProduct({
-        userId,
-        storeId,
-        storeType,
-        storeName,
-        selectionMode,
-        repeatDelayDays,
-      });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unable to select the next product.";
-
-    await createAutomationLog({
-      automationId:
-        automation.id,
+try {
+  product =
+    await getNextAutomationProduct({
       userId,
       storeId,
-      eventType:
-        "post_failed",
-      status:
-        "failed",
-      platforms,
-      message:
-        "Product selection failed.",
-      errorMessage:
-        message,
+      storeType,
+      storeName,
+      selectionMode,
+      repeatDelayDays,
     });
+} catch (error) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unable to select the next product.";
 
-    throw error;
-  }
+  await createAutomationLog({
+    automationId:
+      automation.id,
+    userId,
+    storeId,
+    eventType:
+      "post_failed",
+    status:
+      "failed",
+    platforms,
+    message:
+      "Product selection failed.",
+    errorMessage:
+      message,
+  });
+
+  await finalizeAutomationSchedule({
+    automation,
+    userId,
+    lastRunAt:
+      new Date().toISOString(),
+    lastError:
+      message,
+  });
+
+  throw error;
+}
 
   if (!product) {
     const message =
@@ -539,6 +548,15 @@ export async function runAutomation({
       errorMessage:
         message,
     });
+
+   await finalizeAutomationSchedule({
+  automation,
+  userId,
+  lastRunAt:
+    new Date().toISOString(),
+  lastError:
+    message,
+}); 
 
     throw new Error(message);
   }
