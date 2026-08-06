@@ -891,6 +891,199 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
+  // Creator Tools help and individual tool explanations.
+  // Keep this near the top so general Creator Tools questions do not fall through
+  // to the live AI provider or get reduced to an incomplete feature list.
+  if (
+    /\b(?:creator\s*tools?|creator-tool|art\s*tools?|business\s*tools?)\b/.test(q)
+  ) {
+    return {
+      answer:
+        "ArtBoost Creator Tools include the AI Title Generator, AI Description Generator, AI Hashtag Generator, AI CTA Generator, Art Pricing Calculator, POD Profit Calculator, Collection Builder, AI Store Critique, Trending Artwork Ideas, Holiday Marketing Calendar, Opportunity Scanner, and AI Business Coach.",
+      steps: [
+        "Open Creator Tools to choose the tool you need.",
+        "Enter the artwork, product, store, pricing, or business details requested by that tool.",
+        "Review the generated result, then copy, save, or apply it where available.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: [
+        "How do I use the AI Hashtag Generator?",
+        "Can you explain the POD Profit Calculator?",
+        "What can the AI Business Coach help me with?",
+      ],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?title generator\b/.test(q)) {
+    return {
+      answer:
+        "The AI Title Generator creates marketable artwork or product titles from the details you provide. Use a clear subject, style, theme, audience, and product context to get stronger title options.",
+      steps: [
+        "Open Creator Tools and select AI Title Generator.",
+        "Describe the artwork, product, style, and target customer.",
+        "Generate titles, then choose or edit the best option.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["What Creator Tools are available to me?", "How do I use the AI Description Generator?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?description generator\b/.test(q)) {
+    return {
+      answer:
+        "The AI Description Generator turns your artwork or product details into a polished marketing description. Include the subject, visual style, intended audience, product type, and any important selling points.",
+      steps: [
+        "Open Creator Tools and select AI Description Generator.",
+        "Enter the artwork and product details.",
+        "Generate the description, then review and edit it before publishing.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["How do I use the AI Hashtag Generator?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?hashtag generator\b/.test(q)) {
+    return {
+      answer:
+        "The AI Hashtag Generator creates relevant social hashtags from your artwork, niche, audience, and platform. Use specific details so the results include a practical mix of broad, niche, and product-focused hashtags.",
+      steps: [
+        "Open Creator Tools and select AI Hashtag Generator.",
+        "Describe the artwork, niche, audience, and social platform.",
+        "Generate hashtags and remove any that do not accurately match the post.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["What does the AI CTA Generator do?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?(?:cta|call to action) generator\b/.test(q)) {
+    return {
+      answer:
+        "The AI CTA Generator creates calls to action for social posts and product marketing, such as prompting customers to view, shop, save, follow, or learn more. Choose a CTA that matches the platform and the action you want the customer to take.",
+      steps: [
+        "Open Creator Tools and select AI CTA Generator.",
+        "Enter the product, platform, and desired customer action.",
+        "Generate the CTA and use the version that fits the post naturally.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["How do I use the AI Hashtag Generator?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\bart pricing calculator\b/.test(q)) {
+    return {
+      answer:
+        "The Art Pricing Calculator helps estimate a selling price from your costs, labor, time, markup, and profit goals. Its result is a planning estimate, so compare it with your market, product format, and customer expectations before publishing the price.",
+      steps: [
+        "Open Creator Tools and select Art Pricing Calculator.",
+        "Enter materials, labor, time, fees, and desired profit.",
+        "Review the suggested price and adjust it for your market.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["Can you explain the POD Profit Calculator?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:pod|print on demand)\s+profit calculator\b/.test(q)) {
+    return {
+      answer:
+        "The POD Profit Calculator estimates profit after product cost, marketplace or payment fees, shipping charges you absorb, and the selling price. It helps compare pricing options before you publish a print-on-demand product.",
+      steps: [
+        "Open Creator Tools and select POD Profit Calculator.",
+        "Enter the base cost, selling price, fees, and any shipping cost you pay.",
+        "Review the estimated profit and margin before setting the final price.",
+      ],
+      actions: action("open_creator_tools"),
+      followUps: ["How does the Art Pricing Calculator work?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\bcollection builder\b/.test(q)) {
+    return {
+      answer:
+        "Collection Builder helps organize related artwork into a cohesive collection using a shared theme, audience, style, or product strategy. It can help you plan names, positioning, and which pieces belong together.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What Creator Tools are available to me?", "What can AI Store Critique help with?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?store critique\b/.test(q)) {
+    return {
+      answer:
+        "AI Store Critique reviews the store information you provide and gives improvement recommendations for presentation, product positioning, titles, descriptions, branding, and marketing. Treat the recommendations as guidance and verify them against your actual storefront.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What Creator Tools are available to me?", "What does Opportunity Scanner do?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\btrending artwork ideas\b/.test(q)) {
+    return {
+      answer:
+        "Trending Artwork Ideas helps generate timely artwork concepts based on themes, audiences, seasons, and market opportunities. Use the ideas as creative direction, then make the final artwork original to your brand.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What does the Holiday Marketing Calendar do?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\bholiday marketing calendar\b/.test(q)) {
+    return {
+      answer:
+        "The Holiday Marketing Calendar helps plan artwork, promotions, and publishing around holidays and seasonal buying periods. It is intended to give you enough lead time to create products and schedule marketing before each event.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What does Opportunity Scanner do?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\bopportunity scanner\b/.test(q)) {
+    return {
+      answer:
+        "Opportunity Scanner helps identify possible marketing, seasonal, product, or audience opportunities from the information available in ArtBoost. Review each recommendation for relevance before acting on it.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What can the AI Business Coach help me with?", "What Creator Tools are available to me?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  if (/\b(?:ai\s*)?business coach\b/.test(q)) {
+    return {
+      answer:
+        "The AI Business Coach provides practical guidance for growing and managing your art business, including product strategy, pricing, marketing priorities, store improvement, and next-step planning based on the details you provide.",
+      steps: [],
+      actions: action("open_creator_tools"),
+      followUps: ["What Creator Tools are available to me?", "What can AI Store Critique help with?"],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
   // Publishing and analytics awareness.
   if (
     (
@@ -1344,27 +1537,6 @@ function deterministicAccountAnswer(question, accountContext) {
       steps: [], actions: action("open_campaign_manager"),
       followUps: ["What campaign is scheduled to run next?","Which platforms are my campaigns scheduled for?","Do any of my campaigns have errors?"],
       usedAccountData: true, severity: "success",
-    };
-  }
-
-  // Creator Tools capability/help questions.
-  // Handle these deterministically so the answer does not depend on the live AI provider.
-  if (
-    /\b(?:creator tool|creator tools|tools for creators|art tools|business tools)\b/.test(q) &&
-    /\b(?:what|which|available|include|included|do|use|help|features|list|show)\b/.test(q)
-  ) {
-    return {
-      answer:
-        "ArtBoost Creator Tools include the AI Title Generator, AI Description Generator, AI Hashtag Generator, AI CTA Generator, Art Pricing Calculator, POD Profit Calculator, Collection Builder, AI Store Critique, Trending Artwork Ideas, Holiday Marketing Calendar, Opportunity Scanner, and AI Business Coach.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: [
-        "What does the AI Title Generator do?",
-        "How does the Art Pricing Calculator work?",
-        "What can the AI Business Coach help me with?",
-      ],
-      usedAccountData: false,
-      severity: "info",
     };
   }
 
