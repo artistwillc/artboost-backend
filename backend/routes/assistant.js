@@ -438,63 +438,6 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
-  // Connected stores: database fact, no model interpretation required.
-  if (
-    /\b(store|stores|shop|shops)\b/.test(q) &&
-    /\b(connect|connected|connection|connections|how many|which|what)\b/.test(q)
-  ) {
-    const stores = safeArray(accountContext.connectedStores);
-    const names = stores.map((store) => store?.name || store?.type).filter(Boolean);
-    const count = stores.length;
-
-    return {
-      answer:
-        count === 0
-          ? "You currently have no connected stores in ArtBoost."
-          : `You currently have ${count} connected ${count === 1 ? "store" : "stores"}: ${formatNameList(names)}.`,
-      steps: [],
-      actions: action("open_library"),
-      followUps: [
-        "How many products do I have?",
-        "Which stores have products imported?",
-      ],
-      usedAccountData: true,
-      severity: "success",
-    };
-  }
-
-  // Social publishing connections.
-  if (
-    /\b(social|platform|platforms|facebook|instagram|pinterest|twitter|\bx\b)\b/.test(q) &&
-    /\b(connect|connected|connection|connections|active|expired|which|what|how many)\b/.test(q)
-  ) {
-    const platforms = safeArray(accountContext.connectedPlatforms);
-    const names = platforms.map((item) => item?.platform).filter(Boolean);
-    const expired = platforms.filter((item) => item?.expired).map((item) => item?.platform);
-    const count = platforms.length;
-
-    let answer =
-      count === 0
-        ? "I do not currently see any active social publishing connections on your ArtBoost account."
-        : `You currently have ${count} connected social ${count === 1 ? "platform" : "platforms"}: ${formatNameList(names)}.`;
-
-    if (expired.length) {
-      answer += ` ${formatNameList(expired)} ${expired.length === 1 ? "is" : "are"} expired and should be reconnected.`;
-    }
-
-    return {
-      answer,
-      steps: [],
-      actions: action("open_connections"),
-      followUps: [
-        "Do any of my social connections need attention?",
-        "How many active automations do I have?",
-      ],
-      usedAccountData: true,
-      severity: expired.length ? "warning" : "success",
-    };
-  }
-
   // Automations: derive status from enabled and last_error, matching store_automations schema.
   if (/\bautomation|automations|scheduled posting|scheduled posts\b/.test(q)) {
     const active = safeArray(accountContext.activeAutomations);
@@ -544,6 +487,63 @@ function deterministicAccountAnswer(question, accountContext) {
         severity: "success",
       };
     }
+  }
+
+  // Social publishing connections.
+  if (
+    /\b(social|platform|platforms|facebook|instagram|pinterest|twitter|\bx\b)\b/.test(q) &&
+    /\b(connect|connected|connection|connections|active|expired|which|what|how many)\b/.test(q)
+  ) {
+    const platforms = safeArray(accountContext.connectedPlatforms);
+    const names = platforms.map((item) => item?.platform).filter(Boolean);
+    const expired = platforms.filter((item) => item?.expired).map((item) => item?.platform);
+    const count = platforms.length;
+
+    let answer =
+      count === 0
+        ? "I do not currently see any active social publishing connections on your ArtBoost account."
+        : `You currently have ${count} connected social ${count === 1 ? "platform" : "platforms"}: ${formatNameList(names)}.`;
+
+    if (expired.length) {
+      answer += ` ${formatNameList(expired)} ${expired.length === 1 ? "is" : "are"} expired and should be reconnected.`;
+    }
+
+    return {
+      answer,
+      steps: [],
+      actions: action("open_connections"),
+      followUps: [
+        "Do any of my social connections need attention?",
+        "How many active automations do I have?",
+      ],
+      usedAccountData: true,
+      severity: expired.length ? "warning" : "success",
+    };
+  }
+
+  // Connected stores: database fact, no model interpretation required.
+  if (
+    /\b(store|stores|shop|shops)\b/.test(q) &&
+    /\b(connect|connected|connection|connections|how many|which|what)\b/.test(q)
+  ) {
+    const stores = safeArray(accountContext.connectedStores);
+    const names = stores.map((store) => store?.name || store?.type).filter(Boolean);
+    const count = stores.length;
+
+    return {
+      answer:
+        count === 0
+          ? "You currently have no connected stores in ArtBoost."
+          : `You currently have ${count} connected ${count === 1 ? "store" : "stores"}: ${formatNameList(names)}.`,
+      steps: [],
+      actions: action("open_library"),
+      followUps: [
+        "How many products do I have?",
+        "Which stores have products imported?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
   }
 
   // Product totals.
