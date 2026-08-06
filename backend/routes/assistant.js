@@ -207,6 +207,143 @@ function isSocialPublishingPlatform(value) {
   ]).has(normalizePlatform(value));
 }
 
+
+async function fetchPublishingStatus(platform, path) {
+  const baseUrl = cleanString(
+    process.env.ARTBOOST_PUBLIC_URL ||
+      process.env.RENDER_EXTERNAL_URL ||
+      "https://artboost-ai.onrender.com",
+    500
+  ).replace(/\/+$/, "");
+
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const responseText = await response.text();
+    let data = {};
+
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      data = {};
+    }
+
+    return {
+      platform: normalizePlatform(platform),
+      connected: response.ok && data?.connected === true,
+      expires_at: data?.expires_at || data?.expiresAt || null,
+      connected_at: data?.connected_at || data?.connectedAt || null,
+      updated_at: new Date().toISOString(),
+      source: `status:${path}`,
+    };
+  } catch (error) {
+    console.log(
+      `AI assistant ${platform} status endpoint failed:`,
+      error?.message || error
+    );
+
+    return {
+      platform: normalizePlatform(platform),
+      connected: false,
+      expires_at: null,
+      connected_at: null,
+      updated_at: null,
+      source: `status:${path}`,
+      unavailable: true,
+    };
+  }
+}
+
+async function loadPublishingConnections(userId) {
+  const databaseConnectionsPromise = safeQuery(
+    "social connections",
+    supabase
+      .from("social_connections")
+      .select(
+        "platform,connected,expires_at,connected_at,updated_at,scopes"
+      )
+      .eq("user_id", userId)
+      .limit(30),
+    []
+  );
+
+  const encodedUserId = encodeURIComponent(userId);
+
+  const [
+    databaseConnections,
+    pinterestStatus,
+    facebookStatus,
+    instagramStatus,
+    xStatus,
+  ] = await Promise.all([
+    databaseConnectionsPromise,
+    fetchPublishingStatus("pinterest", "/pinterest/status"),
+    fetchPublishingStatus("facebook", "/facebook/test"),
+    fetchPublishingStatus(
+      "instagram",
+      `/instagram/status?userId=${encodedUserId}`
+    ),
+    fetchPublishingStatus("x", "/x/status"),
+  ]);
+
+  const merged = new Map();
+
+  for (const connection of safeArray(databaseConnections)) {
+    const platform = normalizePlatform(connection?.platform);
+
+    if (!isSocialPublishingPlatform(platform)) continue;
+
+    merged.set(platform, {
+      ...connection,
+      platform,
+      source: "social_connections",
+    });
+  }
+
+  for (const status of [
+    pinterestStatus,
+    facebookStatus,
+    instagramStatus,
+    xStatus,
+  ]) {
+    const platform = normalizePlatform(status?.platform);
+    if (!platform || status?.unavailable) continue;
+
+    const existing = merged.get(platform);
+
+    merged.set(platform, {
+      ...(existing || {}),
+      ...status,
+      platform,
+      connected:
+        status.connected === true ||
+        existing?.connected === true,
+      expires_at:
+        existing?.expires_at ||
+        status?.expires_at ||
+        null,
+      connected_at:
+        existing?.connected_at ||
+        status?.connected_at ||
+        null,
+      updated_at:
+        existing?.updated_at ||
+        status?.updated_at ||
+        null,
+      source:
+        existing?.source && status?.source
+          ? `${existing.source}+${status.source}`
+          : existing?.source || status?.source || null,
+    });
+  }
+
+  return [...merged.values()];
+}
+
 async function loadAccountContext(userId) {
   if (!userId) {
     return {
@@ -223,6 +360,9 @@ async function loadAccountContext(userId) {
     userId,
     storeIds,
   });
+
+  const publishingConnectionsPromise =
+    loadPublishingConnections(userId);
 
   const [profile, products, campaigns, connections, notifications, automationResult] =
     await Promise.all([
@@ -261,17 +401,7 @@ async function loadAccountContext(userId) {
           .limit(75),
         []
       ),
-      safeQuery(
-        "social connections",
-        supabase
-          .from("social_connections")
-          .select(
-            "platform,connected,expires_at,connected_at,updated_at,scopes"
-          )
-          .eq("user_id", userId)
-          .limit(30),
-        []
-      ),
+      publishingConnectionsPromise,
       safeQuery(
         "notifications",
         supabase
@@ -396,6 +526,7 @@ async function loadAccountContext(userId) {
       stores: storeResult?.source || null,
       automationsTable: automationResult?.table || null,
       automationsMatchMethod: automationResult?.matchMethod || null,
+      socialConnections: "Connections status endpoints + social_connections",
     },
   };
 }
