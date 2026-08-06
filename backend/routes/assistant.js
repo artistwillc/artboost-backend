@@ -545,6 +545,47 @@ function deterministicAccountAnswer(question, accountContext) {
       };
     }
 
+    const asksPlatforms =
+      /\b(?:platform|platforms|post to|posting to|publish to|publishing to)\b/.test(q);
+
+    if (asksPlatforms) {
+      const details = active
+        .map((item) => {
+          const name = cleanString(
+            item?.store_name || item?.storeName || item?.automation_name,
+            120
+          );
+
+          const platforms = safeArray(item?.platforms)
+            .map((platform) => normalizePlatform(platform))
+            .filter(Boolean);
+
+          if (!name) return "";
+
+          return platforms.length
+            ? `${name}: ${formatNameList(platforms)}`
+            : `${name}: no platforms selected`;
+        })
+        .filter(Boolean);
+
+      return {
+        answer:
+          active.length === 0
+            ? "You currently have no active store automations."
+            : details.length
+              ? `Your active automations will post to the following platforms: ${details.join("; ")}.`
+              : "Your active automations do not currently have any social platforms selected.",
+        steps: [],
+        actions: action("open_connections"),
+        followUps: [
+          "When are my automations scheduled to run next?",
+          "Do any of my automations have errors?",
+        ],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
     const asksNextRun =
       /\b(?:next|when|schedule|scheduled|run next|next run)\b/.test(q);
 
