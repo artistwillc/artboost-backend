@@ -439,7 +439,7 @@ function deterministicAccountAnswer(question, accountContext) {
   const action = (id) => validateActions([{ id }]);
 
   // Automations: derive status from enabled and last_error, matching store_automations schema.
-  if (/\bautomation|automations|scheduled posting|scheduled posts\b/.test(q)) {
+  if (/\b(?:automation|automations|scheduled posting|scheduled posts)\b/.test(q)) {
     const active = safeArray(accountContext.activeAutomations);
     const failed = safeArray(accountContext.failedAutomations);
     const asksFailed = /\b(fail|failed|error|errors|problem|problems|issue|issues)\b/.test(q);
@@ -523,8 +523,12 @@ function deterministicAccountAnswer(question, accountContext) {
 
   // Connected stores: database fact, no model interpretation required.
   if (
-    /\b(store|stores|shop|shops)\b/.test(q) &&
-    /\b(connect|connected|connection|connections|how many|which|what)\b/.test(q)
+    !/\b(?:automation|automations|scheduled posting|scheduled posts)\b/.test(q) &&
+    /\b(?:store|stores|shop|shops)\b/.test(q) &&
+    (
+      /\b(?:connect|connected|connection|connections)\b/.test(q) ||
+      /\b(?:how many|which|what)\b/.test(q)
+    )
   ) {
     const stores = safeArray(accountContext.connectedStores);
     const names = stores.map((store) => store?.name || store?.type).filter(Boolean);
