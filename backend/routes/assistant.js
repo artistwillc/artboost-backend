@@ -6,6 +6,11 @@ import {
   ALLOWED_ASSISTANT_ACTIONS,
   ARTBOOST_SUPPORT_KNOWLEDGE,
 } from "../knowledge/artboostSupportKnowledge.js";
+import {
+  ARTBOOST_FEATURE_CATALOG,
+  findArtBoostFeature,
+  isFeatureHelpQuestion,
+} from "../knowledge/artboostFeatureCatalog.js";
 
 const router = express.Router();
 
@@ -884,233 +889,52 @@ function formatAutomationTime(value, timezone = "America/Chicago") {
   }
 }
 
+function deterministicFeatureAnswer(question, accountContext) {
+  const q = cleanString(question, 1200).toLowerCase();
+
+  if (!isFeatureHelpQuestion(q)) return null;
+
+  const feature = findArtBoostFeature(q);
+  if (!feature) return null;
+
+  const action = feature.action
+    ? validateActions([{ id: feature.action }])
+    : [];
+
+  const tier = cleanString(
+    accountContext?.profile?.subscriptionTier || "",
+    80
+  ).toLowerCase();
+
+  let answer = feature.answer;
+
+  if (
+    feature.proOnly === true &&
+    accountContext?.authenticated === true &&
+    tier &&
+    tier !== "pro"
+  ) {
+    answer +=
+      " This feature may require an active ArtBoost Pro subscription.";
+  }
+
+  return {
+    answer,
+    steps: safeArray(feature.steps).slice(0, 7),
+    actions: action,
+    followUps: safeArray(feature.followUps).slice(0, 3),
+    usedAccountData: false,
+    severity: "info",
+  };
+}
+
+
 function deterministicAccountAnswer(question, accountContext) {
   if (!accountContext?.authenticated) return null;
 
   const q = cleanString(question, 1200).toLowerCase();
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
-
-  // Creator Tools help and individual tool explanations.
-  // Keep this near the top so general Creator Tools questions do not fall through
-  // to the live AI provider or get reduced to an incomplete feature list.
-  if (
-    /\b(?:creator\s*tools?|creator-tool|art\s*tools?|business\s*tools?)\b/.test(q)
-  ) {
-    return {
-      answer:
-        "ArtBoost Creator Tools include the AI Title Generator, AI Description Generator, AI Hashtag Generator, AI CTA Generator, Art Pricing Calculator, POD Profit Calculator, Collection Builder, AI Store Critique, Trending Artwork Ideas, Holiday Marketing Calendar, Opportunity Scanner, and AI Business Coach.",
-      steps: [
-        "Open Creator Tools to choose the tool you need.",
-        "Enter the artwork, product, store, pricing, or business details requested by that tool.",
-        "Review the generated result, then copy, save, or apply it where available.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: [
-        "How do I use the AI Hashtag Generator?",
-        "Can you explain the POD Profit Calculator?",
-        "What can the AI Business Coach help me with?",
-      ],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?title generator\b/.test(q)) {
-    return {
-      answer:
-        "The AI Title Generator creates marketable artwork or product titles from the details you provide. Use a clear subject, style, theme, audience, and product context to get stronger title options.",
-      steps: [
-        "Open Creator Tools and select AI Title Generator.",
-        "Describe the artwork, product, style, and target customer.",
-        "Generate titles, then choose or edit the best option.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["What Creator Tools are available to me?", "How do I use the AI Description Generator?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?description generator\b/.test(q)) {
-    return {
-      answer:
-        "The AI Description Generator turns your artwork or product details into a polished marketing description. Include the subject, visual style, intended audience, product type, and any important selling points.",
-      steps: [
-        "Open Creator Tools and select AI Description Generator.",
-        "Enter the artwork and product details.",
-        "Generate the description, then review and edit it before publishing.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["How do I use the AI Hashtag Generator?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?hashtag generator\b/.test(q)) {
-    return {
-      answer:
-        "The AI Hashtag Generator creates relevant social hashtags from your artwork, niche, audience, and platform. Use specific details so the results include a practical mix of broad, niche, and product-focused hashtags.",
-      steps: [
-        "Open Creator Tools and select AI Hashtag Generator.",
-        "Describe the artwork, niche, audience, and social platform.",
-        "Generate hashtags and remove any that do not accurately match the post.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["What does the AI CTA Generator do?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?(?:cta|call to action) generator\b/.test(q)) {
-    return {
-      answer:
-        "The AI CTA Generator creates calls to action for social posts and product marketing, such as prompting customers to view, shop, save, follow, or learn more. Choose a CTA that matches the platform and the action you want the customer to take.",
-      steps: [
-        "Open Creator Tools and select AI CTA Generator.",
-        "Enter the product, platform, and desired customer action.",
-        "Generate the CTA and use the version that fits the post naturally.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["How do I use the AI Hashtag Generator?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\bart pricing calculator\b/.test(q)) {
-    return {
-      answer:
-        "The Art Pricing Calculator helps estimate a selling price from your costs, labor, time, markup, and profit goals. Its result is a planning estimate, so compare it with your market, product format, and customer expectations before publishing the price.",
-      steps: [
-        "Open Creator Tools and select Art Pricing Calculator.",
-        "Enter materials, labor, time, fees, and desired profit.",
-        "Review the suggested price and adjust it for your market.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["Can you explain the POD Profit Calculator?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:pod|print on demand)\s+profit calculator\b/.test(q)) {
-    return {
-      answer:
-        "The POD Profit Calculator estimates profit after product cost, marketplace or payment fees, shipping charges you absorb, and the selling price. It helps compare pricing options before you publish a print-on-demand product.",
-      steps: [
-        "Open Creator Tools and select POD Profit Calculator.",
-        "Enter the base cost, selling price, fees, and any shipping cost you pay.",
-        "Review the estimated profit and margin before setting the final price.",
-      ],
-      actions: action("open_creator_tools"),
-      followUps: ["How does the Art Pricing Calculator work?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\bcollection builder\b/.test(q)) {
-    return {
-      answer:
-        "Collection Builder helps organize related artwork into a cohesive collection using a shared theme, audience, style, or product strategy. It can help you plan names, positioning, and which pieces belong together.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What Creator Tools are available to me?", "What can AI Store Critique help with?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?store critique\b/.test(q)) {
-    return {
-      answer:
-        "AI Store Critique reviews the store information you provide and gives improvement recommendations for presentation, product positioning, titles, descriptions, branding, and marketing. Treat the recommendations as guidance and verify them against your actual storefront.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What Creator Tools are available to me?", "What does Opportunity Scanner do?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\btrending artwork ideas\b/.test(q)) {
-    return {
-      answer:
-        "Trending Artwork Ideas helps generate timely artwork concepts based on themes, audiences, seasons, and market opportunities. Use the ideas as creative direction, then make the final artwork original to your brand.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What does the Holiday Marketing Calendar do?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\bholiday marketing calendar\b/.test(q)) {
-    return {
-      answer:
-        "The Holiday Marketing Calendar helps plan artwork, promotions, and publishing around holidays and seasonal buying periods. It is intended to give you enough lead time to create products and schedule marketing before each event.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What does Opportunity Scanner do?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\bopportunity scanner\b/.test(q)) {
-    return {
-      answer:
-        "Opportunity Scanner helps identify possible marketing, seasonal, product, or audience opportunities from the information available in ArtBoost. Review each recommendation for relevance before acting on it.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What can the AI Business Coach help me with?", "What Creator Tools are available to me?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  if (/\b(?:ai\s*)?business coach\b/.test(q)) {
-    return {
-      answer:
-        "The AI Business Coach provides practical guidance for growing and managing your art business, including product strategy, pricing, marketing priorities, store improvement, and next-step planning based on the details you provide.",
-      steps: [],
-      actions: action("open_creator_tools"),
-      followUps: ["What Creator Tools are available to me?", "What can AI Store Critique help with?"],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
-
-  // Analytics capability/help questions.
-  // Keep this BEFORE live publishing analytics so questions such as
-  // "What can I see in Analytics?" explain the dashboard instead of returning
-  // the user's current publishing totals.
-  if (
-    /\b(?:analytics|analytics dashboard|performance dashboard)\b/.test(q) &&
-    /\b(?:what can i see|what does|what is|how does|show|shows|include|included|features|help|use|used for|available)\b/.test(q) &&
-    !/\b(?:how many|count|total|published|posts?|successful|success|failed|failure|failures|error|errors|skipped|automation runs?|campaigns?)\b/.test(q)
-  ) {
-    return {
-      answer:
-        "ArtBoost Analytics is designed to show your publishing and marketing performance in one place, including published post totals, scheduled campaign activity, automation status, platform performance, top-performing content, campaign health, upcoming posts, engagement, clicks, conversions, and AI-generated insights when data is available.",
-      steps: [
-        "Open Analytics to review your current dashboard.",
-        "Use the platform and campaign sections to compare performance.",
-        "Review automation health and upcoming publishing activity for anything needing attention.",
-      ],
-      actions: action("open_analytics"),
-      followUps: [
-        "How many posts have I published?",
-        "How many successful automation runs have I had?",
-        "Do any of my automations have errors?",
-      ],
-      usedAccountData: false,
-      severity: "info",
-    };
-  }
 
   // Publishing and analytics awareness.
   if (
@@ -1221,6 +1045,36 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: "success",
+    };
+  }
+
+  // Automatic posting and scheduling capability/help questions.
+  // Keep this BEFORE live automation account-status handling so general questions
+  // explain how the feature works instead of falling through to the AI provider.
+  if (
+    /\b(?:automatic posting|auto posting|automated posting|scheduled posting|store automation|posting automation|automations?)\b/.test(q) &&
+    /\b(?:how does|how do|how can|what is|what does|work|works|set up|setup|use|used for|explain|help)\b/.test(q) &&
+    !/\b(?:how many|active|enabled|running|next|when|scheduled to run|platforms?|post to|posting to|errors?|failed|failure|failures|problem|problems|issue|issues|status)\b/.test(q)
+  ) {
+    return {
+      answer:
+        "Automatic posting in ArtBoost uses a connected store, imported products, and your connected social platforms. You create a store automation, choose the platforms and any required destinations such as a Facebook Page or Pinterest board, set the posting schedule and product-selection rules, and then ArtBoost selects an eligible product and publishes it when the automation runs.",
+      steps: [
+        "Connect the store you want ArtBoost to promote.",
+        "Import or sync products from that store.",
+        "Connect the social platforms you want to publish to.",
+        "Create or open the store automation.",
+        "Choose the platforms, required Page or board, schedule, time zone, and product-selection method.",
+        "Enable the automation and confirm that a next run time appears.",
+      ],
+      actions: action("open_connections"),
+      followUps: [
+        "How many active automations do I have?",
+        "When are my automations scheduled to run next?",
+        "Which platforms will each automation post to?",
+      ],
+      usedAccountData: false,
+      severity: "info",
     };
   }
 
@@ -1446,30 +1300,6 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: expired.length ? "warning" : "success",
-    };
-  }
-
-  // Campaign Manager capability/help questions.
-  // Keep this BEFORE scheduled campaign account-status handling so questions like
-  // "What can I do with Campaign Manager?" explain the feature instead of
-  // answering with the user's current scheduled-campaign count.
-  if (
-    /\b(?:campaign manager|campaign|campaigns)\b/.test(q) &&
-    /\b(?:what can i do|what does|what is|how does|feature|features|capabilit|use|used for|help me|allows?|create|manage)\b/.test(q) &&
-    !/\b(?:how many|count|total|next|when|upcoming|scheduled for|platform|platforms|error|errors|failed|failure|problem|problems|issue|issues|attention|published|posts?)\b/.test(q)
-  ) {
-    return {
-      answer:
-        "Campaign Manager lets you create marketing campaigns for your artwork and products, choose where they will publish, post them immediately or schedule them for later, and manage their publishing status from one place.",
-      steps: [],
-      actions: action("open_campaign_manager"),
-      followUps: [
-        "How many scheduled campaigns do I currently have?",
-        "What campaign is scheduled to run next?",
-        "Do any of my campaigns have errors?",
-      ],
-      usedAccountData: false,
-      severity: "info",
     };
   }
 
@@ -1783,6 +1613,16 @@ router.post("/assistant", async (req, res) => {
 
     const verifiedUser = await verifyRequestUser(req);
     const accountContext = await loadAccountContext(verifiedUser?.id || null);
+
+    // Answer general ArtBoost feature/help questions from the centralized
+    // feature catalog before checking live account facts.
+    const featureAnswer = deterministicFeatureAnswer(question, accountContext);
+    if (featureAnswer) {
+      return res.json({
+        success: true,
+        ...featureAnswer,
+      });
+    }
 
     // Answer direct account-fact questions from ArtBoost data before calling the model.
     // This prevents malformed model JSON from breaking factual account queries.
