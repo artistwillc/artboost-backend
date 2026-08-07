@@ -21,11 +21,11 @@ function decodeHtmlEntities(value) {
     .trim();
 }
 
-function normalizeUrl(value) {
+function normalizeUrl(value, label = "URL") {
   const input = String(value || "").trim();
 
   if (!input) {
-    throw new Error("Product URL is required.");
+    throw new Error(`${label} is required.`);
   }
 
   let parsed;
@@ -33,7 +33,7 @@ function normalizeUrl(value) {
   try {
     parsed = new URL(input);
   } catch {
-    throw new Error("Invalid product URL.");
+    throw new Error(`Invalid ${label.toLowerCase()}.`);
   }
 
   if (
@@ -41,7 +41,7 @@ function normalizeUrl(value) {
     parsed.protocol !== "http:"
   ) {
     throw new Error(
-      "Product URL must use http or https."
+      `${label} must use http or https.`
     );
   }
 
@@ -537,15 +537,22 @@ export async function importSingleCatalogProduct({
   }
 
   const cleanProductUrl =
-    normalizeUrl(productUrl);
+    normalizeUrl(productUrl, "Product URL");
 
   let cleanImageUrl = null;
 
   if (
     String(imageUrl || "").trim()
   ) {
-    cleanImageUrl =
-      normalizeUrl(imageUrl);
+    try {
+      cleanImageUrl =
+        normalizeUrl(imageUrl, "Image URL");
+    } catch {
+      // Some storefronts initially expose data/blob placeholder
+      // images. Keep the product import valid instead of failing
+      // the entire product because the optional image is unusable.
+      cleanImageUrl = null;
+    }
   }
 
   let normalizedPrice = null;
