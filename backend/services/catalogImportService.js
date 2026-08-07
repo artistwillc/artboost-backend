@@ -21,11 +21,11 @@ function decodeHtmlEntities(value) {
     .trim();
 }
 
-function normalizeUrl(value, label = "URL") {
+function normalizeUrl(value) {
   const input = String(value || "").trim();
 
   if (!input) {
-    throw new Error(`${label} is required.`);
+    throw new Error("Product URL is required.");
   }
 
   let parsed;
@@ -33,7 +33,7 @@ function normalizeUrl(value, label = "URL") {
   try {
     parsed = new URL(input);
   } catch {
-    throw new Error(`Invalid ${label.toLowerCase()}.`);
+    throw new Error("Invalid product URL.");
   }
 
   if (
@@ -41,7 +41,7 @@ function normalizeUrl(value, label = "URL") {
     parsed.protocol !== "http:"
   ) {
     throw new Error(
-      `${label} must use http or https.`
+      "Product URL must use http or https."
     );
   }
 
@@ -539,31 +539,83 @@ export async function importSingleCatalogProduct({
   const cleanProductUrl =
     normalizeUrl(productUrl, "Product URL");
 
+  /*
+   * Storefront scanners can sometimes see only a lazy-load
+   * placeholder image (Redbubble currently does this). When
+   * image/description/price metadata is missing, fetch the
+   * actual product page and use its Open Graph/canonical
+   * metadata as a fallback.
+   */
+  let fallbackMetadata = null;
+
+  const suppliedImageUrl =
+    String(imageUrl || "").trim();
+
+  const suppliedDescription =
+    String(description || "").trim();
+
+  const suppliedPriceMissing =
+    price === null ||
+    price === undefined ||
+    String(price).trim() === "";
+
+  const needsMetadataFallback =
+    !/^https?:\/\//i.test(suppliedImageUrl) ||
+    !suppliedDescription ||
+    suppliedPriceMissing;
+
+  if (needsMetadataFallback) {
+    try {
+      fallbackMetadata =
+        await fetchProductMetadata(
+          cleanProductUrl
+        );
+    } catch (error) {
+      console.warn(
+        "Catalog metadata fallback failed:",
+        cleanProductUrl,
+        error instanceof Error
+          ? error.message
+          : String(error)
+      );
+    }
+  }
+
   let cleanImageUrl = null;
 
-  if (
-    String(imageUrl || "").trim()
-  ) {
+  const resolvedImageUrl =
+    /^https?:\/\//i.test(suppliedImageUrl)
+      ? suppliedImageUrl
+      : String(
+          fallbackMetadata?.imageUrl || ""
+        ).trim();
+
+  if (resolvedImageUrl) {
     try {
       cleanImageUrl =
-        normalizeUrl(imageUrl, "Image URL");
+        normalizeUrl(
+          resolvedImageUrl,
+          "Image URL"
+        );
     } catch {
-      // Some storefronts initially expose data/blob placeholder
-      // images. Keep the product import valid instead of failing
-      // the entire product because the optional image is unusable.
       cleanImageUrl = null;
     }
   }
 
   let normalizedPrice = null;
 
+  const resolvedPrice =
+    suppliedPriceMissing
+      ? fallbackMetadata?.price
+      : price;
+
   if (
-    price !== null &&
-    price !== undefined &&
-    String(price).trim() !== ""
+    resolvedPrice !== null &&
+    resolvedPrice !== undefined &&
+    String(resolvedPrice).trim() !== ""
   ) {
     normalizedPrice =
-      Number(price);
+      Number(resolvedPrice);
 
     if (
       !Number.isFinite(
@@ -625,9 +677,11 @@ export async function importSingleCatalogProduct({
       storeId ? String(storeId) : null,
     title: cleanTitle,
     description:
+      suppliedDescription ||
       String(
-        description || ""
-      ).trim() || null,
+        fallbackMetadata?.description || ""
+      ).trim() ||
+      null,
     image_url:
       cleanImageUrl,
     product_url:
