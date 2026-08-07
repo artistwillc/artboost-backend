@@ -936,6 +936,60 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
+  // High-priority live account intent: automation publishing platforms.
+  // Keep this before broad publishing/analytics handling because "post to"
+  // contains "post" and would otherwise be interpreted as post analytics.
+  if (
+    /\b(?:automation|automations)\b/.test(q) &&
+    /\b(?:platform|platforms|post to|posting to|publish to|publishing to|where)\b/.test(q)
+  ) {
+    const automations = safeArray(accountContext?.automations);
+    const stores = safeArray(accountContext?.stores);
+    const enabledAutomations = automations.filter((automation) =>
+      isAutomationEnabled(automation)
+    );
+
+    if (!enabledAutomations.length) {
+      return {
+        answer:
+          "You currently have no active automations, so there are no automation publishing platforms to list.",
+        steps: [],
+        actions: action("open_connections"),
+        followUps: [
+          "How many active automations do I have?",
+          "When are my automations scheduled to run next?",
+        ],
+        usedAccountData: true,
+        severity: "info",
+      };
+    }
+
+    const platformRows = enabledAutomations.map((automation) => {
+      const storeName = automationStoreName(automation, stores);
+      const platforms = safeArray(automation?.platforms)
+        .map((platform) => cleanString(platform, 50).toLowerCase())
+        .filter(Boolean);
+
+      return `${storeName}: ${
+        platforms.length ? platforms.join(", ") : "no publishing platforms selected"
+      }`;
+    });
+
+    return {
+      answer:
+        `Your active automations are configured to publish to: ${platformRows.join("; ")}.`,
+      steps: [],
+      actions: action("open_connections"),
+      followUps: [
+        "When are my automations scheduled to run next?",
+        "Do any of my automations have errors?",
+        "How many active automations do I have?",
+      ],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
   // Publishing and analytics awareness.
   if (
     (
