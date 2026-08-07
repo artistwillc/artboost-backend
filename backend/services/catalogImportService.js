@@ -100,6 +100,38 @@ function detectMarketplace(productUrl) {
   return "custom_store";
 }
 
+
+function extractRedbubbleArtworkId(productUrl) {
+  try {
+    const parsed = new URL(productUrl);
+
+    if (
+      !parsed.hostname
+        .replace(/^www\./i, "")
+        .toLowerCase()
+        .endsWith("redbubble.com")
+    ) {
+      return null;
+    }
+
+    const path = parsed.pathname || "";
+
+    const shopMatch =
+      path.match(/\/shop\/ap\/(\d+)/i);
+
+    if (shopMatch?.[1]) {
+      return shopMatch[1];
+    }
+
+    const iMatch =
+      path.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:[./]|\/|$)/i);
+
+    return iMatch?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
 function extractMetaContent(html, key) {
   const escapedKey = key.replace(
     /[.*+?^${}()|[\]\\]/g,
@@ -614,18 +646,15 @@ export async function importSingleCatalogProduct({
     resolvedPrice !== undefined &&
     String(resolvedPrice).trim() !== ""
   ) {
-    normalizedPrice =
+    const parsedPrice =
       Number(resolvedPrice);
 
     if (
-      !Number.isFinite(
-        normalizedPrice
-      ) ||
-      normalizedPrice < 0
+      Number.isFinite(parsedPrice) &&
+      parsedPrice > 0
     ) {
-      throw new Error(
-        "Product price must be a valid positive number."
-      );
+      normalizedPrice =
+        parsedPrice;
     }
   }
 
@@ -645,26 +674,71 @@ export async function importSingleCatalogProduct({
   const now =
     new Date().toISOString();
 
-  const {
-    data: existingProduct,
-    error: lookupError,
-  } = await supabase
-    .from("products")
-    .select("id")
-    .eq(
-      "user_id",
-      String(userId)
-    )
-    .eq(
-      "product_url",
-      cleanProductUrl
-    )
-    .maybeSingle();
+  let existingProduct = null;
 
-  if (lookupError) {
-    throw new Error(
-      `Unable to check existing product: ${lookupError.message}`
-    );
+  const redbubbleArtworkId =
+    normalizedStoreType === "redbubble"
+      ? extractRedbubbleArtworkId(
+          cleanProductUrl
+        )
+      : null;
+
+  if (redbubbleArtworkId) {
+    const {
+      data: redbubbleProducts,
+      error: redbubbleLookupError,
+    } = await supabase
+      .from("products")
+      .select("id, product_url")
+      .eq(
+        "user_id",
+        String(userId)
+      )
+      .eq(
+        "store_type",
+        "redbubble"
+      );
+
+    if (redbubbleLookupError) {
+      throw new Error(
+        `Unable to check existing Redbubble products: ${redbubbleLookupError.message}`
+      );
+    }
+
+    existingProduct =
+      (redbubbleProducts || []).find(
+        (item) =>
+          extractRedbubbleArtworkId(
+            item?.product_url
+          ) === redbubbleArtworkId
+      ) || null;
+  }
+
+  if (!existingProduct) {
+    const {
+      data: exactProduct,
+      error: lookupError,
+    } = await supabase
+      .from("products")
+      .select("id")
+      .eq(
+        "user_id",
+        String(userId)
+      )
+      .eq(
+        "product_url",
+        cleanProductUrl
+      )
+      .maybeSingle();
+
+    if (lookupError) {
+      throw new Error(
+        `Unable to check existing product: ${lookupError.message}`
+      );
+    }
+
+    existingProduct =
+      exactProduct || null;
   }
 
   const productRecord = {
