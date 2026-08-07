@@ -1084,6 +1084,34 @@ function deterministicAccountAnswer(question, accountContext) {
     };
   }
 
+  // Analytics capability/help questions.
+  // Keep this BEFORE live publishing analytics so questions such as
+  // "What can I see in Analytics?" explain the dashboard instead of returning
+  // the user's current publishing totals.
+  if (
+    /\b(?:analytics|analytics dashboard|performance dashboard)\b/.test(q) &&
+    /\b(?:what can i see|what does|what is|how does|show|shows|include|included|features|help|use|used for|available)\b/.test(q) &&
+    !/\b(?:how many|count|total|published|posts?|successful|success|failed|failure|failures|error|errors|skipped|automation runs?|campaigns?)\b/.test(q)
+  ) {
+    return {
+      answer:
+        "ArtBoost Analytics is designed to show your publishing and marketing performance in one place, including published post totals, scheduled campaign activity, automation status, platform performance, top-performing content, campaign health, upcoming posts, engagement, clicks, conversions, and AI-generated insights when data is available.",
+      steps: [
+        "Open Analytics to review your current dashboard.",
+        "Use the platform and campaign sections to compare performance.",
+        "Review automation health and upcoming publishing activity for anything needing attention.",
+      ],
+      actions: action("open_analytics"),
+      followUps: [
+        "How many posts have I published?",
+        "How many successful automation runs have I had?",
+        "Do any of my automations have errors?",
+      ],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
   // Publishing and analytics awareness.
   if (
     (
