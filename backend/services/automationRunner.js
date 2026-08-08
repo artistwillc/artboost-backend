@@ -404,6 +404,7 @@ async function finalizeAutomationSchedule({
 export async function runAutomation({
   automationId,
   userId,
+  trigger = "scheduled",
 }) {
   const automation =
     await getAutomationById({
@@ -416,6 +417,18 @@ export async function runAutomation({
       "Automation not found."
     );
   }
+
+  const normalizedTrigger =
+    String(trigger || "scheduled")
+      .trim()
+      .toLowerCase();
+
+  // Manual "Post Now" should not move the recurring schedule.
+  // A one-time promotion is the exception because executing it manually
+  // is the completion of that one-time automation.
+  const shouldAdvanceSchedule =
+    normalizedTrigger === "scheduled" ||
+    automation.frequency === "one_time";
 
   const storeId =
     automation.store_id ??
@@ -457,6 +470,8 @@ export async function runAutomation({
       storeName,
       selectionMode,
       repeatDelayDays,
+      trigger: normalizedTrigger,
+      shouldAdvanceSchedule,
     }
   );
 
@@ -517,14 +532,14 @@ try {
       message,
   });
 
-  await finalizeAutomationSchedule({
+  if (shouldAdvanceSchedule) {    await finalizeAutomationSchedule({
     automation,
     userId,
     lastRunAt:
       new Date().toISOString(),
     lastError:
       message,
-  });
+    });  }
 
   throw error;
 }
@@ -549,14 +564,14 @@ try {
         message,
     });
 
-   await finalizeAutomationSchedule({
+   if (shouldAdvanceSchedule) {  await finalizeAutomationSchedule({
   automation,
   userId,
   lastRunAt:
     new Date().toISOString(),
   lastError:
     message,
-}); 
+  });} 
 
     throw new Error(message);
   }
@@ -842,13 +857,13 @@ ${productLink}`,
         message,
     });
 
-    await finalizeAutomationSchedule({
+    if (shouldAdvanceSchedule) {      await finalizeAutomationSchedule({
       automation,
       userId,
       lastRunAt: new Date().toISOString(),
       lastProductId: product?.id ?? null,
       lastError: message,
-    });
+      });    }
 
     throw error;
   }
@@ -866,13 +881,13 @@ ${productLink}`,
     const runCompletedAt =
       new Date().toISOString();
 
-    await finalizeAutomationSchedule({
+    if (shouldAdvanceSchedule) {      await finalizeAutomationSchedule({
       automation,
       userId,
       lastRunAt: runCompletedAt,
       lastProductId: product.id,
       lastError: null,
-    });
+      });    }
 
     const partialSuccess =
       Boolean(
@@ -923,13 +938,13 @@ ${productLink}`,
         publishError,
     });
 
-    await finalizeAutomationSchedule({
+    if (shouldAdvanceSchedule) {      await finalizeAutomationSchedule({
       automation,
       userId,
       lastRunAt: new Date().toISOString(),
       lastProductId: product?.id ?? null,
       lastError: publishError,
-    });
+      });    }
   }
 
   return {
@@ -944,5 +959,7 @@ ${productLink}`,
     automation,
     product,
     publishResult,
+    trigger: normalizedTrigger,
+    scheduleAdvanced: shouldAdvanceSchedule,
   };
 }

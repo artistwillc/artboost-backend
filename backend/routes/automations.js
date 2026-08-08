@@ -445,6 +445,7 @@ router.post(
           automationId:
             String(automationId),
           userId: String(userId),
+          trigger: "manual",
         });
 
       return res.json(result);

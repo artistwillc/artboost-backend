@@ -3852,7 +3852,7 @@ app.get("/pinterest/boards", async (req, res) => {
 
     const boardsResponse = await fetch(`${PINTEREST_API_BASE}/v5/boards`, {
       headers: {
-        Authorization: `Bearer ${pinterestConnection.token}`,
+        Authorization: `Bearer ${pinterestToken}`,
       },
     });
 
@@ -3874,18 +3874,69 @@ app.get("/pinterest/boards", async (req, res) => {
   }
 });
 
+
+async function loadUserSocialConnection({
+  userId,
+  platform,
+}) {
+  if (!userId || !platform) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq("user_id", String(userId))
+    .eq(
+      "platform",
+      String(platform).trim().toLowerCase()
+    )
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      `Unable to load ${platform} connection for user:`,
+      error.message
+    );
+    return null;
+  }
+
+  return data || null;
+}
+
 async function publishPinterestPin({
   boardId,
   title,
   description,
   link,
   imageUrl,
+  userId = null,
 }) {
-  if (!pinterestConnection.connected || !pinterestConnection.token) {
-    await loadPinterestConnection();
+  const userConnection =
+    await loadUserSocialConnection({
+      userId,
+      platform: "pinterest",
+    });
+
+  let pinterestToken =
+    userConnection?.connected &&
+    userConnection?.access_token
+      ? userConnection.access_token
+      : null;
+
+  // Backward-compatible fallback for existing legacy Pinterest connections.
+  if (!pinterestToken) {
+    if (!pinterestConnection.connected || !pinterestConnection.token) {
+      await loadPinterestConnection();
+    }
+
+    pinterestToken =
+      pinterestConnection.connected
+        ? pinterestConnection.token
+        : null;
   }
 
-  if (!pinterestConnection.connected || !pinterestConnection.token) {
+  if (!pinterestToken) {
     throw new Error(
       "Pinterest is not connected. Reconnect Pinterest and try again."
     );
@@ -3951,16 +4002,31 @@ async function publishFacebookPost({
   productLink,
   imageUrl,
   pageId,
+  userId = null,
 }) {
-  if (!facebookConnection.token) {
+  const userConnection =
+    await loadUserSocialConnection({
+      userId,
+      platform: "facebook",
+    });
+
+  const facebookToken =
+    userConnection?.connected &&
+    userConnection?.access_token
+      ? userConnection.access_token
+      : facebookConnection.token;
+
+  if (!facebookToken) {
     throw new Error(
-      "Facebook not connected"
+      "Facebook is not connected. Reconnect Facebook and try again."
     );
   }
 
   const pagesResponse =
     await fetch(
-      `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
+      `https://graph.facebook.com/v23.0/me/accounts?access_token=${encodeURIComponent(
+        facebookToken
+      )}`
     );
 
   const pagesData =
@@ -4311,6 +4377,7 @@ async function publishXPost({
   description,
   productLink,
   imageUrl,
+  userId = null,
 }) {
   const cleanTitle = String(
     title || description || "Check out this product"
@@ -5045,6 +5112,7 @@ async function runDueStoreAutomations() {
           await runStoreAutomation({
             automationId: automation.id,
             userId: automation.userId,
+            trigger: "scheduled",
           });
 
         console.log(
@@ -5122,6 +5190,7 @@ async function runScheduledCampaigns() {
           productLink: campaign.product_link,
           imageUrl: campaign.image_url,
           pageId: campaign.page_id,
+          userId: campaign.user_id,
         });
       } else if (platform === "instagram") {
         console.log("Publishing Instagram campaign:", campaign.id);
@@ -5131,6 +5200,7 @@ async function runScheduledCampaigns() {
           hashtags: campaign.hashtags,
           cta: campaign.cta,
           imageUrl: campaign.image_url,
+          userId: campaign.user_id,
         });
       } else if (platform === "x") {
         console.log("Publishing X campaign:", campaign.id);
@@ -5139,6 +5209,7 @@ async function runScheduledCampaigns() {
           description: campaign.description,
           productLink: campaign.product_link,
           imageUrl: campaign.image_url,
+          userId: campaign.user_id,
         });
       } else if (platform === "pinterest") {
         publishData = await publishPinterestPin({
@@ -5147,6 +5218,7 @@ async function runScheduledCampaigns() {
           description: campaign.description,
           link: campaign.product_link,
           imageUrl: campaign.image_url,
+          userId: campaign.user_id,
         });
       } else {
         console.log(
@@ -7422,6 +7494,7 @@ app.listen(PORT, async () => {
   console.log("LIVE SERVER VERSION: FACEBOOK PERSISTENCE 1");
   console.log("LIVE SERVER VERSION: INSTAGRAM SCHEDULER FIX 1");
   console.log("LIVE SERVER VERSION: INSTAGRAM DEBUG 2");
+  console.log("LIVE SERVER VERSION: AUTOMATION RELIABILITY FIX 1");
 
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"
