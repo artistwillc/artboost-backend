@@ -233,6 +233,32 @@ function extractCurrency(html) {
   );
 }
 
+function isUsableImageUrl(value) {
+  const input = String(value || "").trim();
+  if (!/^https?:\/\//i.test(input)) return false;
+
+  try {
+    const parsed = new URL(input);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+
+    // Never treat marketplace HTML pages as image assets.
+    if (host === "redbubble.com" || host.endsWith(".redbubble.com")) {
+      if (
+        path.startsWith("/people/") ||
+        path.startsWith("/shop/") ||
+        path.startsWith("/i/")
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchProductMetadata(productUrl) {
   const controller = new AbortController();
 
@@ -591,8 +617,11 @@ export async function importSingleCatalogProduct({
     price === undefined ||
     String(price).trim() === "";
 
+  const suppliedImageIsUsable =
+    isUsableImageUrl(suppliedImageUrl);
+
   const needsMetadataFallback =
-    !/^https?:\/\//i.test(suppliedImageUrl) ||
+    !suppliedImageIsUsable ||
     !suppliedDescription ||
     suppliedPriceMissing;
 
@@ -615,12 +644,16 @@ export async function importSingleCatalogProduct({
 
   let cleanImageUrl = null;
 
+  const fallbackImageUrl = String(
+    fallbackMetadata?.imageUrl || ""
+  ).trim();
+
   const resolvedImageUrl =
-    /^https?:\/\//i.test(suppliedImageUrl)
+    suppliedImageIsUsable
       ? suppliedImageUrl
-      : String(
-          fallbackMetadata?.imageUrl || ""
-        ).trim();
+      : isUsableImageUrl(fallbackImageUrl)
+        ? fallbackImageUrl
+        : "";
 
   if (resolvedImageUrl) {
     try {
@@ -665,6 +698,15 @@ export async function importSingleCatalogProduct({
     )
       .trim()
       .toLowerCase();
+
+  if (
+    normalizedStoreType === "redbubble" &&
+    !cleanImageUrl
+  ) {
+    throw new Error(
+      "Redbubble product does not contain a valid artwork image URL. Rescan or re-import this product."
+    );
+  }
 
   const normalizedCurrency =
     String(currency || "USD")
