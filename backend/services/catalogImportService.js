@@ -810,12 +810,28 @@ export async function importSingleCatalogProduct({
   };
 
   if (existingProduct?.id) {
+    const updateRecord = {
+      ...productRecord,
+    };
+
+    /*
+     * Redbubble repair path:
+     * A valid image discovered by the Universal Scanner must replace any
+     * legacy storefront/product-page URL already stored in image_url.
+     */
+    if (
+      normalizedStoreType === "redbubble" &&
+      cleanImageUrl
+    ) {
+      updateRecord.image_url = cleanImageUrl;
+    }
+
     const {
       data: updatedProduct,
       error: updateError,
     } = await supabase
       .from("products")
-      .update(productRecord)
+      .update(updateRecord)
       .eq(
         "id",
         existingProduct.id
