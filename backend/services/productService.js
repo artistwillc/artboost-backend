@@ -526,6 +526,77 @@ export async function getNextAutomationProduct({
 
   const availableProducts = products || [];
 
+  /*
+   * Automation publishing requires a real image asset. Legacy Redbubble
+   * imports may contain a storefront/product HTML URL in image_url; those
+   * records must never be selected for posting.
+   */
+  function hasPublishableImage(product) {
+    const rawImageUrl = String(
+      product?.image_url ??
+      product?.imageUrl ??
+      product?.featured_image ??
+      product?.featuredImage ??
+      product?.image ??
+      product?.images?.[0]?.src ??
+      product?.images?.[0]?.url ??
+      product?.images?.[0] ??
+      ""
+    ).trim();
+
+    if (!/^https?:\/\//i.test(rawImageUrl)) {
+      return false;
+    }
+
+    try {
+      const parsed = new URL(rawImageUrl);
+      const hostname = parsed.hostname
+        .replace(/^www\./i, "")
+        .toLowerCase();
+      const pathname = parsed.pathname || "";
+
+      if (
+        hostname === "redbubble.com" ||
+        hostname.endsWith(".redbubble.com")
+      ) {
+        return false;
+      }
+
+      if (
+        /^\/people\//i.test(pathname) ||
+        /^\/shop(?:\/|$)/i.test(pathname) ||
+        /^\/i\//i.test(pathname)
+      ) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const publishableProducts =
+    availableProducts.filter(hasPublishableImage);
+
+  if (
+    availableProducts.length > 0 &&
+    publishableProducts.length === 0
+  ) {
+    console.warn(
+      "Automation skipped all products because none contain a publishable image.",
+      {
+        storeType: resolvedStoreType,
+        storeName: resolvedStoreName,
+        totalProducts: availableProducts.length,
+      }
+    );
+
+    throw new Error(
+      "No imported products for this store currently contain a publishable image. Re-import the artwork so ArtBoost can save a valid product image."
+    );
+  }
+
   if (availableProducts.length === 0) {
     if (resolvedStoreType === "artpal") {
       throw new Error(
@@ -544,8 +615,8 @@ export async function getNextAutomationProduct({
 
   const eligibleProducts =
     parsedRepeatDelayDays === 0
-      ? availableProducts
-      : availableProducts.filter(
+      ? publishableProducts
+      : publishableProducts.filter(
           (product) => {
             if (!product.last_posted_at) {
               return true;
