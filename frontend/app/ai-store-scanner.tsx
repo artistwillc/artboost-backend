@@ -5,6 +5,7 @@ import {
   useLocalSearchParams,
 } from "expo-router";
 import React, {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -26,6 +27,10 @@ import {
 } from "react-native-webview";
 
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+
+import { buildCatalogCsv } from "@/lib/catalogCsv";
 
 import { supabase } from "@/lib/supabase";
 
@@ -52,7 +57,20 @@ type RawScannedProduct = {
   imageUrl?: string;
   price?: number | null;
   currency?: string;
+  artworkId?: string | null;
+  designTitle?: string | null;
 };
+
+type ScannerSessionState = {
+  storeUrl: string;
+  browserUrl: string;
+  products: ScannedProduct[];
+};
+
+// Keep a scanner session alive while the app is running. This prevents
+// leaving the scanner (for example to view imported products) from wiping
+// the current storefront, detected thumbnails, and selected products.
+const scannerSessionCache = new Map<string, ScannerSessionState>();
 
 type ScannerMessage = {
   type?: string;
@@ -74,6 +92,21 @@ type ScannerMessage = {
     scannedCount?: number;
   scrollStep?: number;
   maxScrollSteps?: number;
+  scanMode?: string;
+  finishReason?: string;
+  nextUrl?: string;
+  pageNumber?: number;
+  showMoreAvailable?: boolean;
+  showMoreClicked?: boolean;
+  diagnosticHtmlOnlyIds?: string[];
+  diagnosticAnchorIds?: string[];
+  diagnosticCollectedIds?: string[];
+  diagnosticHtmlOnlyCount?: number;
+  productUrl?: string;
+  imageUrl?: string | null;
+  description?: string | null;
+  price?: number | null;
+  currency?: string;
 };
 
 function cleanText(value: unknown) {
@@ -110,6 +143,27 @@ function makeProductId(productUrl: string) {
     .slice(0, 140);
 }
 
+
+function getRedbubbleArtworkIdFromUrl(value: string) {
+  const text = String(value || "");
+  const match =
+    text.match(/\/shop\/ap\/(\d+)/i) ||
+    text.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i);
+
+  return match?.[1] || "";
+}
+
+function hasVerifiedCatalogImage(value: string) {
+  const image = String(value || "").trim();
+
+  return (
+    /^https?:\/\//i.test(image) &&
+    /redbubble\.net/i.test(image) &&
+    !/\.svg(?:[?#]|$)/i.test(image) &&
+    !/(placeholder|transparent|spacer|blank)/i.test(image)
+  );
+}
+
 /*
  * This script runs inside the WebView.
  *
@@ -144,29 +198,148 @@ const SCAN_PAGE_SCRIPT = `
       }
     };
 
+    const getHttpImageUrl = function (image) {
+      if (!image) {
+        return "";
+      }
+
+      const candidates = [
+        image.currentSrc,
+        image.getAttribute("src"),
+        image.getAttribute("data-src"),
+        image.getAttribute("data-original"),
+        image.getAttribute("data-lazy-src")
+      ];
+
+      const srcset =
+        image.getAttribute("srcset") ||
+        image.getAttribute("data-srcset") ||
+        "";
+
+      if (srcset) {
+        srcset.split(",").forEach(function (entry) {
+          const candidate =
+            String(entry || "")
+              .trim()
+              .split(/\s+/)[0];
+
+          if (candidate) {
+            candidates.push(candidate);
+          }
+        });
+      }
+
+      // Redbubble lazy-loads multiple versions of each tile. Prefer the
+      // largest real CDN raster instead of a tiny/blank currentSrc placeholder.
+      const picture = image.closest && image.closest("picture");
+      if (picture) {
+        Array.from(picture.querySelectorAll("source")).forEach(function (source) {
+          const sourceSet = source.getAttribute("srcset") || source.getAttribute("data-srcset") || "";
+          sourceSet.split(",").forEach(function (entry) {
+            const candidate = String(entry || "").trim().split(/\s+/)[0];
+            if (candidate) candidates.push(candidate);
+          });
+        });
+      }
+
+      const normalizedCandidates = candidates
+        .map(function (candidate) { return absoluteUrl(candidate); })
+        .filter(function (candidate) {
+          const lower = String(candidate || "").toLowerCase();
+          const isHttp =
+            lower.startsWith("https://") ||
+            lower.startsWith("http://");
+          const looksBlank =
+            lower.includes("transparent") ||
+            lower.includes("placeholder") ||
+            lower.includes("spacer") ||
+            lower.includes("blank") ||
+            lower.includes("/raf/");
+
+          return isHttp && !looksBlank;
+        });
+
+      const redbubbleCandidates = normalizedCandidates.filter(function (candidate) {
+        return String(candidate || "").toLowerCase().includes("redbubble.net");
+      });
+
+      for (let index = redbubbleCandidates.length - 1; index >= 0; index -= 1) {
+        const candidate = redbubbleCandidates[index];
+        if (/[.](?:jpe?g|png|webp)(?:[?#]|$)/i.test(candidate)) return candidate;
+      }
+
+      return redbubbleCandidates[redbubbleCandidates.length - 1] ||
+        normalizedCandidates[normalizedCandidates.length - 1] || "";
+    };
+
+
+    const getPrice = function (card) {
+      if (!card) {
+        return null;
+      }
+
+      const text =
+        cleanText(card.textContent || "");
+
+      const match = text.match(
+        /(?:US\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/
+      );
+
+      if (!match) {
+        return null;
+      }
+
+      const value = Number(match[1]);
+      return Number.isFinite(value)
+        ? value
+        : null;
+    };
+
     const products = [];
     const seen = {};
 
-    /*
-     * ArtPal artwork cards use:
-     * <a class="iCg" href="?i=37279-174">
-     */
-    const artPalCards = Array.from(
-      document.querySelectorAll("a.iCg[href]")
-    );
+    const addProduct = function (
+      productUrl,
+      imageUrl,
+      title,
+      description,
+      price
+    ) {
+      if (
+        !productUrl ||
+        !imageUrl ||
+        seen[productUrl]
+      ) {
+        return;
+      }
 
-    artPalCards.forEach(function (card) {
+      seen[productUrl] = true;
+      products.push({
+        title:
+          cleanText(title) ||
+          "Imported Artwork",
+        description:
+          cleanText(description),
+        productUrl: productUrl,
+        imageUrl: imageUrl,
+        price:
+          Number.isFinite(Number(price))
+            ? Number(price)
+            : null,
+        currency: "USD"
+      });
+    };
+
+    /*
+     * ArtPal
+     */
+    Array.from(
+      document.querySelectorAll("a.iCg[href]")
+    ).forEach(function (card) {
       const rawHref =
         card.getAttribute("href") || "";
 
-      const productUrl =
-        absoluteUrl(rawHref);
-
-      if (
-        !productUrl ||
-        !rawHref.includes("?i=") ||
-        seen[productUrl]
-      ) {
+      if (!rawHref.includes("?i=")) {
         return;
       }
 
@@ -177,18 +350,8 @@ const SCAN_PAGE_SCRIPT = `
         return;
       }
 
-      /*
-       * ArtPal uses data-original for artwork that
-       * has not yet been lazy-loaded.
-       */
-      const rawImageUrl =
-        image.getAttribute("data-original") ||
-        image.currentSrc ||
-        image.getAttribute("src") ||
-        "";
-
       const imageUrl =
-        absoluteUrl(rawImageUrl);
+        getHttpImageUrl(image);
 
       if (
         !imageUrl ||
@@ -200,23 +363,106 @@ const SCAN_PAGE_SCRIPT = `
       const titleElement =
         card.querySelector("strong");
 
-      const title =
-        cleanText(
-          titleElement?.textContent ||
+      addProduct(
+        absoluteUrl(rawHref),
+        imageUrl,
+        titleElement?.textContent ||
           image.getAttribute("alt") ||
-          "ArtPal Artwork"
+          "ArtPal Artwork",
+        "",
+        null
+      );
+    });
+
+    /*
+     * Redbubble
+     *
+     * Current storefronts can expose artwork links as:
+     * /shop/ap/123456789
+     * /i/<product-type>/<slug>/<artwork-id>/<variant>
+     */
+    Array.from(
+      document.querySelectorAll("a[href]")
+    ).forEach(function (link) {
+      const rawHref =
+        link.getAttribute("href") || "";
+
+      let parsed;
+      try {
+        parsed = new URL(
+          rawHref,
+          window.location.href
+        );
+      } catch {
+        return;
+      }
+
+      const host =
+        parsed.hostname
+          .toLowerCase()
+          .replace(/^www\\./, "");
+
+      if (
+        host !== "redbubble.com" &&
+        !host.endsWith(".redbubble.com")
+      ) {
+        return;
+      }
+
+      const pathname =
+        parsed.pathname || "";
+
+      const isArtworkLink =
+        /^\\/shop\\/ap\\/\\d+/i.test(pathname) ||
+        /^\\/i\\/[^/]+\\/[^/]+\\/\\d+(?:\\/|$)/i.test(
+          pathname
         );
 
-      seen[productUrl] = true;
+      if (!isArtworkLink) {
+        return;
+      }
 
-      products.push({
-        title,
-        description: "",
-        productUrl,
+      const card =
+        link.closest(
+          "article, li, [data-testid], [class*='card'], [class*='tile'], [class*='product']"
+        ) || link;
+
+      const image =
+        link.querySelector("img") ||
+        card.querySelector("img");
+
+      if (!image) {
+        return;
+      }
+
+      const imageUrl =
+        getHttpImageUrl(image);
+
+      if (!imageUrl) {
+        return;
+      }
+
+      const alt =
+        image.getAttribute("alt") || "";
+
+      const aria =
+        link.getAttribute("aria-label") || "";
+
+      const titleNode =
+        card.querySelector(
+          "h1, h2, h3, h4, [class*='title'], [data-testid*='title']"
+        );
+
+      addProduct(
+        parsed.toString(),
         imageUrl,
-        price: null,
-        currency: "USD"
-      });
+        alt ||
+          aria ||
+          titleNode?.textContent ||
+          "Redbubble Artwork",
+        "",
+        getPrice(card)
+      );
     });
 
     window.ReactNativeWebView.postMessage(
@@ -247,18 +493,27 @@ const SCAN_PAGE_SCRIPT = `
 })();
 `;
 
-const FULL_STORE_SCAN_SCRIPT = `
+const FULL_STORE_SCAN_SCRIPT = String.raw`
 (function () {
   try {
-    var MAX_STEPS = 60;
-    var WAIT_MS = 850;
-    var stableRounds = 0;
-    var previousHeight = 0;
+    var accumulatedProducts = {};
+    var accumulatedOrder = [];
     var currentStep = 0;
+    var stableBottomRounds = 0;
+    var lastUniqueCount = 0;
+    var lastGrowthAt = Date.now();
+
+    // Catalog-size agnostic: there is intentionally NO expected product count.
+    // The scan ends only after the storefront has been at its end for many
+    // consecutive passes without discovering another unique artwork.
+    var WAIT_MS = 850;
+    var BOTTOM_STABLE_ROUNDS_TO_FINISH = 32;
+    var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
+    var startedAt = Date.now();
 
     function cleanText(value) {
       return String(value || "")
-        .replace(/\\s+/g, " ")
+        .replace(/\s+/g, " ")
         .trim();
     }
 
@@ -273,75 +528,580 @@ const FULL_STORE_SCAN_SCRIPT = `
       }
     }
 
-    function collectProducts() {
-      var products = [];
-      var seen = {};
+    function isVisible(node) {
+      if (!node || !node.getBoundingClientRect) return false;
+      var rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+      return !style || (style.display !== "none" && style.visibility !== "hidden");
+    }
 
-      var cards = Array.from(
-        document.querySelectorAll("a.iCg[href]")
+    function getHttpImageUrl(image) {
+      if (!image) return "";
+
+      var candidates = [
+        image.currentSrc,
+        image.getAttribute && image.getAttribute("src"),
+        image.getAttribute && image.getAttribute("data-src"),
+        image.getAttribute && image.getAttribute("data-original"),
+        image.getAttribute && image.getAttribute("data-lazy-src")
+      ];
+
+      var srcset =
+        (image.getAttribute && image.getAttribute("srcset")) ||
+        (image.getAttribute && image.getAttribute("data-srcset")) ||
+        "";
+
+      if (srcset) {
+        String(srcset).split(",").forEach(function (entry) {
+          var candidate = String(entry || "").trim().split(/\s+/)[0];
+          if (candidate) candidates.push(candidate);
+        });
+      }
+
+      var picture = image.closest && image.closest("picture");
+      if (picture) {
+        Array.from(picture.querySelectorAll("source")).forEach(function (source) {
+          var sourceSet =
+            source.getAttribute("srcset") ||
+            source.getAttribute("data-srcset") ||
+            "";
+
+          String(sourceSet).split(",").forEach(function (entry) {
+            var candidate = String(entry || "").trim().split(/\s+/)[0];
+            if (candidate) candidates.push(candidate);
+          });
+        });
+      }
+
+      var normalized = candidates
+        .map(function (candidate) { return absoluteUrl(candidate); })
+        .filter(function (candidate) {
+          var lower = String(candidate || "").toLowerCase();
+          if (!/^https?:\/\//i.test(lower)) return false;
+          return !(
+            lower.includes("transparent") ||
+            lower.includes("placeholder") ||
+            lower.includes("spacer") ||
+            lower.includes("blank") ||
+            lower.includes("/raf/")
+          );
+        });
+
+      var rb = normalized.filter(function (candidate) {
+        return /redbubble\.net/i.test(candidate);
+      });
+
+      return rb[rb.length - 1] || normalized[normalized.length - 1] || "";
+    }
+
+    function getPrice(card) {
+      if (!card) return null;
+      var text = cleanText(card.textContent || "");
+      var match = text.match(/(?:US\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+      if (!match) return null;
+      var value = Number(match[1]);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function redbubbleArtworkId(value) {
+      var text = String(value || "");
+      var match =
+        text.match(/\/shop\/ap\/(\d+)/i) ||
+        text.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:[./\/]|$)/i);
+      return match && match[1] ? match[1] : "";
+    }
+
+    function productKey(productUrl) {
+      var artworkId = redbubbleArtworkId(productUrl);
+      if (artworkId) return "redbubble:" + artworkId;
+
+      try {
+        var parsed = new URL(productUrl, window.location.href);
+        parsed.hash = "";
+        parsed.search = "";
+        return parsed.toString();
+      } catch {
+        return String(productUrl || "");
+      }
+    }
+
+    function addRememberedProduct(product) {
+      var key = productKey(product && product.productUrl);
+      if (!key) return false;
+
+      var previous = accumulatedProducts[key];
+      if (!previous) accumulatedOrder.push(key);
+
+      accumulatedProducts[key] = {
+        title: cleanText(product.title) || (previous && previous.title) || "Imported Artwork",
+        description: cleanText(product.description) || (previous && previous.description) || "",
+        productUrl: product.productUrl || (previous && previous.productUrl) || "",
+        imageUrl: product.imageUrl || (previous && previous.imageUrl) || "",
+        price: product.price !== null && product.price !== undefined
+          ? product.price
+          : (previous && previous.price !== undefined ? previous.price : null),
+        currency: product.currency || (previous && previous.currency) || "USD"
+      };
+
+      return !previous;
+    }
+
+    function collectVisibleProducts() {
+      var found = [];
+      var localSeen = {};
+
+      function push(product) {
+        var key = productKey(product.productUrl);
+        if (!key || localSeen[key]) return;
+        localSeen[key] = true;
+        found.push(product);
+      }
+
+      // ArtPal support remains available for the Universal Scanner.
+      Array.from(document.querySelectorAll("a.iCg[href]")).forEach(function (card) {
+        var rawHref = card.getAttribute("href") || "";
+        if (!rawHref.includes("?i=")) return;
+
+        var image = card.querySelector("img");
+        var imageUrl = getHttpImageUrl(image);
+        if (!imageUrl || imageUrl.includes("/img/c.gif")) return;
+
+        var titleElement = card.querySelector("strong");
+        push({
+          title: cleanText(titleElement && titleElement.textContent) ||
+            cleanText(image && image.getAttribute("alt")) ||
+            "ArtPal Artwork",
+          description: "",
+          productUrl: absoluteUrl(rawHref),
+          imageUrl: imageUrl,
+          price: null,
+          currency: "USD"
+        });
+      });
+
+      // Redbubble: remember the PRODUCT LINK even when its lazy thumbnail has
+      // not loaded yet. The isolated detail importer can enrich that artwork later.
+      Array.from(document.querySelectorAll("a[href]")).forEach(function (link) {
+        var rawHref = link.getAttribute("href") || "";
+        var parsed;
+        try {
+          parsed = new URL(rawHref, window.location.href);
+        } catch {
+          return;
+        }
+
+        var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+        if (host !== "redbubble.com" && !host.endsWith(".redbubble.com")) return;
+
+        var pathname = parsed.pathname || "";
+        var isArtworkLink =
+          /^\/shop\/ap\/\d+/i.test(pathname) ||
+          /^\/i\/[^/]+\/[^/]+\/\d+(?:\/|$)/i.test(pathname);
+
+        if (!isArtworkLink) return;
+
+        var card = link.closest(
+          "article, li, [data-testid], [class*='card'], [class*='tile'], [class*='product']"
+        ) || link;
+
+        var image = link.querySelector("img") || (card && card.querySelector("img"));
+        var imageUrl = getHttpImageUrl(image);
+        var titleNode = card && card.querySelector(
+          "h1, h2, h3, h4, [class*='title'], [data-testid*='title']"
+        );
+
+        push({
+          title:
+            cleanText(image && image.getAttribute("alt")) ||
+            cleanText(link.getAttribute("aria-label")) ||
+            cleanText(titleNode && titleNode.textContent) ||
+            "Redbubble Artwork",
+          description: "",
+          productUrl: parsed.toString(),
+          imageUrl: imageUrl || "",
+          price: getPrice(card),
+          currency: "USD"
+        });
+      });
+
+      return found;
+    }
+
+    function rememberVisibleProducts() {
+      collectVisibleProducts().forEach(addRememberedProduct);
+      return accumulatedOrder.length;
+    }
+
+    function getAccumulatedProducts() {
+      return accumulatedOrder
+        .map(function (key) { return accumulatedProducts[key]; })
+        .filter(Boolean);
+    }
+
+    function sendProgress() {
+      var uniqueCount = rememberVisibleProducts();
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "scan_progress",
+        scannedCount: uniqueCount,
+        scrollStep: currentStep,
+        maxScrollSteps: 0
+      }));
+      return uniqueCount;
+    }
+
+    function finishScan(reason) {
+      rememberVisibleProducts();
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "scan_results",
+        scanMode: "full_store",
+        finishReason: reason || "store_exhausted",
+        products: getAccumulatedProducts(),
+        pageUrl: window.location.href,
+        pageTitle: document.title,
+        totalLinks: document.querySelectorAll("a[href]").length,
+        totalImages: document.querySelectorAll("img").length
+      }));
+    }
+
+    function findLoadMoreControl() {
+      var nodes = Array.from(document.querySelectorAll(
+        "button, [role='button'], input[type='button'], input[type='submit'], a[href]"
+      ));
+
+      var pattern = /^(?:load|show|view|see)\s+more(?:\s+(?:designs|products|results|artwork))?$|^more\s+(?:designs|products|results|artwork)$/i;
+
+      return nodes.find(function (node) {
+        if (!isVisible(node)) return false;
+        var text = cleanText(
+          node.textContent ||
+          node.getAttribute("aria-label") ||
+          node.getAttribute("title") ||
+          node.value ||
+          ""
+        );
+        if (!pattern.test(text)) return false;
+
+        if (node.tagName && node.tagName.toLowerCase() === "a") {
+          var href = node.getAttribute("href") || "";
+          // Avoid navigating the visible WebView to a different page. Buttons
+          // and in-page anchors are safe; page-to-page pagination is not.
+          if (href && href !== "#" && !/^javascript:/i.test(href)) return false;
+        }
+
+        return true;
+      }) || null;
+    }
+
+    function scrollingElement() {
+      return document.scrollingElement || document.documentElement || document.body;
+    }
+
+    function metrics() {
+      var scroller = scrollingElement();
+      var viewport = Math.max(
+        window.innerHeight || 0,
+        document.documentElement && document.documentElement.clientHeight || 0,
+        500
       );
+      var y = window.pageYOffset || (scroller && scroller.scrollTop) || 0;
+      var height = Math.max(
+        document.body && document.body.scrollHeight || 0,
+        document.documentElement && document.documentElement.scrollHeight || 0,
+        scroller && scroller.scrollHeight || 0
+      );
+      return {
+        viewport: viewport,
+        y: y,
+        height: height,
+        maxY: Math.max(0, height - viewport)
+      };
+    }
 
-      cards.forEach(function (card) {
-        var rawHref =
-          card.getAttribute("href") || "";
+    function stimulateLazyLoad(atBottom) {
+      try {
+        window.dispatchEvent(new Event("scroll"));
+        document.dispatchEvent(new Event("scroll", { bubbles: true }));
+      } catch {}
 
-        if (!rawHref.includes("?i=")) {
-          return;
+      if (atBottom) {
+        var m = metrics();
+        // Bounce off the bottom so intersection observers and virtualized lists
+        // get a fresh enter/leave cycle before the next pass.
+        window.scrollTo({
+          top: Math.max(0, m.maxY - Math.max(180, Math.floor(m.viewport * 0.35))),
+          behavior: "auto"
+        });
+        setTimeout(function () {
+          var again = metrics();
+          window.scrollTo({ top: again.maxY, behavior: "auto" });
+        }, 120);
+      }
+    }
+
+    function scanNext() {
+      currentStep += 1;
+
+      if (Date.now() - startedAt >= FAILSAFE_RUNTIME_MS) {
+        finishScan("failsafe_runtime");
+        return;
+      }
+
+      var before = metrics();
+      var stepDistance = Math.max(300, Math.floor(before.viewport * 0.72));
+      var targetY = Math.min(before.maxY, before.y + stepDistance);
+      window.scrollTo({ top: targetY, behavior: "auto" });
+
+      setTimeout(function () {
+        var uniqueCount = sendProgress();
+        var grew = uniqueCount > lastUniqueCount;
+
+        if (grew) {
+          lastUniqueCount = uniqueCount;
+          lastGrowthAt = Date.now();
+          stableBottomRounds = 0;
         }
 
-        var productUrl =
-          absoluteUrl(rawHref);
+        var after = metrics();
+        var atBottom = after.y >= after.maxY - Math.max(40, after.viewport * 0.04);
+
+        if (atBottom) {
+          var loadMore = findLoadMoreControl();
+          if (loadMore) {
+            try {
+              loadMore.click();
+              stableBottomRounds = 0;
+              setTimeout(scanNext, 1400);
+              return;
+            } catch {}
+          }
+
+          if (!grew) stableBottomRounds += 1;
+          stimulateLazyLoad(true);
+
+          if (stableBottomRounds >= BOTTOM_STABLE_ROUNDS_TO_FINISH) {
+            // Final delayed pass: give the storefront one last opportunity to
+            // append/virtualize another batch before declaring it exhausted.
+            setTimeout(function () {
+              var finalCount = rememberVisibleProducts();
+              if (finalCount > lastUniqueCount) {
+                lastUniqueCount = finalCount;
+                stableBottomRounds = 0;
+                scanNext();
+              } else {
+                finishScan("store_exhausted");
+              }
+            }, 1800);
+            return;
+          }
+        } else {
+          stableBottomRounds = 0;
+          stimulateLazyLoad(false);
+        }
+
+        setTimeout(scanNext, atBottom ? 450 : 0);
+      }, WAIT_MS);
+    }
+
+    // Start from the top and accumulate every unique artwork as Redbubble's
+    // virtualized/lazy list rotates products through the DOM.
+    window.scrollTo({ top: 0, behavior: "auto" });
+    setTimeout(function () {
+      lastUniqueCount = sendProgress();
+      lastGrowthAt = Date.now();
+      scanNext();
+    }, 650);
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "scan_error",
+      error: error && error.message ? error.message : String(error)
+    }));
+  }
+
+  true;
+})();
+`;
+
+const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
+(function () {
+  try {
+    function clean(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function absolute(value) {
+      try {
+        return new URL(String(value || ""), window.location.href).toString();
+      } catch {
+        return "";
+      }
+    }
+
+    function artworkId(value) {
+      var href = String(value || "");
+      var match =
+        href.match(/\/shop\/ap\/(\d+)/i) ||
+        href.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i);
+
+      return match && match[1] ? match[1] : "";
+    }
+
+    function imageUrl(img) {
+      if (!img) return "";
+
+      var values = [
+        img.currentSrc,
+        img.getAttribute && img.getAttribute("src"),
+        img.getAttribute && img.getAttribute("data-src"),
+        img.getAttribute && img.getAttribute("data-original"),
+        img.getAttribute && img.getAttribute("data-lazy-src")
+      ];
+
+      [
+        img.getAttribute && img.getAttribute("srcset"),
+        img.getAttribute && img.getAttribute("data-srcset")
+      ].forEach(function (set) {
+        String(set || "").split(",").forEach(function (entry) {
+          var value = String(entry || "").trim().split(/\s+/)[0];
+          if (value) values.push(value);
+        });
+      });
+
+      var picture = img.closest && img.closest("picture");
+      if (picture) {
+        Array.from(picture.querySelectorAll("source")).forEach(function (source) {
+          String(
+            source.getAttribute("srcset") ||
+            source.getAttribute("data-srcset") ||
+            ""
+          ).split(",").forEach(function (entry) {
+            var value = String(entry || "").trim().split(/\s+/)[0];
+            if (value) values.push(value);
+          });
+        });
+      }
+
+      var usable = values
+        .map(absolute)
+        .filter(function (value) {
+          return (
+            /^https?:\/\//i.test(value) &&
+            !/(placeholder|transparent|spacer|blank)/i.test(value)
+          );
+        });
+
+      var redbubble = usable.filter(function (value) {
+        return /redbubble\.net/i.test(value);
+      });
+
+      return redbubble[redbubble.length - 1] ||
+        usable[usable.length - 1] ||
+        "";
+    }
+
+    function findShowMore() {
+      // Verified against Redbubble Explore DOM on 2026-08-08:
+      // <button type="button">...<span>Show more</span>...</button>
+      return (
+        Array.from(
+          document.querySelectorAll('button[type="button"]')
+        ).find(function (button) {
+          return clean(button.textContent) === "Show more";
+        }) || null
+      );
+    }
+
+    function collect() {
+      var remembered = {};
+      var products = [];
+
+      // Verified live Explore card structure:
+      // <a id="182156808" href="https://www.redbubble.com/shop/ap/182156808">
+      //   ... artwork <img src="https://ih1.redbubble.net/image....jpg">
+      //   ... Maul Skull ... Shop all products
+      // </a>
+      //
+      // Restrict collection to these artwork-card anchors so the Favorite
+      // heart button/icon can never be mistaken for the design.
+      Array.from(
+        document.querySelectorAll(
+          'a[href*="/shop/ap/"]'
+        )
+      ).forEach(function (link) {
+        var href = absolute(link.getAttribute("href"));
+        var id = artworkId(href);
+
+        if (!id || remembered[id]) return;
+
+        // Desktop Redbubble currently adds a numeric id attribute matching
+        // the artwork id. Mobile/WebView can omit that id entirely, so the
+        // artwork URL is the source of truth. If an id is present, validate
+        // it; otherwise continue normally.
+        var linkId = clean(link.getAttribute("id"));
 
         if (
-          !productUrl ||
-          seen[productUrl]
+          linkId &&
+          /^\d+$/.test(linkId) &&
+          linkId !== id
         ) {
           return;
         }
 
-        var image =
-          card.querySelector("img");
+        var artworkImg =
+          Array.from(link.querySelectorAll("img")).find(function (img) {
+            var src = absolute(
+              img.currentSrc ||
+              img.getAttribute("src") ||
+              img.getAttribute("data-src") ||
+              img.getAttribute("data-original") ||
+              img.getAttribute("data-lazy-src") ||
+              ""
+            );
 
-        if (!image) {
-          return;
+            var alt = clean(
+              img.getAttribute("alt") || ""
+            );
+
+            return (
+              /redbubble\.net/i.test(src) &&
+              !/favorite/i.test(alt) &&
+              !/\.svg(?:[?#]|$)/i.test(src)
+            );
+          }) || null;
+
+        var rawText = clean(link.textContent);
+        var title = clean(
+          rawText
+            .replace(/Shop all products/gi, " ")
+            .replace(/\s+/g, " ")
+        );
+
+        if (!title) {
+          var titleSpan =
+            Array.from(
+              link.querySelectorAll("span")
+            ).find(function (span) {
+              var value = clean(span.textContent);
+              return (
+                value &&
+                value !== "Shop all products" &&
+                value.length > 2
+              );
+            }) || null;
+
+          title = clean(
+            titleSpan && titleSpan.textContent
+          );
         }
 
-        var rawImageUrl =
-          image.getAttribute("data-original") ||
-          image.currentSrc ||
-          image.getAttribute("src") ||
-          "";
-
-        var imageUrl =
-          absoluteUrl(rawImageUrl);
-
-        if (
-          !imageUrl ||
-          imageUrl.includes("/img/c.gif")
-        ) {
-          return;
-        }
-
-        var titleElement =
-          card.querySelector("strong");
-
-        var title =
-          cleanText(
-            titleElement &&
-              titleElement.textContent
-          ) ||
-          cleanText(
-            image.getAttribute("alt")
-          ) ||
-          "ArtPal Artwork";
-
-        seen[productUrl] = true;
+        remembered[id] = true;
 
         products.push({
-          title: title,
+          title:
+            title || "Redbubble Artwork",
           description: "",
-          productUrl: productUrl,
-          imageUrl: imageUrl,
+          productUrl: href,
+          imageUrl: imageUrl(artworkImg),
           price: null,
           currency: "USD"
         });
@@ -350,109 +1110,720 @@ const FULL_STORE_SCAN_SCRIPT = `
       return products;
     }
 
-    function sendProgress() {
-      var products =
-        collectProducts();
+    function sendSnapshot() {
+      var products = collect();
+      var showMore = findShowMore();
 
       window.ReactNativeWebView.postMessage(
         JSON.stringify({
-          type: "scan_progress",
-          scannedCount: products.length,
-          scrollStep: currentStep,
-          maxScrollSteps: MAX_STEPS
+          type: "redbubble_full_snapshot",
+          pageUrl: window.location.href,
+          products: products,
+          showMoreAvailable: !!showMore
         })
       );
     }
 
-    function finishScan() {
-      window.scrollTo(
-        0,
-        document.body.scrollHeight
-      );
+    // Force Redbubble to render the bottom control and any lazy design cards.
+    var height = Math.max(
+      (document.body && document.body.scrollHeight) || 0,
+      (document.documentElement && document.documentElement.scrollHeight) || 0
+    );
 
-      setTimeout(function () {
-        var products =
-          collectProducts();
+    window.scrollTo({ top: height, behavior: "auto" });
 
-        window.ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: "scan_results",
-            products: products,
-            pageUrl:
-              window.location.href,
-            pageTitle:
-              document.title,
-            totalLinks:
-              document.querySelectorAll(
-                "a[href]"
-              ).length,
-            totalImages:
-              document.querySelectorAll(
-                "img"
-              ).length
-          })
-        );
-      }, 500);
+    try {
+      window.dispatchEvent(new Event("scroll"));
+    } catch {}
+
+    setTimeout(sendSnapshot, 1700);
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: "redbubble_full_page_error",
+        error:
+          error && error.message
+            ? error.message
+            : String(error)
+      })
+    );
+  }
+
+  true;
+})();
+`;
+
+const REDBUBBLE_CLICK_SHOW_MORE_SCRIPT = String.raw`
+(function () {
+  try {
+    function clean(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
     }
 
-    function scrollAndScan() {
-      currentStep += 1;
+    // Verified Redbubble control:
+    // <button type="button"><span><span>Show more</span></span></button>
+    var target =
+      Array.from(
+        document.querySelectorAll('button[type="button"]')
+      ).find(function (button) {
+        return clean(button.textContent) === "Show more";
+      }) || null;
 
-      var currentHeight =
-        Math.max(
-          document.body.scrollHeight,
-          document.documentElement
-            .scrollHeight
+    if (!target) {
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type: "redbubble_show_more_result",
+          showMoreClicked: false
+        })
+      );
+      true;
+      return;
+    }
+
+    try {
+      target.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: "auto"
+      });
+    } catch {}
+
+    setTimeout(function () {
+      try {
+        if (typeof PointerEvent !== "undefined") {
+          ["pointerdown", "pointerup"].forEach(function (type) {
+            target.dispatchEvent(
+              new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                pointerType: "mouse"
+              })
+            );
+          });
+        }
+      } catch {}
+
+      try {
+        ["mousedown", "mouseup"].forEach(function (type) {
+          target.dispatchEvent(
+            new MouseEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              view: window
+            })
+          );
+        });
+      } catch {}
+
+      try {
+        target.click();
+      } catch {}
+
+      try {
+        target.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          })
         );
+      } catch {}
 
-      window.scrollTo({
-        top: currentHeight,
-        behavior: "smooth"
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type: "redbubble_show_more_result",
+          showMoreClicked: true
+        })
+      );
+    }, 250);
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: "redbubble_show_more_result",
+        showMoreClicked: false,
+        error:
+          error && error.message
+            ? error.message
+            : String(error)
+      })
+    );
+  }
+
+  true;
+})();
+`;
+
+const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
+(function () {
+  try {
+    var remembered = {};
+    var order = [];
+    var showMoreClicks = 0;
+    var confirmedNoGrowth = 0;
+    var startedAt = Date.now();
+
+    // Catalog-size agnostic: there is no maximum design count.
+    var POLL_MS = 650;
+    var GROWTH_TIMEOUT_MS = 12000;
+    var CONFIRMED_NO_GROWTH_TO_FINISH = 4;
+    var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
+
+    function clean(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function absolute(value) {
+      try {
+        return new URL(String(value || ""), window.location.href).toString();
+      } catch {
+        return "";
+      }
+    }
+
+    function artworkId(value) {
+      var href = String(value || "");
+      var match =
+        href.match(/\/shop\/ap\/(\d+)/i) ||
+        href.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i);
+      return match && match[1] ? match[1] : "";
+    }
+
+    function getArtworkImage(link) {
+      var candidates = [];
+
+      Array.from(link.querySelectorAll("img")).forEach(function (img) {
+        var alt = clean(img.getAttribute("alt") || "");
+        if (/favorite/i.test(alt)) return;
+
+        [
+          img.currentSrc,
+          img.getAttribute("src"),
+          img.getAttribute("data-src"),
+          img.getAttribute("data-original"),
+          img.getAttribute("data-lazy-src")
+        ].forEach(function (value) {
+          if (value) candidates.push(value);
+        });
+
+        [
+          img.getAttribute("srcset"),
+          img.getAttribute("data-srcset")
+        ].forEach(function (set) {
+          String(set || "").split(",").forEach(function (entry) {
+            var value = String(entry || "").trim().split(/\s+/)[0];
+            if (value) candidates.push(value);
+          });
+        });
       });
 
-      sendProgress();
+      Array.from(link.querySelectorAll("source")).forEach(function (source) {
+        [
+          source.getAttribute("srcset"),
+          source.getAttribute("data-srcset")
+        ].forEach(function (set) {
+          String(set || "").split(",").forEach(function (entry) {
+            var value = String(entry || "").trim().split(/\s+/)[0];
+            if (value) candidates.push(value);
+          });
+        });
+      });
 
-      setTimeout(function () {
-        var newHeight =
-          Math.max(
-            document.body.scrollHeight,
-            document.documentElement
-              .scrollHeight
+      var usable = candidates
+        .map(absolute)
+        .filter(function (value) {
+          return (
+            /^https?:\/\//i.test(value) &&
+            /redbubble\.net/i.test(value) &&
+            !/\.svg(?:[?#]|$)/i.test(value) &&
+            !/(placeholder|transparent|spacer|blank)/i.test(value)
+          );
+        });
+
+      if (usable.length) {
+        return usable[usable.length - 1];
+      }
+
+      var nested = Array.from(link.querySelectorAll("*"));
+      for (var i = 0; i < nested.length; i += 1) {
+        var styleValue =
+          nested[i].getAttribute &&
+          nested[i].getAttribute("style");
+
+        var match =
+          String(styleValue || "").match(
+            /url\(["']?([^"')]+)["']?\)/i
           );
 
-        if (
-          newHeight <=
-          previousHeight + 10
-        ) {
-          stableRounds += 1;
-        } else {
-          stableRounds = 0;
+        if (match && match[1]) {
+          var backgroundUrl = absolute(match[1]);
+          if (
+            /redbubble\.net/i.test(backgroundUrl) &&
+            !/\.svg(?:[?#]|$)/i.test(backgroundUrl)
+          ) {
+            return backgroundUrl;
+          }
+        }
+      }
+
+      return "";
+    }
+
+    function pageThumbnailForArtwork(id, link) {
+      if (!id) return "";
+
+      var direct = getArtworkImage(link);
+      if (direct) return direct;
+
+      var selectors = [
+        'a[id="' + id + '"]',
+        '[data-id="' + id + '"]',
+        '[data-artwork-id="' + id + '"]',
+        '[href*="/shop/ap/' + id + '"]'
+      ];
+
+      for (var s = 0; s < selectors.length; s += 1) {
+        var nodes = Array.from(
+          document.querySelectorAll(selectors[s])
+        );
+
+        for (var n = 0; n < nodes.length; n += 1) {
+          var node = nodes[n];
+
+          var containers = [
+            node,
+            node.parentElement,
+            node.parentElement &&
+              node.parentElement.parentElement,
+            node.closest &&
+              node.closest('[data-testid="ds-box"]')
+          ].filter(Boolean);
+
+          for (var c = 0; c < containers.length; c += 1) {
+            var container = containers[c];
+
+            var imgs = Array.from(
+              container.querySelectorAll
+                ? container.querySelectorAll("img")
+                : []
+            );
+
+            for (var i = 0; i < imgs.length; i += 1) {
+              var img = imgs[i];
+              var alt = clean(img.getAttribute("alt") || "");
+
+              if (/favorite/i.test(alt)) continue;
+
+              var values = [
+                img.currentSrc,
+                img.getAttribute("src"),
+                img.getAttribute("data-src"),
+                img.getAttribute("data-original"),
+                img.getAttribute("data-lazy-src")
+              ];
+
+              var srcset =
+                img.getAttribute("srcset") ||
+                img.getAttribute("data-srcset") ||
+                "";
+
+              String(srcset).split(",").forEach(function (entry) {
+                var candidate =
+                  String(entry || "").trim().split(/\s+/)[0];
+                if (candidate) values.push(candidate);
+              });
+
+              var usable = values
+                .map(absolute)
+                .filter(function (value) {
+                  return (
+                    /^https?:\/\//i.test(value) &&
+                    /redbubble\.net/i.test(value) &&
+                    !/\.svg(?:[?#]|$)/i.test(value) &&
+                    !/(placeholder|transparent|spacer|blank)/i.test(value)
+                  );
+                });
+
+              if (usable.length) {
+                return usable[usable.length - 1];
+              }
+            }
+          }
+        }
+      }
+
+      return "";
+    }
+
+    function refreshMissingThumbnails() {
+      order.forEach(function (id) {
+        var item = remembered[id];
+        if (!item || item.imageUrl) return;
+
+        var link =
+          document.querySelector(
+            'a[href*="/shop/ap/' + id + '"]'
+          ) ||
+          document.getElementById(id);
+
+        if (!link) return;
+
+        var recovered =
+          pageThumbnailForArtwork(id, link);
+
+        if (recovered) {
+          item.imageUrl = recovered;
+        }
+      });
+    }
+
+    function getTitle(link) {
+      var value = clean(link.textContent || "");
+      value = clean(
+        value
+          .replace(/Shop all products/gi, " ")
+          .replace(/\s+/g, " ")
+      );
+
+      return (
+        value && !/^favorite$/i.test(value)
+          ? value
+          : "Redbubble Artwork"
+      );
+    }
+
+    function collect() {
+      var before = order.length;
+
+      Array.from(
+        document.querySelectorAll('a[href*="/shop/ap/"]')
+      ).forEach(function (link) {
+        var href = absolute(link.getAttribute("href"));
+        var id = artworkId(href);
+        if (!id) return;
+
+        var existing = remembered[id];
+
+        if (!existing) {
+          order.push(id);
         }
 
-        previousHeight =
-          newHeight;
+        remembered[id] = {
+          title:
+            getTitle(link) ||
+            (existing && existing.title) ||
+            "Redbubble Artwork",
+          description:
+            (existing && existing.description) || "",
+          productUrl:
+            href ||
+            (existing && existing.productUrl) || "",
+          imageUrl:
+            pageThumbnailForArtwork(id, link) ||
+            (existing && existing.imageUrl) || "",
+          price:
+            existing && existing.price !== undefined
+              ? existing.price
+              : null,
+          currency: "USD"
+        };
+      });
 
-        if (
-          stableRounds >= 3 ||
-          currentStep >= MAX_STEPS
-        ) {
-          finishScan();
+      return order.length - before;
+    }
+
+    function products() {
+      // Return every discovered Redbubble artwork. Some entries will not yet
+      // have a rendered thumbnail; those remain visible as image-pending and
+      // are resolved during import instead of being discarded here.
+      return order
+        .map(function (id) {
+          return remembered[id];
+        })
+        .filter(Boolean);
+    }
+
+    function anchorArtworkIds() {
+      var ids = {};
+
+      Array.from(
+        document.querySelectorAll('a[href*="/shop/ap/"]')
+      ).forEach(function (link) {
+        var id = artworkId(
+          absolute(link.getAttribute("href"))
+        );
+
+        if (id) {
+          ids[id] = true;
+        }
+      });
+
+      return Object.keys(ids);
+    }
+
+    function htmlArtworkIds() {
+      var ids = {};
+      var html =
+        String(
+          document.documentElement &&
+          document.documentElement.innerHTML ||
+          ""
+        );
+
+      var regex =
+        /(?:https?:\/\/www\.redbubble\.com)?\/shop\/ap\/(\d+)/gi;
+
+      var match;
+
+      while (
+        (match = regex.exec(html))
+      ) {
+        if (match[1]) {
+          ids[match[1]] = true;
+        }
+      }
+
+      return Object.keys(ids);
+    }
+
+    function diagnosticSnapshot() {
+      var collected = order.slice();
+      var collectedSet = {};
+
+      collected.forEach(function (id) {
+        collectedSet[id] = true;
+      });
+
+      var anchorIds = anchorArtworkIds();
+      var htmlIds = htmlArtworkIds();
+
+      var htmlOnly = htmlIds.filter(function (id) {
+        return !collectedSet[id];
+      });
+
+      return {
+        anchorIds: anchorIds,
+        htmlIds: htmlIds,
+        collectedIds: collected,
+        htmlOnlyIds: htmlOnly
+      };
+    }
+
+    function showMoreButton() {
+      return (
+        Array.from(
+          document.querySelectorAll('button[type="button"]')
+        ).find(function (button) {
+          return clean(button.textContent) === "Show more";
+        }) || null
+      );
+    }
+
+    function goBottom() {
+      var height = Math.max(
+        (document.body && document.body.scrollHeight) || 0,
+        (document.documentElement && document.documentElement.scrollHeight) || 0
+      );
+
+      window.scrollTo({
+        top: height,
+        behavior: "auto"
+      });
+
+      try {
+        window.dispatchEvent(new Event("scroll"));
+      } catch {}
+
+      setTimeout(function () {
+        collect();
+        refreshMissingThumbnails();
+      }, 300);
+    }
+
+    function sendProgress() {
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type: "scan_progress",
+          scanMode: "full_store",
+          scannedCount: order.length,
+          scrollStep: showMoreClicks,
+          maxScrollSteps: 0
+        })
+      );
+    }
+
+    function finish(reason) {
+      collect();
+      refreshMissingThumbnails();
+
+      var diagnostic =
+        diagnosticSnapshot();
+
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type: "scan_results",
+          scanMode: "full_store",
+          finishReason: reason,
+          products: products(),
+          pageUrl: window.location.href,
+          pageTitle: document.title,
+          totalLinks: document.querySelectorAll("a[href]").length,
+          totalImages: document.querySelectorAll("img").length,
+          diagnosticHtmlOnlyIds:
+            diagnostic.htmlOnlyIds,
+          diagnosticAnchorIds:
+            diagnostic.anchorIds,
+          diagnosticCollectedIds:
+            diagnostic.collectedIds,
+          diagnosticHtmlOnlyCount:
+            diagnostic.htmlOnlyIds.length
+        })
+      );
+    }
+
+    function waitForGrowth(beforeCount, deadline) {
+      collect();
+      sendProgress();
+
+      if (order.length > beforeCount) {
+        // A real new batch appeared. This is the only event that resets
+        // confirmed no-growth.
+        confirmedNoGrowth = 0;
+
+        setTimeout(function () {
+          runNextPass();
+        }, 350);
+        return;
+      }
+
+      if (Date.now() < deadline) {
+        setTimeout(function () {
+          waitForGrowth(beforeCount, deadline);
+        }, POLL_MS);
+        return;
+      }
+
+      // The entire growth window elapsed without one new unique artwork ID.
+      confirmedNoGrowth += 1;
+
+      if (
+        confirmedNoGrowth >=
+        CONFIRMED_NO_GROWTH_TO_FINISH
+      ) {
+        finish("confirmed_no_growth");
+        return;
+      }
+
+      // Redbubble may have ignored a click or temporarily recycled the button.
+      // Re-check the bottom and attempt another verified Show more click.
+      setTimeout(function () {
+        runNextPass();
+      }, 700);
+    }
+
+    function runNextPass() {
+      if (
+        Date.now() - startedAt >=
+        FAILSAFE_RUNTIME_MS
+      ) {
+        finish("failsafe_runtime");
+        return;
+      }
+
+      goBottom();
+
+      setTimeout(function () {
+        collect();
+        sendProgress();
+
+        var button = showMoreButton();
+
+        if (!button) {
+          // Do not immediately finish just because the button is absent for
+          // one render. Give Redbubble the same full growth window.
+          var beforeNoButton = order.length;
+          var noButtonDeadline =
+            Date.now() + GROWTH_TIMEOUT_MS;
+
+          function waitForButtonOrGrowth() {
+            collect();
+            sendProgress();
+
+            if (order.length > beforeNoButton) {
+              confirmedNoGrowth = 0;
+              setTimeout(runNextPass, 350);
+              return;
+            }
+
+            var lateButton = showMoreButton();
+            if (lateButton) {
+              setTimeout(runNextPass, 250);
+              return;
+            }
+
+            if (Date.now() < noButtonDeadline) {
+              setTimeout(
+                waitForButtonOrGrowth,
+                POLL_MS
+              );
+              return;
+            }
+
+            confirmedNoGrowth += 1;
+
+            if (
+              confirmedNoGrowth >=
+              CONFIRMED_NO_GROWTH_TO_FINISH
+            ) {
+              finish("show_more_exhausted");
+              return;
+            }
+
+            setTimeout(runNextPass, 700);
+          }
+
+          setTimeout(
+            waitForButtonOrGrowth,
+            POLL_MS
+          );
           return;
         }
 
-        scrollAndScan();
-      }, WAIT_MS);
+        try {
+          button.scrollIntoView({
+            block: "center",
+            inline: "nearest",
+            behavior: "auto"
+          });
+        } catch {}
+
+        var beforeClick = order.length;
+
+        setTimeout(function () {
+          try {
+            button.click();
+          } catch {}
+
+          showMoreClicks += 1;
+          sendProgress();
+
+          waitForGrowth(
+            beforeClick,
+            Date.now() + GROWTH_TIMEOUT_MS
+          );
+        }, 250);
+      }, 700);
     }
 
-    previousHeight =
-      Math.max(
-        document.body.scrollHeight,
-        document.documentElement
-          .scrollHeight
-      );
+    window.scrollTo({
+      top: 0,
+      behavior: "auto"
+    });
 
-    sendProgress();
-    scrollAndScan();
+    setTimeout(function () {
+      collect();
+      sendProgress();
+      runNextPass();
+    }, 900);
   } catch (error) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
@@ -469,6 +1840,622 @@ const FULL_STORE_SCAN_SCRIPT = `
 })();
 `;
 
+const REDBUBBLE_DETAIL_SCRIPT = `
+(function () {
+  try {
+    function clean(value) {
+      return String(value || "")
+        .replace(/\\s+/g, " ")
+        .trim();
+    }
+
+    function httpUrl(value) {
+      try {
+        var raw =
+          String(value || "").trim();
+
+        if (!raw) {
+          return "";
+        }
+
+        var url = new URL(
+          raw,
+          window.location.href
+        ).toString();
+
+        return /^https?:\\/\\//i.test(url)
+          ? url
+          : "";
+      } catch {
+        return "";
+      }
+    }
+
+    function artworkIdFromUrl(value) {
+      var text = String(value || "");
+
+      var match =
+        text.match(
+          /\\/i\\/[^/]+\\/[^/]+\\/(\\d+)(?:[./\\/]|$)/i
+        ) ||
+        text.match(
+          /\\/shop\\/ap\\/(\\d+)/i
+        );
+
+      return match && match[1]
+        ? match[1]
+        : "";
+    }
+
+    function designTitleFromUrl(value) {
+      try {
+        var path =
+          new URL(value).pathname;
+
+        var match =
+          path.match(
+            /^\\/i\\/[^/]+\\/([^/]+)-by-[^/]+\\/\\d+/i
+          );
+
+        if (!match || !match[1]) {
+          return "";
+        }
+
+        return clean(
+          decodeURIComponent(
+            match[1]
+          ).replace(/-/g, " ")
+        );
+      } catch {
+        return "";
+      }
+    }
+
+    function getImageFromNode(node) {
+      if (!node) {
+        return "";
+      }
+
+      var values = [];
+
+      var srcset =
+        (
+          node.getAttribute &&
+          (
+            node.getAttribute("srcset") ||
+            node.getAttribute("data-srcset")
+          )
+        ) || "";
+
+      if (srcset) {
+        String(srcset)
+          .split(",")
+          .forEach(function (entry) {
+            var value =
+              String(entry || "")
+                .trim()
+                .split(/\\s+/)[0];
+
+            if (value) {
+              values.push(value);
+            }
+          });
+      }
+
+      values.push(
+        node.currentSrc,
+        node.getAttribute &&
+          node.getAttribute("src"),
+        node.getAttribute &&
+          node.getAttribute("data-src")
+      );
+
+      for (
+        var index = 0;
+        index < values.length;
+        index += 1
+      ) {
+        var resolved =
+          httpUrl(values[index]);
+
+        if (
+          resolved &&
+          /redbubble\\.net/i.test(resolved) &&
+          !/\\/raf\\/?$/i.test(resolved) &&
+          !/^data:/i.test(resolved) &&
+          !/^blob:/i.test(resolved)
+        ) {
+          return resolved;
+        }
+      }
+
+      return "";
+    }
+
+    var artworkId =
+      artworkIdFromUrl(
+        window.location.href
+      );
+
+    var designTitle =
+      designTitleFromUrl(
+        window.location.href
+      );
+
+    function findArtworkImage() {
+      var images =
+        Array.from(
+          document.querySelectorAll("img")
+        );
+
+      /*
+       * Preferred Redbubble artwork nodes.
+       */
+      var thumbnail =
+        images.find(function (img) {
+          var alt =
+            clean(
+              img.getAttribute("alt")
+            );
+
+          return /^Artwork thumbnail\\b/i.test(
+            alt
+          );
+        }) || null;
+
+      var imageUrl =
+        getImageFromNode(
+          thumbnail
+        );
+
+      if (
+        !imageUrl &&
+        thumbnail
+      ) {
+        var picture =
+          thumbnail.closest(
+            "picture"
+          );
+
+        if (picture) {
+          var sources =
+            Array.from(
+              picture.querySelectorAll(
+                "source"
+              )
+            );
+
+          for (
+            var sourceIndex = 0;
+            sourceIndex < sources.length;
+            sourceIndex += 1
+          ) {
+            imageUrl =
+              getImageFromNode(
+                sources[sourceIndex]
+              );
+
+            if (imageUrl) {
+              break;
+            }
+          }
+        }
+      }
+
+      if (!imageUrl) {
+        var artworkView =
+          images.find(function (img) {
+            var alt =
+              clean(
+                img.getAttribute("alt")
+              );
+
+            if (
+              !/^Artwork view\\b/i.test(alt)
+            ) {
+              return false;
+            }
+
+            if (
+              designTitle &&
+              !alt
+                .toLowerCase()
+                .includes(
+                  designTitle.toLowerCase()
+                )
+            ) {
+              return false;
+            }
+
+            return true;
+          }) || null;
+
+        imageUrl =
+          getImageFromNode(
+            artworkView
+          );
+      }
+
+      /*
+       * Some Redbubble product pages do not label the artwork image
+       * "Artwork thumbnail" or "Artwork view" in the mobile WebView.
+       * Search every rendered raster image/source before waiting for
+       * another lazy-load pass.
+       */
+      if (!imageUrl) {
+        for (
+          var imageIndex = 0;
+          imageIndex < images.length;
+          imageIndex += 1
+        ) {
+          var candidateImage =
+            getImageFromNode(
+              images[imageIndex]
+            );
+
+          if (candidateImage) {
+            imageUrl =
+              candidateImage;
+            break;
+          }
+        }
+      }
+
+      if (!imageUrl) {
+        var allSources =
+          Array.from(
+            document.querySelectorAll(
+              "source"
+            )
+          );
+
+        for (
+          var allSourceIndex = 0;
+          allSourceIndex < allSources.length;
+          allSourceIndex += 1
+        ) {
+          var candidateSource =
+            getImageFromNode(
+              allSources[
+                allSourceIndex
+              ]
+            );
+
+          if (candidateSource) {
+            imageUrl =
+              candidateSource;
+            break;
+          }
+        }
+      }
+
+      /*
+       * Open Graph/Twitter metadata is often present before Redbubble's
+       * React artwork component finishes rendering.
+       */
+      if (!imageUrl) {
+        var metaImage =
+          document.querySelector(
+            'meta[property="og:image"]'
+          ) ||
+          document.querySelector(
+            'meta[name="twitter:image"]'
+          ) ||
+          document.querySelector(
+            'meta[property="twitter:image"]'
+          ) ||
+          document.querySelector(
+            'meta[name="twitter:image:src"]'
+          );
+
+        if (metaImage) {
+          var metaUrl =
+            httpUrl(
+              metaImage.getAttribute(
+                "content"
+              )
+            );
+
+          if (
+            metaUrl &&
+            /redbubble\\.net/i.test(
+              metaUrl
+            )
+          ) {
+            imageUrl =
+              metaUrl;
+          }
+        }
+      }
+
+      /*
+       * Last-resort DOM/HTML recovery. Redbubble can serialize the CDN
+       * artwork URL into page data even when the corresponding <img>
+       * has not been mounted by the WebView yet.
+       */
+      if (!imageUrl) {
+        var html =
+          String(
+            document.documentElement &&
+            document.documentElement.innerHTML ||
+            ""
+          )
+            .replace(/\\\\u002F/gi, "/")
+            .replace(/\\\\\\//g, "/")
+            .replace(/&amp;/gi, "&");
+
+        var matches =
+          html.match(
+            /https?:\/\/[^"'<>\\s]+redbubble\\.net\/[^"'<>\\s]+/gi
+          ) || [];
+
+        for (
+          var matchIndex = 0;
+          matchIndex < matches.length;
+          matchIndex += 1
+        ) {
+          var recovered =
+            httpUrl(
+              matches[matchIndex]
+            );
+
+          if (
+            recovered &&
+            /redbubble\\.net/i.test(
+              recovered
+            ) &&
+            !/\\.svg(?:[?#]|$)/i.test(
+              recovered
+            ) &&
+            !/(placeholder|transparent|spacer|blank)/i.test(
+              recovered
+            )
+          ) {
+            imageUrl =
+              recovered;
+            break;
+          }
+        }
+      }
+
+      return imageUrl;
+    }
+
+    function findDescription() {
+      var description = "";
+
+      var headings =
+        Array.from(
+          document.querySelectorAll(
+            "h2, h3, h4"
+          )
+        );
+
+      var artworkHeading =
+        headings.find(function (node) {
+          var text =
+            clean(node.textContent);
+
+          return (
+            designTitle &&
+            text
+              .toLowerCase() ===
+              designTitle.toLowerCase()
+          );
+        }) || null;
+
+      if (artworkHeading) {
+        var next =
+          artworkHeading.nextElementSibling;
+
+        while (next) {
+          var candidateText =
+            clean(next.textContent);
+
+          if (
+            candidateText &&
+            candidateText.length > 40
+          ) {
+            description =
+              candidateText;
+            break;
+          }
+
+          next =
+            next.nextElementSibling;
+        }
+      }
+
+      if (!description) {
+        var metaDescription =
+          document.querySelector(
+            'meta[property="og:description"]'
+          ) ||
+          document.querySelector(
+            'meta[name="description"]'
+          );
+
+        if (metaDescription) {
+          description =
+            clean(
+              metaDescription.getAttribute(
+                "content"
+              )
+            );
+        }
+      }
+
+      return description;
+    }
+
+    function findPrice() {
+      var bodyText =
+        clean(
+          (
+            document.body &&
+            document.body.innerText
+          ) ||
+          (
+            document.documentElement &&
+            document.documentElement.innerText
+          ) ||
+          ""
+        );
+
+      var priceMatch =
+        bodyText.match(
+          /(?:US\\$|\\$)\\s*([0-9]+(?:\\.[0-9]{1,2})?)/
+        );
+
+      if (!priceMatch) {
+        return null;
+      }
+
+      var parsedPrice =
+        Number(priceMatch[1]);
+
+      return (
+        Number.isFinite(parsedPrice) &&
+        parsedPrice > 0
+      )
+        ? parsedPrice
+        : null;
+    }
+
+    var attempts = 0;
+    var MAX_ATTEMPTS = 20;
+    var WAIT_MS = 650;
+
+    function collectAndSend() {
+      attempts += 1;
+
+      var imageUrl =
+        findArtworkImage();
+
+      var description =
+        findDescription();
+
+      var price =
+        findPrice();
+
+      /*
+       * Redbubble lazy-renders artwork thumbnails at different
+       * speeds. Keep checking until the real artwork image is
+       * available instead of accepting a blank placeholder.
+       */
+      if (
+        !imageUrl &&
+        attempts < MAX_ATTEMPTS
+      ) {
+        window.scrollTo({
+          top:
+            Math.max(
+              0,
+              Math.max(
+                (
+                  document.body &&
+                  (
+                  document.body &&
+                  document.body.scrollHeight
+                ) || 0
+                ) || 0,
+                (
+                  document.documentElement &&
+                  document.documentElement.scrollHeight
+                ) || 0
+              ) * 0.35
+            ),
+          behavior: "smooth"
+        });
+
+        setTimeout(
+          collectAndSend,
+          WAIT_MS
+        );
+
+        return;
+      }
+
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type:
+            "redbubble_detail",
+          productUrl:
+            window.location.href,
+          artworkId:
+            artworkId || null,
+          designTitle:
+            designTitle || null,
+          imageUrl:
+            imageUrl || null,
+          description:
+            description || null,
+          price:
+            price,
+          currency:
+            "USD"
+        })
+      );
+    }
+
+    collectAndSend();
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type:
+          "redbubble_detail_error",
+        error:
+          error && error.message
+            ? error.message
+            : String(error)
+      })
+    );
+  }
+
+  true;
+})();
+`;
+
+
+function getRedbubblePreviewImageUrl(
+  imageUrl: string,
+  productUrl: string
+) {
+  const normalized = normalizeUrl(imageUrl);
+
+  if (normalized && /^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  // Keep the card render stable when a storefront thumbnail is
+  // lazy-loaded or temporarily unavailable. The detail importer
+  // will replace it with the validated Redbubble artwork image.
+  return "";
+}
+
+function getRedbubbleArtworkId(value: string) {
+  try {
+    const parsed = new URL(value);
+    const path = parsed.pathname || "";
+
+    const shopMatch =
+      path.match(/\/shop\/ap\/(\d+)/i);
+
+    if (shopMatch?.[1]) {
+      return shopMatch[1];
+    }
+
+    const itemMatch =
+      path.match(
+        /\/i\/[^/]+\/[^/]+\/(\d+)(?:[./\/]|$)/i
+      );
+
+    return itemMatch?.[1] || "";
+  } catch {
+    return "";
+  }
+}
+
 export default function AIStoreScannerScreen() {
   const params = useLocalSearchParams<{
     storeId?: string;
@@ -479,6 +2466,32 @@ export default function AIStoreScannerScreen() {
 
   const webViewRef =
     useRef<WebView>(null);
+
+  // Redbubble detail pages are loaded in a separate hidden WebView so
+  // importing never navigates the visible storefront away from the scan.
+  const redbubbleDetailWebViewRef =
+    useRef<WebView>(null);
+
+  const redbubbleFullStoreWebViewRef =
+    useRef<WebView>(null);
+
+  const redbubbleFullStoreProductsRef =
+    useRef<Map<string, ScannedProduct>>(new Map());
+
+  const redbubbleFullStorePageRef = useRef(1);
+  const redbubbleFullStoreEmptyPagesRef = useRef(0);
+  const redbubbleFullStoreNoButtonRoundsRef = useRef(0);
+  const redbubbleFullStoreNoGrowthRoundsRef = useRef(0);
+
+  const pendingRedbubbleDetailRef =
+    useRef<{
+      targetUrl: string;
+      expectedArtworkId: string;
+      resolve: (value: Partial<ScannedProduct>) => void;
+      reject: (error: Error) => void;
+      timeoutId: ReturnType<typeof setTimeout>;
+      reloadTimerId: ReturnType<typeof setTimeout>;
+    } | null>(null);
 
   const storeId = String(
     params.storeId || ""
@@ -496,19 +2509,60 @@ export default function AIStoreScannerScreen() {
     .trim()
     .toLowerCase();
 
+  const scannerCacheKey =
+    storeId ||
+    `${storeType}:${String(params.storeUrl || storeName)}`;
+
+  const cachedScannerSession =
+    scannerSessionCache.get(scannerCacheKey);
+
   const [storeUrl, setStoreUrl] =
-    useState(
+    useState(() =>
+      cachedScannerSession?.storeUrl ||
       String(params.storeUrl || "")
     );
 
   const [browserUrl, setBrowserUrl] =
+    useState(() =>
+      cachedScannerSession?.browserUrl ||
+      ""
+    );
+
+  const [redbubbleDetailUrl, setRedbubbleDetailUrl] =
     useState("");
 
+  const [redbubbleDetailKey, setRedbubbleDetailKey] =
+    useState(0);
+
+  const [redbubbleFullStoreUrl, setRedbubbleFullStoreUrl] =
+    useState("");
+
+  const [redbubbleFullStoreKey, setRedbubbleFullStoreKey] =
+    useState(0);
+
   const [products, setProducts] =
-    useState<ScannedProduct[]>([]);
+    useState<ScannedProduct[]>(() =>
+      cachedScannerSession?.products || []
+    );
+
+  useEffect(() => {
+    scannerSessionCache.set(scannerCacheKey, {
+      storeUrl,
+      browserUrl,
+      products,
+    });
+  }, [
+    scannerCacheKey,
+    storeUrl,
+    browserUrl,
+    products,
+  ]);
 
   const [pageLoading, setPageLoading] =
     useState(false);
+
+  const pageLoadingTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [scanning, setScanning] =
     useState(false);
@@ -554,9 +2608,18 @@ const [scanProgress, setScanProgress] =
       return;
     }
 
+    const openingDifferentStore =
+      !!browserUrl &&
+      normalizeUrl(browserUrl) !== normalized;
+
     setStoreUrl(normalized);
     setBrowserUrl(normalized);
-    setProducts([]);
+
+    // Reopening the same storefront must not destroy a successful scan.
+    // Only clear results when the user actually changes to another URL.
+    if (openingDifferentStore) {
+      setProducts([]);
+    }
   }
 
   function scanVisiblePage() {
@@ -589,13 +2652,79 @@ const [scanProgress, setScanProgress] =
   }, 15000);
 }
 
+function getRedbubbleExploreUrl(value: string, page: number) {
+  try {
+    const parsed = new URL(value);
+    const match = parsed.pathname.match(/\/people\/([^/]+)/i);
+    if (!match?.[1]) return "";
+    return `https://www.redbubble.com/people/${match[1]}/explore?asc=u&page=${page}&sortOrder=recent`;
+  } catch {
+    return "";
+  }
+}
+
 function scanEntireStore() {
   if (!browserUrl) {
     Alert.alert(
       "Open Store First",
       "Open the storefront before scanning the entire store."
     );
+    return;
+  }
 
+  if (
+    storeType === "redbubble" ||
+    /redbubble\.com/i.test(browserUrl)
+  ) {
+    const firstPage =
+      getRedbubbleExploreUrl(
+        storeUrl || browserUrl,
+        1
+      );
+
+    if (!firstPage) {
+      Alert.alert(
+        "Redbubble Profile Required",
+        "ArtBoost could not determine the Redbubble username from this store URL."
+      );
+      return;
+    }
+
+    redbubbleFullStoreProductsRef.current.clear();
+    redbubbleFullStoreNoGrowthRoundsRef.current = 0;
+    redbubbleFullStoreNoButtonRoundsRef.current = 0;
+    setFullStoreScanning(true);
+
+    const currentExploreUrl =
+      normalizeUrl(browserUrl);
+
+    const targetExploreUrl =
+      normalizeUrl(firstPage);
+
+    if (
+      currentExploreUrl &&
+      targetExploreUrl &&
+      currentExploreUrl ===
+        targetExploreUrl
+    ) {
+      setScanProgress(
+        "Starting Redbubble full-store scan..."
+      );
+
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(
+          REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT
+        );
+      }, 700);
+
+      return;
+    }
+
+    setScanProgress(
+      "Opening Redbubble Explore page..."
+    );
+    setStoreUrl(firstPage);
+    setBrowserUrl(firstPage);
     return;
   }
 
@@ -604,26 +2733,160 @@ function scanEntireStore() {
   setScanProgress(
     "Starting full store scan..."
   );
-
   webViewRef.current?.injectJavaScript(
     FULL_STORE_SCAN_SCRIPT
   );
+}
 
-  setTimeout(() => {
-    setFullStoreScanning(
-      (stillScanning) => {
-        if (stillScanning) {
-          Alert.alert(
-            "Full Scan Timed Out",
-            "ArtBoost stopped the scan after 75 seconds. Any products already detected can still be imported."
+  async function enrichRedbubbleProductOnce(
+    product: ScannedProduct
+  ): Promise<ScannedProduct> {
+    if (
+      storeType !== "redbubble" ||
+      !/redbubble\.com/i.test(
+        product.productUrl
+      )
+    ) {
+      return product;
+    }
+
+    const expectedArtworkId =
+      getRedbubbleArtworkId(
+        product.productUrl
+      );
+
+    if (!expectedArtworkId) {
+      throw new Error(
+        "Redbubble artwork ID could not be read from this product URL."
+      );
+    }
+
+    const detail =
+      await new Promise<
+        Partial<ScannedProduct>
+      >((resolve, reject) => {
+        const reloadTimerId =
+          setTimeout(() => {
+            const pending =
+              pendingRedbubbleDetailRef.current;
+
+            if (
+              pending &&
+              pending.expectedArtworkId ===
+                expectedArtworkId
+            ) {
+              /*
+               * Some Redbubble detail pages stall on the first SPA
+               * navigation. Force one WebView reload before failing.
+               */
+              redbubbleDetailWebViewRef.current?.reload();
+            }
+          }, 12000);
+
+        const timeoutId =
+          setTimeout(() => {
+            const pending =
+              pendingRedbubbleDetailRef.current;
+
+            if (
+              pending &&
+              pending.expectedArtworkId ===
+                expectedArtworkId
+            ) {
+              clearTimeout(
+                pending.reloadTimerId
+              );
+
+              pendingRedbubbleDetailRef.current =
+                null;
+              setRedbubbleDetailUrl("");
+
+              reject(
+                new Error(
+                  "Redbubble detail page timed out after retry."
+                )
+              );
+            }
+          }, 55000);
+
+        pendingRedbubbleDetailRef.current = {
+          targetUrl:
+            product.productUrl,
+          expectedArtworkId,
+          resolve,
+          reject,
+          timeoutId,
+          reloadTimerId,
+        };
+
+        // A fresh key guarantees a clean WebView instance for each product.
+        setRedbubbleDetailKey((current) => current + 1);
+        setRedbubbleDetailUrl(product.productUrl);
+      });
+
+    setRedbubbleDetailUrl("");
+
+    return {
+      ...product,
+      title:
+        cleanText(
+          detail.title ||
+            product.title
+        ) ||
+        product.title,
+      imageUrl:
+        String(
+          detail.imageUrl ||
+            product.imageUrl ||
+            ""
+        ),
+      description:
+        cleanText(
+          detail.description ||
+            product.description
+        ),
+      price:
+        detail.price !== null &&
+        detail.price !== undefined &&
+        Number.isFinite(
+          Number(detail.price)
+        ) &&
+        Number(detail.price) > 0
+          ? Number(detail.price)
+          : product.price,
+      currency:
+        cleanText(
+          detail.currency ||
+            product.currency
+        ) || "USD",
+    };
+  }
+
+  async function enrichRedbubbleProduct(
+    product: ScannedProduct
+  ): Promise<ScannedProduct> {
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        return await enrichRedbubbleProductOnce(product);
+      } catch (error) {
+        lastError = error;
+
+        if (attempt < 2) {
+          pendingRedbubbleDetailRef.current = null;
+          setRedbubbleDetailUrl("");
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1500)
           );
         }
-
-        return false;
       }
-    );
-  }, 75000);
-}
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Unable to read Redbubble product details after retry.");
+  }
 
   function handleScannerMessage(
     event: WebViewMessageEvent
@@ -634,14 +2897,367 @@ function scanEntireStore() {
           event.nativeEvent.data
         );
 
+      if (
+        message.type ===
+        "redbubble_detail" ||
+        message.type ===
+        "redbubble_detail_error"
+      ) {
+        const pending =
+          pendingRedbubbleDetailRef.current;
+
+        if (!pending) {
+          return;
+        }
+
+        if (
+          message.type ===
+          "redbubble_detail_error"
+        ) {
+          clearTimeout(
+            pending.timeoutId
+          );
+          clearTimeout(
+            pending.reloadTimerId
+          );
+
+          pendingRedbubbleDetailRef.current =
+            null;
+          setRedbubbleDetailUrl("");
+
+          pending.reject(
+            new Error(
+              message.error ||
+                "Unable to read Redbubble product details."
+            )
+          );
+
+          return;
+        }
+
+        const receivedArtworkId =
+          cleanText(
+            message.artworkId
+          );
+
+        if (
+          !receivedArtworkId ||
+          receivedArtworkId !==
+            pending.expectedArtworkId
+        ) {
+          /*
+           * A message from the previously rendered Redbubble page can
+           * arrive after navigation to the next selected product begins.
+           * Ignore that stale response and keep waiting for the artwork
+           * ID currently being imported.
+           */
+          return;
+        }
+
+        const resolvedImageUrl =
+          normalizeUrl(
+            message.imageUrl
+          );
+
+        if (
+          !resolvedImageUrl ||
+          !/^https?:\/\//i.test(
+            resolvedImageUrl
+          ) ||
+          !/redbubble\.net/i.test(
+            resolvedImageUrl
+          )
+        ) {
+          clearTimeout(
+            pending.timeoutId
+          );
+          clearTimeout(
+            pending.reloadTimerId
+          );
+
+          pendingRedbubbleDetailRef.current =
+            null;
+          setRedbubbleDetailUrl("");
+
+          pending.reject(
+            new Error(
+              "Redbubble artwork image did not finish loading."
+            )
+          );
+
+          return;
+        }
+
+        clearTimeout(
+          pending.timeoutId
+        );
+        clearTimeout(
+          pending.reloadTimerId
+        );
+
+        pendingRedbubbleDetailRef.current =
+          null;
+        setRedbubbleDetailUrl("");
+
+        pending.resolve({
+          title:
+            cleanText(
+              message.designTitle
+            ) || undefined,
+          imageUrl:
+            resolvedImageUrl,
+          description:
+            cleanText(
+              message.description
+            ),
+          price:
+            message.price ?? null,
+          currency:
+            cleanText(
+              message.currency
+            ) || "USD",
+        });
+
+        return;
+      }
+
+      if (message.type === "redbubble_full_page_error") {
+        setFullStoreScanning(false);
+        setRedbubbleFullStoreUrl("");
+        Alert.alert("Full Store Scan Failed", message.error || "Redbubble designs page could not be scanned.");
+        return;
+      }
+
+      if (message.type === "redbubble_show_more_result") {
+        if (!fullStoreScanning) {
+          return;
+        }
+
+        if (!message.showMoreClicked) {
+          redbubbleFullStoreNoButtonRoundsRef.current += 1;
+
+          setScanProgress(
+            `${redbubbleFullStoreProductsRef.current.size} unique designs found — waiting for Redbubble`
+          );
+
+          if (
+            redbubbleFullStoreNoButtonRoundsRef.current >= 5
+          ) {
+            const all = Array.from(
+              redbubbleFullStoreProductsRef.current.values()
+            );
+
+            setFullStoreScanning(false);
+            setRedbubbleFullStoreUrl("");
+            setScanProgress("");
+
+            Alert.alert(
+              "Full Store Scan Complete",
+              `${all.length} unique Redbubble design${
+                all.length === 1 ? "" : "s"
+              } detected across the entire store.`
+            );
+            return;
+          }
+
+          setTimeout(() => {
+            webViewRef.current?.injectJavaScript(
+              REDBUBBLE_EXPLORE_PAGE_SCRIPT
+            );
+          }, 1600);
+
+          return;
+        }
+
+        setScanProgress(
+          `${redbubbleFullStoreProductsRef.current.size} unique designs found — loading more from Redbubble...`
+        );
+
+        // Keep the controller in React Native. If Show more appends in-place,
+        // this collects the new DOM. If it navigates, onLoadEnd will inject
+        // the collector into the new document instead.
+        setTimeout(() => {
+          webViewRef.current?.injectJavaScript(
+            REDBUBBLE_EXPLORE_PAGE_SCRIPT
+          );
+        }, 3600);
+
+        return;
+      }
+
+      if (message.type === "redbubble_full_snapshot") {
+        const discovered = Array.isArray(message.products)
+          ? message.products
+          : [];
+
+        const map =
+          redbubbleFullStoreProductsRef.current;
+
+        const beforeCount = map.size;
+
+        for (const item of discovered) {
+          const productUrl = normalizeUrl(
+            item.productUrl,
+            message.pageUrl || browserUrl
+          );
+
+          const artworkId =
+            getRedbubbleArtworkId(productUrl);
+
+          if (!productUrl || !artworkId) {
+            continue;
+          }
+
+          const existing =
+            map.get(artworkId);
+
+          const imageUrl =
+            normalizeUrl(
+              item.imageUrl,
+              message.pageUrl || browserUrl
+            );
+
+          map.set(artworkId, {
+            id:
+              makeProductId(productUrl) ||
+              artworkId,
+            title:
+              cleanText(item.title) ||
+              existing?.title ||
+              "Redbubble Artwork",
+            description:
+              cleanText(item.description) ||
+              existing?.description ||
+              "",
+            productUrl,
+            imageUrl:
+              imageUrl ||
+              existing?.imageUrl ||
+              "",
+            price:
+              existing?.price ?? null,
+            currency:
+              cleanText(item.currency) ||
+              existing?.currency ||
+              "USD",
+            selected: true,
+          });
+        }
+
+        const all =
+          Array.from(map.values());
+
+        const importable =
+          all.filter((product) => {
+            const image =
+              cleanText(product.imageUrl);
+
+            return (
+              /^https?:\/\//i.test(image) &&
+              /redbubble\.net/i.test(image) &&
+              !/\.svg(?:[?#]|$)/i.test(image) &&
+              !/(placeholder|transparent|spacer|blank)/i.test(
+                image
+              )
+            );
+          });
+
+        const pendingImageCount =
+          all.length - importable.length;
+
+        const added =
+          map.size - beforeCount;
+
+        if (added > 0) {
+          redbubbleFullStoreNoGrowthRoundsRef.current = 0;
+          redbubbleFullStoreNoButtonRoundsRef.current = 0;
+        } else {
+          redbubbleFullStoreNoGrowthRoundsRef.current += 1;
+        }
+
+        setProducts(all);
+
+        if (
+          all.length === 0
+        ) {
+          setFullStoreScanning(false);
+          setRedbubbleFullStoreUrl("");
+          setScanProgress("");
+
+          Alert.alert(
+            "Full Store Scan Could Not Start",
+            "Redbubble loaded the Explore page, but ArtBoost could not read any design links."
+          );
+          return;
+        }
+
+        setScanProgress(
+          `${all.length} listings available • ${importable.length} with thumbnails • ${pendingImageCount} images pending${
+            message.showMoreAvailable
+              ? " — Show more found"
+              : " — checking for more..."
+          }`
+        );
+
+        if (message.showMoreAvailable) {
+          if (
+            redbubbleFullStoreNoGrowthRoundsRef.current >= 10
+          ) {
+            setFullStoreScanning(false);
+            setRedbubbleFullStoreUrl("");
+            setScanProgress("");
+
+            Alert.alert(
+              "Full Store Scan Stopped",
+              `${all.length} Redbubble listings are available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending. Redbubble stopped adding new designs after repeated Show more attempts.`
+            );
+            return;
+          }
+
+          setTimeout(() => {
+            webViewRef.current?.injectJavaScript(
+              REDBUBBLE_CLICK_SHOW_MORE_SCRIPT
+            );
+          }, 450);
+
+          return;
+        }
+
+        redbubbleFullStoreNoButtonRoundsRef.current += 1;
+
+        // The Show more control can appear after the design batch renders.
+        // Require several no-button observations before declaring the end.
+        if (
+          redbubbleFullStoreNoButtonRoundsRef.current < 6
+        ) {
+          setTimeout(() => {
+            webViewRef.current?.injectJavaScript(
+              REDBUBBLE_EXPLORE_PAGE_SCRIPT
+            );
+          }, 1800);
+          return;
+        }
+
+        setFullStoreScanning(false);
+        setRedbubbleFullStoreUrl("");
+        setScanProgress("");
+
+        Alert.alert(
+          "Full Store Scan Complete",
+          `${all.length} Redbubble listing${
+            all.length === 1 ? "" : "s"
+          } available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending.`
+        );
+
+        return;
+      }
+
         if (
   message.type ===
   "scan_progress"
 ) {
   setScanProgress(
-    `${message.scannedCount || 0} products found — scanning store section ${
-      message.scrollStep || 0
-    }`
+    `${message.scannedCount || 0} unique products found — scanning entire store...`
   );
 
   return;
@@ -712,9 +3328,19 @@ function scanEntireStore() {
             browserUrl
           );
 
+        const fullStoreResult =
+          message.scanMode === "full_store";
+
+        const redbubbleResult =
+          storeType === "redbubble" ||
+          /redbubble\.com/i.test(
+            productUrl ||
+            browserUrl
+          );
+
         if (
           !productUrl ||
-          !imageUrl ||
+          (!imageUrl && !fullStoreResult) ||
           seen.has(productUrl)
         ) {
           continue;
@@ -783,12 +3409,16 @@ function scanEntireStore() {
         );
       } else {
         Alert.alert(
-          "Scan Complete",
-          `${mapped.length} product${
-            mapped.length === 1
-              ? ""
-              : "s"
-          } detected on this page.`
+          message.scanMode === "full_store"
+            ? "Full Store Scan Complete"
+            : "Scan Complete",
+          message.scanMode === "full_store"
+            ? `${mapped.length} unique design${
+                mapped.length === 1 ? "" : "s"
+              } detected across the store.`
+            : `${mapped.length} product${
+                mapped.length === 1 ? "" : "s"
+              } detected on this page.`
         );
       }
     } catch (error: any) {
@@ -801,6 +3431,85 @@ function scanEntireStore() {
       setScanning(false);
 setFullStoreScanning(false);
 setScanProgress("");
+    }
+  }
+
+  async function buildRedbubbleCsv() {
+    if (products.length === 0) {
+      Alert.alert(
+        "Nothing to Export",
+        "Scan the Redbubble store before building a CSV."
+      );
+      return;
+    }
+
+    try {
+      const csv = buildCatalogCsv(
+        products.map((product) => ({
+          artworkId:
+            getRedbubbleArtworkIdFromUrl(
+              product.productUrl
+            ),
+          title: product.title,
+          description: product.description,
+          productUrl: product.productUrl,
+          imageUrl: product.imageUrl || "",
+          price: product.price,
+          currency:
+            product.currency || "USD",
+          storeType,
+          storeName,
+          imageStatus:
+            hasVerifiedCatalogImage(
+              product.imageUrl
+            )
+              ? "verified"
+              : "pending",
+        }))
+      );
+
+      const safeStoreName =
+        String(storeName || "redbubble")
+          .replace(/[^a-z0-9_-]+/gi, "_")
+          .replace(/^_+|_+$/g, "") ||
+        "redbubble";
+
+      const fileUri =
+        `${FileSystem.cacheDirectory}` +
+        `${safeStoreName}_artboost_catalog.csv`;
+
+      await FileSystem.writeAsStringAsync(
+        fileUri,
+        csv,
+        {
+          encoding:
+            FileSystem.EncodingType.UTF8,
+        }
+      );
+
+      const sharingAvailable =
+        await Sharing.isAvailableAsync();
+
+      if (!sharingAvailable) {
+        Alert.alert(
+          "CSV Built",
+          `ArtBoost created a CSV with ${products.length} listings at ${fileUri}`
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(fileUri, {
+        mimeType: "text/csv",
+        dialogTitle:
+          "Save ArtBoost Catalog CSV",
+        UTI: "public.comma-separated-values-text",
+      });
+    } catch (error: any) {
+      Alert.alert(
+        "CSV Build Failed",
+        error?.message ||
+          "ArtBoost could not build the catalog CSV."
+      );
     }
   }
 
@@ -879,6 +3588,180 @@ setScanProgress("");
         selectedProducts
       ) {
         try {
+          let productToImport =
+            product;
+
+          if (
+            storeType === "redbubble"
+          ) {
+            /*
+             * Prefer the validated detail-page artwork when Redbubble
+             * finishes loading it, but do not fail an otherwise valid
+             * scanned product just because the hidden detail WebView
+             * times out or never replaces the storefront thumbnail.
+             *
+             * The scanner has already associated this image with the
+             * selected Redbubble product. The backend import pipeline
+             * can cache the usable source image after import.
+             */
+            const scannedImageUrl =
+              normalizeUrl(
+                product.imageUrl,
+                product.productUrl
+              );
+
+            const hasUsableScannedImage =
+              !!scannedImageUrl &&
+              /^https?:\/\//i.test(
+                scannedImageUrl
+              );
+
+            const scannedImageIsHtmlPage =
+              (() => {
+                if (
+                  !hasUsableScannedImage
+                ) {
+                  return true;
+                }
+
+                try {
+                  const parsed =
+                    new URL(
+                      scannedImageUrl
+                    );
+
+                  const hostname =
+                    parsed.hostname
+                      .replace(
+                        /^www\./i,
+                        ""
+                      )
+                      .toLowerCase();
+
+                  const pathname =
+                    parsed.pathname ||
+                    "";
+
+                  /*
+                   * redbubble.com URLs are normally HTML storefront/product
+                   * pages, not publishable image assets. Other HTTP(S) image
+                   * hosts/CDNs captured by the visible scanner are allowed
+                   * through and will still be validated/cached by the backend.
+                   */
+                  return (
+                    hostname ===
+                      "redbubble.com" ||
+                    hostname.endsWith(
+                      ".redbubble.com"
+                    ) ||
+                    /^\/people\//i.test(
+                      pathname
+                    ) ||
+                    /^\/shop(?:\/|$)/i.test(
+                      pathname
+                    ) ||
+                    /^\/i\//i.test(
+                      pathname
+                    )
+                  );
+                } catch {
+                  return true;
+                }
+              })();
+
+            const hasDirectScannedArtworkImage =
+              hasUsableScannedImage &&
+              !scannedImageIsHtmlPage;
+
+            if (
+              hasDirectScannedArtworkImage
+            ) {
+              /*
+               * The visible scanner already captured the real Redbubble
+               * artwork CDN image. Import it immediately instead of
+               * reopening the product in the hidden detail WebView.
+               *
+               * This avoids Redbubble lazy-loading/time-out failures and
+               * lets the backend validate/cache the same artwork URL.
+               */
+              productToImport = {
+                ...product,
+                imageUrl:
+                  scannedImageUrl,
+              };
+
+              console.log(
+                "[Universal Scanner] Using scanned artwork image directly.",
+                {
+                  productUrl:
+                    product.productUrl,
+                  imageUrl:
+                    scannedImageUrl,
+                }
+              );
+            } else {
+              try {
+                productToImport =
+                  await enrichRedbubbleProduct(
+                    product
+                  );
+              } catch (detailError) {
+                if (
+                  !hasUsableScannedImage
+                ) {
+                  throw detailError;
+                }
+
+                console.warn(
+                  "[Universal Scanner] Redbubble detail enrichment failed; using scanned artwork image instead.",
+                  {
+                    productUrl:
+                      product.productUrl,
+                    imageUrl:
+                      scannedImageUrl,
+                    error:
+                      detailError instanceof Error
+                        ? detailError.message
+                        : String(
+                            detailError
+                          ),
+                  }
+                );
+
+                productToImport = {
+                  ...product,
+                  imageUrl:
+                    scannedImageUrl,
+                };
+              }
+            }
+
+            setProducts((current) =>
+              current.map((item) =>
+                item.id === product.id
+                  ? {
+                      ...item,
+                      title:
+                        productToImport.title ||
+                        item.title,
+                      description:
+                        productToImport.description ||
+                        item.description,
+                      imageUrl:
+                        productToImport.imageUrl ||
+                        item.imageUrl,
+                      price:
+                        productToImport.price ??
+                        item.price,
+                      currency:
+                        productToImport.currency ||
+                        item.currency,
+                    }
+                  : item
+              )
+            );
+          }
+
           const response =
             await fetch(
               `${API_BASE}/catalog/import-product`,
@@ -898,17 +3781,17 @@ setScanProgress("");
                     storeName,
                     storeType,
                     title:
-                      product.title,
+                      productToImport.title,
                     description:
-                      product.description,
+                      productToImport.description,
                     imageUrl:
-                      product.imageUrl,
+                      productToImport.imageUrl,
                     productUrl:
-                      product.productUrl,
+                      productToImport.productUrl,
                     price:
-                      product.price,
+                      productToImport.price,
                     currency:
-                      product.currency,
+                      productToImport.currency,
                     productType:
                       "Artwork",
                     tags: [],
@@ -944,6 +3827,17 @@ setScanProgress("");
           }
 
           importedCount += 1;
+
+          setProducts((current) =>
+            current.map((item) =>
+              item.id === product.id
+                ? {
+                    ...item,
+                    selected: false,
+                  }
+                : item
+            )
+          );
         } catch (
           error: any
         ) {
@@ -965,17 +3859,32 @@ setScanProgress("");
 
       Alert.alert(
         "Import Complete",
+        failed.length
+          ? [
+              `${importedCount} product${
+                importedCount === 1
+                  ? ""
+                  : "s"
+              } imported successfully.`,
+              `${failed.length} failed.`,
+              "",
+              `Failed product${
+                failed.length === 1
+                  ? ""
+                  : "s"
+              }:`,
+              failed.join("\n\n"),
+            ].join("\n")
+          : `${importedCount} product${
+              importedCount === 1
+                ? ""
+                : "s"
+            } imported successfully.`,
         [
-          `${importedCount} product${
-            importedCount === 1
-              ? ""
-              : "s"
-          } imported.`,
-          failed.length
-            ? `${failed.length} failed.`
-            : "All selected products imported successfully.",
-        ].join("\n"),
-        [
+          {
+            text: "Done",
+            style: "cancel",
+          },
           {
             text: "View Products",
             onPress: () =>
@@ -1021,7 +3930,16 @@ setScanProgress("");
               styles.headerButton
             }
             onPress={() =>
-              router.back()
+              router.replace({
+                pathname:
+                  "/store-products" as any,
+                params: {
+                  storeId,
+                  storeName,
+                  storeType,
+                  connected: "true",
+                },
+              })
             }
           >
             <Ionicons
@@ -1143,12 +4061,72 @@ setScanProgress("");
               setSupportMultipleWindows={
                 false
               }
-              onLoadStart={() =>
-                setPageLoading(true)
-              }
-              onLoadEnd={() =>
-                setPageLoading(false)
-              }
+              onLoadStart={() => {
+                setPageLoading(true);
+
+                if (pageLoadingTimerRef.current) {
+                  clearTimeout(
+                    pageLoadingTimerRef.current
+                  );
+                }
+
+                // Some Redbubble SPA/background requests keep React Native
+                // WebView in a loading state even after the storefront is
+                // visibly usable. Never leave "Loading storefront..." stuck.
+                pageLoadingTimerRef.current =
+                  setTimeout(() => {
+                    setPageLoading(false);
+                    pageLoadingTimerRef.current = null;
+                  }, 7000);
+              }}
+              onLoadProgress={(event) => {
+                const progress =
+                  Number(
+                    event.nativeEvent.progress || 0
+                  );
+
+                // The visible Redbubble shell/grid is usable before every
+                // analytics/ad request finishes. Hide the loader once the
+                // document is effectively rendered.
+                if (progress >= 0.85) {
+                  setPageLoading(false);
+
+                  if (pageLoadingTimerRef.current) {
+                    clearTimeout(
+                      pageLoadingTimerRef.current
+                    );
+                    pageLoadingTimerRef.current =
+                      null;
+                  }
+                }
+              }}
+              onLoadEnd={(event) => {
+                setPageLoading(false);
+
+                if (pageLoadingTimerRef.current) {
+                  clearTimeout(
+                    pageLoadingTimerRef.current
+                  );
+                  pageLoadingTimerRef.current =
+                    null;
+                }
+
+                const loadedUrl =
+                  event.nativeEvent.url || "";
+
+                if (
+                  fullStoreScanning &&
+                  /redbubble\.com\/people\/[^/]+\/explore/i.test(
+                    loadedUrl
+                  )
+                ) {
+                  setTimeout(() => {
+                    webViewRef.current?.injectJavaScript(
+                      REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT
+                    );
+                  }, 1800);
+                }
+              }}
               onNavigationStateChange={(
                 state
               ) => {
@@ -1157,11 +4135,33 @@ setScanProgress("");
                     state.url
                   );
                 }
+
+                if (!state.loading) {
+                  setPageLoading(false);
+
+                  if (pageLoadingTimerRef.current) {
+                    clearTimeout(
+                      pageLoadingTimerRef.current
+                    );
+                    pageLoadingTimerRef.current =
+                      null;
+                  }
+                }
               }}
               onMessage={
                 handleScannerMessage
               }
               onError={(event) => {
+                setPageLoading(false);
+
+                if (pageLoadingTimerRef.current) {
+                  clearTimeout(
+                    pageLoadingTimerRef.current
+                  );
+                  pageLoadingTimerRef.current =
+                    null;
+                }
+
                 Alert.alert(
                   "Store Unavailable",
                   event.nativeEvent
@@ -1285,6 +4285,43 @@ scanProgress ? (
           </View>
         )}
 
+        {redbubbleDetailUrl ? (
+          <WebView
+            key={`redbubble-detail-${redbubbleDetailKey}`}
+            ref={redbubbleDetailWebViewRef}
+            source={{ uri: redbubbleDetailUrl }}
+            style={styles.hiddenDetailWebView}
+            javaScriptEnabled
+            domStorageEnabled
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            setSupportMultipleWindows={false}
+            onLoadEnd={(event) => {
+              const pending =
+                pendingRedbubbleDetailRef.current;
+              const loadedUrl =
+                event.nativeEvent.url || "";
+
+              if (
+                pending &&
+                getRedbubbleArtworkId(loadedUrl) ===
+                  pending.expectedArtworkId
+              ) {
+                setTimeout(() => {
+                  redbubbleDetailWebViewRef.current?.injectJavaScript(
+                    REDBUBBLE_DETAIL_SCRIPT
+                  );
+                }, 1200);
+              }
+            }}
+            onMessage={handleScannerMessage}
+            onError={() => {
+              // Let the existing reload/timeout retry path handle transient
+              // Redbubble failures without interrupting the visible scanner.
+            }}
+          />
+        ) : null}
+
         {products.length > 0 ? (
           <View
             style={
@@ -1376,16 +4413,40 @@ scanProgress ? (
                     )
                   }
                 >
-                  <Image
-                    source={{
-                      uri:
-                        item.imageUrl,
-                    }}
-                    style={
-                      styles.productImage
-                    }
-                    resizeMode="cover"
-                  />
+                  {getRedbubblePreviewImageUrl(
+                    item.imageUrl,
+                    item.productUrl
+                  ) ? (
+                    <Image
+                      source={{
+                        uri: getRedbubblePreviewImageUrl(
+                          item.imageUrl,
+                          item.productUrl
+                        ),
+                        headers: /redbubble\.net/i.test(
+                          getRedbubblePreviewImageUrl(item.imageUrl, item.productUrl)
+                        )
+                          ? {
+                              Referer: "https://www.redbubble.com/",
+                              Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                            }
+                          : undefined,
+                      }}
+                      style={styles.productImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.productImagePlaceholder}>
+                      <Ionicons
+                        name="image-outline"
+                        size={24}
+                        color="#8b5cf6"
+                      />
+                      <Text style={styles.productImagePlaceholderText}>
+                        Artwork loads on import
+                      </Text>
+                    </View>
+                  )}
 
                   <View
                     style={[
@@ -1558,6 +4619,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  hiddenDetailWebView: {
+    position: "absolute",
+    width: 390,
+    height: 844,
+    left: -5000,
+    top: 0,
+    opacity: 0.01,
+  },
+
   pageLoader: {
     minHeight: 36,
     backgroundColor: "#171717",
@@ -1644,7 +4714,7 @@ const styles = StyleSheet.create({
   },
 
   resultsWrap: {
-    maxHeight: 260,
+    maxHeight: 310,
     paddingTop: 12,
     paddingBottom: 14,
     borderTopWidth: 1,
@@ -1689,7 +4759,7 @@ const styles = StyleSheet.create({
   },
 
   productCard: {
-    width: 112,
+    width: 126,
     borderRadius: 15,
     backgroundColor: "#191919",
     borderWidth: 1,
@@ -1704,9 +4774,29 @@ const styles = StyleSheet.create({
 
   productImage: {
     width: "100%",
-    height: 82,
+    height: 94,
     borderRadius: 10,
     backgroundColor: "#292929",
+  },
+
+  productImagePlaceholder: {
+    width: "100%",
+    height: 94,
+    borderRadius: 10,
+    backgroundColor: "#202020",
+    borderWidth: 1,
+    borderColor: "#33205e",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+
+  productImagePlaceholderText: {
+    color: "#9b8abf",
+    fontSize: 8,
+    lineHeight: 11,
+    textAlign: "center",
+    marginTop: 5,
   },
 
   checkCircle: {

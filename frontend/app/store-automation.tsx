@@ -1810,7 +1810,19 @@ try {
       [
         {
           text: "OK",
-          onPress: () => router.back(),
+          onPress: () =>
+            router.replace({
+              pathname:
+                "/store-dashboard" as any,
+              params: {
+                storeId,
+                storeName,
+                storeType,
+                productCount:
+                  String(productCount),
+                connected: "true",
+              },
+            }),
         },
       ]
     );
@@ -1845,7 +1857,13 @@ try {
         <View style={styles.header}>
           <Pressable
   style={styles.backButton}
-  onPress={() =>
+  onPress={() => {
+    /*
+     * Use a deterministic destination instead of depending on
+     * router history. This keeps the Automation back button
+     * working even when the screen was opened via replace(),
+     * deep link, or a tab transition.
+     */
     router.replace({
       pathname:
         "/store-dashboard" as any,
@@ -1855,9 +1873,10 @@ try {
         storeType,
         productCount:
           String(productCount),
+        connected: "true",
       },
-    })
-  }
+    });
+  }}
 >
             <Ionicons
               name="arrow-back"
