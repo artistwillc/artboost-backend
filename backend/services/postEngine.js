@@ -5,6 +5,10 @@ import {
   publishX,
 } from "./socialPublisher.js";
 
+import {
+  ensurePublishableImageUrl,
+} from "./mediaHostingService.js";
+
 function normalizePlatform(platform) {
   const normalized = String(platform || "")
     .trim()
@@ -193,7 +197,7 @@ export async function publishToPlatforms({
       product.url
     );
 
-  const imageUrl =
+  const sourceImageUrl =
     cleanInlineText(
       resolveImageUrl(product)
     );
@@ -204,11 +208,34 @@ export async function publishToPlatforms({
     );
   }
 
-  if (!imageUrl) {
+  if (!sourceImageUrl) {
     throw new Error(
       "The product does not contain an image URL."
     );
   }
+
+  // Social APIs frequently reject or cannot fetch protected storefront
+  // images (Redbubble is a common example). Cache the remote image once
+  // in Cloudinary and give every publisher the same public HTTPS URL.
+  const imageUrl =
+    await ensurePublishableImageUrl(
+      sourceImageUrl
+    );
+
+  console.log(
+    "Automation publish image resolved:",
+    {
+      sourceHost: (() => {
+        try {
+          return new URL(sourceImageUrl).hostname;
+        } catch {
+          return "unknown";
+        }
+      })(),
+      hostedOnCloudinary:
+        /res\.cloudinary\.com/i.test(imageUrl),
+    }
+  );
 
   const results = [];
 
