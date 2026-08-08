@@ -1975,27 +1975,130 @@ app.get("/stripe-cancel", (req, res) => {
   `);
 });
 
-app.get("/auth/pinterest", (req, res) => {
-  if (!PINTEREST_CLIENT_ID) {
-    return res.status(500).send("Missing PINTEREST_CLIENT_ID.");
+function createPinterestState(userId = null) {
+  // Keep the current app compatible if an older frontend does not yet send userId.
+  if (!userId) {
+    return "artboost-pinterest-connect";
   }
 
-  const scopes = [
-    "boards:read",
-    "boards:write",
-    "pins:read",
-    "pins:write",
-    "user_accounts:read",
-  ].join(",");
+  if (!PINTEREST_CLIENT_SECRET) {
+    throw new Error("Missing PINTEREST_CLIENT_SECRET.");
+  }
 
-  const authUrl = new URL("https://www.pinterest.com/oauth/");
-  authUrl.searchParams.set("client_id", PINTEREST_CLIENT_ID);
-  authUrl.searchParams.set("redirect_uri", PINTEREST_REDIRECT_URI);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", scopes);
-  authUrl.searchParams.set("state", "artboost-pinterest-connect");
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
 
-  res.redirect(authUrl.toString());
+  const encodedPayload = Buffer.from(
+    JSON.stringify(payload)
+  ).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", PINTEREST_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyPinterestState(state) {
+  if (!state) {
+    return null;
+  }
+
+  // Backward compatibility for the currently deployed mobile build.
+  if (state === "artboost-pinterest-connect") {
+    return {
+      userId: null,
+      legacy: true,
+    };
+  }
+
+  if (!PINTEREST_CLIENT_SECRET) {
+    return null;
+  }
+
+  const [encodedPayload, suppliedSignature] = String(state).split(".");
+
+  if (!encodedPayload || !suppliedSignature) {
+    return null;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", PINTEREST_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    const tenMinutes = 10 * 60 * 1000;
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > tenMinutes
+    ) {
+      return null;
+    }
+
+    return {
+      userId: String(payload.userId),
+      legacy: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+app.get("/auth/pinterest", (req, res) => {
+  try {
+    if (!PINTEREST_CLIENT_ID) {
+      return res.status(500).send("Missing PINTEREST_CLIENT_ID.");
+    }
+
+    const userId = req.query.userId
+      ? String(req.query.userId)
+      : null;
+
+    const scopes = [
+      "boards:read",
+      "boards:write",
+      "pins:read",
+      "pins:write",
+      "user_accounts:read",
+    ].join(",");
+
+    const authUrl = new URL("https://www.pinterest.com/oauth/");
+    authUrl.searchParams.set("client_id", PINTEREST_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", PINTEREST_REDIRECT_URI);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", scopes);
+    authUrl.searchParams.set("state", createPinterestState(userId));
+
+    res.redirect(authUrl.toString());
+  } catch (err) {
+    console.error("Pinterest authorization error:", err);
+    res.status(500).send(
+      err instanceof Error
+        ? err.message
+        : "Unable to start Pinterest connection."
+    );
+  }
 });
 
 let facebookConnection = {
@@ -2058,7 +2161,7 @@ async function loadFacebookConnection() {
   console.log("Facebook saved connection loaded: true");
 }
 
-async function savePinterestConnection(tokenData) {
+async function savePinterestConnection(tokenData, userId = null) {
   if (!tokenData?.access_token) {
     throw new Error("Pinterest did not return an access token.");
   }
@@ -2073,18 +2176,19 @@ async function savePinterestConnection(tokenData) {
 
   const expiresAt = expiresIn
     ? new Date(
-      connectedAt.getTime() + expiresIn * 1000
-    ).toISOString()
+        connectedAt.getTime() + expiresIn * 1000
+      ).toISOString()
     : null;
 
   const refreshTokenExpiresAt = refreshTokenExpiresIn
     ? new Date(
-      connectedAt.getTime() +
-      refreshTokenExpiresIn * 1000
-    ).toISOString()
+        connectedAt.getTime() +
+          refreshTokenExpiresIn * 1000
+      ).toISOString()
     : null;
 
   const connectionRecord = {
+    user_id: userId ? String(userId) : null,
     platform: "pinterest",
     connected: true,
     access_token: tokenData.access_token,
@@ -2101,17 +2205,70 @@ async function savePinterestConnection(tokenData) {
   // Only update the refresh token when Pinterest returns one.
   // This prevents an existing refresh token from being erased.
   if (tokenData.refresh_token) {
-    connectionRecord.refresh_token =
-      tokenData.refresh_token;
+    connectionRecord.refresh_token = tokenData.refresh_token;
   }
 
-  const { data, error } = await supabase
-    .from("social_connections")
-    .upsert(connectionRecord, {
-      onConflict: "platform",
-    })
-    .select()
-    .single();
+  let data = null;
+  let error = null;
+
+  if (userId) {
+    // social_connections has a UNIQUE index on (user_id, platform).
+    // This is the correct conflict target for user-scoped connections.
+    const result = await supabase
+      .from("social_connections")
+      .upsert(connectionRecord, {
+        onConflict: "user_id,platform",
+      })
+      .select()
+      .single();
+
+    data = result.data;
+    error = result.error;
+  } else {
+    // Legacy compatibility: older app builds did not send userId through OAuth.
+    // PostgreSQL treats NULL values as distinct in a composite UNIQUE index,
+    // so update/insert explicitly instead of using ON CONFLICT(platform).
+    const { data: existingLegacy, error: legacyFindError } = await supabase
+      .from("social_connections")
+      .select("id, refresh_token")
+      .eq("platform", "pinterest")
+      .is("user_id", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (legacyFindError) {
+      throw legacyFindError;
+    }
+
+    if (
+      !connectionRecord.refresh_token &&
+      existingLegacy?.refresh_token
+    ) {
+      connectionRecord.refresh_token = existingLegacy.refresh_token;
+    }
+
+    if (existingLegacy?.id) {
+      const result = await supabase
+        .from("social_connections")
+        .update(connectionRecord)
+        .eq("id", existingLegacy.id)
+        .select()
+        .single();
+
+      data = result.data;
+      error = result.error;
+    } else {
+      const result = await supabase
+        .from("social_connections")
+        .insert(connectionRecord)
+        .select()
+        .single();
+
+      data = result.data;
+      error = result.error;
+    }
+  }
 
   if (error) {
     console.error(
@@ -2136,15 +2293,20 @@ async function savePinterestConnection(tokenData) {
   };
 
   console.log(
-    "Pinterest token and refresh data saved to Supabase"
+    `Pinterest connection saved to Supabase${
+      userId ? ` for user ${userId}` : " in legacy mode"
+    }`
   );
+
+  return data;
 }
 
-async function loadPinterestConnection() {
-  const { data, error } = await supabase
+async function loadPinterestConnection(userId = null) {
+  let query = supabase
     .from("social_connections")
     .select(
       `
+        user_id,
         connected,
         access_token,
         refresh_token,
@@ -2155,198 +2317,52 @@ async function loadPinterestConnection() {
         connected_at
       `
     )
-    .eq("platform", "pinterest")
+    .eq("platform", "pinterest");
+
+  if (userId) {
+    query = query.eq("user_id", String(userId));
+  } else {
+    query = query.is("user_id", null);
+  }
+
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
     console.error("Pinterest connection load failed:", error.message);
-    return;
+    return null;
   }
 
   if (!data?.connected || !data?.access_token) {
-    console.log("No saved Pinterest connection found.");
-    return;
+    if (!userId) {
+      console.log("No saved legacy Pinterest connection found.");
+    }
+    return null;
   }
 
+  // Keep the legacy in-memory cache populated for routes that still use it.
   pinterestConnection = {
     connected: true,
     token: data.access_token,
     refreshToken: data.refresh_token || null,
     expiresIn: data.expires_in || null,
     expiresAt: data.expires_at || null,
-    refreshTokenExpiresIn: data.refresh_token_expires_in || null,
-    refreshTokenExpiresAt: data.refresh_token_expires_at || null,
+    refreshTokenExpiresIn:
+      data.refresh_token_expires_in || null,
+    refreshTokenExpiresAt:
+      data.refresh_token_expires_at || null,
     connectedAt: data.connected_at || null,
   };
 
-  console.log("Pinterest connection loaded from Supabase.");
-}
+  console.log(
+    `Pinterest connection loaded from Supabase${
+      userId ? ` for user ${userId}` : " in legacy mode"
+    }.`
+  );
 
-app.get("/auth/facebook", (req, res) => {
-
-  const APP_ID =
-    process.env.FACEBOOK_APP_ID;
-
-  const REDIRECT_URI =
-    "https://artboost-ai.onrender.com/auth/facebook/callback";
-
-  const url =
-    `https://www.facebook.com/v23.0/dialog/oauth` +
-    `?client_id=${APP_ID}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&scope=email,pages_read_engagement,pages_show_list,pages_manage_posts` +
-    `&response_type=code`;
-  console.log("FACEBOOK ROUTE VERSION 2:", url);
-  res.redirect(url);
-
-});
-
-// ================================
-// Instagram Status/Test Routes
-// ================================
-app.get("/x/status", (req, res) => {
-  res.json({
-    connected:
-      !!process.env.X_CLIENT_ID &&
-      !!process.env.X_CLIENT_SECRET &&
-      !!process.env.X_API_KEY &&
-      !!process.env.X_API_SECRET &&
-      !!process.env.X_ACCESS_TOKEN &&
-      !!process.env.X_ACCESS_TOKEN_SECRET,
-    hasClientId: !!process.env.X_CLIENT_ID,
-    hasClientSecret: !!process.env.X_CLIENT_SECRET,
-    hasApiKey: !!process.env.X_API_KEY,
-    hasApiSecret: !!process.env.X_API_SECRET,
-    hasAccessToken: !!process.env.X_ACCESS_TOKEN,
-    hasAccessTokenSecret: !!process.env.X_ACCESS_TOKEN_SECRET,
-    message: "X credentials check complete.",
-    postTestRouteAdded: true,
-  });
-});
-
-app.post("/x/post", async (req, res) => {
-  try {
-    const { title, description, productLink, imageUrl, message } = req.body;
-    const finalTitle = title || "";
-    const finalDescription = description || message || "";
-
-    if (!finalTitle && !finalDescription) {
-      return res.status(400).json({
-        error: "Missing X post title or description.",
-      });
-    }
-
-    const result = await publishXPost({
-      title: finalTitle,
-      description: finalDescription,
-      productLink,
-      imageUrl,
-    });
-
-    res.json({
-      success: true,
-      platform: "x",
-      result,
-    });
-  } catch (err) {
-    console.error("X manual post error:", err);
-
-    res.status(500).json({
-      error: "X manual post failed.",
-      details: err.message,
-    });
-  }
-});
-
-app.get("/will-test", (req, res) => {
-  res.json({
-    works: true,
-    version: "INSTAGRAM DEBUG 2",
-    commit: "7d9dd16",
-    time: new Date().toISOString()
-  });
-});
-
-app.get("/x/post-test", async (req, res) => {
-  try {
-    const response = await fetch(
-      "https://api.twitter.com/2/tweets",
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${process.env.X_BEARER_TOKEN}`,
-        },
-      }
-    );
-
-    const data = await response.text();
-
-    res.json({
-      status: response.status,
-      data,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: err.message,
-      stack: err.stack,
-    });
-  }
-});
-function createInstagramState(userId) {
-  const payload = Buffer.from(
-    JSON.stringify({
-      userId: String(userId),
-      timestamp: Date.now(),
-      nonce: crypto.randomBytes(16).toString("hex"),
-    })
-  ).toString("base64url");
-
-  const signature = crypto
-    .createHmac("sha256", FACEBOOK_APP_SECRET)
-    .update(payload)
-    .digest("base64url");
-
-  return `${payload}.${signature}`;
-}
-
-function verifyInstagramState(state) {
-  if (!state || !FACEBOOK_APP_SECRET) return null;
-
-  const [payload, suppliedSignature] = String(state).split(".");
-  if (!payload || !suppliedSignature) return null;
-
-  const expectedSignature = crypto
-    .createHmac("sha256", FACEBOOK_APP_SECRET)
-    .update(payload)
-    .digest("base64url");
-
-  const supplied = Buffer.from(suppliedSignature);
-  const expected = Buffer.from(expectedSignature);
-
-  if (
-    supplied.length !== expected.length ||
-    !crypto.timingSafeEqual(supplied, expected)
-  ) {
-    return null;
-  }
-
-  try {
-    const decoded = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8")
-    );
-
-    if (
-      !decoded.userId ||
-      !decoded.timestamp ||
-      Date.now() - Number(decoded.timestamp) > 10 * 60 * 1000
-    ) {
-      return null;
-    }
-
-    return decoded;
-  } catch {
-    return null;
-  }
+  return data;
 }
 
 async function saveInstagramConnection({
@@ -3698,7 +3714,7 @@ app.get("/facebook/test", (req, res) => {
 
 app.post("/disconnect-platform", async (req, res) => {
   try {
-    const { platform } = req.body;
+    const { platform, userId = null } = req.body;
 
     if (!platform) {
       return res.status(400).json({
@@ -3709,10 +3725,20 @@ app.post("/disconnect-platform", async (req, res) => {
 
     const normalizedPlatform = String(platform).trim().toLowerCase();
 
-    const { error } = await supabase
+    let deleteQuery = supabase
       .from("social_connections")
       .delete()
       .eq("platform", normalizedPlatform);
+
+    if (userId) {
+      deleteQuery = deleteQuery.eq("user_id", String(userId));
+    } else {
+      // Older app builds created legacy rows without a user_id.
+      // Never delete every customer's connection just because userId is absent.
+      deleteQuery = deleteQuery.is("user_id", null);
+    }
+
+    const { error } = await deleteQuery;
 
     if (error) {
       return res.status(500).json({
@@ -3778,9 +3804,13 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       return res.status(400).send("Missing Pinterest authorization code.");
     }
 
-    if (state !== "artboost-pinterest-connect") {
-      return res.status(400).send("Invalid Pinterest OAuth state.");
+    const statePayload = verifyPinterestState(state);
+
+    if (!statePayload) {
+      return res.status(400).send("Invalid or expired Pinterest OAuth state.");
     }
+
+    const userId = statePayload.userId || null;
 
     const basicAuth = Buffer.from(
       `${PINTEREST_CLIENT_ID}:${PINTEREST_CLIENT_SECRET}`
@@ -3808,10 +3838,10 @@ app.get("/auth/pinterest/callback", async (req, res) => {
       `);
     }
 
-    await savePinterestConnection(tokenData);
+    await savePinterestConnection(tokenData, userId);
 
     await createNotification({
-      userId: null,
+      userId,
       title: "Pinterest Connected",
       message: "Pinterest OAuth was connected successfully.",
       type: "success",
@@ -3834,19 +3864,68 @@ app.get("/auth/pinterest/callback", async (req, res) => {
   }
 });
 
-app.get("/pinterest/status", (req, res) => {
-  res.json({
-    configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
-    connected: pinterestConnection.connected,
-    connectedAt: pinterestConnection.connectedAt,
-    scope: pinterestConnection.scope,
-    apiBase: PINTEREST_API_BASE,
-  });
+app.get("/pinterest/status", async (req, res) => {
+  try {
+    const userId = req.query.userId
+      ? String(req.query.userId)
+      : null;
+
+    let connection = null;
+
+    if (userId) {
+      connection = await loadUserSocialConnection({
+        userId,
+        platform: "pinterest",
+      });
+    } else {
+      connection = await loadPinterestConnection();
+    }
+
+    res.json({
+      configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
+      connected: Boolean(connection?.connected && connection?.access_token),
+      connectedAt: connection?.connected_at || null,
+      apiBase: PINTEREST_API_BASE,
+    });
+  } catch (err) {
+    res.status(500).json({
+      configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
+      connected: false,
+      error: err.message,
+    });
+  }
 });
 
 app.get("/pinterest/boards", async (req, res) => {
   try {
-    if (!pinterestConnection.connected || !pinterestConnection.token) {
+    const userId = req.query.userId
+      ? String(req.query.userId)
+      : null;
+
+    let pinterestToken = null;
+
+    if (userId) {
+      const userConnection = await loadUserSocialConnection({
+        userId,
+        platform: "pinterest",
+      });
+
+      if (userConnection?.connected && userConnection?.access_token) {
+        pinterestToken = userConnection.access_token;
+      }
+    }
+
+    if (!pinterestToken) {
+      if (!pinterestConnection.connected || !pinterestConnection.token) {
+        await loadPinterestConnection();
+      }
+
+      pinterestToken = pinterestConnection.connected
+        ? pinterestConnection.token
+        : null;
+    }
+
+    if (!pinterestToken) {
       return res.status(401).json({ error: "Pinterest is not connected." });
     }
 
@@ -3971,7 +4050,7 @@ async function publishPinterestPin({
   const pinResponse = await fetch(`${PINTEREST_API_BASE}/v5/pins`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${pinterestConnection.token}`,
+      Authorization: `Bearer ${pinterestToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(pinPayload),
@@ -7495,6 +7574,7 @@ app.listen(PORT, async () => {
   console.log("LIVE SERVER VERSION: INSTAGRAM SCHEDULER FIX 1");
   console.log("LIVE SERVER VERSION: INSTAGRAM DEBUG 2");
   console.log("LIVE SERVER VERSION: AUTOMATION RELIABILITY FIX 1");
+  console.log("LIVE SERVER VERSION: PINTEREST USER SCOPED OAUTH FIX 1");
 
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"
