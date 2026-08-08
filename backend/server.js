@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
+import catalogCsvRouter from "./routes/catalogCsv.js";
 import automationRoutes from "./routes/automations.js";
 import {
   calculateNextRun,
@@ -1229,6 +1230,7 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
+app.use("/catalog", catalogCsvRouter);
 app.use("/automations", automationRoutes);
 
 app.use("/ai", aiRouter);
