@@ -2505,6 +2505,12 @@ else if (selectedPlatform === "Threads") {
 
 }
 
+else if (selectedPlatform === "LinkedIn") {
+
+  createLinkedInPost();
+
+}
+
 else {
 
   createPinterestPin();

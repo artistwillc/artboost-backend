@@ -3494,6 +3494,77 @@ async function saveInstagramConnection({
   }
 }
 
+
+function createInstagramState(userId) {
+  if (!FACEBOOK_APP_SECRET) {
+    throw new Error("Missing FACEBOOK_APP_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyInstagramState(state) {
+  if (!state || !FACEBOOK_APP_SECRET) {
+    return null;
+  }
+
+  const [encodedPayload, suppliedSignature] =
+    String(state).split(".");
+
+  if (!encodedPayload || !suppliedSignature) {
+    return null;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return {
+      userId: String(payload.userId),
+    };
+  } catch {
+    return null;
+  }
+}
+
 app.get("/auth/instagram", (req, res) => {
   const { userId } = req.query;
 
