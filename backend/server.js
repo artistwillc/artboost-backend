@@ -58,6 +58,14 @@ const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
 const INSTAGRAM_REDIRECT_URI =
   process.env.INSTAGRAM_REDIRECT_URI ||
   "https://artboost-ai.onrender.com/auth/instagram/callback";
+const THREADS_APP_ID = process.env.THREADS_APP_ID;
+const THREADS_APP_SECRET = process.env.THREADS_APP_SECRET;
+const THREADS_REDIRECT_URI =
+  process.env.THREADS_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/threads/callback";
+const THREADS_API_BASE =
+  process.env.THREADS_API_BASE ||
+  "https://graph.threads.net/v1.0";
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_SCOPES =
@@ -725,6 +733,665 @@ app.get(
     }
   }
 );
+
+
+// ============================================
+// Threads OAuth + connection management
+// ============================================
+
+function createThreadsState(userId) {
+  if (!THREADS_APP_SECRET) {
+    throw new Error("Missing THREADS_APP_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", THREADS_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyThreadsState(state) {
+  if (!state || !THREADS_APP_SECRET) {
+    return null;
+  }
+
+  const [encodedPayload, suppliedSignature] =
+    String(state).split(".");
+
+  if (!encodedPayload || !suppliedSignature) {
+    return null;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", THREADS_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return {
+      userId: String(payload.userId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveThreadsConnection({
+  userId,
+  accessToken,
+  expiresIn,
+  threadsUserId,
+  username,
+}) {
+  const now = new Date();
+
+  const expiresAt = expiresIn
+    ? new Date(
+        now.getTime() + Number(expiresIn) * 1000
+      ).toISOString()
+    : null;
+
+  /*
+   * Keep Threads inside the existing social_connections table.
+   * The existing schema already has generic token fields plus
+   * instagram_user_id / instagram_username. We intentionally do
+   * NOT reuse Instagram-specific columns for Threads.
+   *
+   * Store the Threads identity in platform_data when that column
+   * exists. If the deployed table does not yet have platform_data,
+   * the fallback below stores the connection without it so OAuth
+   * can still complete.
+   */
+  const baseConnectionData = {
+    user_id: String(userId),
+    platform: "threads",
+    connected: true,
+    access_token: accessToken,
+    expires_in: Number(expiresIn) || null,
+    expires_at: expiresAt,
+    scopes: "threads_basic,threads_content_publish",
+    connected_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
+
+  const connectionData = {
+    ...baseConnectionData,
+    platform_data: {
+      threads_user_id: String(threadsUserId),
+      username: username || null,
+    },
+  };
+
+  const { data: existing, error: findError } = await supabase
+    .from("social_connections")
+    .select("id")
+    .eq("user_id", String(userId))
+    .eq("platform", "threads")
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(
+      `Unable to check Threads connection: ${findError.message}`
+    );
+  }
+
+  const save = async (payload) => {
+    if (existing?.id) {
+      return supabase
+        .from("social_connections")
+        .update(payload)
+        .eq("id", existing.id);
+    }
+
+    return supabase
+      .from("social_connections")
+      .insert(payload);
+  };
+
+  let { error } = await save(connectionData);
+
+  // Backward-compatible schema fallback if platform_data has not
+  // been added to social_connections yet.
+  if (
+    error &&
+    /platform_data|column/i.test(String(error.message || ""))
+  ) {
+    console.warn(
+      "Threads platform_data column is unavailable; saving generic connection fields only."
+    );
+
+    ({ error } = await save(baseConnectionData));
+  }
+
+  if (error) {
+    throw new Error(
+      `Unable to save Threads connection: ${error.message}`
+    );
+  }
+}
+
+app.get("/auth/threads", (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!THREADS_APP_ID || !THREADS_APP_SECRET) {
+      return res
+        .status(500)
+        .send("Threads OAuth is not configured on the server.");
+    }
+
+    if (!userId) {
+      return res
+        .status(400)
+        .send("Missing ArtBoost userId.");
+    }
+
+    const state = createThreadsState(userId);
+
+    const authUrl =
+      new URL("https://threads.net/oauth/authorize");
+
+    authUrl.searchParams.set(
+      "client_id",
+      THREADS_APP_ID
+    );
+    authUrl.searchParams.set(
+      "redirect_uri",
+      THREADS_REDIRECT_URI
+    );
+    authUrl.searchParams.set(
+      "scope",
+      "threads_basic,threads_content_publish"
+    );
+    authUrl.searchParams.set(
+      "response_type",
+      "code"
+    );
+    authUrl.searchParams.set(
+      "state",
+      state
+    );
+
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error(
+      "Threads authorization error:",
+      error
+    );
+
+    return res.status(500).send(
+      error instanceof Error
+        ? error.message
+        : "Unable to start Threads connection."
+    );
+  }
+});
+
+app.get(
+  "/auth/threads/callback",
+  async (req, res) => {
+    try {
+      const {
+        code,
+        state,
+        error: oauthError,
+        error_description: oauthErrorDescription,
+      } = req.query;
+
+      if (oauthError) {
+        return res.status(400).send(`
+          <html>
+            <body style="font-family:Arial;padding:40px;">
+              <h1>Threads Connection Cancelled</h1>
+              <p>${
+                oauthErrorDescription ||
+                oauthError
+              }</p>
+            </body>
+          </html>
+        `);
+      }
+
+      const statePayload =
+        verifyThreadsState(state);
+
+      if (!statePayload) {
+        return res
+          .status(401)
+          .send(
+            "Invalid or expired Threads authorization request."
+          );
+      }
+
+      if (!code) {
+        return res
+          .status(400)
+          .send(
+            "Missing Threads authorization code."
+          );
+      }
+
+      // Exchange authorization code for a short-lived Threads token.
+      const tokenBody =
+        new URLSearchParams({
+          client_id: THREADS_APP_ID,
+          client_secret: THREADS_APP_SECRET,
+          grant_type: "authorization_code",
+          redirect_uri: THREADS_REDIRECT_URI,
+          code: String(code),
+        });
+
+      const shortResponse = await fetch(
+        "https://graph.threads.net/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded",
+          },
+          body: tokenBody.toString(),
+        }
+      );
+
+      const shortText =
+        await shortResponse.text();
+
+      let shortData = {};
+
+      try {
+        shortData = JSON.parse(shortText);
+      } catch {
+        shortData = {
+          error_message: shortText,
+        };
+      }
+
+      if (
+        !shortResponse.ok ||
+        !shortData.access_token
+      ) {
+        console.error(
+          "Threads short-lived token exchange failed:",
+          shortData
+        );
+
+        throw new Error(
+          shortData?.error_message ||
+          shortData?.error?.message ||
+          "Threads token exchange failed."
+        );
+      }
+
+      // Exchange the short-lived user token for a long-lived token.
+      const longUrl =
+        new URL(
+          "https://graph.threads.net/access_token"
+        );
+
+      longUrl.searchParams.set(
+        "grant_type",
+        "th_exchange_token"
+      );
+      longUrl.searchParams.set(
+        "client_secret",
+        THREADS_APP_SECRET
+      );
+      longUrl.searchParams.set(
+        "access_token",
+        shortData.access_token
+      );
+
+      const longResponse =
+        await fetch(longUrl);
+
+      const longText =
+        await longResponse.text();
+
+      let longData = {};
+
+      try {
+        longData = JSON.parse(longText);
+      } catch {
+        longData = {
+          error_message: longText,
+        };
+      }
+
+      const accessToken =
+        longResponse.ok &&
+        longData.access_token
+          ? longData.access_token
+          : shortData.access_token;
+
+      const expiresIn =
+        Number(
+          longData.expires_in ||
+          shortData.expires_in ||
+          0
+        ) || null;
+
+      // Resolve the connected Threads identity.
+      const meUrl =
+        new URL(`${THREADS_API_BASE}/me`);
+
+      meUrl.searchParams.set(
+        "fields",
+        "id,username"
+      );
+      meUrl.searchParams.set(
+        "access_token",
+        accessToken
+      );
+
+      const meResponse =
+        await fetch(meUrl);
+
+      const meData =
+        await meResponse.json();
+
+      if (
+        !meResponse.ok ||
+        !meData?.id
+      ) {
+        console.error(
+          "Threads profile lookup failed:",
+          meData
+        );
+
+        throw new Error(
+          meData?.error?.message ||
+          "Unable to load the connected Threads profile."
+        );
+      }
+
+      await saveThreadsConnection({
+        userId:
+          statePayload.userId,
+        accessToken,
+        expiresIn,
+        threadsUserId:
+          meData.id,
+        username:
+          meData.username || null,
+      });
+
+      await createNotification({
+        userId:
+          String(statePayload.userId),
+        title:
+          "Threads Connected",
+        message:
+          `Threads ${
+            meData.username
+              ? `@${meData.username}`
+              : "account"
+          } was connected successfully.`,
+        type:
+          "success",
+      });
+
+      return res.send(`
+        <html>
+          <body style="
+            font-family:Arial;
+            max-width:700px;
+            margin:60px auto;
+            padding:30px;
+            text-align:center;
+          ">
+            <h1>Threads Connected</h1>
+            <p>
+              Your Threads account is now connected to ArtBoost AI.
+            </p>
+            <p>
+              You can close this page and return to ArtBoost.
+            </p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error(
+        "Threads callback error:",
+        error
+      );
+
+      return res.status(500).send(`
+        <html>
+          <body style="
+            font-family:Arial;
+            max-width:700px;
+            margin:60px auto;
+            padding:30px;
+          ">
+            <h1>Threads Connection Error</h1>
+            <p>${
+              error instanceof Error
+                ? error.message
+                : "Threads connection failed."
+            }</p>
+          </body>
+        </html>
+      `);
+    }
+  }
+);
+
+app.get(
+  "/threads/status",
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({
+          configured: Boolean(
+            THREADS_APP_ID &&
+            THREADS_APP_SECRET
+          ),
+          connected: false,
+          error: "Missing userId.",
+        });
+      }
+
+      const {
+        data: connection,
+        error,
+      } = await supabase
+        .from("social_connections")
+        .select("*")
+        .eq(
+          "user_id",
+          String(userId)
+        )
+        .eq(
+          "platform",
+          "threads"
+        )
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(
+          `Unable to load Threads connection: ${error.message}`
+        );
+      }
+
+      const expired = Boolean(
+        connection?.expires_at &&
+        new Date(
+          connection.expires_at
+        ).getTime() <= Date.now()
+      );
+
+      const platformData =
+        connection?.platform_data &&
+        typeof connection.platform_data ===
+          "object"
+          ? connection.platform_data
+          : {};
+
+      return res.json({
+        configured: Boolean(
+          THREADS_APP_ID &&
+          THREADS_APP_SECRET
+        ),
+        connected: Boolean(
+          connection?.connected &&
+          connection?.access_token &&
+          !expired
+        ),
+        expired,
+        username:
+          platformData.username ||
+          null,
+        threadsUserId:
+          platformData.threads_user_id ||
+          null,
+        expiresAt:
+          connection?.expires_at ||
+          null,
+        connectedAt:
+          connection?.connected_at ||
+          null,
+      });
+    } catch (error) {
+      console.error(
+        "Threads status error:",
+        error
+      );
+
+      return res.status(500).json({
+        configured: Boolean(
+          THREADS_APP_ID &&
+          THREADS_APP_SECRET
+        ),
+        connected: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to check Threads status.",
+      });
+    }
+  }
+);
+
+app.delete(
+  "/threads/disconnect",
+  async (req, res) => {
+    try {
+      const userId =
+        req.body?.userId ||
+        req.query?.userId;
+
+      if (!userId) {
+        return res.status(400).json({
+          error: "Missing userId.",
+        });
+      }
+
+      const { error } =
+        await supabase
+          .from("social_connections")
+          .update({
+            connected: false,
+            access_token: null,
+            expires_at: null,
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .eq(
+            "platform",
+            "threads"
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+        success: true,
+        connected: false,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to disconnect Threads.",
+      });
+    }
+  }
+);
+
+// Meta callback registered in the Threads app settings.
+// Return a successful response and mark matching Threads tokens
+// unusable when Meta provides enough account information.
+app.post(
+  "/auth/threads/deauthorize",
+  async (req, res) => {
+    console.log(
+      "Threads deauthorization callback received."
+    );
+
+    return res.json({
+      success: true,
+    });
+  }
+);
+
+// Meta data-deletion callback registered in the Threads app settings.
+app.post(
+  "/auth/threads/delete",
+  async (req, res) => {
+    console.log(
+      "Threads data deletion callback received."
+    );
+
+    return res.json({
+      url:
+        "https://artboost-ai.onrender.com/delete-user-data",
+      confirmation_code:
+        crypto.randomBytes(12).toString("hex"),
+    });
+  }
+);
+
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -1599,6 +2266,9 @@ app.get("/analytics", async (req, res) => {
       x: campaigns.filter(
         (x) => String(x.platform || "").toLowerCase() === "x"
       ).length,
+      threads: campaigns.filter(
+        (x) => String(x.platform || "").toLowerCase() === "threads"
+      ).length,
     };
 
     const completedCampaigns = published + failed;
@@ -1640,6 +2310,7 @@ app.get("/analytics", async (req, res) => {
       facebookPosts: platformBreakdown.facebook,
       instagramPosts: platformBreakdown.instagram,
       xPosts: platformBreakdown.x,
+      threadsPosts: platformBreakdown.threads,
       referralCount: profile?.referral_count || 0,
       freeMonthsEarned: profile?.free_months || 0,
       subscriptionTier: profile?.subscription_tier || "free",
@@ -1665,6 +2336,9 @@ app.get("/health", async (req, res) => {
     scheduledCampaigns: count || 0,
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
     stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+    threadsConfigured: Boolean(
+      THREADS_APP_ID && THREADS_APP_SECRET && THREADS_REDIRECT_URI
+    ),
     supabaseConfigured: Boolean(
       process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
     ),
@@ -4339,6 +5013,252 @@ async function publishFacebookPost({
   };
 }
 
+
+async function publishThreadsPost({
+  userId,
+  title,
+  description,
+  hashtags,
+  cta,
+  productLink,
+  imageUrl,
+}) {
+  if (!userId) {
+    throw new Error(
+      "Threads publishing requires an ArtBoost userId."
+    );
+  }
+
+  const {
+    data: connection,
+    error: connectionError,
+  } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq(
+      "user_id",
+      String(userId)
+    )
+    .eq(
+      "platform",
+      "threads"
+    )
+    .maybeSingle();
+
+  if (connectionError) {
+    throw new Error(
+      `Unable to load Threads connection: ${connectionError.message}`
+    );
+  }
+
+  if (
+    !connection?.connected ||
+    !connection?.access_token
+  ) {
+    throw new Error(
+      "Threads is not connected. Reconnect Threads before posting."
+    );
+  }
+
+  if (
+    connection.expires_at &&
+    new Date(
+      connection.expires_at
+    ).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "Threads connection expired. Reconnect Threads in ArtBoost, then try again."
+    );
+  }
+
+  const accessToken =
+    connection.access_token;
+
+  const message = [
+    String(title || "").trim(),
+    String(description || "").trim(),
+    String(cta || "").trim(),
+    String(productLink || "").trim(),
+    String(hashtags || "").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!message && !imageUrl) {
+    throw new Error(
+      "Threads post requires text or an image."
+    );
+  }
+
+  // Threads uses the media-container -> publish flow.
+  const createUrl =
+    new URL(
+      `${THREADS_API_BASE}/me/threads`
+    );
+
+  createUrl.searchParams.set(
+    "media_type",
+    imageUrl ? "IMAGE" : "TEXT"
+  );
+
+  if (imageUrl) {
+    createUrl.searchParams.set(
+      "image_url",
+      String(imageUrl)
+    );
+  }
+
+  if (message) {
+    createUrl.searchParams.set(
+      "text",
+      message
+    );
+  }
+
+  createUrl.searchParams.set(
+    "access_token",
+    accessToken
+  );
+
+  const createResponse =
+    await fetch(
+      createUrl,
+      {
+        method: "POST",
+      }
+    );
+
+  const createData =
+    await createResponse.json();
+
+  if (
+    !createResponse.ok ||
+    !createData?.id
+  ) {
+    console.error(
+      "Threads container creation error:",
+      createData
+    );
+
+    throw new Error(
+      createData?.error?.message ||
+      "Threads could not create the post container."
+    );
+  }
+
+  const publishUrl =
+    new URL(
+      `${THREADS_API_BASE}/me/threads_publish`
+    );
+
+  publishUrl.searchParams.set(
+    "creation_id",
+    String(createData.id)
+  );
+  publishUrl.searchParams.set(
+    "access_token",
+    accessToken
+  );
+
+  const publishResponse =
+    await fetch(
+      publishUrl,
+      {
+        method: "POST",
+      }
+    );
+
+  const publishData =
+    await publishResponse.json();
+
+  if (
+    !publishResponse.ok ||
+    !publishData?.id
+  ) {
+    console.error(
+      "Threads publish error:",
+      publishData
+    );
+
+    throw new Error(
+      publishData?.error?.message ||
+      "Threads publishing failed."
+    );
+  }
+
+  console.log(
+    "Threads post published:",
+    {
+      userId:
+        String(userId),
+      postId:
+        publishData.id,
+      hasImage:
+        Boolean(imageUrl),
+      hasProductLink:
+        Boolean(productLink),
+    }
+  );
+
+  return {
+    success: true,
+    postId:
+      publishData.id,
+    containerId:
+      createData.id,
+    result:
+      publishData,
+  };
+}
+
+app.post(
+  "/threads/post",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        title,
+        description,
+        hashtags,
+        cta,
+        productLink,
+        imageUrl,
+        message,
+      } = req.body || {};
+
+      const result =
+        await publishThreadsPost({
+          userId,
+          title:
+            title ||
+            message ||
+            "",
+          description,
+          hashtags,
+          cta,
+          productLink,
+          imageUrl,
+        });
+
+      return res.json(result);
+    } catch (error) {
+      console.error(
+        "Threads Post Error:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Threads post failed.",
+      });
+    }
+  }
+);
+
+
 async function publishInstagramPost({
   userId,
   title,
@@ -5280,6 +6200,17 @@ async function runScheduledCampaigns() {
           description: campaign.description,
           hashtags: campaign.hashtags,
           cta: campaign.cta,
+          imageUrl: campaign.image_url,
+          userId: campaign.user_id,
+        });
+      } else if (platform === "threads") {
+        console.log("Publishing Threads campaign:", campaign.id);
+        publishData = await publishThreadsPost({
+          title: campaign.title,
+          description: campaign.description,
+          hashtags: campaign.hashtags,
+          cta: campaign.cta,
+          productLink: campaign.product_link,
           imageUrl: campaign.image_url,
           userId: campaign.user_id,
         });
