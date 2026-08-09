@@ -6,11 +6,6 @@ import {
   ALLOWED_ASSISTANT_ACTIONS,
   ARTBOOST_SUPPORT_KNOWLEDGE,
 } from "../knowledge/artboostSupportKnowledge.js";
-import {
-  ARTBOOST_FEATURE_CATALOG,
-  findArtBoostFeature,
-  isFeatureHelpQuestion,
-} from "../knowledge/artboostFeatureCatalog.js";
 
 const router = express.Router();
 
@@ -822,7 +817,7 @@ function inferActions(question) {
   const q = cleanString(question, 1200).toLowerCase();
   const ids = [];
 
-  if (/connect|reconnect|store|facebook|instagram|pinterest|\bx\b|social/.test(q)) {
+  if (/connect|reconnect|store|redbubble|explore|facebook|instagram|pinterest|\bx\b|social/.test(q)) {
     ids.push("open_connections");
   }
   if (/campaign|publish|post|schedule/.test(q)) {
@@ -889,40 +884,115 @@ function formatAutomationTime(value, timezone = "America/Chicago") {
   }
 }
 
-function deterministicFeatureAnswer(question, accountContext) {
+function redbubbleSupportAnswer(question) {
   const q = cleanString(question, 1200).toLowerCase();
 
-  if (!isFeatureHelpQuestion(q)) return null;
+  if (!/\bredbubble\b/.test(q)) {
+    return null;
+  }
 
-  const feature = findArtBoostFeature(q);
-  if (!feature) return null;
+  const actions = (...ids) =>
+    validateActions(ids.map((id) => ({ id })));
 
-  const action = feature.action
-    ? validateActions([{ id: feature.action }])
-    : [];
+  const baseFollowUps = [
+    "Which Redbubble link should I use?",
+    "What if a Redbubble design is missing?",
+    "Why are my Redbubble thumbnails missing?",
+  ];
 
-  const tier = cleanString(
-    accountContext?.profile?.subscriptionTier || "",
-    80
-  ).toLowerCase();
+  const asksAboutSingleListing =
+    /\b(single|one|individual)\b/.test(q) &&
+    /\b(product|listing|design|artwork|item|import)\b/.test(q);
 
-  let answer = feature.answer;
+  if (asksAboutSingleListing) {
+    return {
+      answer:
+        "For one Redbubble product, use that product's direct Redbubble listing URL. The Explore URL is for bulk/full-store scanning, while Single Product Import or Product URLs should use the direct listing link.",
+      steps: [
+        "Open the exact Redbubble product you want to add.",
+        "Copy its direct product/listing URL.",
+        "In ArtBoost, open the Redbubble store and choose Single Product Import or Product URLs.",
+        "Paste the direct listing URL and complete the import.",
+      ],
+      actions: actions("open_connections", "open_library"),
+      followUps: baseFollowUps,
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
 
-  if (
-    feature.proOnly === true &&
-    accountContext?.authenticated === true &&
-    tier &&
-    tier !== "pro"
-  ) {
-    answer +=
-      " This feature may require an active ArtBoost Pro subscription.";
+  const asksAboutMissing =
+    /\b(missing|missed|not found|not showing|not detected|didn.t find|did not find|not all|some designs|some products)\b/.test(q);
+
+  if (asksAboutMissing) {
+    return {
+      answer:
+        "For a Redbubble full-store scan, first make sure you used the Redbubble Explore URL, not the normal Shop/Store URL. ArtBoost scans the designs Redbubble exposes through that public Explore page. If a design is still not exposed or detected, you can add it later with Single Product Import, Product URLs, or CSV import.",
+      steps: [
+        "Open your Redbubble Explore page and copy the URL containing /people/USERNAME/explore.",
+        "Paste that Explore URL into ArtBoost's Universal Scanner.",
+        "Run Scan Entire Store.",
+        "Wait for both design discovery and thumbnail loading to finish.",
+        "Import the detected designs.",
+        "Add any remaining design separately with its direct listing URL or another supported import method.",
+      ],
+      actions: actions("open_connections", "open_library"),
+      followUps: baseFollowUps,
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  const asksAboutImages =
+    /\b(thumbnail|thumbnails|image|images|picture|pictures|photo|photos)\b/.test(q);
+
+  if (asksAboutImages) {
+    return {
+      answer:
+        "During a Redbubble full-store scan, ArtBoost may discover design links before every artwork thumbnail has loaded. Let the entire scan and thumbnail-loading process finish before importing. If you import while thumbnails are still loading, some products may not have an image yet.",
+      steps: [
+        "Use your Redbubble Explore URL in the Universal Scanner.",
+        "Run Scan Entire Store.",
+        "Leave the scanner open while it loads artwork thumbnails.",
+        "Wait until the scan finishes before selecting Import.",
+        "After import, open the Redbubble products screen and verify the artwork images.",
+      ],
+      actions: actions("open_connections", "open_library"),
+      followUps: baseFollowUps,
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
+
+  const asksAboutUrlOrImport =
+    /\b(connect|import|scan|scanner|store|shop|url|link|explore|bulk|full store|entire store|how do i|how to)\b/.test(q);
+
+  if (asksAboutUrlOrImport) {
+    return {
+      answer:
+        "For a full Redbubble store scan, use your Redbubble Explore link, not the normal Shop/Store link. The correct format is https://www.redbubble.com/people/USERNAME/explore. ArtBoost's Universal Scanner uses the Explore page for bulk discovery. Direct product URLs are used only when adding individual listings.",
+      steps: [
+        "Open your Redbubble profile in a browser.",
+        "Go to your Explore page.",
+        "Copy the URL containing /people/USERNAME/explore.",
+        "In ArtBoost, open Connect > Stores > Redbubble and launch the Universal Scanner.",
+        "Paste the Explore URL and run Scan Entire Store.",
+        "Wait for design discovery and thumbnail loading to finish.",
+        "Import the selected designs and review them in your Redbubble products.",
+      ],
+      actions: actions("open_connections", "open_library"),
+      followUps: baseFollowUps,
+      usedAccountData: false,
+      severity: "info",
+    };
   }
 
   return {
-    answer,
-    steps: safeArray(feature.steps).slice(0, 7),
-    actions: action,
-    followUps: safeArray(feature.followUps).slice(0, 3),
+    answer:
+      "ArtBoost supports Redbubble bulk discovery through the Redbubble Explore page. Use an Explore URL containing /people/USERNAME/explore for a full-store scan; use a direct Redbubble product URL for an individual listing.",
+    steps: [],
+    actions: actions("open_connections"),
+    followUps: baseFollowUps,
     usedAccountData: false,
     severity: "info",
   };
@@ -935,60 +1005,6 @@ function deterministicAccountAnswer(question, accountContext) {
   const q = cleanString(question, 1200).toLowerCase();
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
-
-  // High-priority live account intent: automation publishing platforms.
-  // Keep this before broad publishing/analytics handling because "post to"
-  // contains "post" and would otherwise be interpreted as post analytics.
-  if (
-    /\b(?:automation|automations)\b/.test(q) &&
-    /\b(?:platform|platforms|post to|posting to|publish to|publishing to|where)\b/.test(q)
-  ) {
-    const automations = safeArray(accountContext?.automations);
-    const stores = safeArray(accountContext?.stores);
-    const enabledAutomations = automations.filter((automation) =>
-      isAutomationEnabled(automation)
-    );
-
-    if (!enabledAutomations.length) {
-      return {
-        answer:
-          "You currently have no active automations, so there are no automation publishing platforms to list.",
-        steps: [],
-        actions: action("open_connections"),
-        followUps: [
-          "How many active automations do I have?",
-          "When are my automations scheduled to run next?",
-        ],
-        usedAccountData: true,
-        severity: "info",
-      };
-    }
-
-    const platformRows = enabledAutomations.map((automation) => {
-      const storeName = automationStoreName(automation, stores);
-      const platforms = safeArray(automation?.platforms)
-        .map((platform) => cleanString(platform, 50).toLowerCase())
-        .filter(Boolean);
-
-      return `${storeName}: ${
-        platforms.length ? platforms.join(", ") : "no publishing platforms selected"
-      }`;
-    });
-
-    return {
-      answer:
-        `Your active automations are configured to publish to: ${platformRows.join("; ")}.`,
-      steps: [],
-      actions: action("open_connections"),
-      followUps: [
-        "When are my automations scheduled to run next?",
-        "Do any of my automations have errors?",
-        "How many active automations do I have?",
-      ],
-      usedAccountData: true,
-      severity: "info",
-    };
-  }
 
   // Publishing and analytics awareness.
   if (
@@ -1099,36 +1115,6 @@ function deterministicAccountAnswer(question, accountContext) {
       ],
       usedAccountData: true,
       severity: "success",
-    };
-  }
-
-  // Automatic posting and scheduling capability/help questions.
-  // Keep this BEFORE live automation account-status handling so general questions
-  // explain how the feature works instead of falling through to the AI provider.
-  if (
-    /\b(?:automatic posting|auto posting|automated posting|scheduled posting|store automation|posting automation|automations?)\b/.test(q) &&
-    /\b(?:how does|how do|how can|what is|what does|work|works|set up|setup|use|used for|explain|help)\b/.test(q) &&
-    !/\b(?:how many|active|enabled|running|next|when|scheduled to run|platforms?|post to|posting to|errors?|failed|failure|failures|problem|problems|issue|issues|status)\b/.test(q)
-  ) {
-    return {
-      answer:
-        "Automatic posting in ArtBoost uses a connected store, imported products, and your connected social platforms. You create a store automation, choose the platforms and any required destinations such as a Facebook Page or Pinterest board, set the posting schedule and product-selection rules, and then ArtBoost selects an eligible product and publishes it when the automation runs.",
-      steps: [
-        "Connect the store you want ArtBoost to promote.",
-        "Import or sync products from that store.",
-        "Connect the social platforms you want to publish to.",
-        "Create or open the store automation.",
-        "Choose the platforms, required Page or board, schedule, time zone, and product-selection method.",
-        "Enable the automation and confirm that a next run time appears.",
-      ],
-      actions: action("open_connections"),
-      followUps: [
-        "How many active automations do I have?",
-        "When are my automations scheduled to run next?",
-        "Which platforms will each automation post to?",
-      ],
-      usedAccountData: false,
-      severity: "info",
     };
   }
 
@@ -1665,18 +1651,16 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
-    const verifiedUser = await verifyRequestUser(req);
-    const accountContext = await loadAccountContext(verifiedUser?.id || null);
-
-    // Answer general ArtBoost feature/help questions from the centralized
-    // feature catalog before checking live account facts.
-    const featureAnswer = deterministicFeatureAnswer(question, accountContext);
-    if (featureAnswer) {
+    const redbubbleAnswer = redbubbleSupportAnswer(question);
+    if (redbubbleAnswer) {
       return res.json({
         success: true,
-        ...featureAnswer,
+        ...redbubbleAnswer,
       });
     }
+
+    const verifiedUser = await verifyRequestUser(req);
+    const accountContext = await loadAccountContext(verifiedUser?.id || null);
 
     // Answer direct account-fact questions from ArtBoost data before calling the model.
     // This prevents malformed model JSON from breaking factual account queries.
@@ -1711,6 +1695,13 @@ ACCOUNT-AWARE BEHAVIOR:
 - For product or marketing questions, use product count, unpromoted product count, newest products, campaign totals, and platform post counts when relevant.
 - If authenticated=false, clearly provide general guidance without claiming to see the user's account.
 - Do not dump raw records. Summarize only the facts needed to answer.
+
+REDBUBBLE SUPPORT RULES:
+- For a full-store or bulk Redbubble scan, tell the user to use the Redbubble Explore URL containing /people/USERNAME/explore. Do not tell them to use the normal /shop store URL for the full-store scanner.
+- In Universal Scanner, the workflow is: paste the Explore URL, run Scan Entire Store, wait for design discovery AND thumbnail loading to finish, then import.
+- Do not promise that every design in a Redbubble account must be exposed through the public Explore page.
+- If a design is missing from a bulk scan, explain that it can be added later with Single Product Import, Product URLs, or CSV import.
+- For one Redbubble product, use the direct product/listing URL rather than the Explore URL.
 
 Return ONLY valid JSON with this exact structure:
 {
