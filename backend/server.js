@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import tiktokRoutes from "./routes/tiktok.js";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import catalogCsvRouter from "./routes/catalogCsv.js";
@@ -2503,6 +2504,7 @@ app.use("/ai", assistantRoutes);
 app.use("/creator-tools", creatorToolsRoutes);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
+app.use(tiktokRoutes);
 app.use("/catalog", catalogRoutes);
 
 const openai = new OpenAI({
