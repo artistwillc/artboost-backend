@@ -80,6 +80,22 @@ export default function ProductDetailsScreen() {
     [storeType]
   );
 
+  function goBackToStoreProducts() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace({
+      pathname: "/store-products" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    });
+  }
+
   function openCampaignManager() {
     router.push({
       pathname: "/campaign-manager" as any,
@@ -135,7 +151,7 @@ export default function ProductDetailsScreen() {
       <View style={styles.header}>
         <Pressable
           style={styles.headerButton}
-          onPress={() => router.back()}
+          onPress={goBackToStoreProducts}
         >
           <Ionicons
             name="arrow-back"

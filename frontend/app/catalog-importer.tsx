@@ -313,11 +313,16 @@ function openAIStoreScanner() {
   });
 }
 
-  function showCsvComingSoon() {
-    Alert.alert(
-      "CSV Catalog Import",
-      "CSV catalog importing will be connected in the next step."
-    );
+  function openCsvCatalogImport() {
+    router.push({
+      pathname:
+        "/catalog-import-csv" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    });
   }
 
   return (
@@ -480,7 +485,7 @@ function openAIStoreScanner() {
           icon="document-text-outline"
           title="CSV Catalog"
           description="Upload a spreadsheet containing product titles, URLs, images, prices, and descriptions."
-          onPress={showCsvComingSoon}
+          onPress={openCsvCatalogImport}
         />
 
         <ImportOption

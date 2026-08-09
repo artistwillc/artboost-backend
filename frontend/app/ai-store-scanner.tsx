@@ -27,7 +27,7 @@ import {
 } from "react-native-webview";
 
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as FileSystem from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
 import { buildCatalogCsv } from "@/lib/catalogCsv";
@@ -102,6 +102,7 @@ type ScannerMessage = {
   diagnosticAnchorIds?: string[];
   diagnosticCollectedIds?: string[];
   diagnosticHtmlOnlyCount?: number;
+  diagnosticDocumentArtworkCount?: number;
   productUrl?: string;
   imageUrl?: string | null;
   description?: string | null;
@@ -509,6 +510,11 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
     var WAIT_MS = 850;
     var BOTTOM_STABLE_ROUNDS_TO_FINISH = 32;
     var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
+
+    // Redbubble can expose the final designs late because its Explore page
+    // virtualizes cards and updates serialized page state asynchronously.
+    // Keep checking after apparent exhaustion so the scanner does not stop
+    // at an intermediate count such as 200 or 341 when the shop has more.
     var startedAt = Date.now();
 
     function cleanText(value) {
@@ -946,6 +952,54 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
       return match && match[1] ? match[1] : "";
     }
 
+    function allArtworkIdsFromDocument() {
+      var ids = {};
+
+      function remember(value) {
+        var id = String(value || "").trim();
+        if (/^\d+$/.test(id)) {
+          ids[id] = true;
+        }
+      }
+
+      // Live DOM anchors.
+      Array.from(
+        document.querySelectorAll('a[href*="/shop/ap/"], a[href*="/i/"]')
+      ).forEach(function (link) {
+        remember(
+          artworkId(
+            absolute(link.getAttribute("href"))
+          )
+        );
+      });
+
+      // Redbubble can keep additional catalog entries in serialized HTML/JSON
+      // even when their cards are not currently mounted in the visible DOM.
+      var html = String(
+        document.documentElement &&
+        document.documentElement.innerHTML ||
+        ""
+      );
+
+      var patterns = [
+        /\/shop\/ap\/(\d+)/gi,
+        /\/i\/[^/"'\\\s]+\/[^/"'\\\s]+\/(\d+)(?:\/|\\u002F|["'\\\s<])/gi,
+        /["']artworkId["']\s*:\s*["']?(\d+)["']?/gi,
+        /["']artwork_id["']\s*:\s*["']?(\d+)["']?/gi
+      ];
+
+      patterns.forEach(function (regex) {
+        var match;
+        while ((match = regex.exec(html))) {
+          if (match[1]) {
+            remember(match[1]);
+          }
+        }
+      });
+
+      return Object.keys(ids);
+    }
+
     function imageUrl(img) {
       if (!img) return "";
 
@@ -1107,6 +1161,74 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
         });
       });
 
+      allArtworkIdsFromDocument().forEach(function (id) {
+        if (remembered[id]) return;
+
+        var candidateLink =
+          document.querySelector(
+            'a[href*="/shop/ap/' + id + '"]'
+          ) ||
+          document.querySelector(
+            'a[href*="/' + id + '/"]'
+          );
+
+        var href = candidateLink
+          ? absolute(candidateLink.getAttribute("href"))
+          : "https://www.redbubble.com/shop/ap/" + id;
+
+        var artworkImg =
+          candidateLink
+            ? (
+                Array.from(
+                  candidateLink.querySelectorAll("img")
+                ).find(function (img) {
+                  var src = absolute(
+                    img.currentSrc ||
+                    img.getAttribute("src") ||
+                    img.getAttribute("data-src") ||
+                    img.getAttribute("data-original") ||
+                    img.getAttribute("data-lazy-src") ||
+                    ""
+                  );
+
+                  var alt = clean(
+                    img.getAttribute("alt") || ""
+                  );
+
+                  return (
+                    /redbubble\.net/i.test(src) &&
+                    !/favorite/i.test(alt) &&
+                    !/\.svg(?:[?#]|$)/i.test(src)
+                  );
+                }) || null
+              )
+            : null;
+
+        var rawText =
+          candidateLink
+            ? clean(candidateLink.textContent)
+            : "";
+
+        var title = clean(
+          rawText
+            .replace(/Shop all products/gi, " ")
+            .replace(/\s+/g, " ")
+        );
+
+        remembered[id] = true;
+
+        products.push({
+          title:
+            title ||
+            "Redbubble Artwork " + id,
+          description: "",
+          productUrl: href,
+          imageUrl: imageUrl(artworkImg),
+          price: null,
+          currency: "USD"
+        });
+      });
+
       return products;
     }
 
@@ -1119,7 +1241,9 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
           type: "redbubble_full_snapshot",
           pageUrl: window.location.href,
           products: products,
-          showMoreAvailable: !!showMore
+          showMoreAvailable: !!showMore,
+          diagnosticDocumentArtworkCount:
+            allArtworkIdsFromDocument().length
         })
       );
     }
@@ -1264,8 +1388,8 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
 
     // Catalog-size agnostic: there is no maximum design count.
     var POLL_MS = 650;
-    var GROWTH_TIMEOUT_MS = 12000;
-    var CONFIRMED_NO_GROWTH_TO_FINISH = 4;
+    var GROWTH_TIMEOUT_MS = 25000;
+    var CONFIRMED_NO_GROWTH_TO_FINISH = 20;
     var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
 
     function clean(value) {
@@ -1528,6 +1652,25 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
         };
       });
 
+      // Promote every artwork ID discovered in Redbubble's serialized
+      // document into the catalog even if its visual card is currently
+      // virtualized out of the DOM. These rows intentionally remain
+      // image-pending until a real thumbnail/detail page resolves them.
+      htmlArtworkIds().forEach(function (id) {
+        if (remembered[id]) return;
+
+        order.push(id);
+        remembered[id] = {
+          title: "Redbubble Artwork " + id,
+          description: "",
+          productUrl:
+            "https://www.redbubble.com/shop/ap/" + id,
+          imageUrl: "",
+          price: null,
+          currency: "USD"
+        };
+      });
+
       return order.length - before;
     }
 
@@ -1569,18 +1712,28 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
           ""
         );
 
-      var regex =
-        /(?:https?:\/\/www\.redbubble\.com)?\/shop\/ap\/(\d+)/gi;
-
-      var match;
-
-      while (
-        (match = regex.exec(html))
-      ) {
-        if (match[1]) {
-          ids[match[1]] = true;
+      function remember(value) {
+        var id = String(value || "").trim();
+        if (/^\d+$/.test(id)) {
+          ids[id] = true;
         }
       }
+
+      var patterns = [
+        /(?:https?:\/\/www\.redbubble\.com)?\/shop\/ap\/(\d+)/gi,
+        /\/i\/[^/"'\\\s]+\/[^/"'\\\s]+\/(\d+)(?:\/|\\u002F|["'\\\s<])/gi,
+        /["']artworkId["']\s*:\s*["']?(\d+)["']?/gi,
+        /["']artwork_id["']\s*:\s*["']?(\d+)["']?/gi
+      ];
+
+      patterns.forEach(function (regex) {
+        var match;
+        while ((match = regex.exec(html))) {
+          if (match[1]) {
+            remember(match[1]);
+          }
+        }
+      });
 
       return Object.keys(ids);
     }
@@ -1651,12 +1804,25 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
       );
     }
 
-    function finish(reason) {
+    function postFinishedResults(reason) {
       collect();
       refreshMissingThumbnails();
 
       var diagnostic =
         diagnosticSnapshot();
+
+      var resolvedImageCount =
+        products().filter(function (item) {
+          return (
+            item &&
+            /^https?:\/\//i.test(
+              String(item.imageUrl || "")
+            ) &&
+            /redbubble\.net/i.test(
+              String(item.imageUrl || "")
+            )
+          );
+        }).length;
 
       window.ReactNativeWebView.postMessage(
         JSON.stringify({
@@ -1668,6 +1834,8 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
           pageTitle: document.title,
           totalLinks: document.querySelectorAll("a[href]").length,
           totalImages: document.querySelectorAll("img").length,
+          resolvedImageCount:
+            resolvedImageCount,
           diagnosticHtmlOnlyIds:
             diagnostic.htmlOnlyIds,
           diagnosticAnchorIds:
@@ -1678,6 +1846,175 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
             diagnostic.htmlOnlyIds.length
         })
       );
+    }
+
+    function finish(reason) {
+      /*
+       * Redbubble virtualizes the artwork grid. At the end of discovery,
+       * only the cards close to the current scroll position are mounted,
+       * so most remembered artwork IDs do not yet have an image URL.
+       *
+       * Before returning results, sweep the rendered catalog from top to
+       * bottom. Each viewport step causes another group of cards to mount;
+       * collect() then merges their real redbubble.net thumbnail URLs into
+       * the already-discovered artwork records.
+       */
+      collect();
+      refreshMissingThumbnails();
+
+      var originalY =
+        window.scrollY ||
+        window.pageYOffset ||
+        0;
+
+      var viewport =
+        Math.max(
+          window.innerHeight || 0,
+          600
+        );
+
+      var stepSize =
+        Math.max(
+          Math.floor(viewport * 0.72),
+          420
+        );
+
+      var pass = 0;
+      var maxPasses = 2;
+
+      function imageCount() {
+        return products().filter(function (item) {
+          return (
+            item &&
+            /^https?:\/\//i.test(
+              String(item.imageUrl || "")
+            ) &&
+            /redbubble\.net/i.test(
+              String(item.imageUrl || "")
+            )
+          );
+        }).length;
+      }
+
+      function startPass() {
+        pass += 1;
+
+        var y = 0;
+        var previousResolved =
+          imageCount();
+        var stableSteps = 0;
+
+        window.scrollTo({
+          top: 0,
+          behavior: "auto"
+        });
+
+        function sweepStep() {
+          collect();
+          refreshMissingThumbnails();
+
+          var resolved =
+            imageCount();
+
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: "scan_progress",
+              scanMode: "full_store",
+              scannedCount: order.length,
+              resolvedImageCount:
+                resolved,
+              imageSweep: true,
+              imageSweepPass:
+                pass
+            })
+          );
+
+          if (resolved > previousResolved) {
+            stableSteps = 0;
+            previousResolved = resolved;
+          } else {
+            stableSteps += 1;
+          }
+
+          var height =
+            Math.max(
+              (document.body &&
+                document.body.scrollHeight) ||
+                0,
+              (document.documentElement &&
+                document.documentElement.scrollHeight) ||
+                0
+            );
+
+          var bottom =
+            Math.max(
+              0,
+              height - viewport
+            );
+
+          if (y >= bottom) {
+            collect();
+            refreshMissingThumbnails();
+
+            if (
+              pass < maxPasses &&
+              imageCount() < order.length
+            ) {
+              setTimeout(
+                startPass,
+                550
+              );
+              return;
+            }
+
+            try {
+              window.scrollTo({
+                top: originalY,
+                behavior: "auto"
+              });
+            } catch {}
+
+            setTimeout(function () {
+              collect();
+              refreshMissingThumbnails();
+              postFinishedResults(
+                reason +
+                  "_thumbnail_sweep"
+              );
+            }, 500);
+
+            return;
+          }
+
+          y = Math.min(
+            bottom,
+            y + stepSize
+          );
+
+          window.scrollTo({
+            top: y,
+            behavior: "auto"
+          });
+
+          try {
+            window.dispatchEvent(
+              new Event("scroll")
+            );
+          } catch {}
+
+          setTimeout(
+            sweepStep,
+            220
+          );
+        }
+
+        setTimeout(
+          sweepStep,
+          500
+        );
+      }
+
+      startPass();
     }
 
     function waitForGrowth(beforeCount, deadline) {
@@ -2482,6 +2819,10 @@ export default function AIStoreScannerScreen() {
   const redbubbleFullStoreEmptyPagesRef = useRef(0);
   const redbubbleFullStoreNoButtonRoundsRef = useRef(0);
   const redbubbleFullStoreNoGrowthRoundsRef = useRef(0);
+  const redbubbleStorefrontFallbackStartedRef = useRef(false);
+  const redbubbleFallbackPageRef = useRef(0);
+  const redbubbleFallbackNoGrowthPagesRef = useRef(0);
+  const redbubbleFallbackPreviousCountRef = useRef(0);
 
   const pendingRedbubbleDetailRef =
     useRef<{
@@ -2663,6 +3004,20 @@ function getRedbubbleExploreUrl(value: string, page: number) {
   }
 }
 
+function getRedbubbleShopUrl(value: string, page = 1) {
+  try {
+    const parsed = new URL(value);
+    const match = parsed.pathname.match(/\/people\/([^/]+)/i);
+    if (!match?.[1]) return "";
+
+    const safePage = Math.max(1, Number(page) || 1);
+
+    return `https://www.redbubble.com/people/${match[1]}/shop?asc=u&page=${safePage}`;
+  } catch {
+    return "";
+  }
+}
+
 function scanEntireStore() {
   if (!browserUrl) {
     Alert.alert(
@@ -2693,6 +3048,11 @@ function scanEntireStore() {
     redbubbleFullStoreProductsRef.current.clear();
     redbubbleFullStoreNoGrowthRoundsRef.current = 0;
     redbubbleFullStoreNoButtonRoundsRef.current = 0;
+    redbubbleStorefrontFallbackStartedRef.current = false;
+    redbubbleFallbackPageRef.current = 0;
+    redbubbleFallbackNoGrowthPagesRef.current = 0;
+    redbubbleFallbackPreviousCountRef.current = 0;
+    setRedbubbleFullStoreUrl("");
     setFullStoreScanning(true);
 
     const currentExploreUrl =
@@ -3041,7 +3401,7 @@ function scanEntireStore() {
           );
 
           if (
-            redbubbleFullStoreNoButtonRoundsRef.current >= 5
+            redbubbleFullStoreNoButtonRoundsRef.current >= 20
           ) {
             const all = Array.from(
               redbubbleFullStoreProductsRef.current.values()
@@ -3168,6 +3528,23 @@ function scanEntireStore() {
         const added =
           map.size - beforeCount;
 
+        console.log(
+          "REDBUBBLE FULL SNAPSHOT",
+          {
+            pageUrl:
+              message.pageUrl,
+            snapshotProducts:
+              discovered.length,
+            documentArtworkIds:
+              message.diagnosticDocumentArtworkCount,
+            added,
+            totalUnique:
+              map.size,
+            showMoreAvailable:
+              message.showMoreAvailable,
+          }
+        );
+
         if (added > 0) {
           redbubbleFullStoreNoGrowthRoundsRef.current = 0;
           redbubbleFullStoreNoButtonRoundsRef.current = 0;
@@ -3176,6 +3553,65 @@ function scanEntireStore() {
         }
 
         setProducts(all);
+
+        const snapshotPageUrl = String(message.pageUrl || "");
+        const isStorefrontFallbackSnapshot =
+          /redbubble\.com\/people\/[^/]+\/shop/i.test(snapshotPageUrl) &&
+          !/\/explore/i.test(snapshotPageUrl);
+
+        if (isStorefrontFallbackSnapshot) {
+          const previousCount =
+            redbubbleFallbackPreviousCountRef.current;
+
+          if (all.length > previousCount) {
+            redbubbleFallbackNoGrowthPagesRef.current = 0;
+          } else {
+            redbubbleFallbackNoGrowthPagesRef.current += 1;
+          }
+
+          redbubbleFallbackPreviousCountRef.current =
+            all.length;
+
+          const currentPage = Math.max(
+            1,
+            redbubbleFallbackPageRef.current || 1
+          );
+
+          if (
+            redbubbleFallbackNoGrowthPagesRef.current < 3 &&
+            currentPage < 40
+          ) {
+            const nextPage = currentPage + 1;
+            const nextUrl = getRedbubbleShopUrl(
+              storeUrl || browserUrl,
+              nextPage
+            );
+
+            if (nextUrl) {
+              redbubbleFallbackPageRef.current = nextPage;
+              setScanProgress(
+                `${all.length} unique designs found — checking Redbubble storefront page ${nextPage}...`
+              );
+              setRedbubbleFullStoreKey(
+                (current) => current + 1
+              );
+              setRedbubbleFullStoreUrl(nextUrl);
+              return;
+            }
+          }
+
+          setFullStoreScanning(false);
+          setRedbubbleFullStoreUrl("");
+          setScanProgress("");
+
+          Alert.alert(
+            "Full Store Scan Complete",
+            `${all.length} unique Redbubble design${
+              all.length === 1 ? "" : "s"
+            } detected after Explore plus explicit storefront pagination.`
+          );
+          return;
+        }
 
         if (
           all.length === 0
@@ -3201,15 +3637,38 @@ function scanEntireStore() {
 
         if (message.showMoreAvailable) {
           if (
-            redbubbleFullStoreNoGrowthRoundsRef.current >= 10
+            redbubbleFullStoreNoGrowthRoundsRef.current >= 30
           ) {
+            if (!redbubbleStorefrontFallbackStartedRef.current) {
+              redbubbleFallbackPageRef.current = 1;
+              redbubbleFallbackNoGrowthPagesRef.current = 0;
+              redbubbleFallbackPreviousCountRef.current =
+                all.length;
+
+              const fallbackUrl =
+                getRedbubbleShopUrl(
+                  storeUrl || browserUrl,
+                  1
+                );
+
+              if (fallbackUrl) {
+                redbubbleStorefrontFallbackStartedRef.current = true;
+                setScanProgress(
+                  `${all.length} unique designs found — checking Redbubble storefront page 1 for designs Explore missed...`
+                );
+                setRedbubbleFullStoreKey((current) => current + 1);
+                setRedbubbleFullStoreUrl(fallbackUrl);
+                return;
+              }
+            }
+
             setFullStoreScanning(false);
             setRedbubbleFullStoreUrl("");
             setScanProgress("");
 
             Alert.alert(
               "Full Store Scan Stopped",
-              `${all.length} Redbubble listings are available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending. Redbubble stopped adding new designs after repeated Show more attempts.`
+              `${all.length} Redbubble listings are available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending.`
             );
             return;
           }
@@ -3228,7 +3687,7 @@ function scanEntireStore() {
         // The Show more control can appear after the design batch renders.
         // Require several no-button observations before declaring the end.
         if (
-          redbubbleFullStoreNoButtonRoundsRef.current < 6
+          redbubbleFullStoreNoButtonRoundsRef.current < 20
         ) {
           setTimeout(() => {
             webViewRef.current?.injectJavaScript(
@@ -3236,6 +3695,29 @@ function scanEntireStore() {
             );
           }, 1800);
           return;
+        }
+
+        if (!redbubbleStorefrontFallbackStartedRef.current) {
+          redbubbleFallbackPageRef.current = 1;
+          redbubbleFallbackNoGrowthPagesRef.current = 0;
+          redbubbleFallbackPreviousCountRef.current =
+            all.length;
+
+          const fallbackUrl =
+            getRedbubbleShopUrl(
+              storeUrl || browserUrl,
+              1
+            );
+
+          if (fallbackUrl) {
+            redbubbleStorefrontFallbackStartedRef.current = true;
+            setScanProgress(
+              `${all.length} unique designs found — checking Redbubble storefront page 1 for designs Explore missed...`
+            );
+            setRedbubbleFullStoreKey((current) => current + 1);
+            setRedbubbleFullStoreUrl(fallbackUrl);
+            return;
+          }
         }
 
         setFullStoreScanning(false);
@@ -3256,9 +3738,15 @@ function scanEntireStore() {
   message.type ===
   "scan_progress"
 ) {
-  setScanProgress(
-    `${message.scannedCount || 0} unique products found — scanning entire store...`
-  );
+  if (message.imageSweep) {
+    setScanProgress(
+      `${message.scannedCount || 0} designs found • ${message.resolvedImageCount || 0} thumbnails resolved — loading artwork images...`
+    );
+  } else {
+    setScanProgress(
+      `${message.scannedCount || 0} unique products found — scanning entire store...`
+    );
+  }
 
   return;
 }
@@ -3474,18 +3962,16 @@ setScanProgress("");
           .replace(/^_+|_+$/g, "") ||
         "redbubble";
 
-      const fileUri =
-        `${FileSystem.cacheDirectory}` +
-        `${safeStoreName}_artboost_catalog.csv`;
+      const csvFile =
+        new File(
+          Paths.cache,
+          `${safeStoreName}_artboost_catalog.csv`
+        );
 
-      await FileSystem.writeAsStringAsync(
-        fileUri,
-        csv,
-        {
-          encoding:
-            FileSystem.EncodingType.UTF8,
-        }
-      );
+      csvFile.write(csv);
+
+      const fileUri =
+        csvFile.uri;
 
       const sharingAvailable =
         await Sharing.isAvailableAsync();
@@ -4243,6 +4729,31 @@ setScanProgress("");
   </Text>
 </Pressable>
 
+{storeType === "redbubble" && products.length > 0 ? (
+  <Pressable
+    style={[
+      styles.csvButton,
+      (scanning || fullStoreScanning || importing) &&
+        styles.disabledButton,
+    ]}
+    onPress={buildRedbubbleCsv}
+    disabled={
+      scanning ||
+      fullStoreScanning ||
+      importing
+    }
+  >
+    <Ionicons
+      name="document-text-outline"
+      size={21}
+      color="#ffffff"
+    />
+    <Text style={styles.scanButtonText}>
+      {`Build CSV (${products.length} Listings)`}
+    </Text>
+  </Pressable>
+) : null}
+
 {fullStoreScanning &&
 scanProgress ? (
   <Text style={styles.scanProgressText}>
@@ -4284,6 +4795,37 @@ scanProgress ? (
             </Text>
           </View>
         )}
+
+        {redbubbleFullStoreUrl ? (
+          <WebView
+            key={`redbubble-full-store-${redbubbleFullStoreKey}`}
+            ref={redbubbleFullStoreWebViewRef}
+            source={{ uri: redbubbleFullStoreUrl }}
+            style={styles.hiddenDetailWebView}
+            javaScriptEnabled
+            domStorageEnabled
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
+            setSupportMultipleWindows={false}
+            onLoadEnd={() => {
+              setTimeout(() => {
+                redbubbleFullStoreWebViewRef.current?.injectJavaScript(
+                  REDBUBBLE_EXPLORE_PAGE_SCRIPT
+                );
+              }, 2200);
+            }}
+            onMessage={handleScannerMessage}
+            onError={() => {
+              setFullStoreScanning(false);
+              setRedbubbleFullStoreUrl("");
+              setScanProgress("");
+              Alert.alert(
+                "Full Store Scan",
+                "The main Redbubble storefront fallback could not be loaded."
+              );
+            }}
+          />
+        ) : null}
 
         {redbubbleDetailUrl ? (
           <WebView
@@ -4670,6 +5212,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     marginTop: 9,
+  },
+
+  csvButton: {
+    minHeight: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#8b5cf6",
+    backgroundColor: "#21133f",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 18,
+    marginTop: 10,
   },
 
   scanProgressText: {

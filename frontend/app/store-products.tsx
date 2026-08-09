@@ -159,69 +159,93 @@ export default function StoreProductsScreen() {
           );
         }
 
-        const response = await fetch(
-          `${API_BASE}/products?userId=${encodeURIComponent(
-            user.id
-          )}`
-        );
+        /*
+         * The backend intentionally paginates /products. The old screen called
+         * the endpoint once with no limit, so it always stopped at the default
+         * first 100 rows. Load this store in 500-row pages until the backend's
+         * exact total is satisfied. This also keeps large 1,000+ design stores
+         * working without raising an arbitrary client-side ceiling.
+         */
+        const PAGE_SIZE = 500;
+        let offset = 0;
+        let total = Number.POSITIVE_INFINITY;
+        const rows: any[] = [];
 
-        const responseText =
-          await response.text();
+        while (offset < total) {
+          const query = new URLSearchParams({
+            userId: user.id,
+            storeType: normalize(storeType),
+            storeName,
+            limit: String(PAGE_SIZE),
+            offset: String(offset),
+          });
 
-        let data: any;
-
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          throw new Error(
-            `Backend returned ${response.status}: ${responseText.slice(
-              0,
-              160
-            )}`
+          const response = await fetch(
+            `${API_BASE}/products?${query.toString()}`
           );
+
+          const responseText = await response.text();
+          let data: any;
+
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            throw new Error(
+              `Backend returned ${response.status}: ${responseText.slice(0, 160)}`
+            );
+          }
+
+          if (!response.ok || !data.success) {
+            throw new Error(
+              data.details ||
+                data.error ||
+                "Unable to load products."
+            );
+          }
+
+          const page = Array.isArray(data.products)
+            ? data.products
+            : [];
+
+          rows.push(...page);
+          total = Number.isFinite(Number(data.total))
+            ? Number(data.total)
+            : rows.length;
+
+          if (page.length === 0 || page.length < PAGE_SIZE) {
+            break;
+          }
+
+          offset += page.length;
         }
 
-        if (!response.ok || !data.success) {
-          throw new Error(
-            data.details ||
-              data.error ||
-              "Unable to load products."
-          );
-        }
-
-        const mappedProducts: Product[] = (
-          data.products || []
-        ).map((item: any) => ({
+        const mappedProducts: Product[] = rows.map((item: any) => ({
           id: String(item.id),
-          title: String(
-            item.title || "Untitled Product"
-          ),
-          description:
-            item.description || null,
+          title: String(item.title || "Untitled Product"),
+          description: item.description || null,
           imageUrl: item.image_url || null,
-          productUrl: String(
-            item.product_url || ""
-          ),
+          productUrl: String(item.product_url || ""),
           price:
-            item.price === null ||
-            item.price === undefined
+            item.price === null || item.price === undefined
               ? null
               : Number(item.price),
           currency: item.currency || "USD",
           storeType: item.store_type || null,
           storeName: item.store_name || null,
           status: item.status || null,
-          automationEnabled:
-            Boolean(item.automation_enabled),
-          timesPosted:
-            Number(item.times_posted) || 0,
-          lastPostedAt:
-            item.last_posted_at || null,
+          automationEnabled: Boolean(item.automation_enabled),
+          timesPosted: Number(item.times_posted) || 0,
+          lastPostedAt: item.last_posted_at || null,
         }));
 
-        setProducts(
-          mappedProducts.filter(matchesStore)
+        // The API is already filtered by store. Keep this fallback filter for
+        // compatibility with older backend builds that ignore those parameters.
+        const filtered = mappedProducts.filter(matchesStore);
+        const unique = Array.from(
+          new Map(filtered.map((product) => [product.id, product])).values()
         );
+
+        setProducts(unique);
       } catch (error: any) {
         console.log(
           "Store product load failed:",
