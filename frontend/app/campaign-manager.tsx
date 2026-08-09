@@ -118,7 +118,7 @@ export default function CampaignManagerScreen() {
   const [facebookConnectedAt, setFacebookConnectedAt] =
   useState("");
   const [selectedPlatform, setSelectedPlatform] =
-useState<"Pinterest" | "Facebook" | "Instagram" | "X">(
+useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn">(
 "Pinterest"
 );
   const cleanUrl = (value: string) => {
@@ -450,6 +450,8 @@ await Linking.openURL(data.url);
   campaign.facebookTitle ||
   campaign.pinterestTitle ||
   campaign.xTitle ||
+  campaign.threadsTitle ||
+  campaign.linkedinTitle ||
   "";
 
     let finalDescription =
@@ -458,6 +460,8 @@ await Linking.openURL(data.url);
   campaign.instagramDescription ||
   campaign.facebookDescription ||
   campaign.xDescription ||
+  campaign.threadsDescription ||
+  campaign.linkedinDescription ||
   campaign.result ||
   "";
 
@@ -625,7 +629,7 @@ await Linking.openURL(data.url);
       return;
     }
 
-    const platforms = ["Facebook", "Instagram", "X"];
+    const platforms = ["Facebook", "Instagram", "X", "Threads", "LinkedIn"];
 
     if (selectedBoard) {
       platforms.unshift("Pinterest");
@@ -1223,6 +1227,181 @@ const createXPost = async () => {
   }
 };
 
+const createThreadsPost = async () => {
+  try {
+    if (profile?.subscription_tier !== "pro") {
+      Alert.alert(
+        "Pro Required",
+        "Threads publishing is a Pro feature."
+      );
+      return;
+    }
+
+    const finalProductLink = cleanUrl(productLink);
+
+    if (
+      finalProductLink &&
+      !finalProductLink.startsWith("http")
+    ) {
+      Alert.alert(
+        "Invalid Product Link",
+        "The product link must start with https:// or http://."
+      );
+      return;
+    }
+
+    const message = [
+      removeLinks(title),
+      removeLinks(description),
+      removeLinks(cta),
+      removeLinks(hashtags),
+      finalProductLink,
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+
+    if (!message) {
+      Alert.alert(
+        "Missing Content",
+        "Enter campaign content before publishing to Threads."
+      );
+      return;
+    }
+
+    setPublishing(true);
+
+    const response = await fetch(`${BACKEND_URL}/threads/post`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: session?.user?.id || null,
+        message,
+        text: message,
+        imageUrl: imageUrl || null,
+        productLink: finalProductLink || null,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error?.message ||
+          data.error ||
+          "Threads publish failed"
+      );
+    }
+
+    Alert.alert(
+      "Threads Published",
+      "Your artwork was successfully posted to Threads."
+    );
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "Threads Publish Failed",
+      err.message || "Failed to publish to Threads."
+    );
+  } finally {
+    setPublishing(false);
+  }
+};
+
+const createLinkedInPost = async () => {
+  try {
+    if (profile?.subscription_tier !== "pro") {
+      Alert.alert(
+        "Pro Required",
+        "LinkedIn publishing is a Pro feature."
+      );
+      return;
+    }
+
+    if (!session?.user?.id) {
+      Alert.alert(
+        "Login Required",
+        "Please log in before publishing to LinkedIn."
+      );
+      return;
+    }
+
+    const finalProductLink = cleanUrl(productLink);
+
+    if (
+      finalProductLink &&
+      !finalProductLink.startsWith("http")
+    ) {
+      Alert.alert(
+        "Invalid Product Link",
+        "The product link must start with https:// or http://."
+      );
+      return;
+    }
+
+    const linkedInTitle = removeLinks(title);
+    const linkedInDescription = [
+      removeLinks(description),
+      removeLinks(cta),
+      removeLinks(hashtags),
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+
+    if (!linkedInTitle && !linkedInDescription) {
+      Alert.alert(
+        "Missing Content",
+        "Enter campaign content before publishing to LinkedIn."
+      );
+      return;
+    }
+
+    setPublishing(true);
+
+    const response = await fetch(`${BACKEND_URL}/linkedin/post`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: session.user.id,
+        title: linkedInTitle || linkedInDescription,
+        description: linkedInDescription,
+        imageUrl: imageUrl || null,
+        productLink: finalProductLink || null,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error?.message ||
+          data.error ||
+          "LinkedIn publish failed"
+      );
+    }
+
+    Alert.alert(
+      "LinkedIn Published",
+      "Your artwork was successfully posted to LinkedIn."
+    );
+  } catch (err: any) {
+    console.log(err);
+
+    Alert.alert(
+      "LinkedIn Publish Failed",
+      err.message || "Failed to publish to LinkedIn."
+    );
+  } finally {
+    setPublishing(false);
+  }
+};
+
 const postEverywhere = async () => {
   try {
     if (profile?.subscription_tier !== "pro") {
@@ -1293,6 +1472,33 @@ const postEverywhere = async () => {
         `${title}\n\n${description}\n\n${hashtags}`
     );
 
+    const threadsMessage =
+      platformContent.threads?.message ||
+      [
+        removeLinks(title),
+        removeLinks(description),
+        removeLinks(cta),
+        removeLinks(hashtags),
+        finalProductLink,
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .trim();
+
+    const linkedInTitle =
+      platformContent.linkedin?.title || removeLinks(title);
+
+    const linkedInDescription =
+      platformContent.linkedin?.description ||
+      [
+        removeLinks(description),
+        removeLinks(cta),
+        removeLinks(hashtags),
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .trim();
+
     await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1335,9 +1541,33 @@ const postEverywhere = async () => {
       }),
     });
 
+    await fetch(`${BACKEND_URL}/threads/post`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: session?.user?.id || null,
+        message: threadsMessage,
+        text: threadsMessage,
+        imageUrl: imageUrl || null,
+        productLink: finalProductLink || null,
+      }),
+    });
+
+    await fetch(`${BACKEND_URL}/linkedin/post`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: session?.user?.id || null,
+        title: linkedInTitle || linkedInDescription,
+        description: linkedInDescription,
+        imageUrl: imageUrl || null,
+        productLink: finalProductLink || null,
+      }),
+    });
+
     Alert.alert(
       "Post Everywhere Complete",
-      "Your campaign was sent to Pinterest, Facebook, Instagram, and X with platform-specific content."
+      "Your campaign was sent to Pinterest, Facebook, Instagram, X, Threads, and LinkedIn with platform-specific content."
     );
   } catch (err: any) {
     console.log("Post Everywhere failed:", err);
@@ -1368,7 +1598,7 @@ const generateVariations = async () => {
         body: JSON.stringify({
           title,
           description,
-          platform: "Pinterest",
+          platform: selectedPlatform,
           productLink,
         }),
       });
@@ -1615,7 +1845,7 @@ useFocusEffect(
         </Text>
 
         <View style={styles.platformGrid}>
-          {(["Pinterest", "Facebook", "Instagram", "X"] as const).map(
+          {(["Pinterest", "Facebook", "Instagram", "X", "Threads", "LinkedIn"] as const).map(
             (platform) => (
               <Pressable
                 key={platform}
@@ -1633,6 +1863,10 @@ useFocusEffect(
                       ? "logo-facebook"
                       : platform === "Instagram"
                       ? "logo-instagram"
+                      : platform === "Threads"
+                      ? "at-circle-outline"
+                      : platform === "LinkedIn"
+                      ? "logo-linkedin"
                       : "logo-twitter"
                   }
                   size={18}
@@ -2262,6 +2496,12 @@ else if (selectedPlatform === "Instagram") {
 else if (selectedPlatform === "X") {
 
   createXPost();
+
+}
+
+else if (selectedPlatform === "Threads") {
+
+  createThreadsPost();
 
 }
 

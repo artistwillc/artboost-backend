@@ -4,6 +4,7 @@ import {
   publishInstagram,
   publishX,
   publishThreads,
+  publishLinkedIn,
 } from "./socialPublisher.js";
 
 function normalizePlatform(platform) {
@@ -38,9 +39,6 @@ function resolveImageUrl(product) {
   );
 }
 
-/*
- * Publishes one store product to one social platform.
- */
 export async function publishToPlatform({
   platform,
   title,
@@ -61,17 +59,9 @@ export async function publishToPlatform({
   const cleanProductLink = cleanText(productLink);
   const cleanImageUrl = cleanText(imageUrl);
 
-  if (!normalizedPlatform) {
-    throw new Error("A social platform is required.");
-  }
-
-  if (!cleanTitle) {
-    throw new Error("A product title is required.");
-  }
-
-  if (!cleanImageUrl) {
-    throw new Error("A product image is required.");
-  }
+  if (!normalizedPlatform) throw new Error("A social platform is required.");
+  if (!cleanTitle) throw new Error("A product title is required.");
+  if (!cleanImageUrl) throw new Error("A product image is required.");
 
   if (normalizedPlatform === "pinterest") {
     return publishPinterest({
@@ -122,9 +112,20 @@ export async function publishToPlatform({
     });
   }
 
-
   if (normalizedPlatform === "threads") {
     return publishThreads({
+      title: cleanTitle,
+      description: cleanDescription,
+      hashtags: cleanHashtags,
+      cta: cleanCta,
+      productLink: cleanProductLink,
+      imageUrl: cleanImageUrl,
+      userId,
+    });
+  }
+
+  if (normalizedPlatform === "linkedin") {
+    return publishLinkedIn({
       title: cleanTitle,
       description: cleanDescription,
       hashtags: cleanHashtags,
@@ -138,10 +139,6 @@ export async function publishToPlatform({
   throw new Error(`Unsupported social platform: ${normalizedPlatform}`);
 }
 
-/*
- * Publishes one store product to all selected platforms.
- * A failure on one platform does not prevent attempts on the others.
- */
 export async function publishToPlatforms({
   platforms,
   contentByPlatform,
@@ -150,38 +147,18 @@ export async function publishToPlatforms({
   pageId = null,
   userId = null,
 }) {
-  if (!Array.isArray(platforms)) {
-    throw new Error("Platforms must be an array.");
-  }
+  if (!Array.isArray(platforms)) throw new Error("Platforms must be an array.");
+  if (platforms.length === 0) throw new Error("At least one platform must be selected.");
+  if (!product) throw new Error("A product is required.");
 
-  if (platforms.length === 0) {
-    throw new Error("At least one platform must be selected.");
-  }
-
-  if (!product) {
-    throw new Error("A product is required.");
-  }
-
-  const productTitle = cleanText(
-    product.title || "Check out this product"
-  );
-
+  const productTitle = cleanText(product.title || "Check out this product");
   const productLink = cleanText(
-    product.product_url ??
-      product.productUrl ??
-      product.link ??
-      product.url
+    product.product_url ?? product.productUrl ?? product.link ?? product.url
   );
-
   const imageUrl = cleanText(resolveImageUrl(product));
 
-  if (!productLink) {
-    throw new Error("The product does not contain a product link.");
-  }
-
-  if (!imageUrl) {
-    throw new Error("The product does not contain an image URL.");
-  }
+  if (!productLink) throw new Error("The product does not contain a product link.");
+  if (!imageUrl) throw new Error("The product does not contain an image URL.");
 
   const results = [];
 
@@ -208,16 +185,13 @@ export async function publishToPlatforms({
       console.error(`Automation ${platform} post failed:`, error);
 
       const message =
-        error instanceof Error
-          ? error.message
-          : "Unknown publishing error.";
+        error instanceof Error ? error.message : "Unknown publishing error.";
 
       results.push({
         platform,
         success: false,
         error: message,
-        needsReconnect:
-          /reconnect|expired|invalid.*token|oauth/i.test(message),
+        needsReconnect: /reconnect|expired|invalid.*token|oauth/i.test(message),
       });
     }
   }

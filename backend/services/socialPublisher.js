@@ -6,6 +6,7 @@ export function registerSocialPublishers({
   publishInstagramPost,
   publishXPost,
   publishThreadsPost,
+  publishLinkedInPost,
 }) {
   publishers = {
     publishPinterestPin,
@@ -13,6 +14,7 @@ export function registerSocialPublishers({
     publishInstagramPost,
     publishXPost,
     publishThreadsPost,
+    publishLinkedInPost,
   };
 }
 
@@ -40,7 +42,10 @@ export async function publishX(options) {
   return getPublishers().publishXPost(options);
 }
 
-
 export async function publishThreads(options) {
   return getPublishers().publishThreadsPost(options);
+}
+
+export async function publishLinkedIn(options) {
+  return getPublishers().publishLinkedInPost(options);
 }

@@ -79,10 +79,16 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     available: true,
   },
   {
+    id: "threads",
+    label: "Threads",
+    icon: "at-circle-outline",
+    available: true,
+  },
+  {
     id: "linkedin",
     label: "LinkedIn",
     icon: "logo-linkedin",
-    available: false,
+    available: true,
   },
   {
     id: "tiktok",

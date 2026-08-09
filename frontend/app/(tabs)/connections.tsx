@@ -76,6 +76,20 @@ const socialPlatforms: SocialPlatform[] = [
     available: true,
   },
   {
+    name: "Threads",
+    description:
+      "Publish artwork, product links, images, and marketing posts to Threads.",
+    premium: true,
+    available: true,
+  },
+  {
+    name: "LinkedIn",
+    description:
+      "Publish artwork, product links, images, and professional marketing posts to LinkedIn.",
+    premium: true,
+    available: true,
+  },
+  {
     name: "X",
     description:
       "Publish product links, artwork, images, and short posts.",
@@ -404,6 +418,18 @@ export default function ConnectionsScreen() {
               : "/instagram/status"
           ),
           checkSimpleStatus(
+            "Threads",
+            userId
+              ? `/threads/status?userId=${encodeURIComponent(userId)}`
+              : "/threads/status"
+          ),
+          checkSimpleStatus(
+            "LinkedIn",
+            userId
+              ? `/linkedin/status?userId=${encodeURIComponent(userId)}`
+              : "/linkedin/status"
+          ),
+          checkSimpleStatus(
             "X",
             "/x/status"
           ),
@@ -506,6 +532,60 @@ export default function ConnectionsScreen() {
       Alert.alert(
         "Instagram Login Opened",
         "Complete the Meta authorization, return to ArtBoost, and refresh the connection status."
+      );
+
+      return;
+    }
+
+    if (platform === "Threads") {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before connecting Threads."
+        );
+        return;
+      }
+
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/threads?userId=${encodeURIComponent(userId)}`
+      );
+
+      Alert.alert(
+        "Threads Login Opened",
+        "Complete the Threads authorization, return to ArtBoost, and refresh the connection status."
+      );
+
+      return;
+    }
+
+    if (platform === "LinkedIn") {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before connecting LinkedIn."
+        );
+        return;
+      }
+
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/linkedin?userId=${encodeURIComponent(userId)}`
+      );
+
+      Alert.alert(
+        "LinkedIn Login Opened",
+        "Complete the LinkedIn authorization, return to ArtBoost, and refresh the connection status."
       );
 
       return;
@@ -1048,7 +1128,7 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <Text style={styles.primaryActionDescription}>
-                  Add or authorize Pinterest, Facebook, Instagram, or X.
+                  Add or authorize Pinterest, Facebook, Instagram, Threads, LinkedIn, or X.
                 </Text>
               </View>
 
@@ -1272,7 +1352,11 @@ export default function ConnectionsScreen() {
                     ? "logo-facebook"
                     : platform.name === "Instagram"
                       ? "logo-instagram"
-                      : "logo-twitter";
+                      : platform.name === "Threads"
+                        ? "at-circle-outline"
+                        : platform.name === "LinkedIn"
+                          ? "logo-linkedin"
+                          : "logo-twitter";
 
               return (
                 <Pressable
