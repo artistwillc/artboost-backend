@@ -66,6 +66,14 @@ const THREADS_REDIRECT_URI =
 const THREADS_API_BASE =
   process.env.THREADS_API_BASE ||
   "https://graph.threads.net/v1.0";
+const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
+const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
+const LINKEDIN_REDIRECT_URI =
+  process.env.LINKEDIN_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/linkedin/callback";
+const LINKEDIN_SCOPES =
+  process.env.LINKEDIN_SCOPES ||
+  "openid profile email w_member_social";
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_SCOPES =
@@ -1392,6 +1400,394 @@ app.post(
   }
 );
 
+
+// ============================================
+// LinkedIn OAuth + connection management
+// ============================================
+
+function createLinkedInState(userId) {
+  if (!LINKEDIN_CLIENT_SECRET) {
+    throw new Error("Missing LINKEDIN_CLIENT_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", LINKEDIN_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyLinkedInState(state) {
+  if (!state || !LINKEDIN_CLIENT_SECRET) return null;
+
+  const [encodedPayload, suppliedSignature] = String(state).split(".");
+  if (!encodedPayload || !suppliedSignature) return null;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", LINKEDIN_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return { userId: String(payload.userId) };
+  } catch {
+    return null;
+  }
+}
+
+async function saveLinkedInConnection({
+  userId,
+  accessToken,
+  expiresIn,
+  memberId,
+  name,
+  email,
+  picture,
+}) {
+  const now = new Date();
+  const expiresAt = expiresIn
+    ? new Date(now.getTime() + Number(expiresIn) * 1000).toISOString()
+    : null;
+
+  const baseConnectionData = {
+    user_id: String(userId),
+    platform: "linkedin",
+    connected: true,
+    access_token: accessToken,
+    expires_in: Number(expiresIn) || null,
+    expires_at: expiresAt,
+    scopes: LINKEDIN_SCOPES,
+    connected_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
+
+  const connectionData = {
+    ...baseConnectionData,
+    platform_data: {
+      member_id: String(memberId),
+      person_urn: `urn:li:person:${memberId}`,
+      name: name || null,
+      email: email || null,
+      picture: picture || null,
+    },
+  };
+
+  const { data: existing, error: findError } = await supabase
+    .from("social_connections")
+    .select("id")
+    .eq("user_id", String(userId))
+    .eq("platform", "linkedin")
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(
+      `Unable to check LinkedIn connection: ${findError.message}`
+    );
+  }
+
+  const save = async (payload) => {
+    if (existing?.id) {
+      return supabase
+        .from("social_connections")
+        .update(payload)
+        .eq("id", existing.id);
+    }
+
+    return supabase.from("social_connections").insert(payload);
+  };
+
+  let { error } = await save(connectionData);
+
+  if (
+    error &&
+    /platform_data|column/i.test(String(error.message || ""))
+  ) {
+    console.warn(
+      "LinkedIn platform_data column is unavailable; saving generic connection fields only."
+    );
+    ({ error } = await save(baseConnectionData));
+  }
+
+  if (error) {
+    throw new Error(
+      `Unable to save LinkedIn connection: ${error.message}`
+    );
+  }
+}
+
+app.get("/auth/linkedin", (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
+      return res
+        .status(500)
+        .send("LinkedIn OAuth is not configured on the server.");
+    }
+
+    if (!userId) {
+      return res.status(400).send("Missing ArtBoost userId.");
+    }
+
+    const state = createLinkedInState(userId);
+    const authUrl = new URL(
+      "https://www.linkedin.com/oauth/v2/authorization"
+    );
+
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", LINKEDIN_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", LINKEDIN_REDIRECT_URI);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("scope", LINKEDIN_SCOPES);
+    authUrl.searchParams.set("enable_extended_login", "true");
+
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error("LinkedIn authorization error:", error);
+    return res.status(500).send(
+      error instanceof Error
+        ? error.message
+        : "Unable to start LinkedIn connection."
+    );
+  }
+});
+
+app.get("/auth/linkedin/callback", async (req, res) => {
+  try {
+    const {
+      code,
+      state,
+      error: oauthError,
+      error_description: oauthErrorDescription,
+    } = req.query;
+
+    if (oauthError) {
+      return res.status(400).send(`
+        <html><body style="font-family:Arial;padding:40px;">
+          <h1>LinkedIn Connection Cancelled</h1>
+          <p>${oauthErrorDescription || oauthError}</p>
+        </body></html>
+      `);
+    }
+
+    const statePayload = verifyLinkedInState(state);
+    if (!statePayload) {
+      return res
+        .status(401)
+        .send("Invalid or expired LinkedIn authorization request.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Missing LinkedIn authorization code.");
+    }
+
+    const tokenResponse = await fetch(
+      "https://www.linkedin.com/oauth/v2/accessToken",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: String(code),
+          client_id: LINKEDIN_CLIENT_ID,
+          client_secret: LINKEDIN_CLIENT_SECRET,
+          redirect_uri: LINKEDIN_REDIRECT_URI,
+        }).toString(),
+      }
+    );
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData?.access_token) {
+      console.error("LinkedIn token exchange failed:", tokenData);
+      throw new Error(
+        tokenData?.error_description ||
+          tokenData?.error ||
+          "LinkedIn token exchange failed."
+      );
+    }
+
+    const profileResponse = await fetch(
+      "https://api.linkedin.com/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+      }
+    );
+
+    const profileData = await profileResponse.json();
+    if (!profileResponse.ok || !profileData?.sub) {
+      console.error("LinkedIn profile lookup failed:", profileData);
+      throw new Error(
+        profileData?.message ||
+          "Unable to load the connected LinkedIn profile."
+      );
+    }
+
+    await saveLinkedInConnection({
+      userId: statePayload.userId,
+      accessToken: tokenData.access_token,
+      expiresIn: tokenData.expires_in,
+      memberId: profileData.sub,
+      name: profileData.name,
+      email: profileData.email,
+      picture: profileData.picture,
+    });
+
+    await createNotification({
+      userId: String(statePayload.userId),
+      title: "LinkedIn Connected",
+      message: `${profileData.name || "LinkedIn account"} was connected successfully.`,
+      type: "success",
+    });
+
+    return res.send(`
+      <html>
+        <body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;text-align:center;">
+          <h1>LinkedIn Connected</h1>
+          <p>Your LinkedIn account is now connected to ArtBoost AI.</p>
+          <p>You can close this page and return to ArtBoost.</p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error("LinkedIn callback error:", error);
+    return res.status(500).send(`
+      <html><body style="font-family:Arial;padding:40px;">
+        <h1>LinkedIn Connection Error</h1>
+        <p>${
+          error instanceof Error
+            ? error.message
+            : "LinkedIn connection failed."
+        }</p>
+      </body></html>
+    `);
+  }
+});
+
+app.get("/linkedin/status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({
+        configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+        connected: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const { data: connection, error } = await supabase
+      .from("social_connections")
+      .select("*")
+      .eq("user_id", String(userId))
+      .eq("platform", "linkedin")
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(
+        `Unable to load LinkedIn connection: ${error.message}`
+      );
+    }
+
+    const expired = Boolean(
+      connection?.expires_at &&
+        new Date(connection.expires_at).getTime() <= Date.now()
+    );
+
+    const platformData =
+      connection?.platform_data &&
+      typeof connection.platform_data === "object"
+        ? connection.platform_data
+        : {};
+
+    return res.json({
+      configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+      connected: Boolean(
+        connection?.connected && connection?.access_token && !expired
+      ),
+      expired,
+      name: platformData.name || null,
+      memberId: platformData.member_id || null,
+      expiresAt: connection?.expires_at || null,
+      connectedAt: connection?.connected_at || null,
+    });
+  } catch (error) {
+    console.error("LinkedIn status error:", error);
+    return res.status(500).json({
+      configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+      connected: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to check LinkedIn status.",
+    });
+  }
+});
+
+app.delete("/linkedin/disconnect", async (req, res) => {
+  try {
+    const userId = req.body?.userId || req.query?.userId;
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId." });
+    }
+
+    const { error } = await supabase
+      .from("social_connections")
+      .update({
+        connected: false,
+        access_token: null,
+        expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", String(userId))
+      .eq("platform", "linkedin");
+
+    if (error) throw error;
+
+    return res.json({ success: true, connected: false });
+  } catch (error) {
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect LinkedIn.",
+    });
+  }
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -5014,6 +5410,260 @@ async function publishFacebookPost({
 }
 
 
+async function publishLinkedInPost({
+  userId,
+  title,
+  description,
+  hashtags,
+  cta,
+  productLink,
+  imageUrl,
+}) {
+  if (!userId) {
+    throw new Error("LinkedIn publishing requires an ArtBoost userId.");
+  }
+
+  const { data: connection, error: connectionError } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq("user_id", String(userId))
+    .eq("platform", "linkedin")
+    .maybeSingle();
+
+  if (connectionError) {
+    throw new Error(
+      `Unable to load LinkedIn connection: ${connectionError.message}`
+    );
+  }
+
+  if (!connection?.connected || !connection?.access_token) {
+    throw new Error(
+      "LinkedIn is not connected. Reconnect LinkedIn before posting."
+    );
+  }
+
+  if (
+    connection.expires_at &&
+    new Date(connection.expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "LinkedIn connection expired. Reconnect LinkedIn in ArtBoost, then try again."
+    );
+  }
+
+  const platformData =
+    connection?.platform_data &&
+    typeof connection.platform_data === "object"
+      ? connection.platform_data
+      : {};
+
+  const memberId = platformData.member_id;
+  if (!memberId) {
+    throw new Error(
+      "LinkedIn member ID is missing. Reconnect LinkedIn once to refresh the connection."
+    );
+  }
+
+  const accessToken = connection.access_token;
+  const author = `urn:li:person:${memberId}`;
+
+  const message = [
+    String(title || "").trim(),
+    String(description || "").trim(),
+    String(cta || "").trim(),
+    String(hashtags || "").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!message && !productLink && !imageUrl) {
+    throw new Error("LinkedIn post requires text, a link, or an image.");
+  }
+
+  let uploadedAsset = null;
+
+  if (imageUrl) {
+    const registerResponse = await fetch(
+      "https://api.linkedin.com/v2/assets?action=registerUpload",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({
+          registerUploadRequest: {
+            recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
+            owner: author,
+            serviceRelationships: [
+              {
+                relationshipType: "OWNER",
+                identifier: "urn:li:userGeneratedContent",
+              },
+            ],
+          },
+        }),
+      }
+    );
+
+    const registerData = await registerResponse.json();
+    if (!registerResponse.ok || !registerData?.value?.asset) {
+      console.error("LinkedIn image registration error:", registerData);
+      throw new Error(
+        registerData?.message || "LinkedIn could not register the image upload."
+      );
+    }
+
+    const uploadUrl =
+      registerData?.value?.uploadMechanism?.[
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+      ]?.uploadUrl;
+    uploadedAsset = registerData.value.asset;
+
+    if (!uploadUrl) {
+      throw new Error("LinkedIn did not return an image upload URL.");
+    }
+
+    const sourceImageResponse = await fetch(String(imageUrl));
+    if (!sourceImageResponse.ok) {
+      throw new Error(
+        `Unable to download artwork image for LinkedIn (${sourceImageResponse.status}).`
+      );
+    }
+
+    const imageBuffer = Buffer.from(
+      await sourceImageResponse.arrayBuffer()
+    );
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type":
+          sourceImageResponse.headers.get("content-type") || "image/jpeg",
+      },
+      body: imageBuffer,
+    });
+
+    if (!uploadResponse.ok) {
+      const uploadText = await uploadResponse.text();
+      console.error("LinkedIn image upload error:", uploadText);
+      throw new Error(
+        `LinkedIn image upload failed with status ${uploadResponse.status}.`
+      );
+    }
+  }
+
+  const shareContent = {
+    shareCommentary: {
+      text: message || String(productLink || "").trim(),
+    },
+    shareMediaCategory: uploadedAsset
+      ? "IMAGE"
+      : productLink
+        ? "ARTICLE"
+        : "NONE",
+  };
+
+  if (uploadedAsset) {
+    shareContent.media = [
+      {
+        status: "READY",
+        media: uploadedAsset,
+        title: { text: String(title || "Artwork").slice(0, 200) },
+        description: {
+          text: String(description || "").slice(0, 300),
+        },
+      },
+    ];
+  } else if (productLink) {
+    shareContent.media = [
+      {
+        status: "READY",
+        originalUrl: String(productLink),
+        title: { text: String(title || "View artwork").slice(0, 200) },
+        description: {
+          text: String(description || "").slice(0, 300),
+        },
+      },
+    ];
+  }
+
+  const postResponse = await fetch(
+    "https://api.linkedin.com/v2/ugcPosts",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      body: JSON.stringify({
+        author,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": shareContent,
+        },
+        visibility: {
+          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
+      }),
+    }
+  );
+
+  const responseText = await postResponse.text();
+  let postData = {};
+  try {
+    postData = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    postData = { raw: responseText };
+  }
+
+  if (!postResponse.ok) {
+    console.error("LinkedIn publish error:", postData);
+    throw new Error(
+      postData?.message ||
+        postData?.error_description ||
+        `LinkedIn publishing failed with status ${postResponse.status}.`
+    );
+  }
+
+  const postId =
+    postResponse.headers.get("x-restli-id") ||
+    postData?.id ||
+    null;
+
+  console.log("LinkedIn post published:", {
+    userId: String(userId),
+    postId,
+    hasImage: Boolean(uploadedAsset),
+    hasProductLink: Boolean(productLink),
+  });
+
+  return {
+    success: true,
+    postId,
+    result: postData,
+  };
+}
+
+app.post("/linkedin/post", async (req, res) => {
+  try {
+    const result = await publishLinkedInPost(req.body || {});
+    return res.json(result);
+  } catch (error) {
+    console.error("LinkedIn Post Error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "LinkedIn post failed.",
+    });
+  }
+});
+
 async function publishThreadsPost({
   userId,
   title,
@@ -6039,6 +6689,7 @@ registerSocialPublishers({
   publishInstagramPost,
   publishXPost,
   publishThreadsPost,
+  publishLinkedInPost,
 });
 
 let storeAutomationSchedulerRunning = false;
@@ -6207,6 +6858,17 @@ async function runScheduledCampaigns() {
       } else if (platform === "threads") {
         console.log("Publishing Threads campaign:", campaign.id);
         publishData = await publishThreadsPost({
+          title: campaign.title,
+          description: campaign.description,
+          hashtags: campaign.hashtags,
+          cta: campaign.cta,
+          productLink: campaign.product_link,
+          imageUrl: campaign.image_url,
+          userId: campaign.user_id,
+        });
+      } else if (platform === "linkedin") {
+        console.log("Publishing LinkedIn campaign:", campaign.id);
+        publishData = await publishLinkedInPost({
           title: campaign.title,
           description: campaign.description,
           hashtags: campaign.hashtags,
