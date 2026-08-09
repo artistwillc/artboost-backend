@@ -3,38 +3,24 @@ import {
   publishFacebook,
   publishInstagram,
   publishX,
+  publishThreads,
 } from "./socialPublisher.js";
-
-import {
-  ensurePublishableImageUrl,
-} from "./mediaHostingService.js";
 
 function normalizePlatform(platform) {
   const normalized = String(platform || "")
     .trim()
     .toLowerCase();
 
-  if (
-    normalized === "twitter" ||
-    normalized === "x/twitter"
-  ) {
+  if (normalized === "twitter" || normalized === "x/twitter") {
     return "x";
   }
 
   return normalized;
 }
 
-function cleanInlineText(value) {
+function cleanText(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
-    .trim();
-}
-
-function cleanMultilineText(value) {
-  return String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -52,6 +38,9 @@ function resolveImageUrl(product) {
   );
 }
 
+/*
+ * Publishes one store product to one social platform.
+ */
 export async function publishToPlatform({
   platform,
   title,
@@ -64,43 +53,24 @@ export async function publishToPlatform({
   pageId = null,
   userId = null,
 }) {
-  const normalizedPlatform =
-    normalizePlatform(platform);
-
-  const cleanTitle =
-    cleanInlineText(title);
-
-  const cleanDescription =
-    cleanMultilineText(description);
-
-  const cleanHashtags =
-    cleanInlineText(hashtags);
-
-  const cleanCta =
-    cleanInlineText(cta);
-
-  const cleanProductLink =
-    cleanInlineText(productLink);
-
-  const cleanImageUrl =
-    cleanInlineText(imageUrl);
+  const normalizedPlatform = normalizePlatform(platform);
+  const cleanTitle = cleanText(title);
+  const cleanDescription = cleanText(description);
+  const cleanHashtags = cleanText(hashtags);
+  const cleanCta = cleanText(cta);
+  const cleanProductLink = cleanText(productLink);
+  const cleanImageUrl = cleanText(imageUrl);
 
   if (!normalizedPlatform) {
-    throw new Error(
-      "A social platform is required."
-    );
+    throw new Error("A social platform is required.");
   }
 
   if (!cleanTitle) {
-    throw new Error(
-      "A product title is required."
-    );
+    throw new Error("A product title is required.");
   }
 
   if (!cleanImageUrl) {
-    throw new Error(
-      "A product image is required."
-    );
+    throw new Error("A product image is required.");
   }
 
   if (normalizedPlatform === "pinterest") {
@@ -134,7 +104,7 @@ export async function publishToPlatform({
       title: cleanTitle,
       description: cleanDescription,
       hashtags: cleanHashtags,
-      cta: cleanCta,
+      cta: cleanCta || "Tap the link in bio.",
       imageUrl: cleanImageUrl,
       userId,
     });
@@ -152,11 +122,26 @@ export async function publishToPlatform({
     });
   }
 
-  throw new Error(
-    `Unsupported social platform: ${normalizedPlatform}`
-  );
+
+  if (normalizedPlatform === "threads") {
+    return publishThreads({
+      title: cleanTitle,
+      description: cleanDescription,
+      hashtags: cleanHashtags,
+      cta: cleanCta,
+      productLink: cleanProductLink,
+      imageUrl: cleanImageUrl,
+      userId,
+    });
+  }
+
+  throw new Error(`Unsupported social platform: ${normalizedPlatform}`);
 }
 
+/*
+ * Publishes one store product to all selected platforms.
+ * A failure on one platform does not prevent attempts on the others.
+ */
 export async function publishToPlatforms({
   platforms,
   contentByPlatform,
@@ -166,124 +151,61 @@ export async function publishToPlatforms({
   userId = null,
 }) {
   if (!Array.isArray(platforms)) {
-    throw new Error(
-      "Platforms must be an array."
-    );
+    throw new Error("Platforms must be an array.");
   }
 
   if (platforms.length === 0) {
-    throw new Error(
-      "At least one platform must be selected."
-    );
+    throw new Error("At least one platform must be selected.");
   }
 
   if (!product) {
-    throw new Error(
-      "A product is required."
-    );
+    throw new Error("A product is required.");
   }
 
-  const productTitle =
-    cleanInlineText(
-      product.title ||
-      "Check out this product"
-    );
+  const productTitle = cleanText(
+    product.title || "Check out this product"
+  );
 
-  const productLink =
-    cleanInlineText(
-      product.product_url ??
+  const productLink = cleanText(
+    product.product_url ??
       product.productUrl ??
       product.link ??
       product.url
-    );
+  );
 
-  const sourceImageUrl =
-    cleanInlineText(
-      resolveImageUrl(product)
-    );
+  const imageUrl = cleanText(resolveImageUrl(product));
 
   if (!productLink) {
-    throw new Error(
-      "The product does not contain a product link."
-    );
+    throw new Error("The product does not contain a product link.");
   }
 
-  if (!sourceImageUrl) {
-    throw new Error(
-      "The product does not contain an image URL."
-    );
+  if (!imageUrl) {
+    throw new Error("The product does not contain an image URL.");
   }
-
-  // Social APIs frequently reject or cannot fetch protected storefront
-  // images (Redbubble is a common example). Cache the remote image once
-  // in Cloudinary and give every publisher the same public HTTPS URL.
-  const imageUrl =
-    await ensurePublishableImageUrl(
-      sourceImageUrl
-    );
-
-  console.log(
-    "Automation publish image resolved:",
-    {
-      sourceHost: (() => {
-        try {
-          return new URL(sourceImageUrl).hostname;
-        } catch {
-          return "unknown";
-        }
-      })(),
-      hostedOnCloudinary:
-        /res\.cloudinary\.com/i.test(imageUrl),
-    }
-  );
 
   const results = [];
 
   for (const platformValue of platforms) {
-    const platform =
-      normalizePlatform(platformValue);
-
-    const platformContent =
-      contentByPlatform?.[platform] || {};
+    const platform = normalizePlatform(platformValue);
+    const platformContent = contentByPlatform?.[platform] || {};
 
     try {
-      const result =
-        await publishToPlatform({
-          platform,
-          title:
-            cleanInlineText(
-              platformContent.title ||
-              productTitle
-            ),
-          description:
-            cleanMultilineText(
-              platformContent.description
-            ),
-          hashtags:
-            cleanInlineText(
-              platformContent.hashtags
-            ),
-          cta:
-            cleanInlineText(
-              platformContent.cta
-            ),
-          productLink,
-          imageUrl,
-          boardId,
-          pageId,
-          userId,
-        });
-
-      results.push({
+      const result = await publishToPlatform({
         platform,
-        success: true,
-        result,
+        title: cleanText(platformContent.title || productTitle),
+        description: cleanText(platformContent.description),
+        hashtags: cleanText(platformContent.hashtags),
+        cta: cleanText(platformContent.cta),
+        productLink,
+        imageUrl,
+        boardId,
+        pageId,
+        userId,
       });
+
+      results.push({ platform, success: true, result });
     } catch (error) {
-      console.error(
-        `Automation ${platform} post failed:`,
-        error
-      );
+      console.error(`Automation ${platform} post failed:`, error);
 
       const message =
         error instanceof Error
@@ -295,30 +217,17 @@ export async function publishToPlatforms({
         success: false,
         error: message,
         needsReconnect:
-          /reconnect|expired|invalid.*token|oauth/i.test(
-            message
-          ),
+          /reconnect|expired|invalid.*token|oauth/i.test(message),
       });
     }
   }
 
-  const successful =
-    results.filter(
-      (result) => result.success
-    );
-
-  const failed =
-    results.filter(
-      (result) => !result.success
-    );
+  const successful = results.filter((result) => result.success);
+  const failed = results.filter((result) => !result.success);
 
   return {
-    success:
-      successful.length > 0 &&
-      failed.length === 0,
-    partialSuccess:
-      successful.length > 0 &&
-      failed.length > 0,
+    success: successful.length > 0 && failed.length === 0,
+    partialSuccess: successful.length > 0 && failed.length > 0,
     total: results.length,
     successful: successful.length,
     failed: failed.length,

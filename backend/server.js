@@ -6038,6 +6038,7 @@ registerSocialPublishers({
   publishFacebookPost,
   publishInstagramPost,
   publishXPost,
+  publishThreadsPost,
 });
 
 let storeAutomationSchedulerRunning = false;

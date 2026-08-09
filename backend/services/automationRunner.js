@@ -767,6 +767,22 @@ ${productLink}`,
       continue;
     }
 
+    if (normalizedPlatform === "threads") {
+      contentByPlatform.threads = {
+        title: `New artwork: ${title}`,
+        description: `${professionalDescription}
+
+${availabilityText}
+
+View this listing:
+${productLink}`,
+        hashtags,
+        cta: "",
+      };
+
+      continue;
+    }
+
     if (
       normalizedPlatform === "x" ||
       normalizedPlatform === "twitter"
