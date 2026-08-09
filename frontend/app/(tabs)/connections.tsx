@@ -408,8 +408,10 @@ export default function ConnectionsScreen() {
           ),
           checkSimpleStatus(
             "X",
-            "/x/status"
-          ),
+            userId
+               ? `/x/status?userId=${encodeURIComponent(userId)}`
+               : "/x/status"
+         ),
           checkSimpleStatus(
             "TikTok",
             userId
