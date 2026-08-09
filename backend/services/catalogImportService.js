@@ -584,53 +584,60 @@ export async function importSingleCatalogProduct({
     throw new Error("Missing storeName.");
   }
 
-  const cleanTitle = String(
-    title || ""
-  ).trim();
+  const suppliedTitle = cleanText(title || "");
 
-  if (!cleanTitle) {
-    throw new Error(
-      "Product title is required."
-    );
+  if (!suppliedTitle) {
+    throw new Error("Product title is required.");
   }
 
-  const cleanProductUrl =
-    normalizeUrl(productUrl, "Product URL");
+  const cleanProductUrl = normalizeUrl(
+    productUrl,
+    "Product URL"
+  );
 
-  /*
-   * Storefront scanners can sometimes see only a lazy-load
-   * placeholder image (Redbubble currently does this). When
-   * image/description/price metadata is missing, fetch the
-   * actual product page and use its Open Graph/canonical
-   * metadata as a fallback.
-   */
-  let fallbackMetadata = null;
+  const normalizedStoreType = String(
+    storeType || "custom_store"
+  )
+    .trim()
+    .toLowerCase();
 
-  const suppliedImageUrl =
-    String(imageUrl || "").trim();
+  const redbubbleArtworkId =
+    normalizedStoreType === "redbubble"
+      ? extractRedbubbleArtworkId(cleanProductUrl)
+      : null;
 
-  const suppliedDescription =
-    String(description || "").trim();
-
+  const suppliedImageUrl = String(imageUrl || "").trim();
+  const suppliedDescription = cleanText(description || "");
   const suppliedPriceMissing =
     price === null ||
     price === undefined ||
     String(price).trim() === "";
-
   const suppliedImageIsUsable =
     isUsableImageUrl(suppliedImageUrl);
 
+  const placeholderTitle =
+    /^Redbubble Artwork(?:\s+\d+)?$/i.test(suppliedTitle) ||
+    /^Imported (?:Artwork|Product)$/i.test(suppliedTitle);
+
+  /*
+   * Resolve missing Redbubble/storefront metadata on the backend. This lets the
+   * mobile scanner import hundreds of discovered artwork IDs without opening a
+   * hidden WebView for every product. A metadata failure no longer discards the
+   * catalog row; the product is saved with imageStatus=pending and can be
+   * repaired by a later re-import.
+   */
+  let fallbackMetadata = null;
   const needsMetadataFallback =
     !suppliedImageIsUsable ||
     !suppliedDescription ||
-    suppliedPriceMissing;
+    suppliedPriceMissing ||
+    placeholderTitle;
 
   if (needsMetadataFallback) {
     try {
-      fallbackMetadata =
-        await fetchProductMetadata(
-          cleanProductUrl
-        );
+      fallbackMetadata = await fetchProductMetadata(
+        cleanProductUrl
+      );
     } catch (error) {
       console.warn(
         "Catalog metadata fallback failed:",
@@ -642,135 +649,76 @@ export async function importSingleCatalogProduct({
     }
   }
 
-  let cleanImageUrl = null;
-
   const fallbackImageUrl = String(
     fallbackMetadata?.imageUrl || ""
   ).trim();
 
-  const resolvedImageUrl =
-    suppliedImageIsUsable
-      ? suppliedImageUrl
-      : isUsableImageUrl(fallbackImageUrl)
-        ? fallbackImageUrl
-        : "";
+  let cleanImageUrl = null;
+  const resolvedImageUrl = suppliedImageIsUsable
+    ? suppliedImageUrl
+    : isUsableImageUrl(fallbackImageUrl)
+      ? fallbackImageUrl
+      : "";
 
   if (resolvedImageUrl) {
     try {
-      cleanImageUrl =
-        normalizeUrl(
-          resolvedImageUrl,
-          "Image URL"
-        );
+      cleanImageUrl = normalizeUrl(
+        resolvedImageUrl,
+        "Image URL"
+      );
     } catch {
       cleanImageUrl = null;
     }
   }
 
   let normalizedPrice = null;
-
-  const resolvedPrice =
-    suppliedPriceMissing
-      ? fallbackMetadata?.price
-      : price;
+  const resolvedPrice = suppliedPriceMissing
+    ? fallbackMetadata?.price
+    : price;
 
   if (
     resolvedPrice !== null &&
     resolvedPrice !== undefined &&
     String(resolvedPrice).trim() !== ""
   ) {
-    const parsedPrice =
-      Number(resolvedPrice);
-
-    if (
-      Number.isFinite(parsedPrice) &&
-      parsedPrice > 0
-    ) {
-      normalizedPrice =
-        parsedPrice;
+    const parsedPrice = Number(resolvedPrice);
+    if (Number.isFinite(parsedPrice) && parsedPrice >= 0) {
+      normalizedPrice = parsedPrice;
     }
   }
 
-  const normalizedStoreType =
-    String(
-      storeType ||
-        "custom_store"
-    )
-      .trim()
-      .toLowerCase();
+  const normalizedCurrency = String(
+    currency || fallbackMetadata?.currency || "USD"
+  )
+    .trim()
+    .toUpperCase();
 
-  if (
-    normalizedStoreType === "redbubble" &&
-    !cleanImageUrl
-  ) {
-    throw new Error(
-      "Redbubble product does not contain a valid artwork image URL. Rescan or re-import this product."
-    );
-  }
+  const resolvedTitle = cleanText(
+    placeholderTitle
+      ? fallbackMetadata?.title || suppliedTitle
+      : suppliedTitle
+  ) || suppliedTitle;
 
-  const normalizedCurrency =
-    String(currency || "USD")
-      .trim()
-      .toUpperCase();
+  const resolvedDescription =
+    suppliedDescription ||
+    cleanText(fallbackMetadata?.description || "") ||
+    null;
 
-  const now =
-    new Date().toISOString();
-
+  const now = new Date().toISOString();
   let existingProduct = null;
 
-  const redbubbleArtworkId =
-    normalizedStoreType === "redbubble"
-      ? extractRedbubbleArtworkId(
-          cleanProductUrl
-        )
-      : null;
-
-  if (redbubbleArtworkId) {
-    const {
-      data: redbubbleProducts,
-      error: redbubbleLookupError,
-    } = await supabase
-      .from("products")
-      .select("id, product_url")
-      .eq(
-        "user_id",
-        String(userId)
-      )
-      .eq(
-        "store_type",
-        "redbubble"
-      );
-
-    if (redbubbleLookupError) {
-      throw new Error(
-        `Unable to check existing Redbubble products: ${redbubbleLookupError.message}`
-      );
-    }
-
-    existingProduct =
-      (redbubbleProducts || []).find(
-        (item) =>
-          extractRedbubbleArtworkId(
-            item?.product_url
-          ) === redbubbleArtworkId
-      ) || null;
-  }
-
-  if (!existingProduct) {
+  /* Exact URL is the fast path for current scanner imports. */
+  {
     const {
       data: exactProduct,
       error: lookupError,
     } = await supabase
       .from("products")
-      .select("id")
-      .eq(
-        "user_id",
-        String(userId)
+      .select(
+        "id,product_url,image_url,title,description,price,currency,metadata,external_product_id"
       )
-      .eq(
-        "product_url",
-        cleanProductUrl
-      )
+      .eq("user_id", String(userId))
+      .eq("product_url", cleanProductUrl)
       .maybeSingle();
 
     if (lookupError) {
@@ -779,63 +727,92 @@ export async function importSingleCatalogProduct({
       );
     }
 
-    existingProduct =
-      exactProduct || null;
+    existingProduct = exactProduct || null;
   }
+
+  /*
+   * Older Redbubble imports sometimes used /i/... URLs for the same artwork.
+   * Search only URLs containing this artwork ID, then validate the extracted ID;
+   * do not load the user's entire Redbubble catalog for every import.
+   */
+  if (!existingProduct && redbubbleArtworkId) {
+    const {
+      data: candidates,
+      error: redbubbleLookupError,
+    } = await supabase
+      .from("products")
+      .select(
+        "id,product_url,image_url,title,description,price,currency,metadata,external_product_id"
+      )
+      .eq("user_id", String(userId))
+      .eq("store_type", "redbubble")
+      .ilike("product_url", `%${redbubbleArtworkId}%`)
+      .limit(25);
+
+    if (redbubbleLookupError) {
+      throw new Error(
+        `Unable to check existing Redbubble products: ${redbubbleLookupError.message}`
+      );
+    }
+
+    existingProduct =
+      (candidates || []).find(
+        (item) =>
+          extractRedbubbleArtworkId(item?.product_url) ===
+          redbubbleArtworkId
+      ) || null;
+  }
+
+  const existingMetadata =
+    existingProduct?.metadata &&
+    typeof existingProduct.metadata === "object"
+      ? existingProduct.metadata
+      : {};
+
+  const finalImageUrl =
+    cleanImageUrl || existingProduct?.image_url || null;
 
   const productRecord = {
     user_id: String(userId),
-    store_type:
-      normalizedStoreType,
-    store_name:
-      String(storeName).trim(),
-    store_connection_id:
-      storeId ? String(storeId) : null,
-    title: cleanTitle,
+    store_type: normalizedStoreType,
+    store_name: String(storeName).trim(),
+    store_connection_id: storeId ? String(storeId) : null,
+    title:
+      resolvedTitle ||
+      existingProduct?.title ||
+      suppliedTitle,
     description:
-      suppliedDescription ||
-      String(
-        fallbackMetadata?.description || ""
-      ).trim() ||
+      resolvedDescription ||
+      existingProduct?.description ||
       null,
-    image_url:
-      cleanImageUrl,
-    product_url:
-      cleanProductUrl,
-    price: normalizedPrice,
+    image_url: finalImageUrl,
+    product_url: cleanProductUrl,
+    price:
+      normalizedPrice ?? existingProduct?.price ?? null,
     currency:
-      normalizedCurrency,
+      normalizedCurrency ||
+      existingProduct?.currency ||
+      "USD",
+    metadata: {
+      ...existingMetadata,
+      ...(redbubbleArtworkId
+        ? { artworkId: redbubbleArtworkId }
+        : {}),
+      imageStatus: finalImageUrl ? "verified" : "pending",
+      importer: "catalog_product",
+    },
     status: "active",
     updated_at: now,
   };
 
   if (existingProduct?.id) {
-    const updateRecord = {
-      ...productRecord,
-    };
-
-    /*
-     * Redbubble repair path:
-     * A valid image discovered by the Universal Scanner must replace any
-     * legacy storefront/product-page URL already stored in image_url.
-     */
-    if (
-      normalizedStoreType === "redbubble" &&
-      cleanImageUrl
-    ) {
-      updateRecord.image_url = cleanImageUrl;
-    }
-
     const {
       data: updatedProduct,
       error: updateError,
     } = await supabase
       .from("products")
-      .update(updateRecord)
-      .eq(
-        "id",
-        existingProduct.id
-      )
+      .update(productRecord)
+      .eq("id", existingProduct.id)
       .select("*")
       .single();
 
@@ -848,15 +825,9 @@ export async function importSingleCatalogProduct({
     return {
       product: updatedProduct,
       action: "updated",
-      storeId:
-        storeId || null,
-      productType:
-        String(
-          productType || ""
-        ).trim() || null,
-      tags: Array.isArray(tags)
-        ? tags
-        : [],
+      storeId: storeId || null,
+      productType: String(productType || "").trim() || null,
+      tags: Array.isArray(tags) ? tags : [],
     };
   }
 
@@ -884,14 +855,8 @@ export async function importSingleCatalogProduct({
   return {
     product: insertedProduct,
     action: "created",
-    storeId:
-      storeId || null,
-    productType:
-      String(
-        productType || ""
-      ).trim() || null,
-    tags: Array.isArray(tags)
-      ? tags
-      : [],
+    storeId: storeId || null,
+    productType: String(productType || "").trim() || null,
+    tags: Array.isArray(tags) ? tags : [],
   };
 }
