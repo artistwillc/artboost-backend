@@ -74,6 +74,14 @@ const LINKEDIN_REDIRECT_URI =
 const LINKEDIN_SCOPES =
   process.env.LINKEDIN_SCOPES ||
   "openid profile email w_member_social";
+const X_CLIENT_ID = process.env.X_CLIENT_ID;
+const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET;
+const X_REDIRECT_URI =
+  process.env.X_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/x/callback";
+const X_SCOPES =
+  process.env.X_SCOPES ||
+  "tweet.read tweet.write users.read offline.access media.write";
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_SCOPES =
@@ -1786,6 +1794,199 @@ app.delete("/linkedin/disconnect", async (req, res) => {
           ? error.message
           : "Unable to disconnect LinkedIn.",
     });
+  }
+});
+
+
+// ============================================
+// X OAuth 2.0 + user-scoped connection management
+// ============================================
+function createXState(userId) {
+  if (!X_CLIENT_SECRET) throw new Error("Missing X_CLIENT_SECRET.");
+  const payload = { userId: String(userId), timestamp: Date.now(), nonce: crypto.randomBytes(16).toString("hex") };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", X_CLIENT_SECRET).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyXState(state) {
+  if (!state || !X_CLIENT_SECRET) return null;
+  const [encodedPayload, suppliedSignature] = String(state).split(".");
+  if (!encodedPayload || !suppliedSignature) return null;
+  const expectedSignature = crypto.createHmac("sha256", X_CLIENT_SECRET).update(encodedPayload).digest("base64url");
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (suppliedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    if (!payload.userId || !payload.timestamp || Date.now() - Number(payload.timestamp) > 10 * 60 * 1000) return null;
+    return { userId: String(payload.userId) };
+  } catch { return null; }
+}
+
+function parseCookies(req) {
+  const cookies = {};
+  for (const part of String(req.headers?.cookie || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+}
+
+function setXVerifierCookie(res, verifier) {
+  res.setHeader("Set-Cookie", `artboost_x_pkce=${encodeURIComponent(verifier)}; Path=/auth/x; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
+}
+function clearXVerifierCookie(res) {
+  res.setHeader("Set-Cookie", "artboost_x_pkce=; Path=/auth/x; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
+}
+function getXBasicAuthorization() {
+  if (!X_CLIENT_ID || !X_CLIENT_SECRET) throw new Error("X OAuth is not configured on the server.");
+  return `Basic ${Buffer.from(`${X_CLIENT_ID}:${X_CLIENT_SECRET}`).toString("base64")}`;
+}
+
+async function saveXConnection({ userId, accessToken, refreshToken, expiresIn, scope, xUserId = null, username = null, name = null }) {
+  const now = new Date();
+  const expiresAt = expiresIn ? new Date(now.getTime() + Number(expiresIn) * 1000).toISOString() : null;
+  const base = {
+    user_id: String(userId), platform: "x", connected: true,
+    access_token: accessToken, refresh_token: refreshToken || null,
+    expires_in: Number(expiresIn) || null, expires_at: expiresAt,
+    scopes: scope || X_SCOPES, connected_at: now.toISOString(), updated_at: now.toISOString(),
+  };
+  const payload = { ...base, platform_data: { x_user_id: xUserId ? String(xUserId) : null, username: username || null, name: name || null } };
+  const { data: existing, error: findError } = await supabase.from("social_connections").select("id").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+  if (findError) throw new Error(`Unable to check X connection: ${findError.message}`);
+  const save = (data) => existing?.id ? supabase.from("social_connections").update(data).eq("id", existing.id) : supabase.from("social_connections").insert(data);
+  let { error } = await save(payload);
+  if (error && /platform_data|column/i.test(String(error.message || ""))) ({ error } = await save(base));
+  if (error) throw new Error(`Unable to save X connection: ${error.message}`);
+}
+
+async function refreshXConnectionToken(connection) {
+  if (!connection?.refresh_token) throw new Error("X connection expired. Reconnect X in ArtBoost.");
+  const response = await fetch("https://api.x.com/2/oauth2/token", {
+    method: "POST",
+    headers: { Authorization: getXBasicAuthorization(), "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: connection.refresh_token }).toString(),
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.access_token) throw new Error(data?.error_description || data?.error || "X connection expired. Reconnect X in ArtBoost.");
+  const now = new Date();
+  const update = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || connection.refresh_token,
+    expires_in: Number(data.expires_in) || null,
+    expires_at: data.expires_in ? new Date(now.getTime() + Number(data.expires_in) * 1000).toISOString() : null,
+    scopes: data.scope || connection.scopes || X_SCOPES,
+    connected: true, updated_at: now.toISOString(),
+  };
+  const { error } = await supabase.from("social_connections").update(update).eq("id", connection.id);
+  if (error) throw new Error(`Unable to save refreshed X token: ${error.message}`);
+  return { ...connection, ...update };
+}
+
+async function getValidXConnection(userId) {
+  if (!userId) throw new Error("X publishing requires an ArtBoost userId.");
+  const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+  if (error) throw new Error(`Unable to load X connection: ${error.message}`);
+  if (!connection?.connected || !connection?.access_token) throw new Error("X is not connected. Connect X in ArtBoost before posting.");
+  const expiresSoon = Boolean(connection.expires_at && new Date(connection.expires_at).getTime() <= Date.now() + 5 * 60 * 1000);
+  return expiresSoon ? refreshXConnectionToken(connection) : connection;
+}
+
+app.get("/auth/x", (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!X_CLIENT_ID || !X_CLIENT_SECRET) return res.status(500).send("X OAuth is not configured on the server.");
+    if (!userId) return res.status(400).send("Missing ArtBoost userId.");
+    const state = createXState(userId);
+    const codeVerifier = crypto.randomBytes(48).toString("base64url");
+    const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+    setXVerifierCookie(res, codeVerifier);
+    const authUrl = new URL("https://x.com/i/oauth2/authorize");
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", X_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", X_REDIRECT_URI);
+    authUrl.searchParams.set("scope", X_SCOPES);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("code_challenge", codeChallenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error("X authorization error:", error);
+    return res.status(500).send(error instanceof Error ? error.message : "Unable to start X connection.");
+  }
+});
+
+app.get("/auth/x/callback", async (req, res) => {
+  try {
+    const { code, state, error: oauthError, error_description: oauthErrorDescription } = req.query;
+    if (oauthError) return res.status(400).send(`<html><body style="font-family:Arial;padding:40px;"><h1>X Connection Cancelled</h1><p>${oauthErrorDescription || oauthError}</p></body></html>`);
+    const statePayload = verifyXState(state);
+    if (!statePayload) return res.status(401).send("Invalid or expired X authorization request.");
+    if (!code) return res.status(400).send("Missing X authorization code.");
+    const codeVerifier = parseCookies(req).artboost_x_pkce;
+    if (!codeVerifier) return res.status(401).send("X PKCE verifier was not found. Start the X connection again.");
+    const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers: { Authorization: getXBasicAuthorization(), "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: X_REDIRECT_URI, code_verifier: codeVerifier }).toString(),
+    });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData?.access_token) {
+      console.error("X token exchange failed:", tokenData);
+      throw new Error(tokenData?.error_description || tokenData?.error || "X token exchange failed.");
+    }
+    clearXVerifierCookie(res);
+    const meResponse = await fetch("https://api.x.com/2/users/me?user.fields=id,name,username", { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const meData = await meResponse.json();
+    if (!meResponse.ok || !meData?.data?.id) throw new Error(meData?.detail || meData?.title || "Unable to load the connected X profile.");
+    await saveXConnection({
+      userId: statePayload.userId, accessToken: tokenData.access_token, refreshToken: tokenData.refresh_token || null,
+      expiresIn: tokenData.expires_in, scope: tokenData.scope || X_SCOPES,
+      xUserId: meData.data.id, username: meData.data.username || null, name: meData.data.name || null,
+    });
+    await createNotification({ userId: String(statePayload.userId), title: "X Connected", message: `X @${meData.data.username || "account"} was connected successfully.`, type: "success" });
+    return res.send(`<html><body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;text-align:center;"><h1>X Connected</h1><p>Your X account is now connected to ArtBoost AI.</p><p>You can close this page and return to ArtBoost.</p></body></html>`);
+  } catch (error) {
+    console.error("X callback error:", error);
+    return res.status(500).send(`<html><body style="font-family:Arial;padding:40px;"><h1>X Connection Error</h1><p>${error instanceof Error ? error.message : "X connection failed."}</p></body></html>`);
+  }
+});
+
+app.get("/x/status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET), connected: false, error: "Missing userId." });
+    const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+    if (error) throw new Error(`Unable to load X connection: ${error.message}`);
+    const pd = connection?.platform_data && typeof connection.platform_data === "object" ? connection.platform_data : {};
+    const expired = Boolean(connection?.expires_at && new Date(connection.expires_at).getTime() <= Date.now());
+    return res.json({
+      configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET),
+      connected: Boolean(connection?.connected && connection?.access_token && (!expired || connection?.refresh_token)),
+      expired: expired && !connection?.refresh_token,
+      username: pd.username || null, xUserId: pd.x_user_id || null,
+      expiresAt: connection?.expires_at || null, connectedAt: connection?.connected_at || null,
+    });
+  } catch (error) {
+    console.error("X status error:", error);
+    return res.status(500).json({ configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET), connected: false, error: error instanceof Error ? error.message : "Unable to check X status." });
+  }
+});
+
+app.delete("/x/disconnect", async (req, res) => {
+  try {
+    const userId = req.body?.userId || req.query?.userId;
+    if (!userId) return res.status(400).json({ error: "Missing userId." });
+    const { error } = await supabase.from("social_connections").update({ connected: false, access_token: null, refresh_token: null, expires_at: null, updated_at: new Date().toISOString() }).eq("user_id", String(userId)).eq("platform", "x");
+    if (error) throw error;
+    return res.json({ success: true, connected: false });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Unable to disconnect X." });
   }
 });
 
@@ -6101,273 +6302,60 @@ async function publishXPost({
   imageUrl,
   userId = null,
 }) {
-  const cleanTitle = String(
-    title || description || "Check out this product"
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleanTitle = String(title || description || "Check out this product").replace(/\s+/g, " ").trim();
+  const cleanProductLink = String(productLink || "").trim();
+  if (!cleanTitle) throw new Error("Missing X post title.");
 
-  const cleanProductLink = String(
-    productLink || ""
-  ).trim();
-
-  if (!cleanTitle) {
-    throw new Error(
-      "Missing X post title."
-    );
-  }
-
-  const oauth = OAuth({
-    consumer: {
-      key:
-        process.env.X_API_KEY,
-      secret:
-        process.env.X_API_SECRET,
-    },
-    signature_method:
-      "HMAC-SHA1",
-    hash_function(
-      baseString,
-      key
-    ) {
-      return CryptoJS
-        .HmacSHA1(
-          baseString,
-          key
-        )
-        .toString(
-          CryptoJS.enc.Base64
-        );
-    },
-  });
-
-  const token = {
-    key:
-      process.env.X_ACCESS_TOKEN,
-    secret:
-      process.env
-        .X_ACCESS_TOKEN_SECRET,
-  };
-
-  /*
-   * X counts normal URLs as shortened links.
-   * We still keep the raw final text under 280
-   * characters for predictable behavior.
-   */
-  const separator =
-    cleanProductLink
-      ? "\n\n"
-      : "";
-
-  const availableTitleLength =
-    Math.max(
-      280 -
-        separator.length -
-        cleanProductLink.length,
-      1
-    );
-
-  const finalTitle =
-    cleanTitle.length >
-    availableTitleLength
-      ? `${cleanTitle
-          .slice(
-            0,
-            Math.max(
-              availableTitleLength -
-                3,
-              1
-            )
-          )
-          .trim()}...`
-      : cleanTitle;
-
-  const message = [
-    finalTitle,
-    cleanProductLink,
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-
-  if (!message) {
-    throw new Error(
-      "Missing X post message."
-    );
-  }
+  const connection = await getValidXConnection(userId);
+  const separator = cleanProductLink ? "\n\n" : "";
+  const availableTitleLength = Math.max(280 - separator.length - cleanProductLink.length, 1);
+  const finalTitle = cleanTitle.length > availableTitleLength
+    ? `${cleanTitle.slice(0, Math.max(availableTitleLength - 3, 1)).trim()}...`
+    : cleanTitle;
+  const message = [finalTitle, cleanProductLink].filter(Boolean).join("\n\n").trim();
+  if (!message) throw new Error("Missing X post message.");
 
   let mediaId = null;
 
-  console.log(
-    "X PRODUCT LINK:",
-    cleanProductLink
-  );
-
-  console.log(
-    "X HAS PRODUCT LINK:",
-    Boolean(cleanProductLink)
-  );
-
-  console.log(
-    "X HAS IMAGE URL:",
-    Boolean(imageUrl)
-  );
-
-  /*
-   * Upload the product image even when the
-   * tweet also includes a product link.
-   */
   if (imageUrl) {
-    const imageResponse =
-      await fetch(imageUrl);
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) throw new Error(`Unable to download X image: ${imageResponse.status}`);
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const contentType = String(imageResponse.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    const formData = new FormData();
+    formData.append("media", new Blob([imageBuffer], { type: contentType }), contentType.includes("png") ? "artboost-image.png" : "artboost-image.jpg");
+    formData.append("media_category", "tweet_image");
 
-    if (!imageResponse.ok) {
-      throw new Error(
-        `Unable to download X image: ${imageResponse.status}`
-      );
+    const uploadResponse = await fetch("https://api.x.com/2/media/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${connection.access_token}` },
+      body: formData,
+    });
+    const uploadData = await uploadResponse.json();
+    mediaId = uploadData?.data?.id || uploadData?.media_id_string || uploadData?.media_id || null;
+    if (!uploadResponse.ok || !mediaId) {
+      console.error("X Media Upload Error:", uploadData);
+      throw new Error(uploadData?.detail || uploadData?.title || uploadData?.error || "X image upload failed.");
     }
-
-    const imageBuffer =
-      Buffer.from(
-        await imageResponse.arrayBuffer()
-      );
-
-    const uploadRequestData = {
-      url:
-        "https://upload.twitter.com/1.1/media/upload.json",
-      method:
-        "POST",
-    };
-
-    const uploadAuthHeader =
-      oauth.toHeader(
-        oauth.authorize(
-          uploadRequestData,
-          token
-        )
-      );
-
-    const formData =
-      new FormData();
-
-    formData.append(
-      "media",
-      new Blob([
-        imageBuffer,
-      ]),
-      "artboost-image.jpg"
-    );
-
-    const uploadResponse =
-      await fetch(
-        uploadRequestData.url,
-        {
-          method:
-            "POST",
-          headers: {
-            ...uploadAuthHeader,
-          },
-          body:
-            formData,
-        }
-      );
-
-    const uploadData =
-      await uploadResponse.json();
-
-    if (
-      !uploadResponse.ok ||
-      !uploadData.media_id_string
-    ) {
-      console.error(
-        "X Media Upload Error:",
-        uploadData
-      );
-
-      throw new Error(
-        `X image upload failed: ${JSON.stringify(
-          uploadData
-        )}`
-      );
-    }
-
-    mediaId =
-      uploadData.media_id_string;
   }
 
-  const tweetRequestData = {
-    url:
-      "https://api.twitter.com/2/tweets",
-    method:
-      "POST",
-  };
+  const tweetBody = { text: message };
+  if (mediaId) tweetBody.media = { media_ids: [String(mediaId)] };
 
-  const tweetAuthHeader =
-    oauth.toHeader(
-      oauth.authorize(
-        tweetRequestData,
-        token
-      )
-    );
-
-  const tweetBody = {
-    text:
-      message,
-  };
-
-  if (mediaId) {
-    tweetBody.media = {
-      media_ids: [
-        mediaId,
-      ],
-    };
-  }
-
-  console.log(
-    "X MESSAGE LENGTH:",
-    message.length
-  );
-
-  console.log(
-    "X MESSAGE:"
-  );
-
-  console.log(
-    message
-  );
-
-  const response =
-    await fetch(
-      tweetRequestData.url,
-      {
-        method:
-          "POST",
-        headers: {
-          ...tweetAuthHeader,
-          "Content-Type":
-            "application/json",
-        },
-        body:
-          JSON.stringify(
-            tweetBody
-          ),
-      }
-    );
-
-  const data =
-    await response.json();
-
+  const response = await fetch("https://api.x.com/2/tweets", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${connection.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(tweetBody),
+  });
+  const data = await response.json();
   if (!response.ok) {
-    console.error(
-      "X Scheduled Post Error:",
-      data
-    );
-
-    throw new Error(
-      JSON.stringify(data)
-    );
+    console.error("X Post Error:", data);
+    if (response.status === 401 || /token|oauth|unauthorized/i.test(JSON.stringify(data))) {
+      throw new Error("X connection is no longer valid. Reconnect X in ArtBoost.");
+    }
+    throw new Error(data?.detail || data?.title || JSON.stringify(data));
   }
-
+  console.log("X post published:", { userId, postId: data?.data?.id || null, hasImage: Boolean(mediaId), hasProductLink: Boolean(cleanProductLink) });
   return data;
 }
 

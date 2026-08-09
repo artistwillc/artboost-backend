@@ -431,7 +431,9 @@ export default function ConnectionsScreen() {
           ),
           checkSimpleStatus(
             "X",
-            "/x/status"
+            userId
+              ? `/x/status?userId=${encodeURIComponent(userId)}`
+              : "/x/status"
           ),
         ]);
 
@@ -586,6 +588,33 @@ export default function ConnectionsScreen() {
       Alert.alert(
         "LinkedIn Login Opened",
         "Complete the LinkedIn authorization, return to ArtBoost, and refresh the connection status."
+      );
+
+      return;
+    }
+
+    if (platform === "X") {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before connecting X."
+        );
+        return;
+      }
+
+      await Linking.openURL(
+        `${BACKEND_URL}/auth/x?userId=${encodeURIComponent(userId)}`
+      );
+
+      Alert.alert(
+        "X Login Opened",
+        "Complete the X authorization, return to ArtBoost, and refresh the connection status."
       );
 
       return;
