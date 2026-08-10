@@ -17,3 +17,15 @@ document.querySelectorAll("[data-close-pricing]").forEach(el=>el.addEventListene
 document.querySelectorAll("[data-toast]").forEach(el=>el.addEventListener("click",()=>showToast(el.dataset.toast)));
 document.querySelector("[data-generate]").addEventListener("click",()=>showToast("Demo content generated — the full AI workflow runs inside ArtBoost."));
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){fm.classList.remove("open");pm.classList.remove("open")}});
+const mobileToggle=document.querySelector(".m-menu-toggle");
+const mobileMenu=document.getElementById("mMenu");
+if(mobileToggle&&mobileMenu){
+  mobileToggle.addEventListener("click",()=>{
+    mobileMenu.classList.toggle("open");
+    mobileToggle.setAttribute("aria-expanded",mobileMenu.classList.contains("open"));
+  });
+  mobileMenu.querySelectorAll("a,button").forEach(el=>el.addEventListener("click",()=>{
+    mobileMenu.classList.remove("open");
+    mobileToggle.setAttribute("aria-expanded","false");
+  }));
+}
