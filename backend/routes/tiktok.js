@@ -28,6 +28,12 @@ const TIKTOK_SCOPES = String(
 const AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 const USER_INFO_URL = "https://open.tiktokapis.com/v2/user/info/";
+const CREATOR_INFO_URL =
+  "https://open.tiktokapis.com/v2/post/publish/creator_info/query/";
+const PHOTO_POST_URL =
+  "https://open.tiktokapis.com/v2/post/publish/content/init/";
+const POST_STATUS_URL =
+  "https://open.tiktokapis.com/v2/post/publish/status/fetch/";
 
 function configured() {
   return Boolean(
@@ -188,6 +194,183 @@ async function getUserInfo(accessToken) {
   }
 
   return data?.data?.user || {};
+}
+
+
+async function getCreatorInfo(accessToken) {
+  const response = await fetch(CREATOR_INFO_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+  });
+
+  const data = await parseJson(response);
+  const apiError = data?.error;
+
+  if (
+    !response.ok ||
+    (apiError?.code && apiError.code !== "ok")
+  ) {
+    throw new Error(
+      apiError?.message ||
+        "Unable to load TikTok creator posting settings."
+    );
+  }
+
+  return data?.data || {};
+}
+
+function normalizeTikTokTitle(value) {
+  return String(value || "").trim().slice(0, 90);
+}
+
+function normalizeTikTokDescription(value) {
+  return String(value || "").trim().slice(0, 4000);
+}
+
+function validatePublicHttpUrl(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    throw new Error("TikTok photo publishing requires an image URL.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("TikTok photo publishing requires a valid public image URL.");
+  }
+
+  if (!["https:", "http:"].includes(parsed.protocol)) {
+    throw new Error("TikTok photo publishing requires an http(s) image URL.");
+  }
+
+  return parsed.toString();
+}
+
+function choosePrivacyLevel(creatorInfo, requestedPrivacyLevel) {
+  const options = Array.isArray(creatorInfo?.privacy_level_options)
+    ? creatorInfo.privacy_level_options
+    : [];
+
+  const requested = String(requestedPrivacyLevel || "").trim();
+
+  if (requested) {
+    if (!options.includes(requested)) {
+      throw new Error(
+        "The selected TikTok privacy level is not available for this account."
+      );
+    }
+    return requested;
+  }
+
+  // Safe sandbox/default behavior. ArtBoost never silently chooses a
+  // public audience. The UI can pass a creator-selected value later.
+  if (options.includes("SELF_ONLY")) {
+    return "SELF_ONLY";
+  }
+
+  throw new Error(
+    "TikTok requires the user to choose a valid privacy level before posting."
+  );
+}
+
+async function submitPhotoPost({
+  accessToken,
+  title,
+  description,
+  imageUrl,
+  privacyLevel,
+  disableComment = false,
+  autoAddMusic = true,
+}) {
+  const creatorInfo = await getCreatorInfo(accessToken);
+  const selectedPrivacyLevel = choosePrivacyLevel(
+    creatorInfo,
+    privacyLevel
+  );
+
+  if (creatorInfo?.comment_disabled) {
+    disableComment = true;
+  }
+
+  const response = await fetch(PHOTO_POST_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: normalizeTikTokTitle(title),
+        description: normalizeTikTokDescription(description),
+        disable_comment: Boolean(disableComment),
+        privacy_level: selectedPrivacyLevel,
+        auto_add_music: Boolean(autoAddMusic),
+      },
+      source_info: {
+        source: "PULL_FROM_URL",
+        photo_cover_index: 0,
+        photo_images: [
+          validatePublicHttpUrl(imageUrl),
+        ],
+      },
+      post_mode: "DIRECT_POST",
+      media_type: "PHOTO",
+    }),
+  });
+
+  const data = await parseJson(response);
+  const apiError = data?.error;
+
+  if (
+    !response.ok ||
+    (apiError?.code && apiError.code !== "ok") ||
+    !data?.data?.publish_id
+  ) {
+    throw new Error(
+      apiError?.message ||
+        "TikTok photo post could not be initialized."
+    );
+  }
+
+  return {
+    publishId: data.data.publish_id,
+    privacyLevel: selectedPrivacyLevel,
+    creatorInfo,
+    raw: data,
+  };
+}
+
+async function fetchPostStatus(accessToken, publishId) {
+  const response = await fetch(POST_STATUS_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      publish_id: String(publishId),
+    }),
+  });
+
+  const data = await parseJson(response);
+  const apiError = data?.error;
+
+  if (
+    !response.ok ||
+    (apiError?.code && apiError.code !== "ok")
+  ) {
+    throw new Error(
+      apiError?.message ||
+        "Unable to check TikTok post status."
+    );
+  }
+
+  return data?.data || {};
 }
 
 async function findConnection(userId) {
@@ -485,6 +668,160 @@ router.get("/tiktok/status", async (req, res) => {
         error instanceof Error
           ? error.message
           : "Unable to check TikTok status.",
+    });
+  }
+});
+
+
+router.get("/tiktok/creator-info", async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const connection = await ensureFreshConnection(userId);
+
+    if (!connection?.connected || !connection?.access_token) {
+      return res.status(401).json({
+        success: false,
+        error: "TikTok is not connected. Reconnect TikTok before posting.",
+      });
+    }
+
+    const creatorInfo = await getCreatorInfo(
+      connection.access_token
+    );
+
+    return res.json({
+      success: true,
+      creator: creatorInfo,
+    });
+  } catch (error) {
+    console.error("TikTok creator info error:", error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to load TikTok creator information.",
+    });
+  }
+});
+
+router.post("/tiktok/photo-post", async (req, res) => {
+  try {
+    const {
+      userId,
+      title,
+      description,
+      imageUrl,
+      privacyLevel,
+      disableComment,
+      autoAddMusic,
+    } = req.body || {};
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        error: "TikTok photo publishing requires an image URL.",
+      });
+    }
+
+    const connection = await ensureFreshConnection(userId);
+
+    if (!connection?.connected || !connection?.access_token) {
+      return res.status(401).json({
+        success: false,
+        error: "TikTok is not connected. Reconnect TikTok before posting.",
+      });
+    }
+
+    const result = await submitPhotoPost({
+      accessToken: connection.access_token,
+      title,
+      description,
+      imageUrl,
+      privacyLevel,
+      disableComment,
+      autoAddMusic:
+        autoAddMusic === undefined ? true : Boolean(autoAddMusic),
+    });
+
+    return res.json({
+      success: true,
+      publishId: result.publishId,
+      privacyLevel: result.privacyLevel,
+      message:
+        "TikTok accepted the photo post for processing.",
+    });
+  } catch (error) {
+    console.error("TikTok photo post error:", error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "TikTok photo publishing failed.",
+    });
+  }
+});
+
+router.post("/tiktok/post-status", async (req, res) => {
+  try {
+    const {
+      userId,
+      publishId,
+    } = req.body || {};
+
+    if (!userId || !publishId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId or publishId.",
+      });
+    }
+
+    const connection = await ensureFreshConnection(userId);
+
+    if (!connection?.connected || !connection?.access_token) {
+      return res.status(401).json({
+        success: false,
+        error: "TikTok is not connected. Reconnect TikTok before checking status.",
+      });
+    }
+
+    const status = await fetchPostStatus(
+      connection.access_token,
+      publishId
+    );
+
+    return res.json({
+      success: true,
+      publishId: String(publishId),
+      status,
+    });
+  } catch (error) {
+    console.error("TikTok post status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to check TikTok post status.",
     });
   }
 });
