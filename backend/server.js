@@ -4896,87 +4896,45 @@ app.post("/facebook/post", async (req, res) => {
 // ================================
 app.post("/instagram/post", async (req, res) => {
   try {
-    const { message, imageUrl } = req.body;
+    const { userId = null, message = "", imageUrl = "" } = req.body || {};
 
-    const instagramUserId = process.env.INSTAGRAM_USER_ID;
-    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
-
-    if (!instagramUserId || !accessToken) {
+    if (!userId) {
       return res.status(400).json({
-        error: "Instagram not configured",
+        success: false,
+        error: "Instagram publishing requires an ArtBoost userId.",
       });
     }
 
     if (!imageUrl) {
       return res.status(400).json({
+        success: false,
         error: "Instagram requires an imageUrl to publish.",
       });
     }
 
-    const createContainerResponse = await fetch(
-      `https://graph.instagram.com/v23.0/${instagramUserId}/media`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image_url: imageUrl,
-          caption: message || "",
-          access_token: accessToken,
-        }),
-      }
-    );
+    const publishData = await publishInstagramPost({
+      userId,
+      title: String(message || "").trim(),
+      description: "",
+      hashtags: "",
+      cta: "",
+      imageUrl: String(imageUrl || "").trim(),
+    });
 
-    const createContainerData = await createContainerResponse.json();
-
-    if (createContainerData.error) {
-      console.log("Instagram Container Error:", createContainerData.error);
-
-      return res.status(500).json({
-        error: createContainerData.error,
-      });
-    }
-
-    const creationId = createContainerData.id;
-
-    await new Promise((resolve) => setTimeout(resolve, 8000));
-
-    const publishResponse = await fetch(
-      `https://graph.instagram.com/v23.0/${instagramUserId}/media_publish`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          creation_id: creationId,
-          access_token: accessToken,
-        }),
-      }
-    );
-
-    const publishData = await publishResponse.json();
-
-    if (publishData.error) {
-      console.log("Instagram Publish Error:", publishData.error);
-
-      return res.status(500).json({
-        error: publishData.error,
-      });
-    }
-
-    res.json({
+    return res.json({
       success: true,
       platform: "instagram",
-      creationId,
       result: publishData,
     });
   } catch (err) {
     console.error("Instagram post error:", err);
 
-    res.status(500).json({
-      error: err.message,
+    return res.status(500).json({
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Instagram could not publish this post.",
     });
   }
 });
