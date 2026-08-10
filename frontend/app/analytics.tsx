@@ -43,6 +43,11 @@ type AnalyticsData = {
     total: number;
   };
 
+  automationHealth: {
+    currentNeedsAttention: number;
+    historicalFailedRuns: number;
+  };
+
   campaigns: {
     total: number;
     scheduled: number;
@@ -504,7 +509,25 @@ export default function AnalyticsScreen() {
                 0
               }
             />
+
+            <SmallStat
+              label="Needs Attention"
+              value={
+                analytics
+                  ?.automationHealth
+                  ?.currentNeedsAttention ||
+                0
+              }
+            />
           </View>
+
+          <Text
+            style={
+              styles.healthNote
+            }
+          >
+            Failed runs are historical. Current attention only applies to active automations with an unresolved latest error.
+          </Text>
 
           <Text
             style={
@@ -678,7 +701,7 @@ export default function AnalyticsScreen() {
               styles.sectionTitle
             }
           >
-            Campaign Health
+            Campaign Manager Health
           </Text>
 
           <View
@@ -1308,6 +1331,13 @@ const styles =
       fontSize: 12,
       lineHeight: 18,
       marginTop: 5,
+    },
+
+    healthNote: {
+      color: "#777777",
+      fontSize: 10,
+      lineHeight: 15,
+      marginTop: 10,
     },
 
     trackingNote: {
