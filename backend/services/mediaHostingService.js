@@ -7,6 +7,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const TIKTOK_MEDIA_BASE_URL = String(
+  process.env.TIKTOK_MEDIA_BASE_URL ||
+    "https://artboost-ai.onrender.com/tiktok/media"
+)
+  .trim()
+  .replace(/\/+$/, "");
+
 function cleanUrl(value) {
   return String(value || "").trim();
 }
@@ -21,6 +28,15 @@ function hasCloudinaryConfig() {
       process.env.CLOUDINARY_API_KEY &&
       process.env.CLOUDINARY_API_SECRET
   );
+}
+
+function getTikTokMediaSigningSecret() {
+  return String(
+    process.env.TIKTOK_MEDIA_SIGNING_SECRET ||
+      process.env.TIKTOK_CLIENT_SECRET ||
+      process.env.CLOUDINARY_API_SECRET ||
+      ""
+  ).trim();
 }
 
 function createPublicId(sourceUrl) {
@@ -84,14 +100,14 @@ async function findExistingCloudinaryAsset(publicId) {
 
     return asset?.secure_url || null;
   } catch (error) {
-    const status =
-      Number(error?.http_code || error?.error?.http_code || 0);
+    const status = Number(
+      error?.http_code || error?.error?.http_code || 0
+    );
 
     if (status === 404) {
       return null;
     }
 
-    // A lookup problem should not stop us from trying the upload.
     console.warn(
       "Cloudinary cached-image lookup failed:",
       error?.message || error
@@ -163,7 +179,6 @@ export async function ensurePublishableImageUrl(imageUrl) {
       throw new Error("Source image was empty");
     }
 
-    // Keep a sane ceiling for remote artwork used in social posts.
     if (buffer.length > 20 * 1024 * 1024) {
       throw new Error(
         "Source image is larger than 20 MB"
@@ -233,4 +248,78 @@ export async function ensurePublishableImageUrl(imageUrl) {
   );
 
   return secureUrl;
+}
+
+function signTikTokMediaPayload(payload) {
+  const secret = getTikTokMediaSigningSecret();
+
+  if (!secret) {
+    throw new Error(
+      "TikTok media signing is not configured."
+    );
+  }
+
+  return crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("base64url");
+}
+
+export async function ensureTikTokMediaUrl(imageUrl) {
+  const hostedUrl = await ensurePublishableImageUrl(imageUrl);
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      url: hostedUrl,
+      createdAt: Date.now(),
+    })
+  ).toString("base64url");
+
+  const signature = signTikTokMediaPayload(payload);
+
+  return `${TIKTOK_MEDIA_BASE_URL}/${payload}.${signature}`;
+}
+
+export function resolveTikTokMediaToken(token) {
+  const raw = String(token || "").trim();
+  const separator = raw.lastIndexOf(".");
+
+  if (separator <= 0) {
+    throw new Error("Invalid TikTok media token.");
+  }
+
+  const payload = raw.slice(0, separator);
+  const suppliedSignature = raw.slice(separator + 1);
+  const expectedSignature = signTikTokMediaPayload(payload);
+
+  const supplied = Buffer.from(suppliedSignature);
+  const expected = Buffer.from(expectedSignature);
+
+  if (
+    supplied.length !== expected.length ||
+    !crypto.timingSafeEqual(supplied, expected)
+  ) {
+    throw new Error("Invalid TikTok media signature.");
+  }
+
+  let decoded;
+
+  try {
+    decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    );
+  } catch {
+    throw new Error("Invalid TikTok media payload.");
+  }
+
+  const hostedUrl = cleanUrl(decoded?.url);
+
+  if (
+    !hostedUrl ||
+    !/^https:\/\//i.test(hostedUrl)
+  ) {
+    throw new Error("Invalid TikTok media URL.");
+  }
+
+  return hostedUrl;
 }

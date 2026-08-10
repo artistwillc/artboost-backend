@@ -1,6 +1,10 @@
 import express from "express";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import {
+  ensureTikTokMediaUrl,
+  resolveTikTokMediaToken,
+} from "../services/mediaHostingService.js";
 
 const router = express.Router();
 
@@ -258,24 +262,19 @@ function choosePrivacyLevel(creatorInfo, requestedPrivacyLevel) {
 
   const requested = String(requestedPrivacyLevel || "").trim();
 
-  if (requested) {
-    if (!options.includes(requested)) {
-      throw new Error(
-        "The selected TikTok privacy level is not available for this account."
-      );
-    }
-    return requested;
+  if (!requested) {
+    throw new Error(
+      "Choose a TikTok privacy level before posting."
+    );
   }
 
-  // Safe sandbox/default behavior. ArtBoost never silently chooses a
-  // public audience. The UI can pass a creator-selected value later.
-  if (options.includes("SELF_ONLY")) {
-    return "SELF_ONLY";
+  if (!options.includes(requested)) {
+    throw new Error(
+      "The selected TikTok privacy level is not available for this account."
+    );
   }
 
-  throw new Error(
-    "TikTok requires the user to choose a valid privacy level before posting."
-  );
+  return requested;
 }
 
 async function submitPhotoPost({
@@ -286,6 +285,8 @@ async function submitPhotoPost({
   privacyLevel,
   disableComment = false,
   autoAddMusic = true,
+  brandContentToggle = false,
+  brandOrganicToggle = false,
 }) {
   const creatorInfo = await getCreatorInfo(accessToken);
   const selectedPrivacyLevel = choosePrivacyLevel(
@@ -310,6 +311,8 @@ async function submitPhotoPost({
         disable_comment: Boolean(disableComment),
         privacy_level: selectedPrivacyLevel,
         auto_add_music: Boolean(autoAddMusic),
+        brand_content_toggle: Boolean(brandContentToggle),
+        brand_organic_toggle: Boolean(brandOrganicToggle),
       },
       source_info: {
         source: "PULL_FROM_URL",
@@ -331,8 +334,15 @@ async function submitPhotoPost({
     (apiError?.code && apiError.code !== "ok") ||
     !data?.data?.publish_id
   ) {
+    const detail = [
+      apiError?.code,
+      apiError?.message,
+    ]
+      .filter(Boolean)
+      .join(": ");
+
     throw new Error(
-      apiError?.message ||
+      detail ||
         "TikTok photo post could not be initialized."
     );
   }
@@ -673,6 +683,59 @@ router.get("/tiktok/status", async (req, res) => {
 });
 
 
+
+router.get("/tiktok/media/:token", async (req, res) => {
+  try {
+    const hostedUrl = resolveTikTokMediaToken(
+      req.params.token
+    );
+
+    const response = await fetch(hostedUrl, {
+      method: "GET",
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Hosted TikTok media returned HTTP ${response.status}.`
+      );
+    }
+
+    const contentType = String(
+      response.headers.get("content-type") ||
+        "image/jpeg"
+    );
+
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      throw new Error(
+        "TikTok media source did not return an image."
+      );
+    }
+
+    const buffer = Buffer.from(
+      await response.arrayBuffer()
+    );
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=3600"
+    );
+    res.setHeader(
+      "Content-Length",
+      String(buffer.length)
+    );
+
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error("TikTok media proxy error:", error);
+
+    return res.status(404).send(
+      "TikTok media is unavailable."
+    );
+  }
+});
+
 router.get("/tiktok/creator-info", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -724,6 +787,9 @@ router.post("/tiktok/photo-post", async (req, res) => {
       privacyLevel,
       disableComment,
       autoAddMusic,
+      brandContentToggle,
+      brandOrganicToggle,
+      consent,
     } = req.body || {};
 
     if (!userId) {
@@ -740,6 +806,21 @@ router.post("/tiktok/photo-post", async (req, res) => {
       });
     }
 
+    if (!privacyLevel) {
+      return res.status(400).json({
+        success: false,
+        error: "Choose a TikTok privacy level before posting.",
+      });
+    }
+
+    if (consent !== true) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Confirm the TikTok post settings before publishing.",
+      });
+    }
+
     const connection = await ensureFreshConnection(userId);
 
     if (!connection?.connected || !connection?.access_token) {
@@ -749,23 +830,29 @@ router.post("/tiktok/photo-post", async (req, res) => {
       });
     }
 
+    const verifiedMediaUrl =
+      await ensureTikTokMediaUrl(imageUrl);
+
     const result = await submitPhotoPost({
       accessToken: connection.access_token,
       title,
       description,
-      imageUrl,
+      imageUrl: verifiedMediaUrl,
       privacyLevel,
       disableComment,
       autoAddMusic:
         autoAddMusic === undefined ? true : Boolean(autoAddMusic),
+      brandContentToggle: Boolean(brandContentToggle),
+      brandOrganicToggle: Boolean(brandOrganicToggle),
     });
 
     return res.json({
       success: true,
       publishId: result.publishId,
       privacyLevel: result.privacyLevel,
+      mediaUrl: verifiedMediaUrl,
       message:
-        "TikTok accepted the photo post for processing.",
+        "TikTok accepted the photo post for processing. It may take a few minutes to appear.",
     });
   } catch (error) {
     console.error("TikTok photo post error:", error);
