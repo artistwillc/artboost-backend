@@ -1,12 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { supabase } from "@/lib/supabase";
 import React, {
   useEffect,
   useMemo,
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -88,6 +90,11 @@ const MARKETING_GOALS = [
   "Build a Loyal Audience",
   "Market My Full Catalog",
 ];
+
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 function toggleSelection(
   currentValues: string[],
@@ -174,6 +181,12 @@ export default function BrandScreen() {
   const [previewVisible, setPreviewVisible] =
     useState(false);
 
+  const [isGenerating, setIsGenerating] =
+    useState(false);
+
+  const [examplePost, setExamplePost] =
+    useState("");
+
   const [selectedRecommendation, setSelectedRecommendation] =
     useState<{
       title: string;
@@ -256,14 +269,25 @@ export default function BrandScreen() {
   ]);
 
   const marketingScore = useMemo(() => {
-    const recommendationBonus = [
+    const strategiesReady = [
       recommendedPlatforms,
       recommendedSchedule,
       recommendedAutomation,
       recommendedCampaigns,
-    ].filter(value => value.trim()).length * 5;
+    ].filter(value => value.trim()).length;
 
-    return Math.min(100, profileCompletion + recommendationBonus);
+    /*
+     * Readiness is intentionally split between a complete profile (80%)
+     * and usable strategy recommendations (20%). A filled-in form alone
+     * should not report a perfect consultant score.
+     */
+    return Math.min(
+      100,
+      Math.round(
+        profileCompletion * 0.8 +
+          (strategiesReady / 4) * 20
+      )
+    );
   }, [
     profileCompletion,
     recommendedPlatforms,
@@ -318,6 +342,10 @@ export default function BrandScreen() {
       setRecommendedCampaigns(
         profile.recommendedCampaigns || ""
       );
+
+      setExamplePost(
+        profile.examplePost || ""
+      );
     } catch (error) {
       console.log(
         "Unable to load marketing profile:",
@@ -334,6 +362,14 @@ export default function BrandScreen() {
   };
 
   const saveBrand = async () => {
+    if (!hasMarketingProfile) {
+      Alert.alert(
+        "Generate Your Profile First",
+        "Create or enter your marketing profile before saving."
+      );
+      return;
+    }
+
     try {
       const profile = {
         brandName: brandName.trim(),
@@ -352,6 +388,8 @@ export default function BrandScreen() {
           recommendedAutomation.trim(),
         recommendedCampaigns:
           recommendedCampaigns.trim(),
+        examplePost:
+          examplePost.trim(),
         updatedAt: new Date().toISOString(),
       };
 
@@ -405,6 +443,7 @@ export default function BrandScreen() {
               setRecommendedSchedule("");
               setRecommendedAutomation("");
               setRecommendedCampaigns("");
+              setExamplePost("");
 
               Alert.alert(
                 "Profile Cleared",
@@ -514,7 +553,7 @@ export default function BrandScreen() {
     }
   };
 
-  const generateMarketingProfile = () => {
+  const generateFallbackMarketingProfile = (showAlert = true) => {
     const artworkDescription =
       createReadableList(selectedArtworkTypes);
 
@@ -691,10 +730,139 @@ export default function BrandScreen() {
     setWizardVisible(false);
     setWizardStep(1);
 
-    Alert.alert(
-      "Marketing Profile Generated",
-      "ArtBoost created your marketing profile. Review each section, make any changes you want, and then save it."
+    setExamplePost(
+      `${artistName.trim()} creates ${artworkDescription.toLowerCase()} for ${audienceDescription.toLowerCase()}. ${generatedCTA} ${generatedHashtags}`.trim()
     );
+
+    if (showAlert) {
+      Alert.alert(
+        "Marketing Profile Generated",
+        "ArtBoost created your marketing profile. Review each section, make any changes you want, and then save it."
+      );
+    }
+  };
+
+  const generateMarketingProfile = async () => {
+    if (isGenerating) {
+      return;
+    }
+
+    setIsGenerating(true);
+
+    try {
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      const accessToken =
+        sessionData?.session?.access_token || "";
+
+      if (sessionError || !accessToken) {
+        throw new Error(
+          "Please sign in again before generating your marketing profile."
+        );
+      }
+
+      const response = await fetch(
+        `${BACKEND_URL}/marketing-consultant/profile`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            artistName: artistName.trim(),
+            artworkTypes: selectedArtworkTypes,
+            brandTraits: selectedBrandTraits,
+            audiences: selectedAudiences,
+            marketingGoal: selectedMarketingGoal,
+            additionalDetails: additionalDetails.trim(),
+          }),
+        }
+      );
+
+      const payload =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          payload?.error ||
+            "ArtBoost could not generate the marketing profile."
+        );
+      }
+
+      const profile =
+        payload?.profile || {};
+
+      setBrandName(
+        String(profile.brandName || artistName).trim()
+      );
+      setBrandVoice(
+        String(profile.brandVoice || "").trim()
+      );
+      setTargetAudience(
+        String(profile.targetAudience || "").trim()
+      );
+      setDefaultCTA(
+        String(profile.defaultCTA || "").trim()
+      );
+
+      const hashtags =
+        Array.isArray(profile.defaultHashtags)
+          ? profile.defaultHashtags.join(" ")
+          : String(profile.defaultHashtags || "");
+
+      setDefaultHashtags(
+        hashtags.trim()
+      );
+      setAvoidWords(
+        String(profile.avoidWords || "").trim()
+      );
+      setRecommendedPlatforms(
+        String(profile.recommendedPlatforms || "").trim()
+      );
+      setRecommendedSchedule(
+        String(profile.recommendedSchedule || "").trim()
+      );
+      setRecommendedAutomation(
+        String(profile.recommendedAutomation || "").trim()
+      );
+      setRecommendedCampaigns(
+        String(profile.recommendedCampaigns || "").trim()
+      );
+      setExamplePost(
+        String(profile.examplePost || "").trim()
+      );
+
+      setWizardVisible(false);
+      setWizardStep(1);
+
+      Alert.alert(
+        "AI Marketing Profile Generated",
+        "ArtBoost AI built your profile using your answers plus your connected ArtBoost stores and social platforms. Review it, then save."
+      );
+    } catch (error: any) {
+      console.log(
+        "AI marketing profile generation failed:",
+        error
+      );
+
+      /*
+       * Keep the consultant usable if the AI service is temporarily
+       * unavailable. The existing built-in generator is a launch-safe
+       * fallback rather than leaving the user stuck.
+       */
+      generateFallbackMarketingProfile(false);
+
+      Alert.alert(
+        "Used Built-In Strategy",
+        "The live AI consultant was temporarily unavailable, so ArtBoost created a profile using its built-in marketing strategy. You can review and save it normally."
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   useEffect(() => {
@@ -1075,10 +1243,10 @@ export default function BrandScreen() {
           />
 
           <Text style={styles.infoText}>
-            This version creates recommendations using
-            the built-in ArtBoost marketing profile
-            generator. The profile is saved on this
-            device and can be used by ArtBoost content
+            ArtBoost AI builds recommendations from your
+            profile answers and your connected stores and
+            social platforms. Your approved profile is
+            saved on this device for ArtBoost content
             tools that read the existing
             artboost_brand_profile storage record.
           </Text>
@@ -1405,19 +1573,33 @@ export default function BrandScreen() {
               </Pressable>
             ) : (
               <Pressable
-                style={styles.nextButton}
+                style={[
+                  styles.nextButton,
+                  isGenerating &&
+                    styles.disabledButton,
+                ]}
                 onPress={
                   generateMarketingProfile
                 }
+                disabled={isGenerating}
               >
-                <Ionicons
-                  name="sparkles"
-                  size={19}
-                  color="#ffffff"
-                />
+                {isGenerating ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#ffffff"
+                  />
+                ) : (
+                  <Ionicons
+                    name="sparkles"
+                    size={19}
+                    color="#ffffff"
+                  />
+                )}
 
                 <Text style={styles.nextButtonText}>
-                  Generate Profile
+                  {isGenerating
+                    ? "Building Strategy..."
+                    : "Generate Profile"}
                 </Text>
               </Pressable>
             )}
@@ -1520,13 +1702,11 @@ export default function BrandScreen() {
               </Text>
 
               <Text style={styles.previewPostBody}>
-                Explore an original design created for{" "}
-                {targetAudience ||
-                  "art lovers and collectors"}.
-                This post would use your saved brand
-                voice to keep every ArtBoost campaign
-                consistent, recognizable, and aligned
-                with your audience.
+                {examplePost ||
+                  `Explore an original design created for ${
+                    targetAudience ||
+                    "art lovers and collectors"
+                  }. This post uses your saved brand voice to keep ArtBoost campaigns consistent, recognizable, and aligned with your audience.`}
               </Text>
 
               <Text style={styles.previewCTA}>
