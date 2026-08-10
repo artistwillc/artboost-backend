@@ -1,527 +1,120 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="ArtBoost AI — AI-powered marketing for artists, creators, and online sellers." />
-  <title>ArtBoost AI | Turn Your Art Into a Movement</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="ArtBoost AI — AI-powered marketing for artists and creators." />
+  <title>ArtBoost AI</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<header class="topbar">
-  <div class="brand-wrap">
-    <a class="brand" href="#top" aria-label="ArtBoost AI home">
-      <span class="brand-mark">A<sup>+</sup></span>
-      <span class="brand-name">ArtBoost</span>
-      <span class="brand-ai">AI</span>
-    </a>
-  </div>
+  <main class="mockup-page" id="top">
+    <div class="mockup-stage">
+      <img
+        class="mockup-image"
+        src="images/artboost-approved-mockup.png"
+        alt="ArtBoost AI marketing website"
+      />
 
-  <nav class="main-nav" aria-label="Primary">
-    <a class="active" href="#features">Features</a>
-    <a href="#creator-tools">Creator Tools</a>
-    <a href="#pricing">Pricing</a>
-    <a href="faq.html">FAQ</a>
-    <a href="privacy.html">Privacy</a>
-    <a href="terms.html">Terms</a>
-  </nav>
+      <!-- Header -->
+      <a class="hotspot brand-link" href="#top" aria-label="ArtBoost AI home"></a>
+      <a class="hotspot nav-features" href="#feature-console" aria-label="Features"></a>
+      <a class="hotspot nav-creator" href="#workflow" aria-label="Creator Tools"></a>
+      <button class="hotspot nav-pricing" data-open-pricing aria-label="Pricing"></button>
+      <a class="hotspot nav-faq" href="faq.html" aria-label="FAQ"></a>
+      <a class="hotspot nav-privacy" href="privacy.html" aria-label="Privacy"></a>
+      <a class="hotspot nav-terms" href="terms.html" aria-label="Terms"></a>
+      <button class="hotspot nav-login" data-coming-soon="Log In" aria-label="Log In"></button>
+      <button class="hotspot nav-start" data-open-pricing aria-label="Start Free"></button>
 
-  <div class="nav-actions">
-    <a class="btn btn-ghost" href="#">Log In</a>
-    <a class="btn btn-gold" href="#pricing">Start Free</a>
-  </div>
-</header>
+      <!-- Feature cards -->
+      <button class="hotspot left-card card-1" data-feature="AI Content Generation"></button>
+      <button class="hotspot left-card card-2" data-feature="Creator Tools"></button>
+      <button class="hotspot left-card card-3" data-feature="AI Marketing Consultant"></button>
+      <button class="hotspot left-card card-4" data-feature="Smart Scheduling & Automation"></button>
 
-<main id="top">
-  <section class="hero-shell">
-    <div class="cosmic-bg"></div>
-    <div class="cosmic-glow cosmic-glow-left"></div>
-    <div class="cosmic-glow cosmic-glow-right"></div>
-    <div class="paint-splash splash-left"></div>
-    <div class="paint-splash splash-right"></div>
+      <button class="hotspot right-card card-1" data-feature="Store & Product Library"></button>
+      <button class="hotspot right-card card-2" data-feature="Analytics & Insights"></button>
+      <button class="hotspot right-card card-3" data-feature="AI Customer Support"></button>
+      <button class="hotspot right-card card-4" data-feature="Multi-Platform Publishing"></button>
 
-    <div class="hero-grid">
-      <aside class="feature-rail left-rail">
-        <button class="feature-side-card active" data-feature="content">
-          <span class="feature-side-icon">AI</span>
-          <span class="feature-side-text">
-            <strong>AI Content Generation</strong>
-            <small>Create high-performing titles, captions, hashtags, and more in seconds.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
+      <!-- Hero social buttons -->
+      <a class="hotspot social hero-pinterest" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"></a>
+      <a class="hotspot social hero-facebook" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"></a>
+      <a class="hotspot social hero-instagram" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"></a>
+      <button class="hotspot social hero-tiktok" data-coming-soon="TikTok" aria-label="TikTok"></button>
+      <a class="hotspot social hero-x" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"></a>
+      <button class="hotspot social hero-youtube" data-coming-soon="YouTube" aria-label="YouTube"></button>
+      <a class="hotspot social hero-linkedin" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"></a>
 
-        <button class="feature-side-card" data-feature="tools">
-          <span class="feature-side-icon">✦</span>
-          <span class="feature-side-text">
-            <strong>Creator Tools</strong>
-            <small>Powerful tools and calculators to grow your art business.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
+      <button class="hotspot hero-start" data-open-pricing aria-label="Start Free"></button>
 
-        <button class="feature-side-card" data-feature="consultant">
-          <span class="feature-side-icon">✦</span>
-          <span class="feature-side-text">
-            <strong>AI Marketing Consultant</strong>
-            <small>Get personalized AI strategies to reach more collectors and sell more art.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
+      <!-- AI console -->
+      <span id="feature-console" class="scroll-anchor feature-console-anchor"></span>
+      <button class="hotspot generate-content" data-generate aria-label="Generate Content"></button>
+      <button class="hotspot view-plans" data-open-pricing aria-label="View Plans and Pricing"></button>
 
-        <button class="feature-side-card" data-feature="automation">
-          <span class="feature-side-icon">↻</span>
-          <span class="feature-side-text">
-            <strong>Smart Scheduling & Automation</strong>
-            <small>Automate your marketing workflow and never miss a post.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
-      </aside>
+      <!-- Workflow -->
+      <span id="workflow" class="scroll-anchor workflow-anchor"></span>
+      <button class="hotspot workflow-create" data-feature="AI Content Generation" aria-label="Create"></button>
+      <button class="hotspot workflow-schedule" data-feature="Smart Scheduling & Automation" aria-label="Schedule"></button>
+      <button class="hotspot workflow-connect" data-feature="Multi-Platform Publishing" aria-label="Connect"></button>
 
-      <section class="hero-center">
-        <div class="astronaut-art" aria-hidden="true">
-          <div class="planet planet-one"></div>
-          <div class="planet planet-two"></div>
-          <div class="astronaut">
-            <div class="helmet">
-              <div class="helmet-glow"></div>
-              <div class="helmet-mark">A<sup>+</sup></div>
-            </div>
-            <div class="body-suit"></div>
-            <div class="arm arm-left"></div>
-            <div class="arm arm-right"></div>
-          </div>
-        </div>
+      <!-- Bottom CTA -->
+      <button class="hotspot bottom-start" data-open-pricing aria-label="Start Free Today"></button>
 
-        <div class="hero-copy">
-          <span class="eyebrow-pill">AI-POWERED MARKETING FOR ARTISTS</span>
-          <h1>Turn Your Art<br />Into a <span>Movement.</span></h1>
-          <p>Create, schedule, automate, and publish stunning content that grows your brand and sells more art.</p>
+      <!-- Footer -->
+      <a class="hotspot footer-brand" href="#top" aria-label="ArtBoost AI home"></a>
+      <a class="hotspot footer-features" href="#feature-console" aria-label="Features"></a>
+      <a class="hotspot footer-creator" href="#workflow" aria-label="Creator Tools"></a>
+      <button class="hotspot footer-pricing" data-open-pricing aria-label="Pricing"></button>
+      <a class="hotspot footer-faq" href="faq.html" aria-label="FAQ"></a>
+      <a class="hotspot footer-privacy" href="privacy.html" aria-label="Privacy"></a>
+      <a class="hotspot footer-terms" href="terms.html" aria-label="Terms"></a>
+      <a class="hotspot footer-contact" href="mailto:support@artboostai.com" aria-label="Contact"></a>
 
-          <div class="platform-row" aria-label="Supported platforms">
-            <span class="platform platform-pinterest" title="Pinterest">P</span>
-            <span class="platform platform-facebook" title="Facebook">f</span>
-            <span class="platform platform-instagram" title="Instagram">◎</span>
-            <span class="platform platform-tiktok" title="TikTok">♪</span>
-            <span class="platform platform-x" title="X">X</span>
-            <span class="platform platform-youtube" title="YouTube">▶</span>
-            <span class="platform platform-linkedin" title="LinkedIn">in</span>
-          </div>
-
-          <a class="btn btn-gold btn-hero" href="#pricing">✦ Start Free</a>
-          <span class="tiny-note">No credit card required</span>
-        </div>
-      </section>
-
-      <aside class="feature-rail right-rail">
-        <button class="feature-side-card" data-feature="library">
-          <span class="feature-side-icon">▣</span>
-          <span class="feature-side-text">
-            <strong>Store & Product Library</strong>
-            <small>Organize your products, artwork, and campaigns in one powerful library.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
-
-        <button class="feature-side-card" data-feature="analytics">
-          <span class="feature-side-icon">▥</span>
-          <span class="feature-side-text">
-            <strong>Analytics & Insights</strong>
-            <small>Track performance, engagement, and sales with beautiful insights.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
-
-        <button class="feature-side-card" data-feature="support">
-          <span class="feature-side-icon">◉</span>
-          <span class="feature-side-text">
-            <strong>AI Customer Support</strong>
-            <small>Get instant answers and guidance from our AI support assistant.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
-
-        <button class="feature-side-card" data-feature="publishing">
-          <span class="feature-side-icon">↗</span>
-          <span class="feature-side-text">
-            <strong>Multi-Platform Publishing</strong>
-            <small>Publish to multiple stores and social platforms from one dashboard.</small>
-            <em>Learn more →</em>
-          </span>
-        </button>
-      </aside>
+      <a class="hotspot footer-social footer-pinterest" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"></a>
+      <a class="hotspot footer-social footer-facebook" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"></a>
+      <a class="hotspot footer-social footer-instagram" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"></a>
+      <button class="hotspot footer-social footer-tiktok" data-coming-soon="TikTok" aria-label="TikTok"></button>
+      <a class="hotspot footer-social footer-x" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"></a>
+      <button class="hotspot footer-social footer-youtube" data-coming-soon="YouTube" aria-label="YouTube"></button>
+      <a class="hotspot footer-social footer-linkedin" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"></a>
     </div>
+  </main>
 
-    <section class="feature-console" id="features">
-      <div class="console-header">
-        <span>SEE IT IN ACTION</span>
-        <span class="credits-badge">✦ 12,450 Credits</span>
-      </div>
-
-      <div class="console-main">
-        <div class="art-preview">
-          <div class="lion-art">
-            <div class="lion-face">♛</div>
-            <div class="neon-streak streak-1"></div>
-            <div class="neon-streak streak-2"></div>
-            <div class="neon-streak streak-3"></div>
-          </div>
-        </div>
-
-        <div class="generator-panel">
-          <h2 id="consoleTitle">AI Content Generator</h2>
-          <p id="consoleSubtitle">Create marketing content for your artwork or products</p>
-
-          <label>
-            Content Type
-            <select>
-              <option>Social Media Post</option>
-              <option>Product Caption</option>
-              <option>Store Promotion</option>
-            </select>
-          </label>
-
-          <label>
-            Tone
-            <select>
-              <option>Motivational</option>
-              <option>Bold</option>
-              <option>Luxury</option>
-              <option>Playful</option>
-            </select>
-          </label>
-
-          <button class="btn btn-gold generator-btn" type="button" id="generateDemo">✦ Generate Content</button>
-        </div>
-      </div>
-
-      <div class="example-heading">✦ AI GENERATED EXAMPLE</div>
-      <div class="example-grid">
-        <article>
-          <span>TITLE</span>
-          <strong id="demoTitle">Chase Vision. Create Reality.</strong>
-          <small>ArtBoost AI</small>
-        </article>
-        <article>
-          <span>CAPTION</span>
-          <strong id="demoCaption">Your art has power. The world is waiting. Show them.</strong>
-          <small>ArtBoost AI</small>
-        </article>
-        <article>
-          <span>HASHTAGS</span>
-          <strong id="demoHashtags">#ArtistLife #Create #ArtBoost #DreamBig #MakeItHappen</strong>
-          <small>ArtBoost AI</small>
-        </article>
-        <article>
-          <span>CTA</span>
-          <strong id="demoCta">Explore the collection and make it yours. →</strong>
-          <small>ArtBoost AI</small>
-        </article>
-      </div>
-
-      <div class="console-cta">
-        <div>
-          <strong>Save time and create content that converts.</strong>
-          <span>ArtBoost handles the heavy lifting so you can focus on creating.</span>
-        </div>
-        <a href="#pricing">✦ View Plans & Pricing →</a>
+  <!-- Feature details modal -->
+  <div class="modal" id="featureModal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="featureModalTitle">
+      <button class="modal-close" data-close-modal aria-label="Close">×</button>
+      <p class="modal-kicker">ARTBOOST FEATURE</p>
+      <h2 id="featureModalTitle"></h2>
+      <p id="featureModalCopy"></p>
+      <div class="modal-actions">
+        <button class="modal-primary" data-open-pricing>View Plans & Pricing</button>
+        <button class="modal-secondary" data-close-modal>Close</button>
       </div>
     </section>
-  </section>
+  </div>
 
-  <section class="workflow-section" id="creator-tools">
-    <div class="section-kicker">SEE THE WORKFLOW</div>
-    <h2>Create. Schedule. Connect. <span>Automate.</span></h2>
-    <p>Everything in ArtBoost is designed to take your artwork from catalog to campaign without rebuilding the same marketing workflow over and over.</p>
-
-    <div class="workflow-grid">
-      <button class="workflow-card" type="button" data-scroll="#features">
-        <div class="workflow-art create-art">
-          <div class="brush"></div>
-          <div class="art-letter">A<sup>+</sup></div>
-        </div>
-        <div class="workflow-copy">
-          <h3>⚡ CREATE</h3>
-          <p>Generate stunning content, craft captions, and prepare platform-ready posts.</p>
-        </div>
-      </button>
-
-      <button class="workflow-card" type="button" data-scroll="#pricing">
-        <div class="workflow-art schedule-art">
-          <div class="calendar-grid"></div>
-          <div class="clock-face"></div>
-        </div>
-        <div class="workflow-copy">
-          <h3>◷ SCHEDULE</h3>
-          <p>Plan ahead and automate your posts to reach your audience at the perfect time.</p>
-        </div>
-      </button>
-
-      <button class="workflow-card" type="button" data-scroll="#features">
-        <div class="workflow-art connect-art">
-          <div class="network-core"></div>
-          <span class="node n1">P</span>
-          <span class="node n2">f</span>
-          <span class="node n3">◎</span>
-          <span class="node n4">X</span>
-          <span class="node n5">in</span>
-          <span class="node n6">♪</span>
-        </div>
-        <div class="workflow-copy">
-          <h3>↗ CONNECT</h3>
-          <p>Connect your stores and social platforms to streamline and grow your brand.</p>
-        </div>
-      </button>
-    </div>
-  </section>
-
-  <section class="bottom-banner">
-    <div class="bottom-art">
-      <div class="banner-astronaut"></div>
-      <div class="banner-canvas">A<sup>+</sup></div>
-      <div class="cityline"></div>
-    </div>
-
-    <div class="bottom-copy">
-      <h2>Your Art.<br />Our AI.<br /><span>Limitless Possibilities.</span></h2>
-      <p>Join artists who are growing their brands with ArtBoost AI.</p>
-    </div>
-
-    <a class="btn btn-gold banner-btn" href="#pricing">🚀 Start Free Today</a>
-  </section>
-
-  <section class="pricing-section" id="pricing">
-    <div class="section-kicker">PRICING</div>
-    <h2>Start free. Upgrade when you’re ready.</h2>
-    <p>Simple plans for creators at every stage of growth.</p>
-
-    <div class="pricing-grid">
-      <article class="price-card">
-        <h3>Free</h3>
-        <div class="price">$0<span>/month</span></div>
-        <p>Explore ArtBoost and build your first marketing workflows.</p>
-        <ul>
-          <li>Basic campaign creation</li>
-          <li>Limited AI generations</li>
-          <li>Limited social connections</li>
-          <li>Core creator tools</li>
-        </ul>
-        <a class="btn btn-outline-gold" href="#">Start Free</a>
-      </article>
-
-      <article class="price-card">
-        <h3>Starter</h3>
-        <div class="price">$12.99<span>/month</span></div>
-        <p>For creators building a consistent marketing routine.</p>
-        <ul>
-          <li>More AI generations</li>
-          <li>Scheduling</li>
-          <li>Multiple social connections</li>
-          <li>Store & product importing</li>
-        </ul>
-        <a class="btn btn-outline-gold" href="#">Choose Starter</a>
-      </article>
-
-      <article class="price-card featured-price">
-        <div class="popular">MOST POPULAR</div>
-        <h3>Pro</h3>
-        <div class="price">$24.99<span>/month</span></div>
-        <p>The complete ArtBoost experience for serious artists and POD sellers.</p>
-        <ul>
-          <li>All supported social platforms</li>
-          <li>Advanced scheduling</li>
-          <li>Store automation & product rotation</li>
-          <li>Full Creator Tools</li>
-          <li>AI Marketing Consultant</li>
-          <li>Advanced analytics</li>
-        </ul>
-        <a class="btn btn-gold" href="#">Choose Pro</a>
-      </article>
-
-      <article class="price-card">
-        <h3>Business</h3>
-        <div class="price">$49.99<span>/month</span></div>
-        <p>For high-volume sellers and growing creative businesses.</p>
-        <ul>
-          <li>Everything in Pro</li>
-          <li>Highest publishing limits</li>
-          <li>Multiple stores and larger catalogs</li>
-          <li>Priority support</li>
-        </ul>
-        <a class="btn btn-outline-gold" href="#">Choose Business</a>
-      </article>
-    </div>
-  </section>
-</main>
-
-<footer class="site-footer">
-  <div class="footer-top">
-    <div class="footer-brand">
-      <a class="brand" href="#top">
-        <span class="brand-mark">A<sup>+</sup></span>
-        <span class="brand-name">ArtBoost</span>
-        <span class="brand-ai">AI</span>
-      </a>
-      <p>AI-powered marketing for artists.<br />Create. Schedule. Connect. Automate.</p>
-    </div>
-
-    <div>
-      <h4>Product</h4>
-      <a href="#features">Features</a>
-      <a href="#creator-tools">Creator Tools</a>
-      <a href="#pricing">Pricing</a>
-    </div>
-
-    <div>
-      <h4>Resources</h4>
-      <a href="faq.html">FAQ</a>
-      <a href="privacy.html">Privacy</a>
-      <a href="terms.html">Terms</a>
-    </div>
-
-    <div>
-      <h4>Company</h4>
-      <a href="#">About</a>
-      <a href="mailto:support@artboostai.com">Contact</a>
-    </div>
-
-    <div>
-      <h4>FOLLOW US</h4>
-      <div class="footer-platforms">
-        <span class="platform platform-pinterest">P</span>
-        <span class="platform platform-facebook">f</span>
-        <span class="platform platform-instagram">◎</span>
-        <span class="platform platform-tiktok">♪</span>
-        <span class="platform platform-x">X</span>
-        <span class="platform platform-youtube">▶</span>
-        <span class="platform platform-linkedin">in</span>
+  <!-- Pricing modal keeps the approved page visually unchanged until requested -->
+  <div class="modal" id="pricingModal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-pricing></div>
+    <section class="pricing-modal-card" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
+      <button class="modal-close" data-close-pricing aria-label="Close">×</button>
+      <p class="modal-kicker">ARTBOOST PRICING</p>
+      <h2 id="pricingTitle">Choose the plan that fits your art business.</h2>
+      <div class="pricing-grid">
+        <article><h3>Free</h3><strong>$0<span>/month</span></strong><p>Try ArtBoost and build your first campaigns.</p><button>Start Free</button></article>
+        <article><h3>Starter</h3><strong>$12.99<span>/month</span></strong><p>For creators building a consistent marketing routine.</p><button>Choose Starter</button></article>
+        <article class="featured"><div class="badge">MOST POPULAR</div><h3>Pro</h3><strong>$24.99<span>/month</span></strong><p>The complete ArtBoost experience for serious artists and POD sellers.</p><button>Choose Pro</button></article>
+        <article><h3>Business</h3><strong>$49.99<span>/month</span></strong><p>For high-volume sellers and growing creative businesses.</p><button>Choose Business</button></article>
       </div>
-    </div>
+    </section>
   </div>
 
-  <div class="footer-bottom">
-    <span>© 2026 ArtBoost AI. All rights reserved.</span>
-    <div>
-      <a href="privacy.html">Privacy</a>
-      <a href="terms.html">Terms</a>
-    </div>
-  </div>
-</footer>
-
-<script>
-const featureData = {
-  content: {
-    title: "AI Content Generator",
-    subtitle: "Create marketing content for your artwork or products",
-    titleOut: "Chase Vision. Create Reality.",
-    caption: "Your art has power. The world is waiting. Show them.",
-    hashtags: "#ArtistLife #Create #ArtBoost #DreamBig #MakeItHappen",
-    cta: "Explore the collection and make it yours. →"
-  },
-  tools: {
-    title: "Creator Tools",
-    subtitle: "AI generators, pricing tools, planning, critiques, and coaching",
-    titleOut: "Build Smarter. Create Bigger.",
-    caption: "Use focused tools built around the business decisions artists make every day.",
-    hashtags: "#CreatorTools #ArtistBusiness #POD #ArtBoost",
-    cta: "Open Creator Tools →"
-  },
-  consultant: {
-    title: "AI Marketing Consultant",
-    subtitle: "Personalized strategy for your products, audience, and goals",
-    titleOut: "Your Next Move, Powered by AI.",
-    caption: "Get platform, schedule, campaign, and automation recommendations built around your art business.",
-    hashtags: "#MarketingAI #ArtistGrowth #Strategy #ArtBoost",
-    cta: "Build your marketing profile →"
-  },
-  automation: {
-    title: "Smart Scheduling & Automation",
-    subtitle: "Keep your marketing moving even when you are creating",
-    titleOut: "Plan Once. Keep Promoting.",
-    caption: "Schedule campaigns and rotate eligible products with repeatable promotion workflows.",
-    hashtags: "#Automation #ArtistMarketing #ScheduleSmart #ArtBoost",
-    cta: "Create an automation →"
-  },
-  library: {
-    title: "Store & Product Library",
-    subtitle: "Your artwork catalog, organized and ready to market",
-    titleOut: "One Catalog. Endless Campaigns.",
-    caption: "Bring products from supported stores into a centralized visual marketing library.",
-    hashtags: "#ProductLibrary #PODSeller #ArtistStore #ArtBoost",
-    cta: "Connect your store →"
-  },
-  analytics: {
-    title: "Analytics & Insights",
-    subtitle: "See what is running, what succeeded, and what to do next",
-    titleOut: "Know What Works.",
-    caption: "Track campaign activity, automation health, publishing performance, and useful marketing signals.",
-    hashtags: "#Analytics #ArtistBusiness #GrowthInsights #ArtBoost",
-    cta: "View your insights →"
-  },
-  support: {
-    title: "AI Customer Support",
-    subtitle: "ArtBoost-specific help for features, connections, and publishing",
-    titleOut: "Answers When You Need Them.",
-    caption: "Get in-app guidance for features, subscriptions, store connections, social platforms, and troubleshooting.",
-    hashtags: "#AISupport #CreatorHelp #ArtBoost",
-    cta: "Ask ArtBoost AI →"
-  },
-  publishing: {
-    title: "Multi-Platform Publishing",
-    subtitle: "One campaign across your connected social channels",
-    titleOut: "One Campaign. More Reach.",
-    caption: "Create once and publish through connected platforms while ArtBoost handles platform-specific workflows.",
-    hashtags: "#SocialPublishing #ArtistsOnline #CreatorMarketing #ArtBoost",
-    cta: "Create a campaign →"
-  }
-};
-
-const sideCards = document.querySelectorAll(".feature-side-card");
-const consoleTitle = document.getElementById("consoleTitle");
-const consoleSubtitle = document.getElementById("consoleSubtitle");
-const demoTitle = document.getElementById("demoTitle");
-const demoCaption = document.getElementById("demoCaption");
-const demoHashtags = document.getElementById("demoHashtags");
-const demoCta = document.getElementById("demoCta");
-
-function activateFeature(key) {
-  const data = featureData[key];
-  if (!data) return;
-
-  sideCards.forEach(card => {
-    card.classList.toggle("active", card.dataset.feature === key);
-  });
-
-  consoleTitle.textContent = data.title;
-  consoleSubtitle.textContent = data.subtitle;
-  demoTitle.textContent = data.titleOut;
-  demoCaption.textContent = data.caption;
-  demoHashtags.textContent = data.hashtags;
-  demoCta.textContent = data.cta;
-
-  document.querySelector(".feature-console").scrollIntoView({
-    behavior: "smooth",
-    block: "center"
-  });
-}
-
-sideCards.forEach(card => {
-  card.addEventListener("click", () => activateFeature(card.dataset.feature));
-});
-
-document.getElementById("generateDemo").addEventListener("click", () => {
-  const active = document.querySelector(".feature-side-card.active");
-  const key = active ? active.dataset.feature : "content";
-  activateFeature(key);
-});
-
-document.querySelectorAll("[data-scroll]").forEach(card => {
-  card.addEventListener("click", () => {
-    const target = document.querySelector(card.dataset.scroll);
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-});
-</script>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="script.js"></script>
 </body>
 </html>
