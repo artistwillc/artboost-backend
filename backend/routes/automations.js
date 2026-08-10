@@ -234,6 +234,12 @@ router.post(
         platforms = [],
         facebookPageId = null,
         pinterestBoardId = null,
+        tiktokPrivacyLevel = null,
+        tiktokDisableComment = false,
+        tiktokAutoAddMusic = true,
+        tiktokBrandOrganicToggle = true,
+        tiktokBrandContentToggle = false,
+        tiktokConsent = false,
         postingIntervalDays = 1,
         selectionMode =
         "least_recently_posted",
@@ -308,6 +314,20 @@ router.post(
           pinterestBoardId
           )
           : null,
+          tiktokPrivacyLevel:
+            tiktokPrivacyLevel
+              ? String(tiktokPrivacyLevel)
+              : null,
+          tiktokDisableComment:
+            Boolean(tiktokDisableComment),
+          tiktokAutoAddMusic:
+            Boolean(tiktokAutoAddMusic),
+          tiktokBrandOrganicToggle:
+            Boolean(tiktokBrandOrganicToggle),
+          tiktokBrandContentToggle:
+            Boolean(tiktokBrandContentToggle),
+          tiktokConsent:
+            Boolean(tiktokConsent),
           postingIntervalDays:
             Number(postingIntervalDays) || 1,
           selectionMode: String(

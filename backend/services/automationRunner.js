@@ -799,6 +799,24 @@ ${productLink}`,
       continue;
     }
 
+    if (normalizedPlatform === "tiktok") {
+      contentByPlatform.tiktok = {
+        title: truncateText(title, 90),
+        description: truncateText(
+          `${professionalDescription}
+
+${availabilityText}
+
+${hashtags}`,
+          1800
+        ),
+        hashtags: "",
+        cta: "",
+      };
+
+      continue;
+    }
+
     if (
       normalizedPlatform === "x" ||
       normalizedPlatform === "twitter"
@@ -865,6 +883,38 @@ ${productLink}`,
         boardId,
         pageId,
         userId,
+        tiktokOptions: {
+          privacyLevel:
+            automation.tiktok_privacy_level ??
+            automation.tiktokPrivacyLevel ??
+            null,
+          disableComment:
+            Boolean(
+              automation.tiktok_disable_comment ??
+              automation.tiktokDisableComment ??
+              false
+            ),
+          autoAddMusic:
+            automation.tiktok_auto_add_music ??
+            automation.tiktokAutoAddMusic ??
+            true,
+          brandOrganicToggle:
+            automation.tiktok_brand_organic_toggle ??
+            automation.tiktokBrandOrganicToggle ??
+            true,
+          brandContentToggle:
+            Boolean(
+              automation.tiktok_brand_content_toggle ??
+              automation.tiktokBrandContentToggle ??
+              false
+            ),
+          consent:
+            Boolean(
+              automation.tiktok_consent ??
+              automation.tiktokConsent ??
+              false
+            ),
+        },
       });
   } catch (error) {
     const message =

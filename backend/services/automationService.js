@@ -55,6 +55,30 @@ boardId:
   row.pinterest_board_id ||
   null,
 
+tiktokPrivacyLevel:
+  row.tiktok_privacy_level || null,
+
+tiktokDisableComment:
+  Boolean(row.tiktok_disable_comment),
+
+tiktokAutoAddMusic:
+  row.tiktok_auto_add_music === null ||
+  row.tiktok_auto_add_music === undefined
+    ? true
+    : Boolean(row.tiktok_auto_add_music),
+
+tiktokBrandOrganicToggle:
+  row.tiktok_brand_organic_toggle === null ||
+  row.tiktok_brand_organic_toggle === undefined
+    ? true
+    : Boolean(row.tiktok_brand_organic_toggle),
+
+tiktokBrandContentToggle:
+  Boolean(row.tiktok_brand_content_toggle),
+
+tiktokConsent:
+  Boolean(row.tiktok_consent),
+
 selectionMode:
   row.selection_mode ||
   "least_recently_posted",
@@ -521,6 +545,12 @@ export async function createOrUpdateAutomation({
   platforms = [],
   facebookPageId = null,
   pinterestBoardId = null,
+  tiktokPrivacyLevel = null,
+  tiktokDisableComment = false,
+  tiktokAutoAddMusic = true,
+  tiktokBrandOrganicToggle = true,
+  tiktokBrandContentToggle = false,
+  tiktokConsent = false,
   postingIntervalDays = 1,
   selectionMode = "least_recently_posted",
   repeatDelayDays = 30,
@@ -629,6 +659,26 @@ board_id:
         pinterestBoardId
       )
     : null,
+
+tiktok_privacy_level:
+  tiktokPrivacyLevel
+    ? String(tiktokPrivacyLevel)
+    : null,
+
+tiktok_disable_comment:
+  Boolean(tiktokDisableComment),
+
+tiktok_auto_add_music:
+  Boolean(tiktokAutoAddMusic),
+
+tiktok_brand_organic_toggle:
+  Boolean(tiktokBrandOrganicToggle),
+
+tiktok_brand_content_toggle:
+  Boolean(tiktokBrandContentToggle),
+
+tiktok_consent:
+  Boolean(tiktokConsent),
 
 posting_interval_days:
   parsedPostingIntervalDays,
