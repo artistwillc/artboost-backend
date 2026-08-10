@@ -87,6 +87,82 @@ function buildInitialValues(
   );
 }
 
+type FocusedAIField = {
+  key: string;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+  required?: boolean;
+  helperText?: string;
+};
+
+function getFocusedAIFields(
+  toolId: string
+): FocusedAIField[] {
+  if (toolId === "ai-title") {
+    return [
+      {
+        key: "context",
+        label: "Optional Context",
+        placeholder:
+          "Example: T-shirt design, wall art, fishing audience, premium style",
+        multiline: true,
+      },
+    ];
+  }
+
+  if (
+    toolId ===
+    "ai-description"
+  ) {
+    return [
+      {
+        key: "context",
+        label: "Optional Context",
+        placeholder:
+          "Example: Product type, target customer, marketplace, or details the image cannot show",
+        multiline: true,
+      },
+    ];
+  }
+
+  if (
+    toolId ===
+    "ai-hashtag"
+  ) {
+    return [
+      {
+        key: "platform",
+        label: "Platform",
+        placeholder:
+          "Instagram, Facebook, Pinterest, X, Threads, LinkedIn, or TikTok",
+        required: true,
+      },
+    ];
+  }
+
+  if (toolId === "ai-cta") {
+    return [
+      {
+        key: "platform",
+        label: "Platform",
+        placeholder:
+          "Instagram, Facebook, Pinterest, X, Threads, LinkedIn, or TikTok",
+        required: true,
+      },
+      {
+        key: "goal",
+        label: "Campaign Goal",
+        placeholder:
+          "Example: Shop now, view the artwork, follow, save, learn more",
+        required: true,
+      },
+    ];
+  }
+
+  return [];
+}
+
 export default function CreatorToolScreen() {
   const params =
     useLocalSearchParams<{
@@ -123,6 +199,11 @@ export default function CreatorToolScreen() {
 
   const isAIWritingTool =
     tool?.kind === "ai";
+
+  const focusedAIFields =
+    isAIWritingTool && tool
+      ? getFocusedAIFields(tool.id)
+      : [];
 
   /**
    * Reliable Creator Tools navigation.
@@ -225,53 +306,10 @@ export default function CreatorToolScreen() {
   }
 
   function fieldIsRequired(
-    field: CreatorToolDefinition["fields"][number]
+    field:
+      | CreatorToolDefinition["fields"][number]
+      | FocusedAIField
   ) {
-    if (!field.required) {
-      return false;
-    }
-
-    if (
-      !isAIWritingTool ||
-      !artwork
-    ) {
-      return true;
-    }
-
-    // When artwork is supplied, visual fields can be inferred from
-    // the image. Platform/goal fields still require user intent.
-    if (tool?.id === "ai-title") {
-      return false;
-    }
-
-    if (
-      tool?.id ===
-      "ai-description"
-    ) {
-      return false;
-    }
-
-    if (
-      tool?.id ===
-      "ai-hashtag"
-    ) {
-      return (
-        field.key ===
-        "platform"
-      );
-    }
-
-    if (
-      tool?.id === "ai-cta"
-    ) {
-      return (
-        field.key ===
-          "goal" ||
-        field.key ===
-          "platform"
-      );
-    }
-
     return Boolean(
       field.required
     );
@@ -292,29 +330,41 @@ export default function CreatorToolScreen() {
       return false;
     }
 
-    const hasAnyTextInput =
-      Object.values(values).some(
-        (value) =>
-          String(value || "").trim()
-      );
+    if (isAIWritingTool) {
+      if (!artwork) {
+        Alert.alert(
+          "Artwork Required",
+          "Upload artwork before generating."
+        );
 
-    if (
-      tool.kind === "ai" &&
-      !artwork &&
-      !hasAnyTextInput
-    ) {
-      Alert.alert(
-        "Add Artwork or Details",
-        "Upload artwork or enter details before generating."
-      );
+        return false;
+      }
 
-      return false;
+      const missingField =
+        focusedAIFields.find(
+          (field) =>
+            field.required &&
+            !String(
+              values[field.key] || ""
+            ).trim()
+        );
+
+      if (missingField) {
+        Alert.alert(
+          "Missing Information",
+          `Enter ${missingField.label.toLowerCase()} before continuing.`
+        );
+
+        return false;
+      }
+
+      return true;
     }
 
     const missingField =
       tool.fields.find(
         (field) =>
-          fieldIsRequired(field) &&
+          field.required &&
           !String(
             values[field.key] || ""
           ).trim()
@@ -781,6 +831,12 @@ export default function CreatorToolScreen() {
       return "";
     }
 
+    if (isAIWritingTool) {
+      return (result.items || [])
+        .filter(Boolean)
+        .join("\n\n");
+    }
+
     return [
       result.title,
       result.body,
@@ -1069,7 +1125,13 @@ export default function CreatorToolScreen() {
               }
             >
               {isAIWritingTool
-                ? "Upload artwork so AI can analyze the image, then add any optional details that will improve the result."
+                ? tool.id === "ai-title"
+                  ? "Upload artwork, add optional context if needed, then generate titles."
+                  : tool.id === "ai-description"
+                    ? "Upload artwork, add optional context if needed, then generate descriptions."
+                    : tool.id === "ai-hashtag"
+                      ? "Upload artwork, choose the platform, then generate hashtags."
+                      : "Upload artwork, choose the platform and campaign goal, then generate calls to action."
                 : `Complete the fields below, then tap ${tool.actionLabel}.`}
             </Text>
 
@@ -1092,7 +1154,7 @@ export default function CreatorToolScreen() {
                     styles.artworkSectionHelp
                   }
                 >
-                  Optional, but recommended. ArtBoost will analyze the visible subject, colors, style, mood, and text in the artwork.
+                  Required. ArtBoost will analyze the visible subject, colors, style, mood, and text in the artwork.
                 </Text>
 
                 {!artwork ? (
@@ -1204,79 +1266,85 @@ export default function CreatorToolScreen() {
               </View>
             ) : null}
 
-            {tool.fields.map(
-              (field) => (
-                <View
-                  key={
-                    field.key
-                  }
+            {(isAIWritingTool
+              ? focusedAIFields
+              : tool.fields
+            ).map((field) => (
+              <View
+                key={field.key}
+                style={
+                  styles.fieldWrap
+                }
+              >
+                <Text
                   style={
-                    styles.fieldWrap
+                    styles.fieldLabel
                   }
                 >
+                  {field.label}
+                  {fieldIsRequired(field)
+                    ? " *"
+                    : ""}
+                </Text>
+
+                <TextInput
+                  value={
+                    values[
+                      field.key
+                    ] || ""
+                  }
+                  onChangeText={(
+                    value
+                  ) =>
+                    updateValue(
+                      field.key,
+                      value
+                    )
+                  }
+                  placeholder={
+                    field.placeholder
+                  }
+                  placeholderTextColor="#6f6f6f"
+                  style={[
+                    styles.input,
+                    field.multiline &&
+                      styles.multilineInput,
+                  ]}
+                  multiline={
+                    Boolean(
+                      field.multiline
+                    )
+                  }
+                  textAlignVertical={
+                    field.multiline
+                      ? "top"
+                      : "center"
+                  }
+                  keyboardType={
+                    "keyboardType" in
+                    field
+                      ? field.keyboardType ||
+                        "default"
+                      : "default"
+                  }
+                  autoCapitalize="sentences"
+                />
+
+                {"helperText" in
+                  field &&
+                field.helperText ? (
                   <Text
                     style={
-                      styles.fieldLabel
+                      styles.helperText
                     }
                   >
-                    {field.label}
-                    {fieldIsRequired(field)
-                      ? " *"
-                      : ""}
+                    {
+                      field.helperText
+                    }
                   </Text>
-
-                  <TextInput
-                    value={
-                      values[
-                        field.key
-                      ] || ""
-                    }
-                    onChangeText={(
-                      value
-                    ) =>
-                      updateValue(
-                        field.key,
-                        value
-                      )
-                    }
-                    placeholder={
-                      field.placeholder
-                    }
-                    placeholderTextColor="#6f6f6f"
-                    style={[
-                      styles.input,
-                      field.multiline &&
-                        styles.multilineInput,
-                    ]}
-                    multiline={
-                      field.multiline
-                    }
-                    textAlignVertical={
-                      field.multiline
-                        ? "top"
-                        : "center"
-                    }
-                    keyboardType={
-                      field.keyboardType ||
-                      "default"
-                    }
-                    autoCapitalize="sentences"
-                  />
-
-                  {field.helperText ? (
-                    <Text
-                      style={
-                        styles.helperText
-                      }
-                    >
-                      {
-                        field.helperText
-                      }
-                    </Text>
-                  ) : null}
-                </View>
-              )
-            )}
+                ) : null}
+              </View>
+            ))}
 
             <Pressable
               style={[
@@ -1323,54 +1391,58 @@ export default function CreatorToolScreen() {
                 styles.resultCard
               }
             >
-              <View
-                style={
-                  styles.resultHeader
-                }
-              >
-                <View
-                  style={
-                    styles.resultHeaderIcon
-                  }
-                >
-                  <Ionicons
-                    name="checkmark"
-                    size={20}
-                    color="#86efac"
-                  />
-                </View>
-
-                <View
-                  style={
-                    styles.resultHeaderTextWrap
-                  }
-                >
-                  <Text
+              {!isAIWritingTool ? (
+                <>
+                  <View
                     style={
-                      styles.resultEyebrow
+                      styles.resultHeader
                     }
                   >
-                    RESULT
-                  </Text>
+                    <View
+                      style={
+                        styles.resultHeaderIcon
+                      }
+                    >
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color="#86efac"
+                      />
+                    </View>
 
-                  <Text
-                    style={
-                      styles.resultTitle
-                    }
-                  >
-                    {result.title}
-                  </Text>
-                </View>
-              </View>
+                    <View
+                      style={
+                        styles.resultHeaderTextWrap
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.resultEyebrow
+                        }
+                      >
+                        RESULT
+                      </Text>
 
-              {result.body ? (
-                <Text
-                  style={
-                    styles.resultBody
-                  }
-                >
-                  {result.body}
-                </Text>
+                      <Text
+                        style={
+                          styles.resultTitle
+                        }
+                      >
+                        {result.title}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {result.body ? (
+                    <Text
+                      style={
+                        styles.resultBody
+                      }
+                    >
+                      {result.body}
+                    </Text>
+                  ) : null}
+                </>
               ) : null}
 
               {result.items?.map(
@@ -1384,25 +1456,30 @@ export default function CreatorToolScreen() {
                       styles.resultItem
                     }
                   >
-                    <View
-                      style={
-                        styles.resultNumber
-                      }
-                    >
-                      <Text
+                    {!isAIWritingTool ? (
+                      <View
                         style={
-                          styles.resultNumberText
+                          styles.resultNumber
                         }
                       >
-                        {index + 1}
-                      </Text>
-                    </View>
+                        <Text
+                          style={
+                            styles.resultNumberText
+                          }
+                        >
+                          {index + 1}
+                        </Text>
+                      </View>
+                    ) : null}
 
                     <Text
                       selectable
-                      style={
-                        styles.resultItemText
-                      }
+                      style={[
+                        styles.resultItemText,
+                        isAIWritingTool && {
+                          paddingLeft: 0,
+                        },
+                      ]}
                     >
                       {item}
                     </Text>
