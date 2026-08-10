@@ -684,6 +684,17 @@ router.get("/tiktok/status", async (req, res) => {
 
 
 
+
+router.get(
+  "/tiktok/media/tiktokQNCBohsM5q1wyjMVjGdirtAJtQ3AM1lF.txt",
+  (_req, res) => {
+    res.type("text/plain");
+    return res.send(
+      "tiktok-developers-site-verification=QNCBohsM5q1wyjMVjGdirtAJtQ3AM1lF"
+    );
+  }
+);
+
 router.get("/tiktok/media/:token", async (req, res) => {
   try {
     const hostedUrl = resolveTikTokMediaToken(
