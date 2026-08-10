@@ -85,10 +85,16 @@ async function publishTikTokAutomation({
     );
   }
 
+  const cleanTikTokProductLink =
+    cleanText(productLink);
+
   const caption = [
     cleanText(title),
     cleanText(description),
     cleanText(cta),
+    cleanTikTokProductLink
+      ? `Shop / view artwork: ${cleanTikTokProductLink}`
+      : "",
     cleanText(hashtags),
   ]
     .filter(Boolean)
