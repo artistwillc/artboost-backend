@@ -1,13 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
-import { router, useFocusEffect } from "expo-router";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { router } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,7 +20,15 @@ import { supabase } from "@/lib/supabase";
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
  
-const PLATFORMS = ["Pinterest", "Instagram", "Facebook", "X"];
+const PLATFORMS = [
+  "Pinterest",
+  "Instagram",
+  "Facebook",
+  "X",
+  "Threads",
+  "LinkedIn",
+  "TikTok",
+];
  
 const STYLE_PRESETS = [
   "Bold Sales",
@@ -75,16 +78,6 @@ export default function HomeScreen() {
   const [homeMode, setHomeMode] = useState<
     "home" | "upload"
   >("home");
-
-  const [
-    marketingProfileCompletion,
-    setMarketingProfileCompletion,
-  ] = useState(0);
-
-  const [
-    hasMarketingProfile,
-    setHasMarketingProfile,
-  ] = useState(false);
  
   useEffect(() => {
     loadSession();
@@ -129,56 +122,6 @@ export default function HomeScreen() {
  
     setProfile(data);
   };
-
-  const loadMarketingProfile = useCallback(async () => {
-    try {
-      const saved = await AsyncStorage.getItem(
-        "artboost_brand_profile"
-      );
-
-      if (!saved) {
-        setMarketingProfileCompletion(0);
-        setHasMarketingProfile(false);
-        return;
-      }
-
-      const marketingProfile = JSON.parse(saved);
-
-      const requiredFields = [
-        marketingProfile?.brandName,
-        marketingProfile?.brandVoice,
-        marketingProfile?.targetAudience,
-        marketingProfile?.defaultCTA,
-        marketingProfile?.defaultHashtags,
-        marketingProfile?.avoidWords,
-      ];
-
-      const completedFields = requiredFields.filter(value =>
-        String(value || "").trim()
-      ).length;
-
-      const completion = Math.round(
-        (completedFields / requiredFields.length) * 100
-      );
-
-      setMarketingProfileCompletion(completion);
-      setHasMarketingProfile(completedFields > 0);
-    } catch (error) {
-      console.log(
-        "Marketing profile load error:",
-        error
-      );
-
-      setMarketingProfileCompletion(0);
-      setHasMarketingProfile(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadMarketingProfile();
-    }, [loadMarketingProfile])
-  );
  
   const signUp = async () => {
   if (!authEmail || !authPassword) {
@@ -505,43 +448,9 @@ const createFacebookPost = async () => {
       }
 
       if (selectedPlatform === "X") {
-        const messageWithoutLink = [
-          campaign.title,
-          campaign.description,
-          campaign.hashtags,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-
-        const response = await fetch(`${BACKEND_URL}/x/post`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: messageWithoutLink,
-            imageUrl: hostedImageUrl,
-            productLink: finalProductLink || null,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok || data?.error) {
-          console.log("X post error:", data);
-
-          Alert.alert(
-            "X Post Failed",
-            data?.error?.message ||
-              data?.error ||
-              "X could not publish this post."
-          );
-          return;
-        }
-
         Alert.alert(
-          "X Published",
-          "Your artwork was successfully posted to X."
+          "X Posting Unavailable",
+          "Direct X posting is not currently available."
         );
         return;
       }
@@ -731,16 +640,13 @@ const createFacebookPost = async () => {
           : `https://${rawProductLink}`
         : "";
 
-      const shouldUseDirectProductCta =
-        ["Instagram", "Facebook", "X"].includes(selectedPlatform) &&
-        Boolean(normalizedProductLink);
-
-      const finalGeneratedText = shouldUseDirectProductCta
-        ? generatedText.replace(
-            /CTA:\s*[\s\S]*?(?=(?:TITLE|DESCRIPTION|HASHTAGS):|$)/i,
-            `CTA: Shop this design: ${normalizedProductLink}\n`
-          )
-        : generatedText;
+      const finalGeneratedText =
+        selectedPlatform === "Instagram" && normalizedProductLink
+          ? generatedText.replace(
+              /CTA:\s*[\s\S]*?(?=(?:TITLE|DESCRIPTION|HASHTAGS):|$)/i,
+              `CTA: Shop this design: ${normalizedProductLink}\n`
+            )
+          : generatedText;
  
       setResult(finalGeneratedText);
       setHostedImageUrl(imageUrlFromBackend);
@@ -891,96 +797,6 @@ const createFacebookPost = async () => {
           <Text style={styles.sectionHeading}>
             What would you like to do today?
           </Text>
-
-          <Pressable
-            style={styles.consultantCard}
-            onPress={() =>
-              router.push("/brand" as any)
-            }
-          >
-            <View style={styles.consultantIcon}>
-              <Text
-                style={styles.consultantIconText}
-              >
-                ✦
-              </Text>
-            </View>
-
-            <View
-              style={styles.consultantTextWrap}
-            >
-              <View
-                style={styles.consultantTitleRow}
-              >
-                <Text
-                  style={styles.consultantTitle}
-                >
-                  ArtBoost AI Marketing Consultant
-                </Text>
-
-                {hasMarketingProfile ? (
-                  <View
-                    style={styles.profileBadge}
-                  >
-                    <Text
-                      style={
-                        styles.profileBadgeText
-                      }
-                    >
-                      {marketingProfileCompletion}%
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <Text
-                style={
-                  styles.consultantDescription
-                }
-              >
-                {hasMarketingProfile
-                  ? "Review your brand voice, audience, hashtags, posting strategy, and AI marketing recommendations."
-                  : "Build your brand voice, target audience, hashtags, posting strategy, and automation recommendations."}
-              </Text>
-
-              <View
-                style={styles.consultantFooter}
-              >
-                <Text
-                  style={
-                    styles.consultantActionText
-                  }
-                >
-                  {hasMarketingProfile
-                    ? "View Marketing Profile"
-                    : "Build My Marketing Profile"}
-                </Text>
-
-                <Text
-                  style={styles.consultantArrow}
-                >
-                  ›
-                </Text>
-              </View>
-
-              {hasMarketingProfile ? (
-                <View
-                  style={
-                    styles.profileProgressTrack
-                  }
-                >
-                  <View
-                    style={[
-                      styles.profileProgressFill,
-                      {
-                        width: `${marketingProfileCompletion}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              ) : null}
-            </View>
-          </Pressable>
 
           <Pressable
             style={styles.actionCard}
@@ -1186,40 +1002,23 @@ const createFacebookPost = async () => {
                   Where should ArtBoost market it?
                 </Text>
 
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={
-                    false
-                  }
-                  style={{ width: "100%" }}
-                >
-                  {PLATFORMS.map(
-                    (platform) => (
-                      <Pressable
-                        key={platform}
-                        style={[
-                          styles.platformButton,
-                          selectedPlatform ===
-                            platform &&
-                            styles.platformButtonActive,
-                        ]}
-                        onPress={() =>
-                          setSelectedPlatform(
-                            platform
-                          )
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.platformButtonText
-                          }
-                        >
-                          {platform}
-                        </Text>
-                      </Pressable>
-                    )
-                  )}
-                </ScrollView>
+                <View style={styles.platformWrap}>
+                  {PLATFORMS.map((platform) => (
+                    <Pressable
+                      key={platform}
+                      style={[
+                        styles.platformButton,
+                        selectedPlatform === platform &&
+                          styles.platformButtonActive,
+                      ]}
+                      onPress={() => setSelectedPlatform(platform)}
+                    >
+                      <Text style={styles.platformButtonText}>
+                        {platform}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
 
               <View
@@ -1606,107 +1405,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  consultantCard: {
-    minHeight: 166,
-    borderRadius: 22,
-    backgroundColor: "#1d1730",
-    borderWidth: 1,
-    borderColor: "#5a3d91",
-    padding: 17,
-    marginBottom: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-
-  consultantIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: "#8b5cf6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  consultantIconText: {
-    color: "#ffffff",
-    fontSize: 26,
-    fontWeight: "900",
-  },
-
-  consultantTextWrap: {
-    flex: 1,
-    paddingLeft: 14,
-  },
-
-  consultantTitleRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-
-  consultantTitle: {
-    flex: 1,
-    color: "#ffffff",
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
-    paddingRight: 8,
-  },
-
-  profileBadge: {
-    minWidth: 44,
-    borderRadius: 99,
-    backgroundColor: "#8b5cf6",
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    alignItems: "center",
-  },
-
-  profileBadgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "900",
-  },
-
-  consultantDescription: {
-    color: "#b8add0",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 7,
-  },
-
-  consultantFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-  },
-
-  consultantActionText: {
-    flex: 1,
-    color: "#d8b4fe",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  consultantArrow: {
-    color: "#d8b4fe",
-    fontSize: 25,
-    lineHeight: 25,
-  },
-
-  profileProgressTrack: {
-    height: 6,
-    borderRadius: 99,
-    backgroundColor: "#34294a",
-    overflow: "hidden",
-    marginTop: 11,
-  },
-
-  profileProgressFill: {
-    height: "100%",
-    borderRadius: 99,
-    backgroundColor: "#a78bfa",
-  },
-
   actionCard: {
     minHeight: 96,
     borderRadius: 19,
@@ -1899,6 +1597,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,
+  },
+
+  platformWrap: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
 
   platformButton: {
