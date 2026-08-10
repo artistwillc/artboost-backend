@@ -32,6 +32,8 @@ import { v2 as cloudinary } from "cloudinary";
 import OAuth from "oauth-1.0a";
 import CryptoJS from "crypto-js";
 import crypto from "crypto";
+import path from "path";
+import { fileURLToPath } from "url";
 import catalogRoutes from "./routes/catalog.js";
 
 dotenv.config({ override: true });
@@ -39,6 +41,10 @@ dotenv.config({ override: true });
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const WEBSITE_DIR = path.join(__dirname, "website");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -2493,6 +2499,13 @@ app.post(
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+/*
+ * Public ArtBoost website.
+ * This serves backend/website/styles.css, images/*, and other static assets.
+ * API routes below continue to work normally.
+ */
+app.use(express.static(WEBSITE_DIR));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/catalog", catalogCsvRouter);
@@ -2512,7 +2525,7 @@ const openai = new OpenAI({
 });
 
 app.get("/", (req, res) => {
-  res.send("ArtBoost AI backend is running.");
+  res.sendFile(path.join(WEBSITE_DIR, "index.html"));
 });
 
 app.get("/privacy", (req, res) => {
