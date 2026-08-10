@@ -2799,127 +2799,727 @@ app.delete("/notifications/:id", async (req, res) => {
 
 app.get("/analytics", async (req, res) => {
   try {
-    const { userId } = req.query;
+    /*
+     * Analytics must be user-scoped. The old endpoint allowed a missing
+     * userId and could aggregate scheduled_campaigns across every user.
+     * Resolve the signed-in user from the Supabase access token instead.
+     */
+    const authHeader = String(
+      req.headers.authorization || ""
+    ).trim();
 
-    let campaignsQuery = supabase
-      .from("scheduled_campaigns")
-      .select("*");
+    const accessToken =
+      authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : "";
 
-    if (userId) {
-      campaignsQuery = campaignsQuery.eq("user_id", userId);
-    }
-
-    const { data: campaignsData, error: campaignsError } =
-      await campaignsQuery;
-
-    if (campaignsError) {
-      return res.status(500).json({
-        error: campaignsError.message,
+    if (!accessToken) {
+      return res.status(401).json({
+        error: "Authentication is required to load analytics.",
       });
     }
 
-    let profile = null;
+    const {
+      data: authData,
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
 
-    if (userId) {
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("referral_count, free_months, subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .maybeSingle();
+    const userId =
+      authData?.user?.id || null;
 
-      profile = profileData || null;
+    if (authError || !userId) {
+      return res.status(401).json({
+        error: "Your ArtBoost session is no longer valid. Please sign in again.",
+      });
     }
 
-    const campaigns = campaignsData || [];
+    const [
+      campaignsResult,
+      automationsResult,
+      logsResult,
+    ] = await Promise.all([
+      supabase
+        .from("scheduled_campaigns")
+        .select("*")
+        .eq("user_id", userId),
 
-    const totalCampaigns = campaigns.length;
-    const published = campaigns.filter((x) => x.status === "published").length;
-    const failed = campaigns.filter((x) => x.status === "failed").length;
-    const scheduled = campaigns.filter((x) => x.status === "scheduled").length;
-    const saved = campaigns.filter((x) => x.status === "saved").length;
-    const ended = campaigns.filter((x) => x.status === "ended").length;
+      supabase
+        .from("store_automations")
+        .select("*")
+        .eq("user_id", userId),
 
-    const active = campaigns.filter(
-      (x) => x.campaign_status === "active"
-    ).length;
+      supabase
+        .from("store_automation_logs")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(1000),
+    ]);
 
-    const paused = campaigns.filter(
-      (x) => x.campaign_status === "paused"
-    ).length;
+    if (campaignsResult.error) {
+      throw new Error(
+        `Unable to load campaign analytics: ${campaignsResult.error.message}`
+      );
+    }
 
-    const totalPosts = campaigns.reduce(
-      (sum, item) => sum + (Number(item.posts) || 0),
-      0
-    );
+    if (automationsResult.error) {
+      throw new Error(
+        `Unable to load automation analytics: ${automationsResult.error.message}`
+      );
+    }
 
-    const platformBreakdown = {
-      pinterest: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "pinterest"
-      ).length,
-      facebook: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "facebook"
-      ).length,
-      instagram: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "instagram"
-      ).length,
-      x: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "x"
-      ).length,
-      threads: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "threads"
-      ).length,
+    if (logsResult.error) {
+      throw new Error(
+        `Unable to load automation history: ${logsResult.error.message}`
+      );
+    }
+
+    const campaigns =
+      campaignsResult.data || [];
+
+    const automations =
+      automationsResult.data || [];
+
+    const automationLogs =
+      logsResult.data || [];
+
+    const normalizedPlatform = (value) => {
+      const platform =
+        String(value || "")
+          .trim()
+          .toLowerCase();
+
+      if (
+        platform === "twitter" ||
+        platform === "x/twitter"
+      ) {
+        return "x";
+      }
+
+      if (
+        platform === "linkedin" ||
+        platform === "linked_in"
+      ) {
+        return "linkedin";
+      }
+
+      return platform;
     };
 
-    const completedCampaigns = published + failed;
+    const platformNames = [
+      "pinterest",
+      "facebook",
+      "instagram",
+      "x",
+      "threads",
+      "linkedin",
+      "tiktok",
+    ];
+
+    const platformBreakdown =
+      Object.fromEntries(
+        platformNames.map(
+          (platform) => [
+            platform,
+            {
+              successfulPosts: 0,
+              failedPosts: 0,
+              totalAttempts: 0,
+            },
+          ]
+        )
+      );
+
+    /*
+     * scheduled_campaigns stores one campaign/platform row. Count only
+     * rows that actually published as successful posts.
+     */
+    for (const campaign of campaigns) {
+      const platform =
+        normalizedPlatform(
+          campaign?.platform
+        );
+
+      if (
+        !platformBreakdown[platform]
+      ) {
+        continue;
+      }
+
+      const status =
+        String(
+          campaign?.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (status === "published") {
+        platformBreakdown[
+          platform
+        ].successfulPosts += 1;
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+      } else if (
+        status === "failed"
+      ) {
+        platformBreakdown[
+          platform
+        ].failedPosts += 1;
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+      }
+    }
+
+    /*
+     * Automation history contains the actual per-platform results from
+     * postEngine.js. This is the authoritative source for automatic posts,
+     * including partial-success runs.
+     */
+    const artworkPublishCounts =
+      new Map();
+
+    let successfulAutomationRuns = 0;
+    let partialAutomationRuns = 0;
+    let failedAutomationRuns = 0;
+    let skippedAutomationRuns = 0;
+
+    for (const log of automationLogs) {
+      const eventType =
+        String(
+          log?.event_type || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const status =
+        String(
+          log?.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        eventType === "post_success" ||
+        status === "success"
+      ) {
+        successfulAutomationRuns += 1;
+      } else if (
+        eventType ===
+          "post_partial_success" ||
+        status ===
+          "partial_success"
+      ) {
+        partialAutomationRuns += 1;
+      } else if (
+        eventType === "post_failed" ||
+        status === "failed"
+      ) {
+        failedAutomationRuns += 1;
+      } else if (
+        eventType === "post_skipped" ||
+        status === "skipped"
+      ) {
+        skippedAutomationRuns += 1;
+      }
+
+      const results =
+        Array.isArray(
+          log?.publish_result?.results
+        )
+          ? log.publish_result.results
+          : [];
+
+      let successfulPostsForArtwork = 0;
+
+      for (const result of results) {
+        const platform =
+          normalizedPlatform(
+            result?.platform
+          );
+
+        if (
+          !platformBreakdown[
+            platform
+          ]
+        ) {
+          continue;
+        }
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+
+        if (result?.success) {
+          platformBreakdown[
+            platform
+          ].successfulPosts += 1;
+
+          successfulPostsForArtwork += 1;
+        } else {
+          platformBreakdown[
+            platform
+          ].failedPosts += 1;
+        }
+      }
+
+      const productTitle =
+        String(
+          log?.product_title || ""
+        ).trim();
+
+      if (
+        productTitle &&
+        successfulPostsForArtwork > 0
+      ) {
+        artworkPublishCounts.set(
+          productTitle,
+          (artworkPublishCounts.get(
+            productTitle
+          ) || 0) +
+            successfulPostsForArtwork
+        );
+      }
+    }
+
+    const totalPublishedPosts =
+      Object.values(
+        platformBreakdown
+      ).reduce(
+        (sum, platform) =>
+          sum +
+          Number(
+            platform.successfulPosts ||
+              0
+          ),
+        0
+      );
+
+    const totalFailedPostAttempts =
+      Object.values(
+        platformBreakdown
+      ).reduce(
+        (sum, platform) =>
+          sum +
+          Number(
+            platform.failedPosts || 0
+          ),
+        0
+      );
+
+    const totalPostAttempts =
+      totalPublishedPosts +
+      totalFailedPostAttempts;
 
     const successRate =
-      completedCampaigns > 0
-        ? Math.round((published / completedCampaigns) * 100)
+      totalPostAttempts > 0
+        ? Math.round(
+            (totalPublishedPosts /
+              totalPostAttempts) *
+              100
+          )
         : 0;
 
-    const averagePostsPerCampaign =
-      totalCampaigns > 0
-        ? Number((totalPosts / totalCampaigns).toFixed(2))
-        : 0;
+    const activeAutomations =
+      automations.filter(
+        (automation) =>
+          Boolean(
+            automation?.enabled
+          )
+      );
+
+    const pausedAutomations =
+      automations.filter(
+        (automation) =>
+          !automation?.enabled
+      );
+
+    const scheduledCampaigns =
+      campaigns.filter(
+        (campaign) =>
+          String(
+            campaign?.status || ""
+          ).toLowerCase() ===
+          "scheduled"
+      );
+
+    const failedCampaigns =
+      campaigns.filter(
+        (campaign) =>
+          String(
+            campaign?.status || ""
+          ).toLowerCase() ===
+          "failed"
+      );
+
+    /*
+     * Find the true next publishing action across BOTH campaign scheduling
+     * and store automation scheduling.
+     */
+    const upcomingCandidates = [];
+
+    for (const campaign of scheduledCampaigns) {
+      if (
+        !campaign?.publish_at
+      ) {
+        continue;
+      }
+
+      const when =
+        new Date(
+          campaign.publish_at
+        );
+
+      if (
+        Number.isNaN(
+          when.getTime()
+        ) ||
+        when <= new Date()
+      ) {
+        continue;
+      }
+
+      upcomingCandidates.push({
+        type: "campaign",
+        title:
+          campaign?.title ||
+          "Scheduled campaign",
+        platform:
+          normalizedPlatform(
+            campaign?.platform
+          ),
+        scheduledAt:
+          campaign.publish_at,
+      });
+    }
+
+    for (const automation of activeAutomations) {
+      if (
+        !automation?.next_run_at
+      ) {
+        continue;
+      }
+
+      const when =
+        new Date(
+          automation.next_run_at
+        );
+
+      if (
+        Number.isNaN(
+          when.getTime()
+        ) ||
+        when <= new Date()
+      ) {
+        continue;
+      }
+
+      upcomingCandidates.push({
+        type: "automation",
+        title:
+          automation?.automation_name ||
+          automation?.store_name ||
+          "Store automation",
+        storeName:
+          automation?.store_name ||
+          null,
+        platforms:
+          Array.isArray(
+            automation?.platforms
+          )
+            ? automation.platforms
+            : [],
+        scheduledAt:
+          automation.next_run_at,
+      });
+    }
 
     const upcoming =
-      campaigns
-        .filter((x) => x.publish_at && new Date(x.publish_at) > new Date())
+      upcomingCandidates.sort(
+        (a, b) =>
+          new Date(
+            a.scheduledAt
+          ).getTime() -
+          new Date(
+            b.scheduledAt
+          ).getTime()
+      )[0] || null;
+
+    const topArtworkEntry =
+      [...artworkPublishCounts.entries()]
         .sort(
           (a, b) =>
-            new Date(a.publish_at).getTime() -
-            new Date(b.publish_at).getTime()
+            b[1] - a[1]
         )[0] || null;
 
-    res.json({
-      total: totalCampaigns,
-      totalCampaigns,
-      scheduled,
-      published,
-      failed,
-      saved,
-      ended,
-      active,
-      paused,
-      totalPosts,
+    const platformRanking =
+      Object.entries(
+        platformBreakdown
+      )
+        .map(
+          ([
+            platform,
+            metrics,
+          ]) => ({
+            platform,
+            successfulPosts:
+              metrics.successfulPosts,
+            failedPosts:
+              metrics.failedPosts,
+            totalAttempts:
+              metrics.totalAttempts,
+          })
+        )
+        .sort(
+          (a, b) =>
+            b.successfulPosts -
+            a.successfulPosts
+        );
+
+    const bestPlatform =
+      platformRanking[0]
+        ?.successfulPosts > 0
+        ? platformRanking[0]
+        : null;
+
+    /*
+     * Engagement/click/conversion data is only considered available when
+     * the campaign records actually contain values. Do not invent zero
+     * performance for data ArtBoost has not collected.
+     */
+    const hasMetric = (
+      key
+    ) =>
+      campaigns.some(
+        (campaign) =>
+          campaign?.[key] !==
+            null &&
+          campaign?.[key] !==
+            undefined
+      );
+
+    const sumMetric = (
+      key
+    ) =>
+      campaigns.reduce(
+        (sum, campaign) =>
+          sum +
+          (Number(
+            campaign?.[key]
+          ) || 0),
+        0
+      );
+
+    const engagementAvailable =
+      hasMetric("engagement") ||
+      hasMetric("engagements") ||
+      hasMetric("views");
+
+    const clicksAvailable =
+      hasMetric("clicks");
+
+    const conversionsAvailable =
+      hasMetric("conversions");
+
+    const engagement =
+      hasMetric("engagement")
+        ? sumMetric("engagement")
+        : hasMetric(
+            "engagements"
+          )
+        ? sumMetric("engagements")
+        : hasMetric("views")
+        ? sumMetric("views")
+        : null;
+
+    const clicks =
+      clicksAvailable
+        ? sumMetric("clicks")
+        : null;
+
+    const conversions =
+      conversionsAvailable
+        ? sumMetric(
+            "conversions"
+          )
+        : null;
+
+    let insight =
+      "Your publishing data is ready. Keep automations active to build a stronger performance history.";
+
+    if (
+      failedAutomationRuns > 0
+    ) {
+      insight =
+        `${failedAutomationRuns} automation run${
+          failedAutomationRuns === 1
+            ? ""
+            : "s"
+        } need attention. Review failed platforms before the next scheduled run.`;
+    } else if (
+      bestPlatform
+    ) {
+      insight =
+        `${bestPlatform.platform} currently has the most confirmed ArtBoost posts (${bestPlatform.successfulPosts}).`;
+    }
+
+    return res.json({
+      userId,
+
+      postsPublished:
+        totalPublishedPosts,
+
+      totalPostAttempts,
+      failedPostAttempts:
+        totalFailedPostAttempts,
       successRate,
-      averagePostsPerCampaign,
+
+      activeAutomations:
+        activeAutomations.length,
+      pausedAutomations:
+        pausedAutomations.length,
+      totalAutomations:
+        automations.length,
+
+      automationRuns: {
+        successful:
+          successfulAutomationRuns,
+        partial:
+          partialAutomationRuns,
+        failed:
+          failedAutomationRuns,
+        skipped:
+          skippedAutomationRuns,
+        total:
+          successfulAutomationRuns +
+          partialAutomationRuns +
+          failedAutomationRuns +
+          skippedAutomationRuns,
+      },
+
+      campaigns: {
+        total:
+          campaigns.length,
+        scheduled:
+          scheduledCampaigns.length,
+        failed:
+          failedCampaigns.length,
+        published:
+          campaigns.filter(
+            (campaign) =>
+              String(
+                campaign?.status || ""
+              ).toLowerCase() ===
+              "published"
+          ).length,
+        saved:
+          campaigns.filter(
+            (campaign) =>
+              String(
+                campaign?.status || ""
+              ).toLowerCase() ===
+              "saved"
+          ).length,
+      },
+
       platformBreakdown,
-      pinterestPosts: platformBreakdown.pinterest,
-      facebookPosts: platformBreakdown.facebook,
-      instagramPosts: platformBreakdown.instagram,
-      xPosts: platformBreakdown.x,
-      threadsPosts: platformBreakdown.threads,
-      referralCount: profile?.referral_count || 0,
-      freeMonthsEarned: profile?.free_months || 0,
-      subscriptionTier: profile?.subscription_tier || "free",
-      monthlyCampaignCount: profile?.monthly_campaign_count || 0,
-      pinterestConnected: pinterestConnection.connected,
+      platformRanking,
+
+      topArtwork: topArtworkEntry
+        ? {
+            title:
+              topArtworkEntry[0],
+            confirmedPosts:
+              topArtworkEntry[1],
+          }
+        : null,
+
+      bestPlatform,
+
       upcoming,
+
+      performanceTracking: {
+        engagementAvailable,
+        clicksAvailable,
+        conversionsAvailable,
+        engagement,
+        clicks,
+        conversions,
+      },
+
+      insight,
+      generatedAt:
+        new Date().toISOString(),
+
+      /*
+       * Compatibility fields for older clients while the new Analytics
+       * screen rolls out.
+       */
+      published:
+        totalPublishedPosts,
+      totalPosts:
+        totalPublishedPosts,
+      active:
+        activeAutomations.length,
+      scheduled:
+        scheduledCampaigns.length,
+      failed:
+        failedCampaigns.length +
+        failedAutomationRuns,
+      paused:
+        pausedAutomations.length,
+      saved:
+        campaigns.filter(
+          (campaign) =>
+            String(
+              campaign?.status || ""
+            ).toLowerCase() ===
+            "saved"
+        ).length,
+      pinterestPosts:
+        platformBreakdown
+          .pinterest
+          .successfulPosts,
+      facebookPosts:
+        platformBreakdown
+          .facebook
+          .successfulPosts,
+      instagramPosts:
+        platformBreakdown
+          .instagram
+          .successfulPosts,
+      xPosts:
+        platformBreakdown.x
+          .successfulPosts,
+      threadsPosts:
+        platformBreakdown
+          .threads
+          .successfulPosts,
+      linkedinPosts:
+        platformBreakdown
+          .linkedin
+          .successfulPosts,
+      tiktokPosts:
+        platformBreakdown
+          .tiktok
+          .successfulPosts,
     });
   } catch (err) {
-    res.status(500).json({
-      error: err.message,
+    console.error(
+      "Analytics error:",
+      err
+    );
+
+    return res.status(500).json({
+      error:
+        err instanceof Error
+          ? err.message
+          : "Unable to load analytics.",
     });
   }
 });
