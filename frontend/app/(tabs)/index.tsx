@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -273,16 +274,42 @@ cta,
   };
  
   const pickImage = async () => {
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
- 
-    if (!picked.canceled) {
-      setImage(picked.assets[0].uri);
-      setHostedImageUrl("");
-      setResult("");
-      setShowScheduleOptions(false);
+    try {
+      if (Platform.OS === "android") {
+        const picked = await DocumentPicker.getDocumentAsync({
+          type: "image/*",
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+
+        if (!picked.canceled && picked.assets?.length) {
+          setImage(picked.assets[0].uri);
+          setHostedImageUrl("");
+          setResult("");
+          setShowScheduleOptions(false);
+        }
+
+        return;
+      }
+
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+      });
+
+      if (!picked.canceled) {
+        setImage(picked.assets[0].uri);
+        setHostedImageUrl("");
+        setResult("");
+        setShowScheduleOptions(false);
+      }
+    } catch (error: any) {
+      console.log("Artwork picker error:", error);
+
+      Alert.alert(
+        "Unable to Select Artwork",
+        error?.message || "ArtBoost could not open the artwork picker."
+      );
     }
   };
  
