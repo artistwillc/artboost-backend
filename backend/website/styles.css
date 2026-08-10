@@ -2,3 +2,139 @@
 @media(max-width:1150px){.hero-inner{grid-template-columns:185px 1fr 185px}.feature-card{grid-template-columns:1fr}.feature-card .ico{width:36px;height:36px}.hero-copy{margin-left:120px}.astronaut{width:285px}.footer-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:920px){.site-header{grid-template-columns:auto auto;justify-content:space-between}.menu-toggle{display:block}.nav{display:none;position:absolute;left:0;right:0;top:68px;padding:18px;background:#06070b;border-bottom:1px solid rgba(255,196,38,.18);flex-direction:column;gap:14px}.nav.open{display:flex}.header-actions{display:none}.hero{padding-top:20px}.hero-inner{grid-template-columns:1fr}.hero-center{order:1}.feature-stack{grid-template-columns:repeat(2,1fr)}.left{order:2}.right{order:3}.feature-card{grid-template-columns:42px 1fr;min-height:118px}.feature-card small{min-height:0}.hero-copy{margin-left:0}.astronaut{left:50%;transform:translateX(-50%);opacity:.45}.console{width:min(850px,calc(100% - 24px));margin-top:18px}.workflow-grid{grid-template-columns:1fr 1fr}.banner{grid-template-columns:1fr;text-align:center}.banner-art{height:240px}.banner-cta{justify-self:center}.footer-grid{grid-template-columns:repeat(2,1fr)}.price-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.desktop-only{display:none}.site-header{height:60px}.brand img{width:34px;height:34px}.brand span{font-size:19px}.nav{top:60px}.hero{min-height:0;padding-left:8px;padding-right:8px}.hero-center{min-height:475px}.astronaut{top:10px;width:300px;height:440px}.hero-copy{padding-top:80px}.hero-copy h1{font-size:46px}.hero-copy p{font-size:12px}.social{width:39px;height:39px;padding:9px}.feature-stack{grid-template-columns:1fr 1fr;gap:8px}.feature-card{display:block;padding:11px;min-height:100px}.feature-card .ico{margin-bottom:6px}.feature-card small{display:none}.console-body{grid-template-columns:1fr}.console-art{min-height:210px}.generated-grid{grid-template-columns:1fr 1fr}.console-bottom{display:grid}.workflow{padding-left:10px;padding-right:10px}.workflow h2{font-size:42px}.workflow-grid{grid-template-columns:1fr}.workflow-card img{aspect-ratio:1.62/1}.banner{padding:26px 16px}.banner-art{height:190px}.banner-copy h2{font-size:43px}.footer-grid{grid-template-columns:1fr}.footer-bottom{flex-direction:column;gap:10px;text-align:center}.footer-bottom span:last-child{display:flex;justify-content:center}.price-grid{grid-template-columns:1fr}.modal-actions{flex-direction:column}}
+
+/* APPROVED LAYOUT FIXES — crisp, no clipped hero text, official logo artwork */
+.hero-inner{
+  grid-template-columns: 205px minmax(0,1fr) 205px;
+}
+.hero-center{
+  min-width:0;
+  min-height:520px;
+  display:grid;
+  grid-template-columns:minmax(300px,42%) minmax(0,58%);
+  align-items:center;
+  gap:12px;
+  overflow:visible;
+}
+.astronaut{
+  position:relative;
+  inset:auto;
+  transform:none;
+  width:100%;
+  max-width:390px;
+  height:500px;
+  justify-self:end;
+  object-fit:cover;
+  object-position:center;
+  border-radius:24px;
+  mix-blend-mode:normal;
+  opacity:1;
+  filter:saturate(1.08) contrast(1.08) brightness(1.02);
+  box-shadow:0 0 42px rgba(68,39,180,.12);
+}
+.hero-copy{
+  margin-left:0;
+  width:100%;
+  max-width:760px;
+  min-width:0;
+  padding:0 8px;
+}
+.hero-copy h1{
+  width:100%;
+  max-width:760px;
+  margin-left:auto;
+  margin-right:auto;
+  font-size:clamp(50px,4.65vw,76px);
+  line-height:1.02;
+  letter-spacing:-2px;
+  overflow:visible;
+}
+.hero-copy p{
+  max-width:650px;
+}
+.social{
+  font-family:Arial,Helvetica,sans-serif;
+  font-weight:900;
+  font-size:18px;
+  line-height:1;
+}
+.social span{
+  display:grid;
+  place-items:center;
+  width:100%;
+  height:100%;
+}
+.linkedin span{font-size:13px;letter-spacing:-1px}
+.youtube span{font-size:16px}
+.instagram span{font-size:24px}
+.tiktok span{font-size:20px}
+.hero .social-row{
+  position:relative;
+  z-index:6;
+}
+.hero-copy::before{display:none!important}
+.banner-art img{
+  object-position:center;
+  filter:saturate(1.07) contrast(1.05) sharpness(1);
+}
+.footer-brand .brand img{
+  width:52px;
+  height:52px;
+}
+@media(max-width:1180px){
+  .hero-inner{grid-template-columns:175px minmax(0,1fr) 175px}
+  .hero-center{grid-template-columns:minmax(250px,40%) minmax(0,60%)}
+  .hero-copy h1{font-size:clamp(44px,4.4vw,66px)}
+}
+@media(max-width:920px){
+  .hero-inner{grid-template-columns:1fr}
+  .hero-center{
+    order:1;
+    grid-template-columns:1fr;
+    min-height:720px;
+    text-align:center;
+  }
+  .astronaut{
+    position:absolute;
+    left:50%;
+    top:12px;
+    transform:translateX(-50%);
+    width:min(78vw,390px);
+    height:470px;
+    opacity:.58;
+    z-index:1;
+  }
+  .hero-copy{
+    position:relative;
+    z-index:3;
+    padding-top:165px;
+    max-width:720px;
+    margin:auto;
+  }
+  .hero-copy h1{
+    font-size:clamp(42px,9vw,66px);
+    line-height:1.03;
+  }
+}
+@media(max-width:620px){
+  .hero-center{min-height:610px}
+  .astronaut{
+    width:min(92vw,360px);
+    height:425px;
+    opacity:.46;
+  }
+  .hero-copy{padding-top:130px}
+  .hero-copy h1{
+    font-size:clamp(39px,12vw,52px);
+    letter-spacing:-1.2px;
+  }
+  .hero-copy p{
+    max-width:92%;
+    font-size:12px;
+  }
+  .social-row{gap:9px}
+  .social{width:38px;height:38px;font-size:15px}
+  .instagram span{font-size:21px}
+  .feature-stack{position:relative;z-index:5}
+  .banner-art{height:220px}
+}
