@@ -7,6 +7,10 @@ import {
   publishLinkedIn,
 } from "./socialPublisher.js";
 
+import {
+  ensurePublishableImageUrl,
+} from "./mediaHostingService.js";
+
 const ARTBOOST_BACKEND_URL =
   process.env.ARTBOOST_BACKEND_URL ||
   "https://artboost-ai.onrender.com";
@@ -303,6 +307,39 @@ export async function publishToPlatform({
     normalizedPlatform ===
     "threads"
   ) {
+    // Meta/Threads frequently cannot fetch storefront-hosted images
+    // directly (for example Redbubble CDN URLs). Cache the artwork
+    // on ArtBoost's Cloudinary account first and give Threads the
+    // stable public image URL instead.
+    const threadsImageUrl =
+      await ensurePublishableImageUrl(
+        cleanImageUrl
+      );
+
+    console.log(
+      "Threads automation image prepared:",
+      {
+        originalHost: (() => {
+          try {
+            return new URL(
+              cleanImageUrl
+            ).hostname;
+          } catch {
+            return null;
+          }
+        })(),
+        preparedHost: (() => {
+          try {
+            return new URL(
+              threadsImageUrl
+            ).hostname;
+          } catch {
+            return null;
+          }
+        })(),
+      }
+    );
+
     return publishThreads({
       title: cleanTitle,
       description:
@@ -313,7 +350,7 @@ export async function publishToPlatform({
       productLink:
         cleanProductLink,
       imageUrl:
-        cleanImageUrl,
+        threadsImageUrl,
       userId,
     });
   }
