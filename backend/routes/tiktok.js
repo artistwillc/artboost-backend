@@ -255,6 +255,71 @@ function validatePublicHttpUrl(value) {
   return parsed.toString();
 }
 
+const TIKTOK_REQUEST_TIMEOUT_MS = Math.max(
+  5000,
+  Number(process.env.TIKTOK_REQUEST_TIMEOUT_MS || 30000)
+);
+
+async function fetchTikTokWithTimeout(
+  url,
+  options = {},
+  label = "TikTok request"
+) {
+  const controller = new AbortController();
+  const startedAt = Date.now();
+
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, TIKTOK_REQUEST_TIMEOUT_MS);
+
+  console.log(`${label} started:`, {
+    url,
+    timeoutMs: TIKTOK_REQUEST_TIMEOUT_MS,
+  });
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    console.log(`${label} response received:`, {
+      status: response.status,
+      ok: response.ok,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    return response;
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+
+    if (
+      error?.name === "AbortError" ||
+      controller.signal.aborted
+    ) {
+      console.error(`${label} timed out:`, {
+        elapsedMs,
+        timeoutMs: TIKTOK_REQUEST_TIMEOUT_MS,
+      });
+
+      throw new Error(
+        `${label} timed out after ${Math.round(
+          TIKTOK_REQUEST_TIMEOUT_MS / 1000
+        )} seconds.`
+      );
+    }
+
+    console.error(`${label} network error:`, {
+      elapsedMs,
+      message: error?.message || String(error),
+    });
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function choosePrivacyLevel(creatorInfo, requestedPrivacyLevel) {
   const options = Array.isArray(creatorInfo?.privacy_level_options)
     ? creatorInfo.privacy_level_options
@@ -298,35 +363,58 @@ async function submitPhotoPost({
     disableComment = true;
   }
 
-  const response = await fetch(PHOTO_POST_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json; charset=UTF-8",
-    },
-    body: JSON.stringify({
-      post_info: {
-        title: normalizeTikTokTitle(title),
-        description: normalizeTikTokDescription(description),
-        disable_comment: Boolean(disableComment),
-        privacy_level: selectedPrivacyLevel,
-        auto_add_music: Boolean(autoAddMusic),
-        brand_content_toggle: Boolean(brandContentToggle),
-        brand_organic_toggle: Boolean(brandOrganicToggle),
-      },
-      source_info: {
-        source: "PULL_FROM_URL",
-        photo_cover_index: 0,
-        photo_images: [
-          validatePublicHttpUrl(imageUrl),
-        ],
-      },
-      post_mode: "DIRECT_POST",
-      media_type: "PHOTO",
-    }),
+  const validatedImageUrl =
+    validatePublicHttpUrl(imageUrl);
+
+  console.log("TikTok photo init request prepared:", {
+    privacyLevel: selectedPrivacyLevel,
+    disableComment: Boolean(disableComment),
+    autoAddMusic: Boolean(autoAddMusic),
+    brandContentToggle: Boolean(brandContentToggle),
+    brandOrganicToggle: Boolean(brandOrganicToggle),
+    imageHost: new URL(validatedImageUrl).hostname,
+    imagePath: new URL(validatedImageUrl).pathname.slice(0, 80),
   });
 
+  const response = await fetchTikTokWithTimeout(
+    PHOTO_POST_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: normalizeTikTokTitle(title),
+          description: normalizeTikTokDescription(description),
+          disable_comment: Boolean(disableComment),
+          privacy_level: selectedPrivacyLevel,
+          auto_add_music: Boolean(autoAddMusic),
+          brand_content_toggle: Boolean(brandContentToggle),
+          brand_organic_toggle: Boolean(brandOrganicToggle),
+        },
+        source_info: {
+          source: "PULL_FROM_URL",
+          photo_cover_index: 0,
+          photo_images: [validatedImageUrl],
+        },
+        post_mode: "DIRECT_POST",
+        media_type: "PHOTO",
+      }),
+    },
+    "TikTok photo init"
+  );
+
   const data = await parseJson(response);
+
+  console.log("TikTok photo init parsed:", {
+    status: response.status,
+    ok: response.ok,
+    errorCode: data?.error?.code || null,
+    errorMessage: data?.error?.message || null,
+    publishId: data?.data?.publish_id || null,
+  });
   const apiError = data?.error;
 
   if (
