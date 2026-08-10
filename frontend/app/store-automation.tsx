@@ -94,7 +94,7 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     id: "tiktok",
     label: "TikTok",
     icon: "logo-tiktok",
-    available: false,
+    available: true,
   },
 ];
 
@@ -515,6 +515,49 @@ const [
     setPinterestBoardsError,
   ] = useState("");
 
+  const [tiktokCreator, setTikTokCreator] =
+    useState<any>(null);
+
+  const [
+    loadingTikTokCreator,
+    setLoadingTikTokCreator,
+  ] = useState(false);
+
+  const [
+    tiktokCreatorError,
+    setTikTokCreatorError,
+  ] = useState("");
+
+  const [
+    tiktokPrivacyLevel,
+    setTikTokPrivacyLevel,
+  ] = useState("");
+
+  const [
+    tiktokDisableComment,
+    setTikTokDisableComment,
+  ] = useState(false);
+
+  const [
+    tiktokAutoAddMusic,
+    setTikTokAutoAddMusic,
+  ] = useState(true);
+
+  const [
+    tiktokBrandOrganicToggle,
+    setTikTokBrandOrganicToggle,
+  ] = useState(true);
+
+  const [
+    tiktokBrandContentToggle,
+    setTikTokBrandContentToggle,
+  ] = useState(false);
+
+  const [
+    tiktokConsent,
+    setTikTokConsent,
+  ] = useState(false);
+
   useEffect(() => {
     let screenIsActive = true;
 
@@ -674,6 +717,50 @@ if (savedStartDate) {
 
         setSelectedPinterestBoardId(
           String(savedPinterestBoardId)
+        );
+
+        setTikTokPrivacyLevel(
+          String(
+            automation.tiktok_privacy_level ??
+              automation.tiktokPrivacyLevel ??
+              ""
+          )
+        );
+
+        setTikTokDisableComment(
+          Boolean(
+            automation.tiktok_disable_comment ??
+              automation.tiktokDisableComment ??
+              false
+          )
+        );
+
+        setTikTokAutoAddMusic(
+          automation.tiktok_auto_add_music ??
+            automation.tiktokAutoAddMusic ??
+            true
+        );
+
+        setTikTokBrandOrganicToggle(
+          automation.tiktok_brand_organic_toggle ??
+            automation.tiktokBrandOrganicToggle ??
+            true
+        );
+
+        setTikTokBrandContentToggle(
+          Boolean(
+            automation.tiktok_brand_content_toggle ??
+              automation.tiktokBrandContentToggle ??
+              false
+          )
+        );
+
+        setTikTokConsent(
+          Boolean(
+            automation.tiktok_consent ??
+              automation.tiktokConsent ??
+              false
+          )
         );
 
         const savedSelectionMode =
@@ -1146,6 +1233,148 @@ if (
     postingTime,
   ]);
 
+  async function loadTikTokCreatorInfo() {
+    try {
+      setLoadingTikTokCreator(true);
+      setTikTokCreatorError("");
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw new Error(userError.message);
+      }
+
+      if (!user) {
+        throw new Error(
+          "You must be signed in to load TikTok settings."
+        );
+      }
+
+      const response = await fetch(
+        `${API_BASE}/tiktok/creator-info?userId=${encodeURIComponent(
+          user.id
+        )}`
+      );
+
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          `Backend returned ${response.status}: ${responseText.slice(
+            0,
+            160
+          )}`
+        );
+      }
+
+      if (
+        !response.ok ||
+        !data?.success
+      ) {
+        throw new Error(
+          data?.error ||
+            data?.details ||
+            "Unable to load TikTok posting settings."
+        );
+      }
+
+      const creator =
+        data.creator || null;
+
+      setTikTokCreator(creator);
+
+      if (
+        creator?.comment_disabled
+      ) {
+        setTikTokDisableComment(true);
+      }
+
+      const allowedPrivacy =
+        Array.isArray(
+          creator?.privacy_level_options
+        )
+          ? creator.privacy_level_options
+          : [];
+
+      if (
+        tiktokPrivacyLevel &&
+        !allowedPrivacy.includes(
+          tiktokPrivacyLevel
+        )
+      ) {
+        setTikTokPrivacyLevel("");
+        setTikTokConsent(false);
+      }
+    } catch (error: any) {
+      console.log(
+        "TikTok creator info failed:",
+        error
+      );
+
+      setTikTokCreator(null);
+      setTikTokCreatorError(
+        error?.message ||
+          "Unable to load TikTok posting settings."
+      );
+    } finally {
+      setLoadingTikTokCreator(false);
+    }
+  }
+
+  function getTikTokPrivacyLabel(
+    value: string
+  ) {
+    if (
+      value === "PUBLIC_TO_EVERYONE"
+    ) {
+      return "Everyone";
+    }
+
+    if (
+      value === "MUTUAL_FOLLOW_FRIENDS"
+    ) {
+      return "Friends";
+    }
+
+    if (
+      value === "FOLLOWER_OF_CREATOR"
+    ) {
+      return "Followers";
+    }
+
+    if (
+      value === "SELF_ONLY"
+    ) {
+      return "Only me";
+    }
+
+    return value;
+  }
+
+  useEffect(() => {
+    if (
+      selectedPlatforms.includes(
+        "tiktok"
+      )
+    ) {
+      loadTikTokCreatorInfo();
+    } else {
+      setTikTokCreatorError("");
+    }
+  }, [
+    selectedPlatforms.includes(
+      "tiktok"
+    ),
+  ]);
+
   function togglePlatform(
     platform: PlatformOption
   ) {
@@ -1241,6 +1470,39 @@ if (
     Alert.alert(
       "Select Pinterest Board",
       "Choose which Pinterest board should receive posts from this store."
+    );
+    return;
+  }
+
+  if (
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokCreator
+  ) {
+    Alert.alert(
+      "TikTok Settings Required",
+      "Load the connected TikTok creator settings before posting."
+    );
+    return;
+  }
+
+  if (
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokPrivacyLevel
+  ) {
+    Alert.alert(
+      "Choose TikTok Privacy",
+      "Select who can view TikTok posts from this automation."
+    );
+    return;
+  }
+
+  if (
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokConsent
+  ) {
+    Alert.alert(
+      "TikTok Confirmation Required",
+      "Review and confirm the TikTok posting settings before continuing."
     );
     return;
   }
@@ -1354,6 +1616,36 @@ if (
             pinterestBoardId:
               selectedPinterestBoardId ||
               null,
+
+            tiktokPrivacyLevel:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokPrivacyLevel
+                : null,
+
+            tiktokDisableComment:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokDisableComment
+                : false,
+
+            tiktokAutoAddMusic:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokAutoAddMusic
+                : true,
+
+            tiktokBrandOrganicToggle:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokBrandOrganicToggle
+                : true,
+
+            tiktokBrandContentToggle:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokBrandContentToggle
+                : false,
+
+            tiktokConsent:
+              selectedPlatforms.includes("tiktok")
+                ? tiktokConsent
+                : false,
 
             selectionMode,
 
@@ -1687,6 +1979,45 @@ Alert.alert(
     return;
   }
 
+  if (
+    enabled &&
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokCreator
+  ) {
+    Alert.alert(
+      "TikTok Settings Required",
+      "Load the connected TikTok creator settings before enabling TikTok automation."
+    );
+
+    return;
+  }
+
+  if (
+    enabled &&
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokPrivacyLevel
+  ) {
+    Alert.alert(
+      "Choose TikTok Privacy",
+      "Select who can view TikTok posts from this automation."
+    );
+
+    return;
+  }
+
+  if (
+    enabled &&
+    selectedPlatforms.includes("tiktok") &&
+    !tiktokConsent
+  ) {
+    Alert.alert(
+      "TikTok Confirmation Required",
+      "Review and confirm the TikTok posting settings before enabling this automation."
+    );
+
+    return;
+  }
+
   if (!validateTime(postingTime)) {
     Alert.alert(
       "Invalid Posting Time",
@@ -1777,6 +2108,30 @@ if (
           pinterestBoardId:
             selectedPinterestBoardId ||
             null,
+          tiktokPrivacyLevel:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokPrivacyLevel
+              : null,
+          tiktokDisableComment:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokDisableComment
+              : false,
+          tiktokAutoAddMusic:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokAutoAddMusic
+              : true,
+          tiktokBrandOrganicToggle:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokBrandOrganicToggle
+              : true,
+          tiktokBrandContentToggle:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokBrandContentToggle
+              : false,
+          tiktokConsent:
+            selectedPlatforms.includes("tiktok")
+              ? tiktokConsent
+              : false,
           selectionMode,
           repeatDelayDays:
             parsedRepeatDelay,
@@ -2552,6 +2907,403 @@ try {
               )}
             </View>
           </View>
+
+          {selectedPlatforms.includes(
+            "tiktok"
+          ) ? (
+            <View
+              style={styles.sectionCard}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent:
+                    "space-between",
+                  gap: 12,
+                }}
+              >
+                <View
+                  style={{ flex: 1 }}
+                >
+                  <Text
+                    style={styles.sectionTitle}
+                  >
+                    TikTok Posting Settings
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.sectionDescription
+                    }
+                  >
+                    Review the connected creator,
+                    privacy, interaction, music,
+                    and commercial-content settings
+                    that this automation will use.
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={
+                    loadTikTokCreatorInfo
+                  }
+                  disabled={
+                    loadingTikTokCreator
+                  }
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor:
+                      "#262626",
+                  }}
+                >
+                  <Ionicons
+                    name="refresh"
+                    size={20}
+                    color="#ffffff"
+                  />
+                </Pressable>
+              </View>
+
+              {loadingTikTokCreator ? (
+                <Text
+                  style={
+                    styles.sectionDescription
+                  }
+                >
+                  Loading TikTok settings...
+                </Text>
+              ) : tiktokCreatorError ? (
+                <Text
+                  style={{
+                    color: "#fca5a5",
+                    marginTop: 12,
+                    lineHeight: 20,
+                  }}
+                >
+                  {tiktokCreatorError}
+                </Text>
+              ) : tiktokCreator ? (
+                <>
+                  <Text
+                    style={{
+                      color: "#ffffff",
+                      fontWeight: "800",
+                      fontSize: 16,
+                      marginTop: 16,
+                    }}
+                  >
+                    @
+                    {tiktokCreator.creator_username ||
+                      "TikTok creator"}
+                  </Text>
+
+                  {tiktokCreator.creator_nickname ? (
+                    <Text
+                      style={
+                        styles.sectionDescription
+                      }
+                    >
+                      {
+                        tiktokCreator.creator_nickname
+                      }
+                    </Text>
+                  ) : null}
+
+                  <Text
+                    style={{
+                      color: "#ffffff",
+                      fontWeight: "700",
+                      marginTop: 18,
+                      marginBottom: 10,
+                    }}
+                  >
+                    Who can view these posts?
+                  </Text>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 8,
+                    }}
+                  >
+                    {(
+                      tiktokCreator.privacy_level_options ||
+                      []
+                    ).map(
+                      (
+                        privacy: string
+                      ) => {
+                        const selected =
+                          tiktokPrivacyLevel ===
+                          privacy;
+
+                        return (
+                          <Pressable
+                            key={privacy}
+                            onPress={() => {
+                              setTikTokPrivacyLevel(
+                                privacy
+                              );
+                              setTikTokConsent(
+                                false
+                              );
+                            }}
+                            style={{
+                              paddingHorizontal: 13,
+                              paddingVertical: 10,
+                              borderRadius: 999,
+                              backgroundColor:
+                                selected
+                                  ? "#7c3aed"
+                                  : "#262626",
+                              borderWidth: 1,
+                              borderColor:
+                                selected
+                                  ? "#8b5cf6"
+                                  : "#3f3f46",
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: "#ffffff",
+                                fontWeight: "700",
+                              }}
+                            >
+                              {
+                                getTikTokPrivacyLabel(
+                                  privacy
+                                )
+                              }
+                            </Text>
+                          </Pressable>
+                        );
+                      }
+                    )}
+                  </View>
+
+                  <Text
+                    style={{
+                      color: "#fbbf24",
+                      fontSize: 12,
+                      lineHeight: 18,
+                      marginTop: 10,
+                    }}
+                  >
+                    During TikTok's unaudited
+                    testing period, use Only me
+                    for Direct Post testing.
+                  </Text>
+
+                  {[
+                    {
+                      title:
+                        "Allow comments",
+                      description:
+                        "Allow comments when the connected TikTok creator permits them.",
+                      value:
+                        !tiktokDisableComment,
+                      disabled: Boolean(
+                        tiktokCreator.comment_disabled
+                      ),
+                      onChange:
+                        (value: boolean) => {
+                          setTikTokDisableComment(
+                            !value
+                          );
+                          setTikTokConsent(
+                            false
+                          );
+                        },
+                    },
+                    {
+                      title:
+                        "Auto-add music",
+                      description:
+                        "Allow TikTok to add recommended music to photo posts.",
+                      value:
+                        tiktokAutoAddMusic,
+                      disabled: false,
+                      onChange:
+                        (value: boolean) => {
+                          setTikTokAutoAddMusic(
+                            value
+                          );
+                          setTikTokConsent(
+                            false
+                          );
+                        },
+                    },
+                    {
+                      title:
+                        "Promoting my own business",
+                      description:
+                        "Use for posts promoting the creator's own artwork, products, shop, or business.",
+                      value:
+                        tiktokBrandOrganicToggle,
+                      disabled: false,
+                      onChange:
+                        (value: boolean) => {
+                          setTikTokBrandOrganicToggle(
+                            value
+                          );
+                          setTikTokConsent(
+                            false
+                          );
+                        },
+                    },
+                    {
+                      title:
+                        "Paid partnership",
+                      description:
+                        "Enable only when promoting a third-party business as branded content.",
+                      value:
+                        tiktokBrandContentToggle,
+                      disabled: false,
+                      onChange:
+                        (value: boolean) => {
+                          setTikTokBrandContentToggle(
+                            value
+                          );
+                          setTikTokConsent(
+                            false
+                          );
+                        },
+                    },
+                  ].map((setting) => (
+                    <View
+                      key={setting.title}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent:
+                          "space-between",
+                        gap: 12,
+                        paddingVertical: 14,
+                        borderBottomWidth: 1,
+                        borderBottomColor:
+                          "#303030",
+                      }}
+                    >
+                      <View
+                        style={{ flex: 1 }}
+                      >
+                        <Text
+                          style={{
+                            color: "#ffffff",
+                            fontWeight: "700",
+                          }}
+                        >
+                          {setting.title}
+                        </Text>
+                        <Text
+                          style={{
+                            color: "#a3a3a3",
+                            fontSize: 12,
+                            lineHeight: 18,
+                            marginTop: 3,
+                          }}
+                        >
+                          {
+                            setting.description
+                          }
+                        </Text>
+                      </View>
+
+                      <Switch
+                        value={
+                          setting.value
+                        }
+                        disabled={
+                          setting.disabled
+                        }
+                        onValueChange={
+                          setting.onChange
+                        }
+                      />
+                    </View>
+                  ))}
+
+                  <Pressable
+                    onPress={() =>
+                      setTikTokConsent(
+                        (current) =>
+                          !current
+                      )
+                    }
+                    style={{
+                      flexDirection: "row",
+                      alignItems:
+                        "flex-start",
+                      gap: 10,
+                      marginTop: 16,
+                      padding: 14,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor:
+                        tiktokConsent
+                          ? "#8b5cf6"
+                          : "#3f3f46",
+                      backgroundColor:
+                        "#202020",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 5,
+                        alignItems: "center",
+                        justifyContent:
+                          "center",
+                        backgroundColor:
+                          tiktokConsent
+                            ? "#8b5cf6"
+                            : "transparent",
+                        borderWidth: 1,
+                        borderColor:
+                          tiktokConsent
+                            ? "#8b5cf6"
+                            : "#71717a",
+                        marginTop: 1,
+                      }}
+                    >
+                      {tiktokConsent ? (
+                        <Ionicons
+                          name="checkmark"
+                          size={14}
+                          color="#ffffff"
+                        />
+                      ) : null}
+                    </View>
+
+                    <Text
+                      style={{
+                        flex: 1,
+                        color: "#d4d4d4",
+                        fontSize: 12,
+                        lineHeight: 18,
+                      }}
+                    >
+                      I reviewed the TikTok
+                      creator account, privacy,
+                      interaction, music, and
+                      commercial-content
+                      settings and authorize this
+                      automation to use these
+                      saved choices for its
+                      scheduled posts.
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+          ) : null}
 
           {selectedPlatforms.includes(
             "facebook"
