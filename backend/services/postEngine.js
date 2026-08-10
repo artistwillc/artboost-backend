@@ -270,6 +270,38 @@ export async function publishToPlatform({
     normalizedPlatform ===
     "instagram"
   ) {
+    // Meta/Instagram may reject storefront-hosted artwork URLs
+    // or classify the remote response as an unsupported media type.
+    // Cache the artwork first so Instagram receives a stable image URL.
+    const instagramImageUrl =
+      await ensurePublishableImageUrl(
+        cleanImageUrl
+      );
+
+    console.log(
+      "Instagram automation image prepared:",
+      {
+        originalHost: (() => {
+          try {
+            return new URL(
+              cleanImageUrl
+            ).hostname;
+          } catch {
+            return null;
+          }
+        })(),
+        preparedHost: (() => {
+          try {
+            return new URL(
+              instagramImageUrl
+            ).hostname;
+          } catch {
+            return null;
+          }
+        })(),
+      }
+    );
+
     return publishInstagram({
       title: cleanTitle,
       description:
@@ -280,7 +312,7 @@ export async function publishToPlatform({
         cleanCta ||
         "Tap the link in bio.",
       imageUrl:
-        cleanImageUrl,
+        instagramImageUrl,
       userId,
     });
   }
