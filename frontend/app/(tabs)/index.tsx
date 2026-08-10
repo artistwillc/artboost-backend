@@ -12,6 +12,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -77,6 +78,23 @@ export default function HomeScreen() {
   const [scheduleDaysOut, setScheduleDaysOut] = useState("1");
   const [scheduling, setScheduling] = useState(false);
 
+  const [tiktokCreator, setTikTokCreator] =
+    useState<any>(null);
+  const [loadingTikTokCreator, setLoadingTikTokCreator] =
+    useState(false);
+  const [tiktokPrivacy, setTikTokPrivacy] =
+    useState("");
+  const [tiktokDisableComment, setTikTokDisableComment] =
+    useState(false);
+  const [tiktokAutoAddMusic, setTikTokAutoAddMusic] =
+    useState(true);
+  const [tiktokOwnBusiness, setTikTokOwnBusiness] =
+    useState(true);
+  const [tiktokPaidPartnership, setTikTokPaidPartnership] =
+    useState(false);
+  const [tiktokConsent, setTikTokConsent] =
+    useState(false);
+
   const [homeMode, setHomeMode] = useState<
     "home" | "upload"
   >("home");
@@ -100,6 +118,101 @@ export default function HomeScreen() {
     };
   }, []);
  
+  const getTikTokPrivacyLabel = (value: string) => {
+    if (value === "PUBLIC_TO_EVERYONE") {
+      return "Everyone";
+    }
+
+    if (value === "MUTUAL_FOLLOW_FRIENDS") {
+      return "Friends";
+    }
+
+    if (value === "FOLLOWER_OF_CREATOR") {
+      return "Followers";
+    }
+
+    if (value === "SELF_ONLY") {
+      return "Only me";
+    }
+
+    return value;
+  };
+
+  const loadTikTokCreatorInfo = async () => {
+    try {
+      if (!session?.user?.id) {
+        return;
+      }
+
+      setLoadingTikTokCreator(true);
+
+      const response = await fetch(
+        `${BACKEND_URL}/tiktok/creator-info?userId=${encodeURIComponent(
+          session.user.id
+        )}`
+      );
+
+      const responseText =
+        await response.text();
+
+      let data: any = {};
+
+      try {
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        throw new Error(
+          `TikTok settings returned HTTP ${response.status} with an invalid response.`
+        );
+      }
+
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.error ||
+            "Unable to load TikTok posting settings."
+        );
+      }
+
+      const creator =
+        data.creator || null;
+
+      setTikTokCreator(creator);
+      setTikTokPrivacy("");
+      setTikTokConsent(false);
+      setTikTokDisableComment(
+        Boolean(creator?.comment_disabled)
+      );
+    } catch (error: any) {
+      console.log(
+        "TikTok creator info failed:",
+        error
+      );
+
+      setTikTokCreator(null);
+
+      Alert.alert(
+        "TikTok Settings Error",
+        error?.message ||
+          "Unable to load TikTok posting settings."
+      );
+    } finally {
+      setLoadingTikTokCreator(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      selectedPlatform === "TikTok" &&
+      session?.user?.id
+    ) {
+      loadTikTokCreatorInfo();
+    }
+  }, [
+    selectedPlatform,
+    session?.user?.id,
+  ]);
+
   const loadSession = async () => {
     const { data } = await supabase.auth.getSession();
  
@@ -464,6 +577,285 @@ const createFacebookPost = async () => {
         Alert.alert(
           "Instagram Published",
           "Your artwork was successfully posted to Instagram."
+        );
+        return;
+      }
+
+      if (selectedPlatform === "Threads") {
+        const response = await fetch(
+          `${BACKEND_URL}/threads/post`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userId: session?.user?.id || null,
+              title: campaign.title,
+              description: campaign.description,
+              hashtags: campaign.hashtags,
+              cta: campaign.cta,
+              productLink: finalProductLink || null,
+              imageUrl: hostedImageUrl,
+            }),
+          }
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          console.log(
+            "Threads non-JSON response:",
+            response.status,
+            responseText.slice(0, 300)
+          );
+
+          Alert.alert(
+            "Threads Post Failed",
+            `ArtBoost received an invalid response from the Threads publishing endpoint (HTTP ${response.status}).`
+          );
+          return;
+        }
+
+        if (!response.ok || data?.error) {
+          console.log(
+            "Threads post error:",
+            data
+          );
+
+          Alert.alert(
+            "Threads Post Failed",
+            data?.error?.message ||
+              data?.error ||
+              "Threads could not publish this post."
+          );
+          return;
+        }
+
+        Alert.alert(
+          "Threads Published",
+          "Your artwork was successfully posted to Threads."
+        );
+        return;
+      }
+
+      if (selectedPlatform === "LinkedIn") {
+        const linkedInTitle =
+          String(campaign.title || "")
+            .replace(/https?:\/\/\S+/gi, "")
+            .replace(/www\.\S+/gi, "")
+            .trim();
+
+        const linkedInDescription = [
+          campaign.description,
+          campaign.cta,
+          campaign.hashtags,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+          .replace(/https?:\/\/\S+/gi, "")
+          .replace(/www\.\S+/gi, "")
+          .trim();
+
+        const response = await fetch(
+          `${BACKEND_URL}/linkedin/post`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userId: session?.user?.id || null,
+              title:
+                linkedInTitle ||
+                linkedInDescription,
+              description:
+                linkedInDescription,
+              imageUrl:
+                hostedImageUrl || null,
+              productLink:
+                finalProductLink || null,
+            }),
+          }
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          console.log(
+            "LinkedIn non-JSON response:",
+            response.status,
+            responseText.slice(0, 300)
+          );
+
+          Alert.alert(
+            "LinkedIn Post Failed",
+            `ArtBoost received an invalid response from the LinkedIn publishing endpoint (HTTP ${response.status}).`
+          );
+          return;
+        }
+
+        if (!response.ok || data?.error) {
+          console.log(
+            "LinkedIn post error:",
+            data
+          );
+
+          Alert.alert(
+            "LinkedIn Post Failed",
+            data?.error?.message ||
+              data?.error ||
+              "LinkedIn could not publish this post."
+          );
+          return;
+        }
+
+        Alert.alert(
+          "LinkedIn Published",
+          "Your artwork was successfully posted to LinkedIn."
+        );
+        return;
+      }
+
+      if (selectedPlatform === "TikTok") {
+        if (!session?.user?.id) {
+          Alert.alert(
+            "Login Required",
+            "Please log in before publishing to TikTok."
+          );
+          return;
+        }
+
+        if (!tiktokCreator) {
+          Alert.alert(
+            "TikTok Settings Required",
+            "Load TikTok posting settings before publishing."
+          );
+          return;
+        }
+
+        if (!tiktokPrivacy) {
+          Alert.alert(
+            "Choose Privacy",
+            "Select who can view this TikTok post."
+          );
+          return;
+        }
+
+        if (!tiktokConsent) {
+          Alert.alert(
+            "Confirmation Required",
+            "Confirm the TikTok post settings before publishing."
+          );
+          return;
+        }
+
+        const removeLinks = (value: string) =>
+          String(value || "")
+            .replace(/https?:\/\/\S+/gi, "")
+            .replace(/www\.\S+/gi, "")
+            .replace(/[ \t]+\n/g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+
+        const caption = [
+          removeLinks(campaign.title),
+          removeLinks(campaign.description),
+          removeLinks(campaign.cta),
+          removeLinks(campaign.hashtags),
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+          .trim();
+
+        const response = await fetch(
+          `${BACKEND_URL}/tiktok/photo-post`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userId: session.user.id,
+              title:
+                removeLinks(campaign.title),
+              description: caption,
+              imageUrl: hostedImageUrl,
+              productLink:
+                finalProductLink || null,
+              privacyLevel:
+                tiktokPrivacy,
+              disableComment:
+                tiktokDisableComment,
+              autoAddMusic:
+                tiktokAutoAddMusic,
+              brandOrganicToggle:
+                tiktokOwnBusiness,
+              brandContentToggle:
+                tiktokPaidPartnership,
+              consent: true,
+            }),
+          }
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          console.log(
+            "TikTok non-JSON response:",
+            response.status,
+            responseText.slice(0, 300)
+          );
+
+          Alert.alert(
+            "TikTok Publish Failed",
+            `ArtBoost received an invalid response from the TikTok publishing endpoint (HTTP ${response.status}).`
+          );
+          return;
+        }
+
+        if (!response.ok || data?.error) {
+          console.log(
+            "TikTok post error:",
+            data
+          );
+
+          Alert.alert(
+            "TikTok Publish Failed",
+            data?.error?.message ||
+              data?.error ||
+              "TikTok could not publish this photo."
+          );
+          return;
+        }
+
+        setTikTokConsent(false);
+
+        Alert.alert(
+          "TikTok Submitted",
+          data?.message ||
+            "TikTok accepted the photo post. Processing can take a few minutes before it appears."
         );
         return;
       }
@@ -1242,6 +1634,272 @@ const createFacebookPost = async () => {
                 >
                   No boards loaded. Refresh boards
                   or reconnect Pinterest.
+                </Text>
+              )}
+            </View>
+          ) : null}
+
+          {selectedPlatform === "TikTok" &&
+          sections.length > 0 ? (
+            <View style={styles.boardBox}>
+              <View style={styles.boardHeaderRow}>
+                <Text style={styles.platformLabel}>
+                  TikTok Posting Settings
+                </Text>
+
+                <Pressable
+                  style={styles.refreshBoardsButton}
+                  onPress={loadTikTokCreatorInfo}
+                  disabled={loadingTikTokCreator}
+                >
+                  <Text style={styles.smallButtonText}>
+                    {loadingTikTokCreator
+                      ? "Loading..."
+                      : "Refresh"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {tiktokCreator ? (
+                <>
+                  <Text style={styles.boardHelpText}>
+                    @
+                    {tiktokCreator.creator_username ||
+                      "TikTok creator"}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.platformLabel,
+                      { marginTop: 12 },
+                    ]}
+                  >
+                    Who can view this post?
+                  </Text>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    {(
+                      tiktokCreator.privacy_level_options ||
+                      []
+                    ).map((privacy: string) => (
+                      <Pressable
+                        key={privacy}
+                        style={[
+                          styles.repeatOption,
+                          tiktokPrivacy === privacy &&
+                            styles.repeatOptionActive,
+                        ]}
+                        onPress={() => {
+                          setTikTokPrivacy(privacy);
+                          setTikTokConsent(false);
+                        }}
+                      >
+                        <Text
+                          style={styles.repeatOptionText}
+                        >
+                          {getTikTokPrivacyLabel(
+                            privacy
+                          )}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.boardHelpText,
+                      { marginTop: 8 },
+                    ]}
+                  >
+                    During TikTok's unaudited testing period, use "Only me" for Direct Post testing.
+                  </Text>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      marginTop: 14,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flex: 1,
+                        paddingRight: 12,
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.platformLabel
+                        }
+                      >
+                        Allow comments
+                      </Text>
+                    </View>
+
+                    <Switch
+                      value={!tiktokDisableComment}
+                      disabled={Boolean(
+                        tiktokCreator.comment_disabled
+                      )}
+                      onValueChange={(value) => {
+                        setTikTokDisableComment(
+                          !value
+                        );
+                        setTikTokConsent(false);
+                      }}
+                    />
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      marginTop: 12,
+                    }}
+                  >
+                    <Text
+                      style={
+                        styles.platformLabel
+                      }
+                    >
+                      Auto-add music
+                    </Text>
+
+                    <Switch
+                      value={tiktokAutoAddMusic}
+                      onValueChange={(value) => {
+                        setTikTokAutoAddMusic(
+                          value
+                        );
+                        setTikTokConsent(false);
+                      }}
+                    />
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      marginTop: 12,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flex: 1,
+                        paddingRight: 12,
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.platformLabel
+                        }
+                      >
+                        Promoting my own business
+                      </Text>
+                    </View>
+
+                    <Switch
+                      value={tiktokOwnBusiness}
+                      onValueChange={(value) => {
+                        setTikTokOwnBusiness(
+                          value
+                        );
+                        setTikTokConsent(false);
+                      }}
+                    />
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      marginTop: 12,
+                    }}
+                  >
+                    <Text
+                      style={
+                        styles.platformLabel
+                      }
+                    >
+                      Paid partnership
+                    </Text>
+
+                    <Switch
+                      value={tiktokPaidPartnership}
+                      onValueChange={(value) => {
+                        setTikTokPaidPartnership(
+                          value
+                        );
+                        setTikTokConsent(false);
+                      }}
+                    />
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      marginTop: 16,
+                      paddingTop: 12,
+                      borderTopWidth: 1,
+                      borderTopColor: "#333",
+                    }}
+                  >
+                    <View
+                      style={{
+                        flex: 1,
+                        paddingRight: 12,
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.platformLabel
+                        }
+                      >
+                        Confirm TikTok settings
+                      </Text>
+
+                      <Text
+                        style={
+                          styles.boardHelpText
+                        }
+                      >
+                        Review these settings before each Direct Post.
+                      </Text>
+                    </View>
+
+                    <Switch
+                      value={tiktokConsent}
+                      onValueChange={
+                        setTikTokConsent
+                      }
+                    />
+                  </View>
+                </>
+              ) : (
+                <Text
+                  style={styles.boardHelpText}
+                >
+                  {loadingTikTokCreator
+                    ? "Loading TikTok posting settings..."
+                    : "TikTok settings are unavailable. Tap Refresh or reconnect TikTok."}
                 </Text>
               )}
             </View>
