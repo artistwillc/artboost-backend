@@ -7922,6 +7922,291 @@ setInterval(runScheduledCampaigns, 60 * 1000);
 setInterval(runDueStoreAutomations, 60 * 1000);
 setInterval(expireFreeMonthSubscriptions, 60 * 60 * 1000);
 
+
+app.post("/marketing-consultant/profile", async (req, res) => {
+  try {
+    const authHeader = String(
+      req.headers.authorization || ""
+    ).trim();
+
+    const accessToken =
+      authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : "";
+
+    if (!accessToken) {
+      return res.status(401).json({
+        error: "Authentication is required to use the AI Marketing Consultant.",
+      });
+    }
+
+    const {
+      data: authData,
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
+
+    const userId =
+      authData?.user?.id || null;
+
+    if (authError || !userId) {
+      return res.status(401).json({
+        error: "Your ArtBoost session is no longer valid. Please sign in again.",
+      });
+    }
+
+    const {
+      artistName,
+      artworkTypes = [],
+      brandTraits = [],
+      audiences = [],
+      marketingGoal = "",
+      additionalDetails = "",
+    } = req.body || {};
+
+    if (!String(artistName || "").trim()) {
+      return res.status(400).json({
+        error: "Artist or business name is required.",
+      });
+    }
+
+    if (!Array.isArray(artworkTypes) || artworkTypes.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one artwork type.",
+      });
+    }
+
+    if (!Array.isArray(brandTraits) || brandTraits.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one brand trait.",
+      });
+    }
+
+    if (!Array.isArray(audiences) || audiences.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one target audience.",
+      });
+    }
+
+    if (!String(marketingGoal || "").trim()) {
+      return res.status(400).json({
+        error: "Choose a marketing goal.",
+      });
+    }
+
+    const [
+      storeResult,
+      connectionResult,
+      automationResult,
+    ] = await Promise.all([
+      supabase
+        .from("store_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("connected", true),
+
+      supabase
+        .from("social_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("connected", true),
+
+      supabase
+        .from("store_automations")
+        .select(
+          "id,store_name,store_type,enabled,frequency,posting_time,timezone,platforms,selection_mode,repeat_delay_days,last_error"
+        )
+        .eq("user_id", userId),
+    ]);
+
+    const stores = [];
+
+    for (const row of storeResult.data || []) {
+      stores.push({
+        platform:
+          row.platform ||
+          row.store_type ||
+          "store",
+        name:
+          row.store_name ||
+          row.store_url ||
+          row.platform ||
+          "Connected store",
+      });
+    }
+
+    /*
+     * social_connections contains both social networks and some legacy store
+     * connections. Only treat known publishing networks as social context.
+     */
+    const knownSocialPlatforms = new Set([
+      "facebook",
+      "instagram",
+      "pinterest",
+      "x",
+      "twitter",
+      "threads",
+      "linkedin",
+      "tiktok",
+    ]);
+
+    const connectedPlatforms =
+      [
+        ...new Set(
+          (connectionResult.data || [])
+            .map((row) =>
+              String(row.platform || "")
+                .trim()
+                .toLowerCase()
+            )
+            .filter((platform) =>
+              knownSocialPlatforms.has(platform)
+            )
+            .map((platform) =>
+              platform === "twitter"
+                ? "x"
+                : platform
+            )
+        ),
+      ];
+
+    const automations =
+      (automationResult.data || []).map(
+        (automation) => ({
+          storeName:
+            automation.store_name,
+          storeType:
+            automation.store_type,
+          enabled:
+            Boolean(automation.enabled),
+          frequency:
+            automation.frequency,
+          postingTime:
+            automation.posting_time,
+          timezone:
+            automation.timezone,
+          platforms:
+            Array.isArray(
+              automation.platforms
+            )
+              ? automation.platforms
+              : [],
+          selectionMode:
+            automation.selection_mode,
+          repeatDelayDays:
+            automation.repeat_delay_days,
+          lastError:
+            automation.last_error || null,
+        })
+      );
+
+    const response =
+      await openai.responses.create({
+        model: "gpt-4.1-mini",
+        input: `
+You are the ArtBoost AI Marketing Consultant.
+
+Your job is to create a practical marketing profile for an artist or small
+online seller using BOTH the answers they supplied and the real ArtBoost
+connection context supplied below.
+
+USER PROFILE INPUT
+Artist/business name: ${String(artistName).trim()}
+Artwork types: ${artworkTypes.join(", ")}
+Brand traits: ${brandTraits.join(", ")}
+Target audiences: ${audiences.join(", ")}
+Primary marketing goal: ${String(marketingGoal).trim()}
+Additional details: ${String(additionalDetails || "").trim() || "None provided"}
+
+LIVE ARTBOOST CONTEXT
+Connected stores:
+${stores.length ? JSON.stringify(stores) : "No connected stores found"}
+
+Connected social publishing platforms:
+${connectedPlatforms.length ? connectedPlatforms.join(", ") : "No connected social platforms found"}
+
+Existing store automations:
+${automations.length ? JSON.stringify(automations) : "No store automations found"}
+
+IMPORTANT RULES
+- Recommendations must be specific, useful, and realistic for an independent artist/seller.
+- Prefer social platforms that are actually connected in ArtBoost.
+- If a useful platform is not connected, clearly label it as an optional platform to connect rather than pretending it is available.
+- Consider the connected store types when recommending campaigns.
+- If an existing automation is enabled and healthy, do not tell the user to create a duplicate automation; recommend how to improve or use it.
+- Do not claim access to sales, engagement, clicks, or conversion data unless it is explicitly present above.
+- Do not make exaggerated marketing claims.
+- Keep the brand voice concise enough to be useful as an instruction to future content generators.
+- Hashtags should be relevant to the user's actual artwork categories and audience.
+- The example post should sound like a polished real social post but must not invent a specific product name or URL.
+
+Return ONLY valid JSON. No markdown and no surrounding commentary.
+
+Exact schema:
+{
+  "brandName": "",
+  "brandVoice": "",
+  "targetAudience": "",
+  "defaultCTA": "",
+  "defaultHashtags": ["#Tag1", "#Tag2"],
+  "avoidWords": "",
+  "recommendedPlatforms": "",
+  "recommendedSchedule": "",
+  "recommendedAutomation": "",
+  "recommendedCampaigns": "",
+  "examplePost": ""
+}
+`,
+      });
+
+    let raw =
+      String(response.output_text || "")
+        .trim();
+
+    raw = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    let profile;
+
+    try {
+      profile = JSON.parse(raw);
+    } catch (parseError) {
+      console.error(
+        "Marketing consultant JSON parse failed:",
+        raw
+      );
+
+      throw new Error(
+        "The AI Marketing Consultant returned an invalid profile."
+      );
+    }
+
+    return res.json({
+      success: true,
+      profile,
+      context: {
+        connectedStores: stores.length,
+        connectedPlatforms,
+        automations: automations.length,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Marketing consultant profile error:",
+      error
+    );
+
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to generate the marketing profile.",
+    });
+  }
+});
+
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
