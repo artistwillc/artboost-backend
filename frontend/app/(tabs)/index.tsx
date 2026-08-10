@@ -273,46 +273,16 @@ cta,
   };
  
   const pickImage = async () => {
-    try {
-      const picked =
-        await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
-          allowsEditing: false,
-          allowsMultipleSelection: false,
-          quality: 0.9,
-        });
-
-      if (
-        !picked.canceled &&
-        picked.assets?.length
-      ) {
-        const selectedUri =
-          picked.assets[0]?.uri;
-
-        if (!selectedUri) {
-          Alert.alert(
-            "Photo Selection Failed",
-            "ArtBoost could not read the selected photo. Please try again."
-          );
-          return;
-        }
-
-        setImage(selectedUri);
-        setHostedImageUrl("");
-        setResult("");
-        setShowScheduleOptions(false);
-      }
-    } catch (error: any) {
-      console.log(
-        "Image picker error:",
-        error
-      );
-
-      Alert.alert(
-        "Unable to Open Photos",
-        error?.message ||
-          "ArtBoost could not open your photo library. Please try again."
-      );
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+    });
+ 
+    if (!picked.canceled) {
+      setImage(picked.assets[0].uri);
+      setHostedImageUrl("");
+      setResult("");
+      setShowScheduleOptions(false);
     }
   };
  
@@ -478,9 +448,43 @@ const createFacebookPost = async () => {
       }
 
       if (selectedPlatform === "X") {
+        const messageWithoutLink = [
+          campaign.title,
+          campaign.description,
+          campaign.hashtags,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        const response = await fetch(`${BACKEND_URL}/x/post`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: messageWithoutLink,
+            imageUrl: hostedImageUrl,
+            productLink: finalProductLink || null,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data?.error) {
+          console.log("X post error:", data);
+
+          Alert.alert(
+            "X Post Failed",
+            data?.error?.message ||
+              data?.error ||
+              "X could not publish this post."
+          );
+          return;
+        }
+
         Alert.alert(
-          "X Posting Unavailable",
-          "Direct X posting is not currently available."
+          "X Published",
+          "Your artwork was successfully posted to X."
         );
         return;
       }
@@ -670,13 +674,16 @@ const createFacebookPost = async () => {
           : `https://${rawProductLink}`
         : "";
 
-      const finalGeneratedText =
-        selectedPlatform === "Instagram" && normalizedProductLink
-          ? generatedText.replace(
-              /CTA:\s*[\s\S]*?(?=(?:TITLE|DESCRIPTION|HASHTAGS):|$)/i,
-              `CTA: Shop this design: ${normalizedProductLink}\n`
-            )
-          : generatedText;
+      const shouldUseDirectProductCta =
+        ["Instagram", "Facebook", "X"].includes(selectedPlatform) &&
+        Boolean(normalizedProductLink);
+
+      const finalGeneratedText = shouldUseDirectProductCta
+        ? generatedText.replace(
+            /CTA:\s*[\s\S]*?(?=(?:TITLE|DESCRIPTION|HASHTAGS):|$)/i,
+            `CTA: Shop this design: ${normalizedProductLink}\n`
+          )
+        : generatedText;
  
       setResult(finalGeneratedText);
       setHostedImageUrl(imageUrlFromBackend);
