@@ -440,6 +440,7 @@ const createFacebookPost = async () => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
+              userId: session?.user?.id || null,
               message,
               imageUrl: hostedImageUrl,
             }),
