@@ -1,11 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -28,6 +31,12 @@ const BACKEND_URL =
   "https://artboost-ai.onrender.com";
 
 type FormValues = Record<string, string>;
+
+type SelectedArtwork = {
+  uri: string;
+  name: string;
+  type: string;
+};
 
 type ResultMetric = {
   label: string;
@@ -109,6 +118,12 @@ export default function CreatorToolScreen() {
   const [result, setResult] =
     useState<ToolResult | null>(null);
 
+  const [artwork, setArtwork] =
+    useState<SelectedArtwork | null>(null);
+
+  const isAIWritingTool =
+    tool?.kind === "ai";
+
   /**
    * Reliable Creator Tools navigation.
    *
@@ -131,6 +146,137 @@ export default function CreatorToolScreen() {
     );
   }
 
+  async function pickArtwork() {
+    try {
+      if (Platform.OS === "android") {
+        const picked =
+          await DocumentPicker.getDocumentAsync({
+            type: "image/*",
+            copyToCacheDirectory: true,
+            multiple: false,
+          });
+
+        if (
+          !picked.canceled &&
+          picked.assets?.length
+        ) {
+          const asset =
+            picked.assets[0];
+
+          setArtwork({
+            uri: asset.uri,
+            name:
+              asset.name ||
+              "creator-tool-artwork.jpg",
+            type:
+              asset.mimeType ||
+              "image/jpeg",
+          });
+
+          setResult(null);
+        }
+
+        return;
+      }
+
+      const picked =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes:
+            ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+
+      if (
+        !picked.canceled &&
+        picked.assets?.length
+      ) {
+        const asset =
+          picked.assets[0];
+
+        setArtwork({
+          uri: asset.uri,
+          name:
+            asset.fileName ||
+            "creator-tool-artwork.jpg",
+          type:
+            asset.mimeType ||
+            "image/jpeg",
+        });
+
+        setResult(null);
+      }
+    } catch (error: any) {
+      console.log(
+        "Creator Tool artwork picker error:",
+        error
+      );
+
+      Alert.alert(
+        "Unable to Select Artwork",
+        error?.message ||
+          "ArtBoost could not open the artwork picker."
+      );
+    }
+  }
+
+  function removeArtwork() {
+    setArtwork(null);
+    setResult(null);
+  }
+
+  function fieldIsRequired(
+    field: CreatorToolDefinition["fields"][number]
+  ) {
+    if (!field.required) {
+      return false;
+    }
+
+    if (
+      !isAIWritingTool ||
+      !artwork
+    ) {
+      return true;
+    }
+
+    // When artwork is supplied, visual fields can be inferred from
+    // the image. Platform/goal fields still require user intent.
+    if (tool?.id === "ai-title") {
+      return false;
+    }
+
+    if (
+      tool?.id ===
+      "ai-description"
+    ) {
+      return false;
+    }
+
+    if (
+      tool?.id ===
+      "ai-hashtag"
+    ) {
+      return (
+        field.key ===
+        "platform"
+      );
+    }
+
+    if (
+      tool?.id === "ai-cta"
+    ) {
+      return (
+        field.key ===
+          "goal" ||
+        field.key ===
+          "platform"
+      );
+    }
+
+    return Boolean(
+      field.required
+    );
+  }
+
   function updateValue(
     key: string,
     value: string
@@ -146,10 +292,29 @@ export default function CreatorToolScreen() {
       return false;
     }
 
+    const hasAnyTextInput =
+      Object.values(values).some(
+        (value) =>
+          String(value || "").trim()
+      );
+
+    if (
+      tool.kind === "ai" &&
+      !artwork &&
+      !hasAnyTextInput
+    ) {
+      Alert.alert(
+        "Add Artwork or Details",
+        "Upload artwork or enter details before generating."
+      );
+
+      return false;
+    }
+
     const missingField =
       tool.fields.find(
         (field) =>
-          field.required &&
+          fieldIsRequired(field) &&
           !String(
             values[field.key] || ""
           ).trim()
@@ -483,19 +648,36 @@ export default function CreatorToolScreen() {
       setLoading(true);
       setResult(null);
 
+      const formData =
+        new FormData();
+
+      formData.append(
+        "toolId",
+        tool.id
+      );
+
+      formData.append(
+        "inputs",
+        JSON.stringify(values)
+      );
+
+      if (artwork) {
+        formData.append(
+          "image",
+          {
+            uri: artwork.uri,
+            name: artwork.name,
+            type: artwork.type,
+          } as any
+        );
+      }
+
       const response =
         await fetch(
           `${BACKEND_URL}/creator-tools/generate`,
           {
             method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              toolId: tool.id,
-              inputs: values,
-            }),
+            body: formData,
           }
         );
 
@@ -505,13 +687,14 @@ export default function CreatorToolScreen() {
       let data: any = {};
 
       try {
-        data =
-          JSON.parse(
-            responseText
-          );
+        data = responseText
+          ? JSON.parse(
+              responseText
+            )
+          : {};
       } catch {
         throw new Error(
-          "ArtBoost received an invalid AI response."
+          `ArtBoost received an invalid AI response (HTTP ${response.status}).`
         );
       }
 
@@ -520,8 +703,8 @@ export default function CreatorToolScreen() {
         !data.success
       ) {
         throw new Error(
-          data.error ||
-            data.details ||
+          data.details ||
+            data.error ||
             "The Creator Tool could not generate a result."
         );
       }
@@ -701,6 +884,7 @@ export default function CreatorToolScreen() {
       buildInitialValues(tool)
     );
 
+    setArtwork(null);
     setResult(null);
   }
 
@@ -884,10 +1068,141 @@ export default function CreatorToolScreen() {
                 styles.sectionSubtitle
               }
             >
-              Complete the fields below,
-              then tap{" "}
-              {tool.actionLabel}.
+              {isAIWritingTool
+                ? "Upload artwork so AI can analyze the image, then add any optional details that will improve the result."
+                : `Complete the fields below, then tap ${tool.actionLabel}.`}
             </Text>
+
+            {isAIWritingTool ? (
+              <View
+                style={
+                  styles.artworkSection
+                }
+              >
+                <Text
+                  style={
+                    styles.artworkSectionTitle
+                  }
+                >
+                  Artwork Image
+                </Text>
+
+                <Text
+                  style={
+                    styles.artworkSectionHelp
+                  }
+                >
+                  Optional, but recommended. ArtBoost will analyze the visible subject, colors, style, mood, and text in the artwork.
+                </Text>
+
+                {!artwork ? (
+                  <Pressable
+                    style={
+                      styles.uploadArtworkCard
+                    }
+                    onPress={
+                      pickArtwork
+                    }
+                  >
+                    <View
+                      style={
+                        styles.uploadArtworkIcon
+                      }
+                    >
+                      <Ionicons
+                        name="image-outline"
+                        size={26}
+                        color="#c4b5fd"
+                      />
+                    </View>
+
+                    <Text
+                      style={
+                        styles.uploadArtworkTitle
+                      }
+                    >
+                      Upload Artwork
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.uploadArtworkText
+                      }
+                    >
+                      Choose an image from your device.
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View
+                    style={
+                      styles.selectedArtworkCard
+                    }
+                  >
+                    <Image
+                      source={{
+                        uri: artwork.uri,
+                      }}
+                      style={
+                        styles.artworkPreview
+                      }
+                      resizeMode="contain"
+                    />
+
+                    <View
+                      style={
+                        styles.artworkActions
+                      }
+                    >
+                      <Pressable
+                        style={
+                          styles.changeArtworkButton
+                        }
+                        onPress={
+                          pickArtwork
+                        }
+                      >
+                        <Ionicons
+                          name="images-outline"
+                          size={18}
+                          color="#ffffff"
+                        />
+
+                        <Text
+                          style={
+                            styles.changeArtworkText
+                          }
+                        >
+                          Change Artwork
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={
+                          styles.removeArtworkButton
+                        }
+                        onPress={
+                          removeArtwork
+                        }
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color="#fca5a5"
+                        />
+
+                        <Text
+                          style={
+                            styles.removeArtworkText
+                          }
+                        >
+                          Remove Artwork
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+              </View>
+            ) : null}
 
             {tool.fields.map(
               (field) => (
@@ -905,7 +1220,7 @@ export default function CreatorToolScreen() {
                     }
                   >
                     {field.label}
-                    {field.required
+                    {fieldIsRequired(field)
                       ? " *"
                       : ""}
                   </Text>
@@ -1381,6 +1696,119 @@ const styles =
       lineHeight: 18,
       marginTop: 5,
       marginBottom: 17,
+    },
+
+    artworkSection: {
+      marginBottom: 18,
+    },
+
+    artworkSectionTitle: {
+      color: "#ffffff",
+      fontSize: 13,
+      fontWeight: "900",
+    },
+
+    artworkSectionHelp: {
+      color: "#8f8f8f",
+      fontSize: 11,
+      lineHeight: 17,
+      marginTop: 5,
+      marginBottom: 11,
+    },
+
+    uploadArtworkCard: {
+      minHeight: 138,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: "#5b45a0",
+      backgroundColor: "#211b30",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 18,
+    },
+
+    uploadArtworkIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 15,
+      backgroundColor: "#33264f",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 10,
+    },
+
+    uploadArtworkTitle: {
+      color: "#ffffff",
+      fontSize: 15,
+      fontWeight: "900",
+    },
+
+    uploadArtworkText: {
+      color: "#9f98aa",
+      fontSize: 11,
+      marginTop: 5,
+      textAlign: "center",
+    },
+
+    selectedArtworkCard: {
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: "#3f3560",
+      backgroundColor: "#16131e",
+      padding: 10,
+      overflow: "hidden",
+    },
+
+    artworkPreview: {
+      width: "100%",
+      height: 260,
+      borderRadius: 13,
+      backgroundColor: "#0d0d0d",
+    },
+
+    artworkActions: {
+      flexDirection: "row",
+      gap: 9,
+      marginTop: 10,
+    },
+
+    changeArtworkButton: {
+      flex: 1,
+      minHeight: 46,
+      borderRadius: 13,
+      backgroundColor: "#6d4bd1",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 7,
+      paddingHorizontal: 10,
+    },
+
+    changeArtworkText: {
+      color: "#ffffff",
+      fontSize: 12,
+      fontWeight: "900",
+    },
+
+    removeArtworkButton: {
+      flex: 1,
+      minHeight: 46,
+      borderRadius: 13,
+      backgroundColor: "#32191c",
+      borderWidth: 1,
+      borderColor: "#633238",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 7,
+      paddingHorizontal: 10,
+    },
+
+    removeArtworkText: {
+      color: "#fca5a5",
+      fontSize: 12,
+      fontWeight: "900",
     },
 
     fieldWrap: {
