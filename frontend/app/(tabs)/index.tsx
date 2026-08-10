@@ -490,20 +490,43 @@ const createFacebookPost = async () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            userId: session?.user?.id || null,
             message: messageWithoutLink,
             imageUrl: hostedImageUrl,
             productLink: finalProductLink || null,
           }),
         });
 
-        const data = await response.json();
+        const responseText =
+          await response.text();
+
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          console.log(
+            "X non-JSON response:",
+            response.status,
+            responseText.slice(0, 300)
+          );
+
+          Alert.alert(
+            "X Post Failed",
+            `ArtBoost received an invalid response from the X publishing endpoint (HTTP ${response.status}).`
+          );
+          return;
+        }
 
         if (!response.ok || data?.error) {
           console.log("X post error:", data);
 
           Alert.alert(
             "X Post Failed",
-            data?.error?.message ||
+            data?.details ||
+              data?.error?.message ||
               data?.error ||
               "X could not publish this post."
           );
