@@ -294,9 +294,85 @@ export async function ensureTikTokMediaUrl(imageUrl) {
       imageUrl
     );
 
+  /*
+   * Shopify commonly serves product artwork as WebP. TikTok may
+   * accept content/init and then fail the asynchronous download /
+   * processing step. Deliver a deterministic JPEG rendition from
+   * Cloudinary for TikTok regardless of the store's source format.
+   */
+  let tiktokHostedUrl = hostedUrl;
+
+  if (isCloudinaryUrl(hostedUrl)) {
+    try {
+      // Build a normal Cloudinary delivery URL from the existing
+      // asset URL by inserting a JPEG transformation.
+      const url = new URL(hostedUrl);
+      const marker = "/upload/";
+      const markerIndex =
+        url.pathname.indexOf(marker);
+
+      if (markerIndex >= 0) {
+        const before =
+          url.pathname.slice(
+            0,
+            markerIndex + marker.length
+          );
+
+        const after =
+          url.pathname.slice(
+            markerIndex + marker.length
+          );
+
+        url.pathname =
+          `${before}f_jpg,q_auto/${after}`
+            .replace(
+              /\.(webp|png|gif|avif)$/i,
+              ".jpg"
+            );
+
+        tiktokHostedUrl =
+          url.toString();
+      }
+    } catch (error) {
+      console.warn(
+        "TikTok JPEG URL preparation failed; using cached image URL:",
+        error?.message || error
+      );
+    }
+  }
+
+  console.log(
+    "TikTok media prepared:",
+    {
+      sourceHost: (() => {
+        try {
+          return new URL(
+            hostedUrl
+          ).hostname;
+        } catch {
+          return null;
+        }
+      })(),
+      sourceFormat:
+        hostedUrl
+          .split("?")[0]
+          .split(".")
+          .pop()
+          ?.toLowerCase() ||
+        null,
+      tiktokFormat:
+        tiktokHostedUrl
+          .split("?")[0]
+          .split(".")
+          .pop()
+          ?.toLowerCase() ||
+        null,
+    }
+  );
+
   const payload = Buffer.from(
     JSON.stringify({
-      url: hostedUrl,
+      url: tiktokHostedUrl,
       createdAt: Date.now(),
     })
   ).toString("base64url");

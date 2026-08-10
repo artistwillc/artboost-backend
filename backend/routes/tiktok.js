@@ -443,6 +443,87 @@ async function submitPhotoPost({
   };
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) =>
+    setTimeout(resolve, milliseconds)
+  );
+}
+
+async function waitForTikTokPublishResult(
+  accessToken,
+  publishId,
+  {
+    maxAttempts = 8,
+    delayMs = 3000,
+  } = {}
+) {
+  let lastStatus = {};
+
+  for (
+    let attempt = 1;
+    attempt <= maxAttempts;
+    attempt += 1
+  ) {
+    if (attempt > 1) {
+      await wait(delayMs);
+    }
+
+    lastStatus =
+      await fetchPostStatus(
+        accessToken,
+        publishId
+      );
+
+    const status =
+      String(
+        lastStatus?.status || ""
+      )
+        .trim()
+        .toUpperCase();
+
+    const failReason =
+      String(
+        lastStatus?.fail_reason ||
+        lastStatus?.failReason ||
+        ""
+      ).trim();
+
+    console.log(
+      "TikTok publish status:",
+      {
+        publishId,
+        attempt,
+        status:
+          status || null,
+        failReason:
+          failReason || null,
+        publicalyAvailablePostId:
+          lastStatus?.publicaly_available_post_id ||
+          lastStatus?.publicly_available_post_id ||
+          null,
+      }
+    );
+
+    if (
+      status === "PUBLISH_COMPLETE"
+    ) {
+      return lastStatus;
+    }
+
+    if (status === "FAILED") {
+      throw new Error(
+        failReason
+          ? `TikTok final publish failed: ${failReason}`
+          : "TikTok final publish failed."
+      );
+    }
+  }
+
+  throw new Error(
+    `TikTok post is still processing after ${maxAttempts} status checks. Publish ID: ${publishId}`
+  );
+}
+
 async function fetchPostStatus(accessToken, publishId) {
   const response = await fetch(POST_STATUS_URL, {
     method: "POST",
@@ -945,13 +1026,20 @@ router.post("/tiktok/photo-post", async (req, res) => {
       brandOrganicToggle: Boolean(brandOrganicToggle),
     });
 
+    const finalStatus =
+      await waitForTikTokPublishResult(
+        connection.access_token,
+        result.publishId
+      );
+
     return res.json({
       success: true,
       publishId: result.publishId,
       privacyLevel: result.privacyLevel,
       mediaUrl: verifiedMediaUrl,
+      status: finalStatus,
       message:
-        "TikTok accepted the photo post for processing. It may take a few minutes to appear.",
+        "TikTok confirmed the photo post was published.",
     });
   } catch (error) {
     console.error("TikTok photo post error:", error);
