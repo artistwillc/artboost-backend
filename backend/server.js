@@ -3349,18 +3349,38 @@ app.get("/analytics", async (req, res) => {
           )
         : null;
 
+    /*
+     * Historical failed runs remain part of Automation Health, but "needs
+     * attention" must represent CURRENT unresolved automation problems only.
+     * An enabled automation with a non-empty last_error is treated as active
+     * attention required. Old failures from testing do not keep the dashboard
+     * permanently red after the automation is healthy again.
+     */
+    const automationsNeedingAttention =
+      activeAutomations.filter(
+        (automation) =>
+          Boolean(
+            String(
+              automation?.last_error || ""
+            ).trim()
+          )
+      );
+
     let insight =
       "Your publishing data is ready. Keep automations active to build a stronger performance history.";
 
     if (
-      failedAutomationRuns > 0
+      automationsNeedingAttention.length > 0
     ) {
+      const count =
+        automationsNeedingAttention.length;
+
       insight =
-        `${failedAutomationRuns} automation run${
-          failedAutomationRuns === 1
-            ? ""
-            : "s"
-        } need attention. Review failed platforms before the next scheduled run.`;
+        `${count} active automation${
+          count === 1 ? "" : "s"
+        } currently need${
+          count === 1 ? "s" : ""
+        } attention. Review the latest automation error before the next scheduled run.`;
     } else if (
       bestPlatform
     ) {
@@ -3400,6 +3420,13 @@ app.get("/analytics", async (req, res) => {
           partialAutomationRuns +
           failedAutomationRuns +
           skippedAutomationRuns,
+      },
+
+      automationHealth: {
+        currentNeedsAttention:
+          automationsNeedingAttention.length,
+        historicalFailedRuns:
+          failedAutomationRuns,
       },
 
       campaigns: {
