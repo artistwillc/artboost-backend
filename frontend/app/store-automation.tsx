@@ -1747,33 +1747,118 @@ if (
       );
     }
 
+    const platformResults =
+      Array.isArray(
+        runData?.publishResult
+          ?.results
+      )
+        ? runData.publishResult.results
+        : [];
+
+    const successfulResults =
+      platformResults.filter(
+        (result: any) =>
+          result?.success
+      );
+
+    const failedResults =
+      platformResults.filter(
+        (result: any) =>
+          !result?.success
+      );
+
+    const publishedPlatforms =
+      successfulResults.map(
+        (result: any) =>
+          formatPlatformLabel(
+            result?.platform
+          )
+      );
+
+    const failedPlatforms =
+      failedResults.map(
+        (result: any) => ({
+          platform:
+            formatPlatformLabel(
+              result?.platform
+            ),
+          error:
+            String(
+              result?.error ||
+                "Publishing failed."
+            ),
+        })
+      );
+
+    /*
+     * A multi-platform run can return success=false when only one
+     * platform fails. Do not turn that into a total-failure popup
+     * when other platforms actually published.
+     */
+    if (
+      successfulResults.length > 0 &&
+      failedResults.length > 0
+    ) {
+      const successLine =
+        `Posted successfully to: ${publishedPlatforms.join(
+          ", "
+        )}.`;
+
+      const failureLines =
+        failedPlatforms
+          .map(
+            (item: any) =>
+              `${item.platform}: ${item.error}`
+          )
+          .join("\n");
+
+      Alert.alert(
+        "Partial Success",
+        `${successLine}\n\nNeeds attention:\n${failureLines}`
+      );
+
+      await loadProductPreview();
+      return;
+    }
+
+    if (
+      successfulResults.length > 0 &&
+      failedResults.length === 0
+    ) {
+      const successMessage =
+        publishedPlatforms.length > 0
+          ? `Your product was posted successfully to ${publishedPlatforms.join(
+              ", "
+            )}.`
+          : "Your product has been posted successfully.";
+
+      Alert.alert(
+        "All Successful",
+        successMessage
+      );
+
+      await loadProductPreview();
+      return;
+    }
+
+    /*
+     * If the backend returned no per-platform results, preserve the
+     * transport/backend error. If every platform failed, show the
+     * platform-specific failures instead of a generic message.
+     */
+    const platformErrors =
+      failedPlatforms
+        .map(
+          (item: any) =>
+            `${item.platform}: ${item.error}`
+        )
+        .join("\n");
+
     if (
       !runResponse.ok ||
-      !runData.success
+      !runData.success ||
+      failedResults.length > 0
     ) {
-      const platformErrors =
-        Array.isArray(
-          runData?.publishResult
-            ?.results
-        )
-          ? runData.publishResult.results
-              .filter(
-                (result: any) =>
-                  !result?.success
-              )
-              .map(
-                (result: any) =>
-                  `${String(
-                    result?.platform ||
-                      "Platform"
-                  )}: ${
-                    result?.error ||
-                    "Publishing failed."
-                  }`
-              )
-              .join("\n")
-          : "";
-
       throw new Error(
         platformErrors ||
           runData.details ||
@@ -1782,34 +1867,9 @@ if (
       );
     }
 
-    const publishedPlatforms =
-      Array.isArray(
-        runData?.publishResult
-          ?.results
-      )
-        ? runData.publishResult.results
-            .filter(
-              (result: any) =>
-                result?.success
-            )
-            .map(
-              (result: any) =>
-                formatPlatformLabel(
-                  result?.platform
-                )
-            )
-        : [];
-
-    const successMessage =
-      publishedPlatforms.length > 0
-        ? `Your product was posted successfully to ${publishedPlatforms.join(
-            ", "
-          )}.`
-        : "Your product has been posted successfully.";
-
     Alert.alert(
-      "Success",
-      successMessage
+      "All Successful",
+      "Your product has been posted successfully."
     );
 
     await loadProductPreview();
