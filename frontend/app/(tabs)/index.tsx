@@ -273,16 +273,57 @@ cta,
   };
  
   const pickImage = async () => {
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
- 
-    if (!picked.canceled) {
-      setImage(picked.assets[0].uri);
-      setHostedImageUrl("");
-      setResult("");
-      setShowScheduleOptions(false);
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo Permission Required",
+          "Allow ArtBoost to access your photos so you can select artwork."
+        );
+        return;
+      }
+
+      const picked =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes:
+            ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: false,
+          quality: 0.9,
+        });
+
+      if (
+        !picked.canceled &&
+        picked.assets?.length
+      ) {
+        const selectedUri =
+          picked.assets[0]?.uri;
+
+        if (!selectedUri) {
+          Alert.alert(
+            "Photo Selection Failed",
+            "ArtBoost could not read the selected photo. Please try again."
+          );
+          return;
+        }
+
+        setImage(selectedUri);
+        setHostedImageUrl("");
+        setResult("");
+        setShowScheduleOptions(false);
+      }
+    } catch (error: any) {
+      console.log(
+        "Image picker error:",
+        error
+      );
+
+      Alert.alert(
+        "Unable to Open Photos",
+        error?.message ||
+          "ArtBoost could not open your photo library. Please try again."
+      );
     }
   };
  
@@ -1002,23 +1043,40 @@ const createFacebookPost = async () => {
                   Where should ArtBoost market it?
                 </Text>
 
-                <View style={styles.platformWrap}>
-                  {PLATFORMS.map((platform) => (
-                    <Pressable
-                      key={platform}
-                      style={[
-                        styles.platformButton,
-                        selectedPlatform === platform &&
-                          styles.platformButtonActive,
-                      ]}
-                      onPress={() => setSelectedPlatform(platform)}
-                    >
-                      <Text style={styles.platformButtonText}>
-                        {platform}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={
+                    false
+                  }
+                  style={{ width: "100%" }}
+                >
+                  {PLATFORMS.map(
+                    (platform) => (
+                      <Pressable
+                        key={platform}
+                        style={[
+                          styles.platformButton,
+                          selectedPlatform ===
+                            platform &&
+                            styles.platformButtonActive,
+                        ]}
+                        onPress={() =>
+                          setSelectedPlatform(
+                            platform
+                          )
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.platformButtonText
+                          }
+                        >
+                          {platform}
+                        </Text>
+                      </Pressable>
+                    )
+                  )}
+                </ScrollView>
               </View>
 
               <View
@@ -1597,13 +1655,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 12,
-  },
-
-  platformWrap: {
-    width: "100%",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
   },
 
   platformButton: {
