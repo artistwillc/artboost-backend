@@ -274,21 +274,10 @@ cta,
  
   const pickImage = async () => {
     try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert(
-          "Photo Permission Required",
-          "Allow ArtBoost to access your photos so you can select artwork."
-        );
-        return;
-      }
-
       const picked =
         await ImagePicker.launchImageLibraryAsync({
-          mediaTypes:
-            ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ["images"],
+          allowsEditing: false,
           allowsMultipleSelection: false,
           quality: 0.9,
         });
