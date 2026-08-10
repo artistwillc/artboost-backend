@@ -5998,16 +5998,121 @@ async function publishThreadsPost({
   const accessToken =
     connection.access_token;
 
-  const message = [
-    String(title || "").trim(),
-    String(description || "").trim(),
-    String(cta || "").trim(),
-    String(productLink || "").trim(),
-    String(hashtags || "").trim(),
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
+  const THREADS_TEXT_LIMIT = 500;
+
+  const threadsTitle =
+    String(title || "").trim();
+
+  const threadsDescription =
+    String(description || "").trim();
+
+  const threadsCta =
+    String(cta || "").trim();
+
+  const threadsProductLink =
+    String(productLink || "").trim();
+
+  const threadsHashtags =
+    String(hashtags || "").trim();
+
+  /*
+   * Threads currently limits post text to 500 characters.
+   * Preserve the title, CTA, product link, and hashtags whenever
+   * possible, then use the remaining space for the description.
+   */
+  const preservedParts = [
+    threadsTitle,
+    threadsCta,
+    threadsProductLink,
+    threadsHashtags,
+  ].filter(Boolean);
+
+  const preservedText =
+    preservedParts
+      .join("\n\n")
+      .trim();
+
+  let message = preservedText;
+
+  if (threadsDescription) {
+    const separator =
+      preservedText
+        ? "\n\n"
+        : "";
+
+    const remaining =
+      Math.max(
+        THREADS_TEXT_LIMIT -
+          preservedText.length -
+          separator.length,
+        0
+      );
+
+    let safeDescription =
+      threadsDescription;
+
+    if (
+      safeDescription.length >
+      remaining
+    ) {
+      const ellipsis =
+        remaining >= 3
+          ? "..."
+          : "";
+
+      safeDescription =
+        safeDescription
+          .slice(
+            0,
+            Math.max(
+              remaining -
+                ellipsis.length,
+              0
+            )
+          )
+          .trimEnd() +
+        ellipsis;
+    }
+
+    if (
+      safeDescription &&
+      remaining > 0
+    ) {
+      message =
+        `${preservedText}${separator}${safeDescription}`
+          .trim();
+    }
+  }
+
+  /*
+   * Very long titles/links/hashtags can still exceed 500 by
+   * themselves. Clamp as a final safety net so Meta never receives
+   * an invalid Threads text payload.
+   */
+  if (
+    message.length >
+    THREADS_TEXT_LIMIT
+  ) {
+    message =
+      message
+        .slice(
+          0,
+          THREADS_TEXT_LIMIT
+        )
+        .trimEnd();
+  }
+
+  console.log(
+    "Threads automation text prepared:",
+    {
+      length: message.length,
+      limit: THREADS_TEXT_LIMIT,
+      hasProductLink:
+        Boolean(
+          threadsProductLink
+        ),
+    }
+  );
 
   if (!message && !imageUrl) {
     throw new Error(
