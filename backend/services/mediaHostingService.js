@@ -323,8 +323,18 @@ export async function ensureTikTokMediaUrl(imageUrl) {
             markerIndex + marker.length
           );
 
+        /*
+         * TikTok's Content Posting API limits photo images to
+         * a maximum of 1080p. Shopify product artwork can be much
+         * larger than that, which causes asynchronous
+         * picture_size_check_failed after content/init succeeds.
+         *
+         * c_limit preserves the artwork aspect ratio and only scales
+         * down images that exceed the TikTok-safe 1080 x 1080 box.
+         * Smaller images are not enlarged.
+         */
         url.pathname =
-          `${before}f_jpg,q_auto/${after}`
+          `${before}f_jpg,q_auto,c_limit,w_1080,h_1080/${after}`
             .replace(
               /\.(webp|png|gif|avif)$/i,
               ".jpg"
@@ -367,6 +377,9 @@ export async function ensureTikTokMediaUrl(imageUrl) {
           .pop()
           ?.toLowerCase() ||
         null,
+      maxWidth: 1080,
+      maxHeight: 1080,
+      resizeMode: "limit",
     }
   );
 
