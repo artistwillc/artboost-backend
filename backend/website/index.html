@@ -2,201 +2,109 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">
   <meta name="theme-color" content="#02040a">
   <meta name="description" content="ArtBoost AI — AI-powered marketing for artists and creators.">
-  <title>ArtBoost AI | AI-Powered Marketing for Artists</title>
+  <title>ArtBoost AI</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="site-header" id="top">
-  <a class="brand" href="#top" aria-label="ArtBoost AI home">
-    <img src="assets/artboost-logo.png" alt="ArtBoost AI">
-    <span>ArtBoost</span><b>AI</b>
-  </a>
+<main class="approved-page" id="top">
+  <div class="approved-stage">
+    <img class="approved-image" src="assets/approved-homepage-4x.jpg" alt="ArtBoost AI">
 
-  <button class="menu-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
+    <!-- Header -->
+    <a class="hit logo" href="#top" aria-label="ArtBoost AI home"></a>
+    <a class="hit nav features" href="#features-anchor">Features</a>
+    <a class="hit nav creator" href="#workflow-anchor">Creator Tools</a>
+    <button class="hit nav pricing" data-pricing aria-label="Pricing"></button>
+    <a class="hit nav faq" href="faq.html" aria-label="FAQ"></a>
+    <button class="hit nav about" data-toast="About page coming soon." aria-label="About"></button>
+    <button class="hit nav blog" data-toast="Blog coming soon." aria-label="Blog"></button>
+    <a class="hit nav contact" href="mailto:support@artboostai.com" aria-label="Contact"></a>
+    <button class="hit login" data-toast="Log In will open the ArtBoost account portal." aria-label="Log In"></button>
+    <button class="hit start-top" data-pricing aria-label="Start Free"></button>
 
-  <nav class="nav" aria-label="Primary navigation">
-    <a class="active" href="#features">Features</a>
-    <a href="#workflow">Creator Tools</a>
-    <button type="button" data-pricing>Pricing</button>
-    <a href="faq.html">FAQ</a>
-    <a href="privacy.html">Privacy</a>
-    <a href="terms.html">Terms</a>
-  </nav>
+    <!-- Hero -->
+    <span id="features-anchor" class="anchor feature-anchor"></span>
+    <a class="hit hero-social p" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"></a>
+    <a class="hit hero-social f" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"></a>
+    <a class="hit hero-social ig" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"></a>
+    <button class="hit hero-social tt" data-toast="ArtBoost AI TikTok link coming soon." aria-label="TikTok"></button>
+    <a class="hit hero-social x" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"></a>
+    <button class="hit hero-social yt" data-toast="ArtBoost AI YouTube link coming soon." aria-label="YouTube"></button>
+    <a class="hit hero-social li" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"></a>
+    <button class="hit hero-start" data-pricing aria-label="Start Free"></button>
 
-  <div class="header-actions">
-    <button class="login" type="button" data-toast="Log In will connect to the ArtBoost account portal.">Log In</button>
-    <button class="start" type="button" data-pricing>Start Free</button>
+    <!-- Feature cards -->
+    <button class="hit card l1" data-feature="content" aria-label="AI Content Generation"></button>
+    <button class="hit card l2" data-feature="tools" aria-label="Creator Tools"></button>
+    <button class="hit card l3" data-feature="consultant" aria-label="AI Marketing Consultant"></button>
+    <button class="hit card l4" data-feature="automation" aria-label="Smart Scheduling and Automation"></button>
+
+    <button class="hit card r1" data-feature="library" aria-label="Store and Product Library"></button>
+    <button class="hit card r2" data-feature="analytics" aria-label="Analytics and Insights"></button>
+    <button class="hit card r3" data-feature="support" aria-label="AI Customer Support"></button>
+    <button class="hit card r4" data-feature="publishing" aria-label="Multi-Platform Publishing"></button>
+
+    <!-- AI demo -->
+    <button class="hit generate" data-generate aria-label="Generate Content"></button>
+
+    <!-- Workflow -->
+    <span id="workflow-anchor" class="anchor workflow-anchor"></span>
+    <button class="hit workflow create" data-feature="content" aria-label="Create"></button>
+    <button class="hit workflow schedule" data-feature="automation" aria-label="Schedule"></button>
+    <button class="hit workflow connect" data-feature="publishing" aria-label="Connect"></button>
+
+    <!-- Banner -->
+    <button class="hit start-bottom" data-pricing aria-label="Start Free Today"></button>
+
+    <!-- Footer links -->
+    <a class="hit footer-logo" href="#top" aria-label="ArtBoost AI home"></a>
+    <a class="hit footer-features" href="#features-anchor" aria-label="Features"></a>
+    <a class="hit footer-creator" href="#workflow-anchor" aria-label="Creator Tools"></a>
+    <button class="hit footer-pricing" data-pricing aria-label="Pricing"></button>
+    <a class="hit footer-faq" href="faq.html" aria-label="FAQ"></a>
+    <button class="hit footer-blog" data-toast="Blog coming soon." aria-label="Blog"></button>
+    <button class="hit footer-guides" data-toast="Guides coming soon." aria-label="Guides"></button>
+    <button class="hit footer-help" data-toast="Help Center coming soon." aria-label="Help Center"></button>
+    <button class="hit footer-about" data-toast="About page coming soon." aria-label="About"></button>
+    <a class="hit footer-contact" href="mailto:support@artboostai.com" aria-label="Contact"></a>
+    <button class="hit footer-affiliates" data-toast="Affiliate program coming soon." aria-label="Affiliates"></button>
+    <button class="hit footer-careers" data-toast="Careers page coming soon." aria-label="Careers"></button>
+
+    <!-- Footer socials -->
+    <a class="hit foot-social fp" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"></a>
+    <a class="hit foot-social ff" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"></a>
+    <a class="hit foot-social fig" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"></a>
+    <button class="hit foot-social ftt" data-toast="ArtBoost AI TikTok link coming soon." aria-label="TikTok"></button>
+    <a class="hit foot-social fx" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"></a>
+    <button class="hit foot-social fyt" data-toast="ArtBoost AI YouTube link coming soon." aria-label="YouTube"></button>
+    <a class="hit foot-social fli" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"></a>
   </div>
-</header>
-
-<main>
-<section class="hero" id="features">
-  <div class="stars"></div>
-  <div class="planet planet-left"></div>
-  <div class="planet planet-right"></div>
-  <div class="hero-inner">
-    <aside class="feature-stack left">
-      <button class="feature-card" data-feature="content">
-        <span class="ico">AI</span>
-        <span><strong>AI Content<br>Generation</strong><small>Create high-performing titles, captions, hashtags, and more in seconds.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="tools">
-        <span class="ico">✦</span>
-        <span><strong>Creator Tools</strong><small>Powerful tools and calculators to grow your art business.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="consultant">
-        <span class="ico">✦</span>
-        <span><strong>AI Marketing<br>Consultant</strong><small>Get personalized AI strategies to reach more collectors and sell more art.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="automation">
-        <span class="ico">↻</span>
-        <span><strong>Smart Scheduling<br>& Automation</strong><small>Automate your marketing workflow and never miss a post.</small><em>Learn more →</em></span>
-      </button>
-    </aside>
-
-    <div class="hero-center">
-      <img class="astronaut" src="assets/hero-approved.jpg" alt="" aria-hidden="true">
-      <div class="hero-copy">
-        <span class="eyebrow">AI-POWERED MARKETING FOR ARTISTS</span>
-        <h1>Turn Your Art<br>Into a <span>Movement.</span></h1>
-        <p>Create, schedule, automate, and publish stunning content<br class="desktop-only"> that grows your brand and sells more art.</p>
-
-        <div class="social-row" aria-label="ArtBoost social profiles">
-          <a class="social pinterest" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"><img src="https://cdn.simpleicons.org/pinterest/ffffff" alt=""></a>
-          <a class="social facebook" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"><img src="https://cdn.simpleicons.org/facebook/ffffff" alt=""></a>
-          <a class="social instagram" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"><img src="https://cdn.simpleicons.org/instagram/ffffff" alt=""></a>
-          <button class="social tiktok" type="button" data-toast="ArtBoost AI TikTok link coming soon." aria-label="TikTok"><img src="https://cdn.simpleicons.org/tiktok/ffffff" alt=""></button>
-          <a class="social x" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"><img src="https://cdn.simpleicons.org/x/ffffff" alt=""></a>
-          <button class="social youtube" type="button" data-toast="ArtBoost AI YouTube link coming soon." aria-label="YouTube"><img src="https://cdn.simpleicons.org/youtube/ffffff" alt=""></button>
-          <a class="social linkedin" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"><img src="https://cdn.simpleicons.org/linkedin/ffffff" alt=""></a>
-        </div>
-
-        <button class="hero-cta" type="button" data-pricing>✦ Start Free</button>
-        <small class="note">No credit card required</small>
-      </div>
-    </div>
-
-    <aside class="feature-stack right">
-      <button class="feature-card" data-feature="library">
-        <span class="ico">▣</span>
-        <span><strong>Store & Product<br>Library</strong><small>Organize your products, artwork, and campaigns in one powerful library.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="analytics">
-        <span class="ico">▥</span>
-        <span><strong>Analytics &<br>Insights</strong><small>Track performance, engagement, and sales with beautiful insights.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="support">
-        <span class="ico">◉</span>
-        <span><strong>AI Customer<br>Support</strong><small>Get instant answers and guidance from our AI support assistant.</small><em>Learn more →</em></span>
-      </button>
-      <button class="feature-card" data-feature="publishing">
-        <span class="ico">↗</span>
-        <span><strong>Multi-Platform<br>Publishing</strong><small>Publish to multiple stores and social platforms from one dashboard.</small><em>Learn more →</em></span>
-      </button>
-    </aside>
-  </div>
-
-  <section class="console">
-    <div class="console-head"><span>SEE IT IN ACTION</span><b>✦ 12,450 Credits</b></div>
-    <div class="console-body">
-      <div class="console-art"><img src="assets/lion-art.jpg" alt="Colorful lion artwork example"></div>
-      <div class="console-form">
-        <h2>AI Content Generator</h2>
-        <p>Create marketing content for your artwork or products</p>
-        <label>Content Type<select><option>Social Media Post</option><option>Product Promotion</option><option>Store Campaign</option></select></label>
-        <label>Tone<select><option>Motivational</option><option>Bold</option><option>Luxury</option><option>Playful</option></select></label>
-        <button type="button" class="generate" data-generate>✦ Generate Content</button>
-      </div>
-    </div>
-    <div class="generated-title">✦ AI GENERATED EXAMPLE</div>
-    <div class="generated-grid">
-      <article><span>TITLE</span><strong id="outTitle">Chase Vision.<br>Create Reality.</strong><small>ArtBoost AI</small></article>
-      <article><span>CAPTION</span><strong id="outCaption">Your art has power.<br>The world is waiting.<br>Show them.</strong><small>ArtBoost AI</small></article>
-      <article><span>HASHTAGS</span><strong id="outTags">#ArtistLife #Create<br>#ArtBoost #DreamBig<br>#MakeItHappen</strong><small>ArtBoost AI</small></article>
-      <article><span>CTA</span><strong id="outCta">Explore the collection<br>and make it yours. →</strong><small>ArtBoost AI</small></article>
-    </div>
-    <div class="console-bottom">
-      <div><strong>Save time and create content that converts.</strong><small>ArtBoost handles the heavy lifting so you can focus on creating.</small></div>
-      <button type="button" data-pricing>✦ View Plans & Pricing →</button>
-    </div>
-  </section>
-</section>
-
-<section class="workflow" id="workflow">
-  <div class="splash splash-left"></div><div class="splash splash-right"></div>
-  <p class="section-kicker">SEE THE WORKFLOW</p>
-  <h2>Create. Schedule. Connect. <span>Automate.</span></h2>
-  <p class="section-sub">Everything in ArtBoost is designed to take your artwork from catalog to campaign<br class="desktop-only"> without rebuilding the same marketing workflow over and over.</p>
-
-  <div class="workflow-grid">
-    <button class="workflow-card" type="button" data-feature="content">
-      <img src="assets/workflow-create.jpg" alt="Create artwork visual">
-      <h3>⚡ CREATE</h3>
-      <p>Generate stunning content, craft captions, and prepare platform-ready posts.</p>
-    </button>
-    <button class="workflow-card" type="button" data-feature="automation">
-      <img src="assets/workflow-schedule.jpg" alt="Schedule calendar visual">
-      <h3>◷ SCHEDULE</h3>
-      <p>Plan ahead and automate your posts to reach your audience at the perfect time.</p>
-    </button>
-    <button class="workflow-card" type="button" data-feature="publishing">
-      <img src="assets/workflow-connect.jpg" alt="Connected platforms visual">
-      <h3>↗ CONNECT</h3>
-      <p>Connect your stores and social platforms to streamline and grow your brand.</p>
-    </button>
-  </div>
-</section>
-
-<section class="banner">
-  <div class="banner-art"><img src="assets/bottom-approved.jpg" alt=""></div>
-  <div class="banner-copy">
-    <h2>Your Art.<br>Our AI.<br><span>Limitless Possibilities.</span></h2>
-    <p>Join thousands of artists who are growing their brands with ArtBoost AI.</p>
-  </div>
-  <button type="button" class="banner-cta" data-pricing>🚀 Start Free Today</button>
-</section>
 </main>
-
-<footer class="footer">
-  <div class="footer-grid">
-    <div class="footer-brand">
-      <a class="brand" href="#top"><img src="assets/artboost-logo.png" alt="ArtBoost AI"><span>ArtBoost</span><b>AI</b></a>
-      <p>AI-powered marketing for artists.<br>Create. Schedule. Connect. Automate.</p>
-    </div>
-    <div><h3>Product</h3><a href="#features">Features</a><a href="#workflow">Creator Tools</a><button data-pricing>Pricing</button></div>
-    <div><h3>Resources</h3><a href="faq.html">FAQ</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></div>
-    <div><h3>Company</h3><button data-toast="About page coming soon.">About</button><a href="mailto:support@artboostai.com">Contact</a><button data-toast="Affiliate program coming soon.">Affiliate</button></div>
-    <div><h3>FOLLOW US</h3><div class="footer-socials">
-      <a class="social pinterest" href="https://pin.it/56GxHsru1" target="_blank" rel="noopener" aria-label="Pinterest"><img src="https://cdn.simpleicons.org/pinterest/ffffff" alt=""></a>
-      <a class="social facebook" href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"><img src="https://cdn.simpleicons.org/facebook/ffffff" alt=""></a>
-      <a class="social instagram" href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener" aria-label="Instagram"><img src="https://cdn.simpleicons.org/instagram/ffffff" alt=""></a>
-      <button class="social tiktok" type="button" data-toast="ArtBoost AI TikTok link coming soon." aria-label="TikTok"><img src="https://cdn.simpleicons.org/tiktok/ffffff" alt=""></button>
-      <a class="social x" href="https://x.com/ArtBoostAI" target="_blank" rel="noopener" aria-label="X"><img src="https://cdn.simpleicons.org/x/ffffff" alt=""></a>
-      <button class="social youtube" type="button" data-toast="ArtBoost AI YouTube link coming soon." aria-label="YouTube"><img src="https://cdn.simpleicons.org/youtube/ffffff" alt=""></button>
-      <a class="social linkedin" href="https://www.linkedin.com/company/137364437/" target="_blank" rel="noopener" aria-label="LinkedIn"><img src="https://cdn.simpleicons.org/linkedin/ffffff" alt=""></a>
-    </div></div>
-  </div>
-  <div class="footer-bottom"><span>© 2026 ArtBoost AI. All rights reserved.</span><span><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></span></div>
-</footer>
 
 <div class="modal" id="featureModal" aria-hidden="true">
   <div class="backdrop" data-close-feature></div>
   <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="featureTitle">
     <button class="close" data-close-feature aria-label="Close">×</button>
-    <p>ARTBOOST FEATURE</p><h2 id="featureTitle"></h2><div id="featureBody"></div>
-    <div class="modal-actions"><button class="primary" data-pricing>View Plans & Pricing</button><button class="secondary" data-close-feature>Close</button></div>
+    <p class="kicker">ARTBOOST FEATURE</p>
+    <h2 id="featureTitle"></h2>
+    <p id="featureBody"></p>
+    <div class="actions">
+      <button class="primary" data-pricing>View Plans & Pricing</button>
+      <button class="secondary" data-close-feature>Close</button>
+    </div>
   </section>
 </div>
 
 <div class="modal" id="pricingModal" aria-hidden="true">
   <div class="backdrop" data-close-pricing></div>
-  <section class="pricing-modal" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
+  <section class="pricing-card" role="dialog" aria-modal="true" aria-labelledby="pricingTitle">
     <button class="close" data-close-pricing aria-label="Close">×</button>
-    <p class="section-kicker">ARTBOOST PRICING</p><h2 id="pricingTitle">Choose the plan that fits your art business.</h2>
-    <div class="price-grid">
+    <p class="kicker">ARTBOOST PRICING</p>
+    <h2 id="pricingTitle">Choose the plan that fits your art business.</h2>
+    <div class="plans">
       <article><h3>Free</h3><strong>$0<span>/month</span></strong><p>Explore ArtBoost and build your first marketing workflows.</p><button>Start Free</button></article>
       <article><h3>Starter</h3><strong>$12.99<span>/month</span></strong><p>For creators building a consistent marketing routine.</p><button>Choose Starter</button></article>
       <article class="popular"><i>MOST POPULAR</i><h3>Pro</h3><strong>$24.99<span>/month</span></strong><p>The complete ArtBoost experience for serious artists and POD sellers.</p><button>Choose Pro</button></article>
@@ -205,7 +113,7 @@
   </section>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="script.js"></script>
 </body>
 </html>

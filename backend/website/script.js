@@ -1,20 +1,19 @@
-const features={
-content:{title:"AI Content Generation",body:"Create platform-ready titles, captions, hashtags, product descriptions, and calls-to-action from your artwork or products. Edit the results and reuse them inside Campaign Manager."},
-tools:{title:"Creator Tools",body:"Use AI title, description, hashtag and CTA generators, Art Pricing and POD Profit calculators, Collection Builder, AI Store Critique, Trending Artwork Ideas, Holiday Marketing Calendar, Opportunity Scanner, and AI Business Coach."},
-consultant:{title:"AI Marketing Consultant",body:"Build a marketing profile and get personalized recommendations for platforms, posting schedules, campaigns, automation strategy, and practical next steps."},
-automation:{title:"Smart Scheduling & Automation",body:"Schedule future campaigns, create recurring workflows, rotate eligible products, manage posting cadence, and keep your catalog promoting consistently."},
-library:{title:"Store & Product Library",body:"Connect supported stores and bring artwork, product images, titles, and links into one centralized library for campaigns and automation."},
-analytics:{title:"Analytics & Insights",body:"Track publishing activity, campaign health, automation performance, platform results, and useful business insights from one dashboard."},
-support:{title:"AI Customer Support",body:"Get ArtBoost-specific help with app features, subscriptions, store connections, social platforms, publishing workflows, and troubleshooting."},
-publishing:{title:"Multi-Platform Publishing",body:"Create one campaign and publish it through your connected social platforms using platform-aware workflows and product links where supported."}
+const data={
+content:["AI Content Generation","Create platform-ready titles, captions, hashtags, descriptions, and calls-to-action from your artwork or products."],
+tools:["Creator Tools","Use AI generators, pricing calculators, POD profit tools, collection planning, store critique, trend tools, holiday planning, opportunity scanning, and AI business coaching."],
+consultant:["AI Marketing Consultant","Get personalized recommendations for platforms, posting schedules, campaign ideas, automation strategy, and marketing direction."],
+automation:["Smart Scheduling & Automation","Schedule future campaigns, build recurring workflows, rotate eligible products, and keep your marketing running consistently."],
+library:["Store & Product Library","Connect supported stores and organize your artwork, product images, titles, and links in one centralized marketing library."],
+analytics:["Analytics & Insights","Track campaign activity, automation health, publishing performance, and useful marketing signals."],
+support:["AI Customer Support","Get ArtBoost-specific help for features, connections, stores, subscriptions, publishing workflows, and troubleshooting."],
+publishing:["Multi-Platform Publishing","Create one campaign and publish through your connected social platforms using platform-aware workflows."]
 };
-const featureModal=document.getElementById("featureModal"),pricingModal=document.getElementById("pricingModal"),toast=document.getElementById("toast");
-document.querySelectorAll("[data-feature]").forEach(el=>el.addEventListener("click",()=>{const f=features[el.dataset.feature];document.getElementById("featureTitle").textContent=f.title;document.getElementById("featureBody").textContent=f.body;featureModal.classList.add("open");featureModal.setAttribute("aria-hidden","false")}));
-document.querySelectorAll("[data-close-feature]").forEach(el=>el.addEventListener("click",()=>{featureModal.classList.remove("open");featureModal.setAttribute("aria-hidden","true")}));
-document.querySelectorAll("[data-pricing]").forEach(el=>el.addEventListener("click",()=>{featureModal.classList.remove("open");pricingModal.classList.add("open");pricingModal.setAttribute("aria-hidden","false")}));
-document.querySelectorAll("[data-close-pricing]").forEach(el=>el.addEventListener("click",()=>{pricingModal.classList.remove("open");pricingModal.setAttribute("aria-hidden","true")}));
+const fm=document.getElementById("featureModal"),pm=document.getElementById("pricingModal"),toast=document.getElementById("toast");
+function showToast(m){toast.textContent=m;toast.classList.add("show");clearTimeout(window._t);window._t=setTimeout(()=>toast.classList.remove("show"),2200)}
+document.querySelectorAll("[data-feature]").forEach(el=>el.addEventListener("click",()=>{const f=data[el.dataset.feature];document.getElementById("featureTitle").textContent=f[0];document.getElementById("featureBody").textContent=f[1];fm.classList.add("open");fm.setAttribute("aria-hidden","false")}));
+document.querySelectorAll("[data-close-feature]").forEach(el=>el.addEventListener("click",()=>{fm.classList.remove("open");fm.setAttribute("aria-hidden","true")}));
+document.querySelectorAll("[data-pricing]").forEach(el=>el.addEventListener("click",()=>{fm.classList.remove("open");pm.classList.add("open");pm.setAttribute("aria-hidden","false")}));
+document.querySelectorAll("[data-close-pricing]").forEach(el=>el.addEventListener("click",()=>{pm.classList.remove("open");pm.setAttribute("aria-hidden","true")}));
 document.querySelectorAll("[data-toast]").forEach(el=>el.addEventListener("click",()=>showToast(el.dataset.toast)));
-function showToast(msg){toast.textContent=msg;toast.classList.add("show");clearTimeout(window._t);window._t=setTimeout(()=>toast.classList.remove("show"),2300)}
-document.querySelector("[data-generate]").addEventListener("click",()=>{document.getElementById("outTitle").innerHTML="Turn Vision Into Momentum.";document.getElementById("outCaption").innerHTML="Your work deserves to be seen.<br>Keep creating. Keep sharing.";document.getElementById("outTags").innerHTML="#ArtBoost #Artists<br>#CreativeBusiness<br>#ShareYourArt";document.getElementById("outCta").innerHTML="Discover the artwork<br>and explore more. →";showToast("Demo content generated.")});
-document.querySelector(".menu-toggle").addEventListener("click",e=>{const n=document.querySelector(".nav");n.classList.toggle("open");e.currentTarget.setAttribute("aria-expanded",n.classList.contains("open"))});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){featureModal.classList.remove("open");pricingModal.classList.remove("open")}});
+document.querySelector("[data-generate]").addEventListener("click",()=>showToast("Demo content generated — the full AI workflow runs inside ArtBoost."));
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){fm.classList.remove("open");pm.classList.remove("open")}});
