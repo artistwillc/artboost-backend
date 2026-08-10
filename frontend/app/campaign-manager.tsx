@@ -50,6 +50,20 @@ export default function CampaignManagerScreen() {
   const [hashtags, setHashtags] = useState("");
   const [cta, setCta] = useState("");
 
+  const normalizeImageUrl = (value: unknown) => {
+    const trimmed = String(value || "").trim();
+
+    if (!trimmed) {
+      return "";
+    }
+
+    if (trimmed.startsWith("//")) {
+      return `https:${trimmed}`;
+    }
+
+    return trimmed;
+  };
+
   useEffect(() => {
     const incomingTitle = String(
       productParams.productTitle || ""
@@ -57,13 +71,16 @@ export default function CampaignManagerScreen() {
     const incomingDescription = String(
       productParams.productDescription || ""
     ).trim();
-    const incomingImage = String(
-      productParams.productImageUrl || ""
-    ).trim();
+    const incomingImage = normalizeImageUrl(
+      productParams.productImageUrl
+    );
     const incomingLink = String(
       productParams.productLink || ""
     ).trim();
 
+    // Route product data is authoritative when Campaign Manager is opened
+    // from a selected artwork. Do not allow a previously saved campaign to
+    // replace the current artwork image/link.
     if (incomingTitle) {
       setTitle(incomingTitle);
     }
@@ -523,8 +540,30 @@ await Linking.openURL(data.url);
       (await AsyncStorage.getItem("generatedCampaign")) ||
       (await AsyncStorage.getItem("currentCampaign"));
 
+    const incomingTitle = String(
+      productParams.productTitle || ""
+    ).trim();
+    const incomingDescription = String(
+      productParams.productDescription || ""
+    ).trim();
+    const incomingImage = normalizeImageUrl(
+      productParams.productImageUrl
+    );
+    const incomingLink = cleanUrl(
+      String(productParams.productLink || "")
+    );
+
     if (!saved) {
       console.log("No saved campaign found.");
+
+      if (incomingTitle) setTitle(incomingTitle);
+      if (incomingDescription) setDescription(incomingDescription);
+      if (incomingImage) {
+        setPreviewImage(incomingImage);
+        setImageUrl(incomingImage);
+      }
+      if (incomingLink) setProductLink(incomingLink);
+
       return;
     }
 
@@ -538,38 +577,42 @@ await Linking.openURL(data.url);
 
     setSelectedPlatform(platform);
 
-    const finalTitle =
-  campaign.title ||
-  campaign.instagramTitle ||
-  campaign.facebookTitle ||
-  campaign.pinterestTitle ||
-  campaign.xTitle ||
-  campaign.threadsTitle ||
-  campaign.linkedinTitle ||
-  campaign.tiktokTitle ||
-  "";
+    const savedTitle =
+      campaign.title ||
+      campaign.instagramTitle ||
+      campaign.facebookTitle ||
+      campaign.pinterestTitle ||
+      campaign.xTitle ||
+      campaign.threadsTitle ||
+      campaign.linkedinTitle ||
+      campaign.tiktokTitle ||
+      "";
+
+    const savedDescription =
+      campaign.description ||
+      campaign.pinterestDescription ||
+      campaign.instagramDescription ||
+      campaign.facebookDescription ||
+      campaign.xDescription ||
+      campaign.threadsDescription ||
+      campaign.linkedinDescription ||
+      campaign.tiktokDescription ||
+      campaign.result ||
+      "";
 
     let finalDescription =
-  campaign.description ||
-  campaign.pinterestDescription ||
-  campaign.instagramDescription ||
-  campaign.facebookDescription ||
-  campaign.xDescription ||
-  campaign.threadsDescription ||
-  campaign.linkedinDescription ||
-  campaign.tiktokDescription ||
-  campaign.result ||
-  "";
+      incomingDescription ||
+      savedDescription;
 
     let finalHashtags =
-  campaign.hashtags ||
-  campaign.instagramHashtags ||
-  "";
+      campaign.hashtags ||
+      campaign.instagramHashtags ||
+      "";
 
     let finalCta =
-  campaign.cta ||
-  campaign.instagramCta ||
-  "";
+      campaign.cta ||
+      campaign.instagramCta ||
+      "";
 
     if (platform === "Instagram") {
       finalDescription = finalDescription
@@ -595,13 +638,54 @@ await Linking.openURL(data.url);
 
     finalHashtags = finalHashtags.replace(/\s+#/g, "\n#");
 
-    setTitle(finalTitle);
+    const savedPreviewImage = normalizeImageUrl(
+      campaign.previewImage ||
+      campaign.publicImageUrl ||
+      campaign.imageUrl ||
+      campaign.image ||
+      ""
+    );
+
+    const savedPublishImage = normalizeImageUrl(
+      campaign.publicImageUrl ||
+      campaign.imageUrl ||
+      campaign.image ||
+      campaign.previewImage ||
+      ""
+    );
+
+    const finalPreviewImage =
+      incomingImage ||
+      savedPreviewImage;
+
+    const finalPublishImage =
+      incomingImage ||
+      savedPublishImage ||
+      finalPreviewImage;
+
+    const finalProductLink =
+      incomingLink ||
+      cleanUrl(campaign.productLink || "");
+
+    // IMPORTANT:
+    // When a product was explicitly passed into Campaign Manager, its
+    // title/image/link win over stale AsyncStorage campaign values.
+    setTitle(incomingTitle || savedTitle);
     setDescription(finalDescription);
     setHashtags(finalHashtags);
     setCta(finalCta);
-    setProductLink(cleanUrl(campaign.productLink || ""));
-    setPreviewImage(campaign.image || campaign.previewImage || campaign.imageUrl || "");
-    setImageUrl(campaign.imageUrl || campaign.publicImageUrl || campaign.image || "");
+    setProductLink(finalProductLink);
+    setPreviewImage(finalPreviewImage);
+    setImageUrl(finalPublishImage);
+
+    console.log("Campaign artwork resolved:", {
+      productId: productParams.productId || null,
+      incomingImage: incomingImage || null,
+      savedPreviewImage: savedPreviewImage || null,
+      savedPublishImage: savedPublishImage || null,
+      finalPreviewImage: finalPreviewImage || null,
+      finalPublishImage: finalPublishImage || null,
+    });
   } catch (err) {
     console.log("Failed loading campaign:", err);
   }
@@ -1549,10 +1633,16 @@ const createTikTokPost = async () => {
       return;
     }
 
+    const finalTikTokProductLink =
+      cleanUrl(productLink);
+
     const caption = [
       removeLinks(title),
       removeLinks(description),
       removeLinks(cta),
+      finalTikTokProductLink
+        ? `Shop / view artwork: ${finalTikTokProductLink}`
+        : "",
       removeLinks(hashtags),
     ]
       .filter(Boolean)
@@ -2034,6 +2124,25 @@ useFocusEffect(
             source={{ uri: previewImage || imageUrl }}
             style={styles.heroImage}
             resizeMode="cover"
+            onError={(event) => {
+              const failedUri = previewImage || imageUrl;
+
+              console.log(
+                "Campaign artwork preview failed:",
+                failedUri,
+                event.nativeEvent?.error
+              );
+
+              // If previewImage and imageUrl are different, retry the
+              // publishing image instead of leaving a blank artwork card.
+              if (
+                previewImage &&
+                imageUrl &&
+                previewImage !== imageUrl
+              ) {
+                setPreviewImage(imageUrl);
+              }
+            }}
           />
           <View style={styles.artworkMeta}>
             <Text style={styles.artworkLabel}>Selected artwork</Text>
