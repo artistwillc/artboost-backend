@@ -6326,17 +6326,21 @@ async function publishLinkedInPost({
   const accessToken = connection.access_token;
   const author = `urn:li:person:${memberId}`;
 
+  const cleanProductLink =
+    String(productLink || "").trim();
+
   const message = [
     String(title || "").trim(),
     String(description || "").trim(),
     String(cta || "").trim(),
     String(hashtags || "").trim(),
+    cleanProductLink,
   ]
     .filter(Boolean)
     .join("\n\n")
     .trim();
 
-  if (!message && !productLink && !imageUrl) {
+  if (!message && !cleanProductLink && !imageUrl) {
     throw new Error("LinkedIn post requires text, a link, or an image.");
   }
 
@@ -6417,11 +6421,11 @@ async function publishLinkedInPost({
 
   const shareContent = {
     shareCommentary: {
-      text: message || String(productLink || "").trim(),
+      text: message || cleanProductLink,
     },
     shareMediaCategory: uploadedAsset
       ? "IMAGE"
-      : productLink
+      : cleanProductLink
         ? "ARTICLE"
         : "NONE",
   };
@@ -6437,11 +6441,11 @@ async function publishLinkedInPost({
         },
       },
     ];
-  } else if (productLink) {
+  } else if (cleanProductLink) {
     shareContent.media = [
       {
         status: "READY",
-        originalUrl: String(productLink),
+        originalUrl: cleanProductLink,
         title: { text: String(title || "View artwork").slice(0, 200) },
         description: {
           text: String(description || "").slice(0, 300),
