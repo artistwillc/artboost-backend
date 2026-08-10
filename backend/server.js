@@ -7179,6 +7179,63 @@ async function publishXPost({
   return data;
 }
 
+app.post("/x/post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      message = "",
+      title = "",
+      description = "",
+      productLink = "",
+      imageUrl = "",
+    } = req.body || {};
+
+    const cleanMessage =
+      String(
+        message ||
+          title ||
+          description ||
+          ""
+      ).trim();
+
+    if (!cleanMessage) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing X post content.",
+      });
+    }
+
+    const publishData =
+      await publishXPost({
+        title: cleanMessage,
+        description: "",
+        productLink:
+          String(productLink || "").trim(),
+        imageUrl:
+          String(imageUrl || "").trim(),
+        userId,
+      });
+
+    return res.json({
+      success: true,
+      post: publishData,
+    });
+  } catch (err) {
+    console.error(
+      "Manual X publish failed:",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "X could not publish this post.",
+    });
+  }
+});
+
 app.post("/pinterest/create-pin", async (req, res) => {
   try {
     const { userId, boardId, title, description, link, imageUrl } = req.body;
