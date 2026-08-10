@@ -25,68 +25,75 @@ const upload = multer({
 
 const TOOL_PROMPTS = {
   "ai-title": {
-    title: "AI Title Suggestions",
     instruction: `
-Generate 8 strong title options for an artist or print-on-demand seller.
-Requirements:
-- Use the uploaded artwork as the primary visual source when an image is provided.
-- Make each title noticeably different.
-- Keep titles concise, specific, searchable, and natural.
-- Accurately reflect visible subject matter, style, mood, colors, and readable text.
-- Avoid trademarked names unless they were supplied by the user and are clearly authorized.
-- Do not invent details that are not visible or supplied.
-- Do not use quotation marks.
-- Do not include explanations.
-- Return only JSON in the required format.
+Generate exactly 8 title options.
+
+The output must contain TITLES ONLY.
+Do not write a summary.
+Do not write an explanation.
+Do not write a headline above the titles.
+Do not include descriptions, hashtags, CTAs, commentary, or labels.
+
+Use the uploaded artwork as the primary visual source.
+Use optional context only to clarify product type, audience, or positioning.
+Each title must be concise, specific, natural, and searchable.
+Accurately reflect visible subject matter, readable text, style, and mood.
+Do not invent details that are not visible or supplied.
 `,
   },
 
   "ai-description": {
-    title: "AI Description",
     instruction: `
-Write one polished product or artwork description.
-Requirements:
-- Use the uploaded artwork as the primary visual source when an image is provided.
-- Use 2 to 4 short paragraphs.
-- Explain visible subject matter, mood, color palette, style, likely audience, and artistic value.
-- Mention readable text only when it is actually visible.
-- Use natural SEO wording without keyword stuffing.
-- Do not invent hidden materials, production methods, dimensions, or artist intent.
-- Do not claim a print-on-demand product is handmade or hand-painted.
-- Avoid exaggerated claims such as guaranteed, best ever, viral, or must-have.
-- Return only JSON in the required format.
+Generate exactly 3 polished description options.
+
+The output must contain DESCRIPTIONS ONLY.
+Do not write a summary.
+Do not write a headline.
+Do not add titles, hashtags, CTAs, notes, or commentary.
+
+Use the uploaded artwork as the primary visual source.
+Use optional context only for facts the image cannot show, such as product type or target customer.
+Each description should be ready to paste into a product listing.
+Use natural SEO wording without keyword stuffing.
+Do not invent materials, dimensions, production methods, or artist intent.
+Do not claim print-on-demand products are handmade or hand-painted.
 `,
   },
 
   "ai-hashtag": {
-    title: "AI Hashtags",
     instruction: `
-Generate one platform-appropriate hashtag group.
-Requirements:
-- Use the uploaded artwork to identify accurate subjects, visual themes, style, colors, and niche terms.
-- Use relevant, readable hashtags only.
-- Avoid unrelated viral hashtags.
-- Do not use trademarked brand or character hashtags unless explicitly supplied by the user.
-- For Instagram, return 12 to 15 hashtags.
-- For X, return exactly 3 hashtags.
-- For Facebook or Pinterest, return 5 to 8 hashtags.
-- Put all hashtags in one result item.
-- Return only JSON in the required format.
+Generate exactly one platform-ready hashtag group.
+
+The output must contain HASHTAGS ONLY.
+Do not write a summary.
+Do not write a headline.
+Do not add titles, descriptions, CTAs, explanations, or labels.
+
+Use the uploaded artwork to identify accurate subjects, visual themes, style, colors, and niche terms.
+Use the platform supplied by the user.
+Instagram: 12 to 15 hashtags.
+X: exactly 3 hashtags.
+Facebook or Pinterest: 5 to 8 hashtags.
+Threads, LinkedIn, or TikTok: 5 to 10 relevant hashtags.
+Return all hashtags as one single string in the items array.
 `,
   },
 
   "ai-cta": {
-    title: "AI Calls to Action",
     instruction: `
-Generate 8 platform-appropriate calls to action.
-Requirements:
-- Use the uploaded artwork to make the CTAs specific to the visible artwork when an image is provided.
-- Match the requested campaign goal and platform.
-- Keep each CTA concise and natural.
-- Instagram CTAs must use link-in-bio wording when a destination is needed.
-- X CTAs must be very short and must not invent a URL.
-- Do not use manipulative or misleading urgency.
-- Return only JSON in the required format.
+Generate exactly 8 calls to action.
+
+The output must contain CTAs ONLY.
+Do not write a summary.
+Do not write a headline.
+Do not add titles, descriptions, hashtags, explanations, or labels.
+
+Use the uploaded artwork to make each CTA specific to the visible design.
+Match the supplied platform and campaign goal.
+Keep every CTA concise and natural.
+Instagram must use link-in-bio wording when a destination is needed.
+X CTAs must be very short and must not invent a URL.
+Do not use manipulative or misleading urgency.
 `,
   },
 };
@@ -158,27 +165,25 @@ User inputs:
 ${JSON.stringify(inputs, null, 2)}
 
 Uploaded artwork:
-${hasImage ? "YES. Analyze the image carefully and use it as a primary source." : "NO. Use only the user's text inputs."}
+${hasImage ? "YES. Analyze the image carefully and use it as the primary source." : "NO."}
 
 ${tool.instruction}
 
 Return ONLY valid JSON using this exact structure:
 {
-  "title": "Short result heading",
-  "body": "Optional concise explanation",
   "items": ["Result 1", "Result 2"]
 }
 
 Rules:
-- When an image is present, ground the result in what is actually visible.
-- Do not identify a real person in an uploaded image.
-- Do not guess protected brands, characters, trademarks, locations, materials, or production methods from weak visual evidence.
-- User-supplied text may add context that is not visible in the image.
-- Do not return markdown.
+- The items array must contain ONLY the content requested by this specific tool.
+- Do not include a generated result title.
+- Do not include a generated summary or body.
+- Do not include markdown.
 - Do not include code fences.
-- items must always be an array of strings.
-- Never invent a product URL, price, performance statistic, trademark permission, or platform result.
-- Do not make legal, financial, or guaranteed-sales claims.
+- Ground all visual claims in what is actually visible.
+- Do not identify real people in uploaded images.
+- Do not guess protected brands, characters, trademarks, locations, materials, or production methods from weak evidence.
+- Do not invent URLs, prices, statistics, permissions, or sales claims.
 `;
 }
 
@@ -262,7 +267,7 @@ router.post(
             .slice(0, 20)
         : [];
 
-      if (!items.length && !parsed.body) {
+      if (!items.length) {
         throw new Error(
           "The AI did not return usable Creator Tool results."
         );
@@ -279,8 +284,6 @@ router.post(
         success: true,
         usedImage: hasImage,
         result: {
-          title: String(parsed.title || tool.title),
-          body: parsed.body ? String(parsed.body) : "",
           items,
         },
       });
