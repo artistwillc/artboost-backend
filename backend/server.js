@@ -32,8 +32,6 @@ import { v2 as cloudinary } from "cloudinary";
 import OAuth from "oauth-1.0a";
 import CryptoJS from "crypto-js";
 import crypto from "crypto";
-import path from "path";
-import { fileURLToPath } from "url";
 import catalogRoutes from "./routes/catalog.js";
 
 dotenv.config({ override: true });
@@ -41,10 +39,6 @@ dotenv.config({ override: true });
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const WEBSITE_DIR = path.join(__dirname, "website");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -2499,13 +2493,6 @@ app.post(
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-
-/*
- * Public ArtBoost website.
- * This serves backend/website/styles.css, images/*, and other static assets.
- * API routes below continue to work normally.
- */
-app.use(express.static(WEBSITE_DIR));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
 app.use("/catalog", catalogCsvRouter);
@@ -2525,7 +2512,7 @@ const openai = new OpenAI({
 });
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(WEBSITE_DIR, "index.html"));
+  res.send("ArtBoost AI backend is running.");
 });
 
 app.get("/privacy", (req, res) => {
@@ -6098,19 +6085,105 @@ async function publishThreadsPost({
     accessToken
   );
 
-  const publishResponse =
-    await fetch(
-      publishUrl,
+  // Threads image containers can take a few seconds to become
+  // publishable after Meta creates them. Publishing immediately can
+  // intermittently return code 24 / "Media Not Found".
+  //
+  // Give Meta a short head start, then retry the SAME creation_id
+  // when that transient media-processing error occurs.
+  await new Promise((resolve) =>
+    setTimeout(resolve, 5000)
+  );
+
+  let publishResponse = null;
+  let publishData = null;
+
+  const maxPublishAttempts = 4;
+
+  for (
+    let attempt = 1;
+    attempt <= maxPublishAttempts;
+    attempt += 1
+  ) {
+    publishResponse =
+      await fetch(
+        publishUrl,
+        {
+          method: "POST",
+        }
+      );
+
+    publishData =
+      await publishResponse.json();
+
+    if (
+      publishResponse.ok &&
+      publishData?.id
+    ) {
+      break;
+    }
+
+    const errorCode =
+      Number(
+        publishData?.error?.code || 0
+      );
+
+    const errorSubcode =
+      Number(
+        publishData?.error?.error_subcode || 0
+      );
+
+    const errorTitle =
+      String(
+        publishData?.error?.error_user_title || ""
+      );
+
+    const errorMessage =
+      String(
+        publishData?.error?.message || ""
+      );
+
+    const mediaStillProcessing =
+      errorCode === 24 ||
+      errorSubcode === 4279009 ||
+      /media not found/i.test(errorTitle) ||
+      /requested resource does not exist/i.test(
+        errorMessage
+      );
+
+    console.warn(
+      "Threads publish attempt failed:",
       {
-        method: "POST",
+        attempt,
+        maxPublishAttempts,
+        errorCode,
+        errorSubcode,
+        errorTitle:
+          errorTitle || null,
+        errorMessage:
+          errorMessage || null,
+        willRetry:
+          mediaStillProcessing &&
+          attempt < maxPublishAttempts,
       }
     );
 
-  const publishData =
-    await publishResponse.json();
+    if (
+      !mediaStillProcessing ||
+      attempt >= maxPublishAttempts
+    ) {
+      break;
+    }
+
+    // Keep the same creation_id and allow Meta additional time
+    // to finish fetching/processing the image.
+    await new Promise((resolve) =>
+      setTimeout(resolve, 5000)
+    );
+  }
 
   if (
-    !publishResponse.ok ||
+    !publishResponse?.ok ||
     !publishData?.id
   ) {
     console.error(
