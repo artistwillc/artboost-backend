@@ -366,13 +366,35 @@ const SCAN_PAGE_SCRIPT = `
         return;
       }
 
-      const imageUrl =
-        getHttpImageUrl(image);
+      const artPalCandidates = [
+        image.currentSrc,
+        image.getAttribute("src"),
+        image.getAttribute("data-original"),
+        image.getAttribute("data-src"),
+        image.getAttribute("data-lazy-src")
+      ]
+        .map(function (value) {
+          return absoluteUrl(value);
+        })
+        .filter(function (value) {
+          return (
+            /^https?:\/\//i.test(value) &&
+            !/\/img\/c\.gif(?:[?#]|$)/i.test(value)
+          );
+        });
 
-      if (
-        !imageUrl ||
-        imageUrl.includes("/img/c.gif")
-      ) {
+      const loadedArtPalImage =
+        artPalCandidates.find(function (value) {
+          return /\/97273\//i.test(value) ||
+            /img\.artpal\.com/i.test(value);
+        }) || "";
+
+      const imageUrl =
+        loadedArtPalImage ||
+        artPalCandidates[0] ||
+        "";
+
+      if (!imageUrl) {
         return;
       }
 
@@ -2439,6 +2461,31 @@ const REDBUBBLE_DETAIL_SCRIPT = `
 `;
 
 
+function getArtPalPreviewSource(
+  imageUrl: string
+) {
+  const normalized =
+    normalizeUrl(imageUrl);
+
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    uri: normalized,
+    headers: {
+      Referer:
+        "https://www.artpal.com/",
+      Origin:
+        "https://www.artpal.com",
+      Accept:
+        "image/avif,image/webp,image/apng,image/jpeg,image/png,image/*,*/*;q=0.8",
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/151 Mobile Safari/537.36",
+    },
+  };
+}
+
 function getRedbubblePreviewImageUrl(
   imageUrl: string,
   productUrl: string
@@ -2530,36 +2577,6 @@ export default function AIStoreScannerScreen() {
   )
     .trim()
     .toLowerCase();
-
-
-  function getArtPalHostedImageUrl(
-    imageUrl: string
-  ) {
-    const normalized =
-      normalizeUrl(imageUrl);
-
-    if (!normalized) {
-      return "";
-    }
-
-    try {
-      const parsed =
-        new URL(normalized);
-
-      if (
-        parsed.hostname
-          .replace(/^www\./i, "")
-          .toLowerCase() ===
-        "img.artpal.com"
-      ) {
-        return `${API_BASE}/catalog/artpal-image?url=${encodeURIComponent(
-          normalized
-        )}`;
-      }
-    } catch {}
-
-    return normalized;
-  }
 
   const scannerCacheKey =
     storeId ||
@@ -3798,24 +3815,6 @@ setScanProgress("");
             );
           }
 
-          if (
-            storeType === "artpal" &&
-            productToImport.imageUrl
-          ) {
-            const hostedArtPalImage =
-              getArtPalHostedImageUrl(
-                productToImport.imageUrl
-              );
-
-            if (hostedArtPalImage) {
-              productToImport = {
-                ...productToImport,
-                imageUrl:
-                  hostedArtPalImage,
-              };
-            }
-          }
-
           const response =
             await fetch(
               `${API_BASE}/catalog/import-product`,
@@ -4468,38 +4467,45 @@ scanProgress ? (
                   }
                 >
                   {(storeType === "artpal"
-                    ? getArtPalHostedImageUrl(
-                        item.imageUrl
+                    ? Boolean(
+                        getArtPalPreviewSource(
+                          item.imageUrl
+                        )
                       )
-                    : getRedbubblePreviewImageUrl(
-                        item.imageUrl,
-                        item.productUrl
+                    : Boolean(
+                        getRedbubblePreviewImageUrl(
+                          item.imageUrl,
+                          item.productUrl
+                        )
                       )) ? (
                     <Image
-                      source={{
-                        uri:
-                          storeType === "artpal"
-                            ? getArtPalHostedImageUrl(
-                                item.imageUrl
-                              )
-                            : getRedbubblePreviewImageUrl(
-                                item.imageUrl,
-                                item.productUrl
-                              ),
-                        headers:
-                          storeType !== "artpal" &&
-                          /redbubble\.net/i.test(
-                            getRedbubblePreviewImageUrl(
-                              item.imageUrl,
-                              item.productUrl
-                            )
-                          )
-                            ? {
-                                Referer: "https://www.redbubble.com/",
-                                Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
-                              }
-                            : undefined,
-                      }}
+                      source={
+                        storeType === "artpal"
+                          ? getArtPalPreviewSource(
+                              item.imageUrl
+                            )!
+                          : {
+                              uri:
+                                getRedbubblePreviewImageUrl(
+                                  item.imageUrl,
+                                  item.productUrl
+                                ),
+                              headers:
+                                /redbubble\.net/i.test(
+                                  getRedbubblePreviewImageUrl(
+                                    item.imageUrl,
+                                    item.productUrl
+                                  )
+                                )
+                                  ? {
+                                      Referer:
+                                        "https://www.redbubble.com/",
+                                      Accept:
+                                        "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                                    }
+                                  : undefined,
+                            }
+                      }
                       style={styles.productImage}
                       resizeMode="cover"
                     />
