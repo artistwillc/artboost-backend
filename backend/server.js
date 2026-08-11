@@ -2511,8 +2511,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+app.use(express.static("website"));
+
 app.get("/", (req, res) => {
-  res.send("ArtBoost AI backend is running.");
+  res.sendFile(`${process.cwd()}/website/index.html`);
 });
 
 app.get("/privacy", (req, res) => {
