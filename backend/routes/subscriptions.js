@@ -503,6 +503,73 @@ async function syncStripeSubscriptionForUser({
   };
 }
 
+async function findActiveLiveSubscriptionByEmail(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanEmail) return null;
+
+  const customers = await stripe.customers.list({
+    email: cleanEmail,
+    limit: 100,
+  });
+
+  const candidates = [];
+
+  for (const customer of customers.data || []) {
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customer.id,
+      status: "all",
+      limit: 100,
+      expand: ["data.items.data.price"],
+    });
+
+    for (const subscription of subscriptions.data || []) {
+      if (subscription.status === "canceled") continue;
+      if (!tierFromSubscription(subscription)) continue;
+      candidates.push(subscription);
+    }
+  }
+
+  candidates.sort(
+    (a, b) => Number(b.created || 0) - Number(a.created || 0)
+  );
+
+  return candidates[0] || null;
+}
+
+async function profileForSubscription({ userId, email, customerId }) {
+  const cleanUserId = String(userId || "").trim();
+  const cleanEmail = String(email || "").trim().toLowerCase();
+
+  if (cleanUserId) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .eq("id", cleanUserId)
+      .maybeSingle();
+    if (data?.id) return data;
+  }
+
+  if (cleanEmail) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .ilike("email", cleanEmail)
+      .maybeSingle();
+    if (data?.id) return data;
+  }
+
+  if (customerId) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .eq("stripe_customer_id", String(customerId))
+      .maybeSingle();
+    if (data?.id) return data;
+  }
+
+  return null;
+}
+
 async function createCheckout({
   tier,
   userId = "",
@@ -581,9 +648,66 @@ async function createCheckout({
       cleanUserEmail;
   }
 
-  return stripe.checkout.sessions.create(
-    options
-  );
+  if (cleanUserEmail) {
+    const existingSubscription =
+      await findActiveLiveSubscriptionByEmail(cleanUserEmail);
+
+    if (existingSubscription) {
+      const currentTier = tierFromSubscription(existingSubscription);
+
+      if (currentTier === normalizedTier) {
+        return {
+          existingSubscription: true,
+          unchanged: true,
+          subscriptionId: existingSubscription.id,
+          tier: normalizedTier,
+          url: `${SITE_URL}/?checkout=success&tier=${encodeURIComponent(normalizedTier)}&unchanged=1`,
+        };
+      }
+
+      const item = existingSubscription.items?.data?.[0];
+      if (!item?.id) {
+        throw new Error(
+          "Existing Stripe subscription does not contain an editable subscription item."
+        );
+      }
+
+      const updated = await stripe.subscriptions.update(
+        existingSubscription.id,
+        {
+          items: [{ id: item.id, price: priceId }],
+          metadata,
+          proration_behavior: "create_prorations",
+        }
+      );
+
+      await updateProfile({
+        userId: cleanUserId,
+        email: cleanUserEmail,
+        customerId: updated.customer,
+        updateData: {
+          is_pro: true,
+          subscription_tier: normalizedTier,
+          subscription_status: updated.status,
+          plan: normalizedTier,
+          stripe_customer_id: updated.customer,
+          stripe_subscription_id: updated.id,
+          current_period_end: currentPeriodEnd(updated),
+          updated_at: new Date().toISOString(),
+        },
+      });
+
+      return {
+        existingSubscription: true,
+        updated: true,
+        subscriptionId: updated.id,
+        tier: normalizedTier,
+        url: `${SITE_URL}/?checkout=success&tier=${encodeURIComponent(normalizedTier)}&updated=1`,
+      };
+    }
+  }
+
+  return stripe.checkout.sessions.create(options);
 }
 
 /*
@@ -819,52 +943,58 @@ router.post(
         }
 
         case "customer.subscription.deleted": {
-          const subscription =
-            event.data.object;
-
-          const userId =
-            subscription.metadata
-              ?.userId || "";
-
+          const subscription = event.data.object;
+          const userId = subscription.metadata?.userId || "";
           const email =
-            subscription.metadata
-              ?.userEmail ||
-            (await customerEmail(
-              subscription.customer
-            ));
+            subscription.metadata?.userEmail ||
+            (await customerEmail(subscription.customer));
 
-          const update =
-            await updateProfile({
-              userId,
-              email,
-              customerId:
-                subscription.customer,
-              updateData: {
-                is_pro: false,
-                subscription_tier:
-                  "free",
-                subscription_status:
-                  "cancelled",
-                plan: "free",
-                stripe_subscription_id:
-                  subscription.id,
-                current_period_end:
-                  null,
-                updated_at:
-                  new Date().toISOString(),
-              },
-            });
-
-          await createNotification({
-            userId:
-              update.userId ||
-              userId,
-            title:
-              "Subscription Cancelled",
-            message:
-              "Your paid ArtBoost AI subscription has been cancelled.",
-            type: "warning",
+          const profile = await profileForSubscription({
+            userId,
+            email,
+            customerId: subscription.customer,
           });
+
+          const cancelledSubscriptionId = String(subscription.id || "").trim();
+          const profileSubscriptionId = String(
+            profile?.stripe_subscription_id || ""
+          ).trim();
+
+          if (
+            profile?.id &&
+            cancelledSubscriptionId &&
+            profileSubscriptionId === cancelledSubscriptionId
+          ) {
+            await supabase
+              .from("profiles")
+              .update({
+                is_pro: false,
+                subscription_tier: "free",
+                subscription_status: "cancelled",
+                plan: "free",
+                stripe_customer_id: null,
+                stripe_subscription_id: null,
+                current_period_end: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", profile.id);
+
+            await createNotification({
+              userId: profile.id,
+              title: "Subscription Cancelled",
+              message: "Your paid ArtBoost AI subscription has been cancelled.",
+              type: "warning",
+            });
+          } else if (profile?.id) {
+            console.log(
+              "Ignored stale live Stripe cancellation because it does not own the profile subscription:",
+              {
+                cancelledSubscriptionId,
+                profileSubscriptionId: profileSubscriptionId || null,
+                email: profile.email || email || null,
+              }
+            );
+          }
 
           break;
         }
@@ -890,27 +1020,20 @@ router.post(
         }
 
         case "invoice.payment_failed": {
-          const invoice =
-            event.data.object;
+          const invoice = event.data.object;
+          const email =
+            invoice.customer_email ||
+            (await customerEmail(invoice.customer));
 
-          await updateProfile({
-            userId: "",
-            email:
-              invoice.customer_email ||
-              "",
-            customerId:
-              invoice.customer,
-            updateData: {
-              is_pro: false,
-              subscription_tier:
-                "free",
-              subscription_status:
-                "payment_failed",
-              plan: "free",
-              updated_at:
-                new Date().toISOString(),
-            },
-          });
+          if (email) {
+            // Stripe remains the source of truth. A failed invoice can leave
+            // a subscription past_due rather than canceled, so resync instead
+            // of blindly stripping the paid tier.
+            await syncStripeSubscriptionForUser({
+              userId: "",
+              email,
+            });
+          }
 
           break;
         }
