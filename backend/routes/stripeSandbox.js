@@ -605,9 +605,19 @@ router.post(
               "sandbox_"
             );
 
+          const cancelledSubscriptionId =
+            String(subscription?.id || "").trim();
+          const profileSubscriptionId =
+            String(profile?.stripe_subscription_id || "").trim();
+          const ownsCancelledSubscription =
+            Boolean(cancelledSubscriptionId) &&
+            Boolean(profileSubscriptionId) &&
+            cancelledSubscriptionId === profileSubscriptionId;
+
           if (
             profile &&
-            sandboxOwned
+            sandboxOwned &&
+            ownsCancelledSubscription
           ) {
             const { error } =
               await supabase
@@ -652,6 +662,15 @@ router.post(
               type:
                 "info",
             });
+          } else if (profile && sandboxOwned) {
+            console.log(
+              "Ignored stale sandbox cancellation because it does not own the profile subscription:",
+              {
+                cancelledSubscriptionId,
+                profileSubscriptionId: profileSubscriptionId || null,
+                email: profile.email || email || null,
+              }
+            );
           }
 
           break;
@@ -918,6 +937,33 @@ router.get(
  * CREATE SANDBOX CHECKOUT
  * ============================================================
  */
+async function findActiveSandboxSubscriptionByEmail(stripe, email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!cleanEmail) return null;
+
+  const customers = await stripe.customers.list({ email: cleanEmail, limit: 100 });
+  const candidates = [];
+
+  for (const customer of customers.data || []) {
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customer.id,
+      status: "all",
+      limit: 100,
+      expand: ["data.items.data.price"],
+    });
+
+    for (const subscription of subscriptions.data || []) {
+      if (subscription.status === "canceled") continue;
+      if (String(subscription.metadata?.environment || "") !== "sandbox") continue;
+      if (!tierFromSubscription(subscription)) continue;
+      candidates.push(subscription);
+    }
+  }
+
+  candidates.sort((a, b) => Number(b.created || 0) - Number(a.created || 0));
+  return candidates[0] || null;
+}
+
 router.get(
   "/stripe-test/checkout/:tier",
   requireTestToken,
@@ -976,24 +1022,37 @@ router.get(
           ? String(profile.stripe_subscription_id)
           : "";
 
-      if (currentSandboxSubscriptionId) {
-        let subscription;
+      let subscription = null;
 
+      if (currentSandboxSubscriptionId) {
         try {
           subscription = await stripe.subscriptions.retrieve(
             currentSandboxSubscriptionId,
-            {
-              expand: ["items.data.price"],
-            }
+            { expand: ["items.data.price"] }
           );
+          if (subscription.status === "canceled") subscription = null;
         } catch (error) {
           console.log(
-            "Sandbox existing subscription lookup failed; falling back to new checkout:",
+            "Sandbox profile subscription lookup failed; trying email recovery:",
             error?.message || error
           );
         }
+      }
 
-        if (subscription && subscription.status !== "canceled") {
+      if (!subscription && requestedEmail) {
+        subscription = await findActiveSandboxSubscriptionByEmail(
+          stripe,
+          requestedEmail
+        );
+        if (subscription) {
+          console.log(
+            "Recovered active sandbox subscription by email:",
+            { email: requestedEmail, subscriptionId: subscription.id }
+          );
+        }
+      }
+
+      if (subscription && subscription.status !== "canceled") {
           const currentTier = tierFromSubscription(subscription);
 
           if (currentTier === tier) {
@@ -1042,7 +1101,6 @@ router.get(
               tier
             )}&updated=1`
           );
-        }
       }
 
       const session =
