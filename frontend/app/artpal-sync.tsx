@@ -60,11 +60,12 @@ function cleanText(value: unknown) {
 const ARTPAL_FULL_SYNC_SCRIPT = `
 (function () {
   try {
-    var MAX_STEPS = 55;
-    var WAIT_MS = 650;
+    var MAX_STEPS = 90;
+    var WAIT_MS = 550;
     var stableRounds = 0;
     var previousCount = -1;
     var step = 0;
+    var discoveredByUrl = {};
 
     function cleanText(value) {
       return String(value || "")
@@ -83,257 +84,695 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
       }
     }
 
+    function sameArtPalHost(value) {
+      try {
+        var url = new URL(
+          value,
+          window.location.href
+        );
+        var host =
+          String(url.hostname || "")
+            .replace(/^www\\./i, "")
+            .toLowerCase();
+
+        return (
+          host === "artpal.com" ||
+          host.endsWith(".artpal.com")
+        );
+      } catch {
+        return false;
+      }
+    }
+
     function usableImage(img) {
       if (!img) return "";
 
-      var value =
-        img.getAttribute("data-original") ||
-        img.getAttribute("data-src") ||
-        img.getAttribute("data-lazy-src") ||
-        img.getAttribute("data-image") ||
-        img.currentSrc ||
-        img.getAttribute("src") ||
-        "";
+      var candidates = [
+        img.getAttribute("data-original"),
+        img.getAttribute("data-src"),
+        img.getAttribute("data-lazy-src"),
+        img.getAttribute("data-image"),
+        img.getAttribute("data-url"),
+        img.currentSrc,
+        img.getAttribute("src")
+      ];
 
-      value = absoluteUrl(value);
-
-      if (
-        !value ||
-        value.indexOf("/img/c.gif") >= 0 ||
-        value.indexOf("data:image/gif") === 0 ||
-        value.indexOf("spacer") >= 0
+      for (
+        var i = 0;
+        i < candidates.length;
+        i += 1
       ) {
-        return "";
+        var value =
+          absoluteUrl(candidates[i]);
+
+        if (
+          !value ||
+          value.indexOf("/img/c.gif") >= 0 ||
+          value.indexOf("data:image/gif") === 0 ||
+          value.indexOf("spacer") >= 0 ||
+          value.indexOf("logo") >= 0 ||
+          value.indexOf("icon") >= 0 ||
+          value.indexOf("avatar") >= 0
+        ) {
+          continue;
+        }
+
+        return value;
       }
 
-      return value;
+      return "";
     }
 
-    function candidateImage(anchor) {
-      var direct =
-        anchor.querySelector &&
-        anchor.querySelector("img");
+    function looksLikeArtworkImage(img) {
+      if (!img) return false;
 
-      var directUrl = usableImage(direct);
-      if (directUrl) return directUrl;
+      var src = usableImage(img);
+      if (!src) return false;
 
-      var node = anchor;
+      var width =
+        Number(
+          img.naturalWidth ||
+          img.width ||
+          img.getAttribute("width") ||
+          0
+        );
+
+      var height =
+        Number(
+          img.naturalHeight ||
+          img.height ||
+          img.getAttribute("height") ||
+          0
+        );
+
+      var rect =
+        img.getBoundingClientRect
+          ? img.getBoundingClientRect()
+          : { width: 0, height: 0 };
+
+      width =
+        Math.max(
+          width,
+          Number(rect.width) || 0
+        );
+      height =
+        Math.max(
+          height,
+          Number(rect.height) || 0
+        );
+
+      /*
+       * ArtPal artwork thumbnails are visually substantial.
+       * Exclude tiny social icons, logos, badges, etc.
+       */
+      return (
+        width >= 90 &&
+        height >= 70
+      );
+    }
+
+    function nearestLink(img) {
+      if (!img) return null;
+
+      var node = img;
       var depth = 0;
 
       while (
         node &&
         node !== document.body &&
-        depth < 7
+        depth < 8
       ) {
-        if (node.querySelectorAll) {
-          var imgs =
-            Array.from(
-              node.querySelectorAll("img")
-            );
-
-          for (var i = 0; i < imgs.length; i += 1) {
-            var url = usableImage(imgs[i]);
-            if (url) return url;
-          }
+        if (
+          node.tagName &&
+          String(node.tagName)
+            .toLowerCase() === "a"
+        ) {
+          return node;
         }
 
         node = node.parentElement;
         depth += 1;
       }
 
+      return null;
+    }
+
+    function linkFromDataAttributes(node) {
+      if (!node || !node.getAttribute) {
+        return "";
+      }
+
+      var attrs = [
+        "href",
+        "data-href",
+        "data-url",
+        "data-link",
+        "data-target",
+        "data-product-url",
+        "data-art-url"
+      ];
+
+      for (
+        var i = 0;
+        i < attrs.length;
+        i += 1
+      ) {
+        var raw =
+          node.getAttribute(attrs[i]);
+
+        if (!raw) continue;
+
+        var url = absoluteUrl(raw);
+
+        if (
+          url &&
+          sameArtPalHost(url)
+        ) {
+          return url;
+        }
+      }
+
       return "";
     }
 
-    function candidateTitle(anchor, image) {
+    function isExcludedUrl(urlValue) {
+      try {
+        var url = new URL(urlValue);
+        var path =
+          String(url.pathname || "")
+            .toLowerCase();
+
+        if (
+          path === "/" ||
+          path === "/artistwill" ||
+          /\/(login|signup|register|cart|contact|about|help|privacy|terms|blog|search)(\/|$)/i.test(
+            path
+          )
+        ) {
+          return true;
+        }
+
+        if (
+          /\.(jpg|jpeg|png|gif|webp|svg|css|js)(\?|$)/i.test(
+            path
+          )
+        ) {
+          return true;
+        }
+
+        return false;
+      } catch {
+        return true;
+      }
+    }
+
+    function titleFor(img, link) {
+      var container =
+        link ||
+        (img && img.parentElement);
+
       var values = [
-        image &&
-          image.getAttribute &&
-          image.getAttribute("alt"),
-        image &&
-          image.getAttribute &&
-          image.getAttribute("title"),
-        anchor.getAttribute("aria-label"),
-        anchor.getAttribute("title"),
-        anchor.querySelector &&
-          anchor.querySelector("strong") &&
-          anchor.querySelector("strong").textContent,
-        anchor.querySelector &&
-          anchor.querySelector("[title]") &&
-          anchor.querySelector("[title]").getAttribute("title"),
-        anchor.textContent
+        img &&
+          img.getAttribute &&
+          img.getAttribute("alt"),
+        img &&
+          img.getAttribute &&
+          img.getAttribute("title"),
+        link &&
+          link.getAttribute &&
+          link.getAttribute("title"),
+        link &&
+          link.getAttribute &&
+          link.getAttribute("aria-label")
       ];
 
-      for (var i = 0; i < values.length; i += 1) {
-        var text = cleanText(values[i]);
-        if (
-          text &&
-          text.length > 2 &&
-          text.toLowerCase() !== "view" &&
-          text.toLowerCase() !== "buy"
+      if (container) {
+        var node = container;
+        var depth = 0;
+
+        while (
+          node &&
+          node !== document.body &&
+          depth < 5
         ) {
-          return text.slice(0, 240);
+          if (node.querySelector) {
+            var titleNode =
+              node.querySelector(
+                "h1,h2,h3,h4,strong,.title,.name,[class*='title'],[class*='name']"
+              );
+
+            if (
+              titleNode &&
+              titleNode !== node
+            ) {
+              values.push(
+                titleNode.textContent
+              );
+            }
+          }
+
+          node = node.parentElement;
+          depth += 1;
+        }
+      }
+
+      for (
+        var i = 0;
+        i < values.length;
+        i += 1
+      ) {
+        var value =
+          cleanText(values[i]);
+
+        if (
+          value &&
+          value.length > 2 &&
+          value.length < 260 &&
+          value.toLowerCase() !== "artpal" &&
+          value.toLowerCase() !== "artistwill"
+        ) {
+          return value;
         }
       }
 
       return "ArtPal Artwork";
     }
 
-    function isListingLink(anchor) {
-      var raw =
-        anchor.getAttribute("href") || "";
+    function candidateUrl(img) {
+      var link = nearestLink(img);
 
-      if (!raw) return false;
+      if (link) {
+        var url =
+          linkFromDataAttributes(link);
 
-      var url;
-      try {
-        url = new URL(raw, window.location.href);
-      } catch {
-        return false;
+        if (
+          url &&
+          !isExcludedUrl(url)
+        ) {
+          return {
+            url: url,
+            link: link
+          };
+        }
       }
 
-      var host =
-        String(url.hostname || "")
-          .replace(/^www\\./i, "")
-          .toLowerCase();
+      /*
+       * Some ArtPal cards put navigation attributes on a wrapping div
+       * rather than on the image's nearest anchor.
+       */
+      var node =
+        img && img.parentElement;
+      var depth = 0;
 
-      if (
-        host !== "artpal.com" &&
-        !host.endsWith(".artpal.com")
+      while (
+        node &&
+        node !== document.body &&
+        depth < 8
       ) {
-        return false;
+        var dataUrl =
+          linkFromDataAttributes(node);
+
+        if (
+          dataUrl &&
+          !isExcludedUrl(dataUrl)
+        ) {
+          return {
+            url: dataUrl,
+            link: node
+          };
+        }
+
+        node = node.parentElement;
+        depth += 1;
       }
 
-      if (url.searchParams.has("i")) {
-        return true;
-      }
-
-      return (
-        /[?&]i=[^&#]+/i.test(url.href) ||
-        /\\/artwork\\//i.test(url.pathname) ||
-        /\\/art\\//i.test(url.pathname)
-      );
+      return {
+        url: "",
+        link: link
+      };
     }
 
     function collectProducts() {
-      var anchors =
+      var images =
         Array.from(
-          document.querySelectorAll("a[href]")
+          document.querySelectorAll("img")
         );
 
-      var products = [];
-      var seen = {};
-
-      anchors.forEach(function (anchor) {
-        if (!isListingLink(anchor)) {
+      images.forEach(function (img) {
+        if (!looksLikeArtworkImage(img)) {
           return;
         }
 
-        var productUrl =
-          absoluteUrl(
-            anchor.getAttribute("href")
+        var candidate =
+          candidateUrl(img);
+
+        if (!candidate.url) {
+          return;
+        }
+
+        var imageUrl =
+          usableImage(img);
+
+        if (!imageUrl) {
+          return;
+        }
+
+        var title =
+          titleFor(
+            img,
+            candidate.link
           );
 
+        /*
+         * Keep the first good rendition for a URL, but improve the
+         * title/image later if a better duplicate card appears.
+         */
+        var current =
+          discoveredByUrl[
+            candidate.url
+          ];
+
+        if (!current) {
+          discoveredByUrl[
+            candidate.url
+          ] = {
+            title: title,
+            description: "",
+            productUrl:
+              candidate.url,
+            imageUrl: imageUrl,
+            price: null,
+            currency: "USD"
+          };
+          return;
+        }
+
         if (
-          !productUrl ||
-          seen[productUrl]
+          current.title ===
+            "ArtPal Artwork" &&
+          title !==
+            "ArtPal Artwork"
+        ) {
+          current.title = title;
+        }
+
+        if (
+          !current.imageUrl &&
+          imageUrl
+        ) {
+          current.imageUrl =
+            imageUrl;
+        }
+      });
+
+      /*
+       * Second pass: inspect all same-host links whose surrounding
+       * card contains a substantial image. This catches ArtPal card
+       * layouts where the image itself is not nested directly in the link.
+       */
+      var links =
+        Array.from(
+          document.querySelectorAll(
+            "a[href],[data-href],[data-url],[data-link]"
+          )
+        );
+
+      links.forEach(function (node) {
+        var url =
+          linkFromDataAttributes(node);
+
+        if (
+          !url ||
+          isExcludedUrl(url) ||
+          discoveredByUrl[url]
         ) {
           return;
         }
 
-        var image =
-          anchor.querySelector &&
-          anchor.querySelector("img");
+        var scope = node;
+        var depth = 0;
+        var image = null;
+
+        while (
+          scope &&
+          scope !== document.body &&
+          depth < 5 &&
+          !image
+        ) {
+          if (
+            scope.querySelectorAll
+          ) {
+            var imgs =
+              Array.from(
+                scope.querySelectorAll(
+                  "img"
+                )
+              );
+
+            image =
+              imgs.find(
+                looksLikeArtworkImage
+              ) || null;
+          }
+
+          scope =
+            scope.parentElement;
+          depth += 1;
+        }
+
+        if (!image) return;
 
         var imageUrl =
-          candidateImage(anchor);
+          usableImage(image);
 
-        var title =
-          candidateTitle(anchor, image);
+        if (!imageUrl) return;
 
-        seen[productUrl] = true;
-
-        products.push({
-          title: title,
+        discoveredByUrl[url] = {
+          title:
+            titleFor(
+              image,
+              node
+            ),
           description: "",
-          productUrl: productUrl,
+          productUrl: url,
           imageUrl: imageUrl,
           price: null,
           currency: "USD"
-        });
+        };
       });
 
-      return products;
+      return Object.keys(
+        discoveredByUrl
+      ).map(function (key) {
+        return discoveredByUrl[key];
+      });
+    }
+
+    function sampleDiagnostics() {
+      var anchors =
+        Array.from(
+          document.querySelectorAll(
+            "a[href]"
+          )
+        )
+          .slice(0, 40)
+          .map(function (a) {
+            return {
+              text:
+                cleanText(
+                  a.textContent
+                ).slice(0, 100),
+              href:
+                absoluteUrl(
+                  a.getAttribute("href")
+                )
+            };
+          });
+
+      var images =
+        Array.from(
+          document.querySelectorAll(
+            "img"
+          )
+        )
+          .slice(0, 40)
+          .map(function (img) {
+            return {
+              alt:
+                cleanText(
+                  img.getAttribute("alt")
+                ).slice(0, 100),
+              src:
+                usableImage(img),
+              width:
+                img.naturalWidth ||
+                img.width ||
+                0,
+              height:
+                img.naturalHeight ||
+                img.height ||
+                0
+            };
+          });
+
+      return {
+        sampleLinks: anchors,
+        sampleImages: images
+      };
     }
 
     function post(type, extra) {
-      var products = collectProducts();
+      var products =
+        collectProducts();
+
+      var payload =
+        Object.assign(
+          {
+            type: type,
+            products: products,
+            scannedCount:
+              products.length,
+            step: step,
+            pageUrl:
+              window.location.href,
+            scrollY:
+              window.scrollY,
+            scrollHeight:
+              Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight
+              )
+          },
+          extra || {}
+        );
+
+      if (
+        type ===
+          "artpal_complete" &&
+        products.length === 0
+      ) {
+        payload =
+          Object.assign(
+            payload,
+            sampleDiagnostics()
+          );
+      }
 
       window.ReactNativeWebView.postMessage(
-        JSON.stringify(
-          Object.assign(
-            {
-              type: type,
-              products: products,
-              scannedCount: products.length,
-              step: step,
-              pageUrl: window.location.href
-            },
-            extra || {}
-          )
-        )
+        JSON.stringify(payload)
       );
 
       return products;
     }
 
-    function continueScan() {
-      step += 1;
-
-      var products = post("artpal_progress");
-
-      if (products.length === previousCount) {
-        stableRounds += 1;
-      } else {
-        stableRounds = 0;
-        previousCount = products.length;
-      }
-
-      window.scrollTo(
-        0,
-        Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight
-        )
-      );
-
-      var moreButtons =
+    function clickLoadMore() {
+      var candidates =
         Array.from(
           document.querySelectorAll(
-            "button, a"
+            "button,a,[role='button']"
           )
         );
 
-      moreButtons.forEach(function (el) {
+      candidates.forEach(function (el) {
         var label =
-          cleanText(el.textContent)
-            .toLowerCase();
+          cleanText(
+            el.textContent
+          ).toLowerCase();
 
         if (
           label === "show more" ||
           label === "load more" ||
-          label === "more"
+          label === "more artworks" ||
+          label === "view more"
         ) {
           try {
             el.click();
           } catch {}
         }
       });
+    }
+
+    function continueScan() {
+      step += 1;
+
+      var products =
+        post("artpal_progress");
+
+      if (
+        products.length ===
+        previousCount
+      ) {
+        stableRounds += 1;
+      } else {
+        stableRounds = 0;
+        previousCount =
+          products.length;
+      }
+
+      clickLoadMore();
+
+      var viewport =
+        Math.max(
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0,
+          600
+        );
+
+      /*
+       * Move gradually so ArtPal's lazy-loaded cards actually enter
+       * the viewport instead of jumping directly past them.
+       */
+      var nextY =
+        window.scrollY +
+        Math.max(
+          Math.floor(
+            viewport * 0.78
+          ),
+          420
+        );
+
+      var maxY =
+        Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight
+        ) - viewport;
+
+      window.scrollTo(
+        0,
+        Math.min(
+          nextY,
+          Math.max(
+            maxY,
+            0
+          )
+        )
+      );
+
+      var reachedBottom =
+        window.scrollY >=
+        Math.max(
+          maxY - 30,
+          0
+        );
 
       if (
         step >= MAX_STEPS ||
-        stableRounds >= 6
+        (
+          reachedBottom &&
+          stableRounds >= 8
+        )
       ) {
-        post("artpal_complete");
+        /*
+         * One final collection pass after lazy content settles.
+         */
+        setTimeout(
+          function () {
+            post(
+              "artpal_complete"
+            );
+          },
+          900
+        );
         return;
       }
 
@@ -345,14 +784,15 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
 
     setTimeout(
       continueScan,
-      900
+      1200
     );
   } catch (error) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
         type: "artpal_error",
         error:
-          error && error.message
+          error &&
+          error.message
             ? error.message
             : String(error)
       })
@@ -664,6 +1104,15 @@ export default function ArtPalSyncScreen() {
         "artpal_complete"
       ) {
         return;
+      }
+
+      if (
+        Number(message.scannedCount || 0) === 0
+      ) {
+        console.log(
+          "ARTPAL SCAN DIAGNOSTICS",
+          message
+        );
       }
 
       const products =
