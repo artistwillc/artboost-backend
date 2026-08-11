@@ -2327,6 +2327,32 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+
+app.get("/api/public-auth-config", (_req, res) => {
+  const supabaseUrl =
+    process.env.SUPABASE_URL ||
+    process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    "";
+
+  const supabasePublishableKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    "";
+
+  if (!supabaseUrl || !supabasePublishableKey) {
+    return res.status(503).json({
+      error:
+        "Website account authentication is not configured. Add SUPABASE_PUBLISHABLE_KEY (or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY) in Render.",
+    });
+  }
+
+  return res.json({
+    supabaseUrl,
+    supabasePublishableKey,
+  });
+});
+
 app.use(express.static("website"));
 
 app.get("/", (req, res) => {

@@ -289,7 +289,47 @@
   </section>
 </div>
 
+
+<div class="modal" id="accountModal" aria-hidden="true">
+  <div class="backdrop" data-close-account></div>
+  <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="accountTitle" style="max-width:520px;">
+    <button class="close" data-close-account aria-label="Close">×</button>
+    <p class="kicker">ARTBOOST ACCOUNT</p>
+    <h2 id="accountTitle">Create your ArtBoost account</h2>
+    <p id="accountIntro">Create your account first, then choose the plan that fits your business.</p>
+
+    <div style="display:flex;gap:10px;margin:18px 0;">
+      <button type="button" id="accountCreateTab" class="primary" style="flex:1;">Create Account</button>
+      <button type="button" id="accountLoginTab" class="secondary" style="flex:1;">Log In</button>
+    </div>
+
+    <form id="accountForm" style="display:grid;gap:12px;">
+      <label style="display:grid;gap:6px;text-align:left;">
+        <span>Email</span>
+        <input id="accountEmail" type="email" autocomplete="email" required
+          style="width:100%;padding:12px;border-radius:10px;border:1px solid #54466f;background:#0d0d16;color:#fff;">
+      </label>
+
+      <label style="display:grid;gap:6px;text-align:left;">
+        <span>Password</span>
+        <input id="accountPassword" type="password" autocomplete="current-password" minlength="6" required
+          style="width:100%;padding:12px;border-radius:10px;border:1px solid #54466f;background:#0d0d16;color:#fff;">
+      </label>
+
+      <button type="submit" id="accountSubmit" class="primary">Create Account</button>
+    </form>
+
+    <p id="accountStatus" style="min-height:24px;margin-top:14px;"></p>
+
+    <div id="signedInActions" style="display:none;margin-top:14px;">
+      <button type="button" id="accountContinue" class="primary">Choose a Plan</button>
+      <button type="button" id="accountSignOut" class="secondary">Sign Out</button>
+    </div>
+  </section>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
 </body>
 </html>

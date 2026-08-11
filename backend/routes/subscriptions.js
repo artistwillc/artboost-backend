@@ -137,6 +137,75 @@ function currentPeriodEnd(subscription) {
     : null;
 }
 
+
+function bearerToken(req) {
+  const header = String(req.headers?.authorization || "").trim();
+  if (!header.toLowerCase().startsWith("bearer ")) {
+    return "";
+  }
+  return header.slice(7).trim();
+}
+
+async function authenticatedWebsiteUser(req) {
+  const token = bearerToken(req);
+  if (!token) {
+    throw new Error("You must create or log in to an ArtBoost account first.");
+  }
+
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data?.user?.id || !data?.user?.email) {
+    throw new Error("Your ArtBoost login expired. Please log in again.");
+  }
+
+  return data.user;
+}
+
+async function ensureWebsiteProfile(user) {
+  const { data: existing, error: findError } = await supabase
+    .from("profiles")
+    .select("id,email")
+    .eq("id", String(user.id))
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(`Unable to load ArtBoost profile: ${findError.message}`);
+  }
+
+  if (existing?.id) {
+    if (!existing.email && user.email) {
+      await supabase
+        .from("profiles")
+        .update({
+          email: String(user.email).toLowerCase(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", String(user.id));
+    }
+    return existing;
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .insert({
+      id: String(user.id),
+      email: String(user.email).toLowerCase(),
+      is_pro: false,
+      subscription_tier: "free",
+      subscription_status: "free",
+      plan: "free",
+      updated_at: new Date().toISOString(),
+    })
+    .select("id,email")
+    .single();
+
+  if (error) {
+    throw new Error(`Unable to create ArtBoost profile: ${error.message}`);
+  }
+
+  return data;
+}
+
 async function createNotification({
   userId,
   title,
@@ -1063,121 +1132,102 @@ router.post(
 
 /*
  * ============================================================
- * DIRECT WEBSITE CHECKOUT
+ * WEBSITE ACCOUNT + CHECKOUT
  * ============================================================
+ *
+ * Website purchases are account-gated. Direct public GET checkout links
+ * never create a Stripe subscription.
  */
 router.get(
   "/subscribe/free",
   (_req, res) => {
-    return res.send(`
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width,initial-scale=1">
-          <title>Start Free | ArtBoost AI</title>
-          <style>
-            body {
-              margin: 0;
-              min-height: 100vh;
-              display: grid;
-              place-items: center;
-              padding: 24px;
-              background: #05070d;
-              color: #fff;
-              font-family: Arial, sans-serif;
-            }
-            main {
-              width: min(620px, 100%);
-              padding: 34px;
-              border: 1px solid #32255a;
-              border-radius: 22px;
-              background: #111119;
-              text-align: center;
-            }
-            h1 { margin-top: 0; }
-            p {
-              color: #c7c4d2;
-              line-height: 1.65;
-            }
-            a {
-              display: inline-block;
-              margin-top: 14px;
-              padding: 14px 22px;
-              border-radius: 12px;
-              background: #8b5cf6;
-              color: #fff;
-              text-decoration: none;
-              font-weight: 800;
-            }
-          </style>
-        </head>
-        <body>
-          <main>
-            <h1>Start with ArtBoost AI Free</h1>
-            <p>
-              The Free plan does not require a credit card.
-              Create or sign in to your ArtBoost AI account and
-              your account starts on the Free tier automatically.
-            </p>
-            <a href="/">Return to ArtBoost AI</a>
-          </main>
-        </body>
-      </html>
-    `);
+    return res.redirect(
+      303,
+      `${SITE_URL}/?account=create&tier=free`
+    );
   }
 );
 
 router.get(
   "/subscribe/:tier",
+  (req, res) => {
+    const tier = normalizeTier(req.params.tier);
+
+    if (!tier) {
+      return res
+        .status(400)
+        .send("Invalid ArtBoost subscription tier.");
+    }
+
+    return res.redirect(
+      303,
+      `${SITE_URL}/?account=required&tier=${encodeURIComponent(tier)}`
+    );
+  }
+);
+
+router.post(
+  "/website/ensure-profile",
+  express.json({ limit: "100kb" }),
   async (req, res) => {
     try {
-      const tier =
-        normalizeTier(
-          req.params.tier
-        );
+      const user = await authenticatedWebsiteUser(req);
+      const profile = await ensureWebsiteProfile(user);
+
+      return res.json({
+        success: true,
+        userId: user.id,
+        email: user.email,
+        profileId: profile.id,
+      });
+    } catch (error) {
+      return res.status(401).json({
+        error: error?.message || "Unable to verify ArtBoost account.",
+      });
+    }
+  }
+);
+
+router.post(
+  "/website/create-checkout-session",
+  express.json({ limit: "100kb" }),
+  async (req, res) => {
+    try {
+      const user = await authenticatedWebsiteUser(req);
+      await ensureWebsiteProfile(user);
+
+      const tier = normalizeTier(req.body?.tier);
 
       if (!tier) {
-        return res
-          .status(400)
-          .send(
-            "Invalid ArtBoost subscription tier."
-          );
+        return res.status(400).json({
+          error: "Invalid ArtBoost subscription tier.",
+        });
       }
 
-      const session =
-        await createCheckout({
-          tier,
-          source: "website",
-        });
+      const result = await createCheckout({
+        tier,
+        userId: user.id,
+        userEmail: user.email,
+        source: "website_authenticated",
+      });
 
-      return res.redirect(
-        303,
-        session.url
-      );
+      return res.json({
+        success: true,
+        tier,
+        url: result.url,
+        existingSubscription: Boolean(result.existingSubscription),
+        updated: Boolean(result.updated),
+        unchanged: Boolean(result.unchanged),
+        subscriptionId: result.subscriptionId || null,
+      });
     } catch (error) {
-      console.error(
-        "Website Stripe checkout failed:",
-        error
-      );
+      console.error("Authenticated website Stripe checkout failed:", error);
 
-      return res
-        .status(500)
-        .send(`
-          <html>
-            <body style="font-family:Arial;max-width:700px;margin:60px auto;padding:24px;">
-              <h1>Unable to Start Checkout</h1>
-              <p>${String(
-                error?.message ||
-                  "Stripe checkout failed."
-              ).replace(
-                /[<>&"]/g,
-                ""
-              )}</p>
-              <p><a href="/">Return to ArtBoost AI</a></p>
-            </body>
-          </html>
-        `);
+      return res.status(401).json({
+        error:
+          error?.message ||
+          "Unable to start authenticated Stripe checkout.",
+      });
     }
   }
 );
