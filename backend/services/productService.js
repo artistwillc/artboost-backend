@@ -105,7 +105,7 @@ export async function getStores({
         store_url,
         connected,
         metadata,
-        created_at,
+        connected_at,
         updated_at
       `
     )
@@ -236,9 +236,15 @@ export async function getStores({
         ] ||
         0,
       connectedAt:
-        connection.created_at || null,
+        connection.connected_at || null,
       updatedAt:
         connection.updated_at || null,
+      lastSyncedAt:
+        connection.last_synced_at || null,
+      lastSyncStatus:
+        connection.last_sync_status || null,
+      lastSyncError:
+        connection.last_sync_error || null,
     };
   });
 
@@ -292,6 +298,10 @@ export async function getStores({
           connection.connected_at || null,
         updatedAt:
           connection.updated_at || null,
+        lastSyncedAt:
+          connection.updated_at || null,
+        lastSyncStatus: null,
+        lastSyncError: null,
       };
     })
     .filter(
@@ -453,157 +463,34 @@ export async function getNextAutomationProduct({
     );
   }
 
-  async function loadProductsByConnectionId() {
-    if (!storeId) {
-      return [];
-    }
-
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", userId)
-      .eq(
-        "store_connection_id",
-        String(storeId)
-      )
-      .or(
-        "status.is.null,status.eq.active,status.eq.published"
-      );
-
-    if (error) {
-      throw new Error(
-        `Unable to load automation products by store connection: ${error.message}`
-      );
-    }
-
-    return data || [];
-  }
-
-  async function loadProductsByLegacyIdentity() {
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", userId)
-      .eq(
-        "store_type",
-        resolvedStoreType
-      )
-      .eq(
-        "store_name",
-        resolvedStoreName
-      )
-      .or(
-        "status.is.null,status.eq.active,status.eq.published"
-      );
-
-    if (error) {
-      throw new Error(
-        `Unable to load automation products: ${error.message}`
-      );
-    }
-
-    return data || [];
-  }
+  let query = supabase
+    .from("products")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("store_type", resolvedStoreType)
+    .eq("store_name", resolvedStoreName);
 
   /*
-   * New store integrations, including ArtPal, are tied to
-   * store_connections.id. Use that stable relationship first.
-   * Fall back to store type + store name for legacy imports.
+   * Only include active products when a status value exists.
    */
-  let products =
-    await loadProductsByConnectionId();
+  query = query.or(
+    "status.is.null,status.eq.active,status.eq.published"
+  );
 
-  if (products.length === 0) {
-    products =
-      await loadProductsByLegacyIdentity();
+  const {
+    data: products,
+    error: productsError,
+  } = await query;
+
+  if (productsError) {
+    throw new Error(
+      `Unable to load automation products: ${productsError.message}`
+    );
   }
 
   const availableProducts = products || [];
 
-  /*
-   * Automation publishing requires a real image asset. Legacy Redbubble
-   * imports may contain a storefront/product HTML URL in image_url; those
-   * records must never be selected for posting.
-   */
-  function hasPublishableImage(product) {
-    const rawImageUrl = String(
-      product?.image_url ??
-      product?.imageUrl ??
-      product?.featured_image ??
-      product?.featuredImage ??
-      product?.image ??
-      product?.images?.[0]?.src ??
-      product?.images?.[0]?.url ??
-      product?.images?.[0] ??
-      ""
-    ).trim();
-
-    if (!/^https?:\/\//i.test(rawImageUrl)) {
-      return false;
-    }
-
-    try {
-      const parsed = new URL(rawImageUrl);
-      const hostname = parsed.hostname
-        .replace(/^www\./i, "")
-        .toLowerCase();
-      const pathname = parsed.pathname || "";
-
-      if (
-        hostname === "redbubble.com" ||
-        hostname.endsWith(".redbubble.com")
-      ) {
-        return false;
-      }
-
-      if (
-        /^\/people\//i.test(pathname) ||
-        /^\/shop(?:\/|$)/i.test(pathname) ||
-        /^\/i\//i.test(pathname)
-      ) {
-        return false;
-      }
-
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const publishableProducts =
-    availableProducts.filter(hasPublishableImage);
-
-  if (
-    availableProducts.length > 0 &&
-    publishableProducts.length === 0
-  ) {
-    console.warn(
-      "Automation skipped all products because none contain a publishable image.",
-      {
-        storeType: resolvedStoreType,
-        storeName: resolvedStoreName,
-        totalProducts: availableProducts.length,
-      }
-    );
-
-    throw new Error(
-      "No imported products for this store currently contain a publishable image. Re-import the artwork so ArtBoost can save a valid product image."
-    );
-  }
-
   if (availableProducts.length === 0) {
-    if (resolvedStoreType === "artpal") {
-      throw new Error(
-        "No ArtPal artwork has been imported for this connected store. Import the ArtPal storefront or add an ArtPal artwork URL before running the automation."
-      );
-    }
-
     return null;
   }
 
@@ -615,8 +502,8 @@ export async function getNextAutomationProduct({
 
   const eligibleProducts =
     parsedRepeatDelayDays === 0
-      ? publishableProducts
-      : publishableProducts.filter(
+      ? availableProducts
+      : availableProducts.filter(
           (product) => {
             if (!product.last_posted_at) {
               return true;
