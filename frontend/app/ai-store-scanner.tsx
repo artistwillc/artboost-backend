@@ -41,6 +41,7 @@ type ScannedProduct = {
   description: string;
   productUrl: string;
   imageUrl: string;
+  imageDataUrl?: string;
   price: number | null;
   currency: string;
   selected: boolean;
@@ -51,6 +52,7 @@ type RawScannedProduct = {
   description?: string;
   productUrl?: string;
   imageUrl?: string;
+  imageDataUrl?: string;
   price?: number | null;
   currency?: string;
   artworkId?: string | null;
@@ -481,18 +483,118 @@ const SCAN_PAGE_SCRIPT = `
       );
     });
 
-    window.ReactNativeWebView.postMessage(
-      JSON.stringify({
-        type: "scan_results",
-        products,
-        pageUrl: window.location.href,
-        pageTitle: document.title,
-        totalLinks:
-          document.querySelectorAll("a[href]").length,
-        totalImages:
-          document.querySelectorAll("img").length
-      })
-    );
+    const sendScanResults =
+      async function () {
+        const host =
+          String(
+            window.location.hostname || ""
+          )
+            .replace(/^www\./i, "")
+            .toLowerCase();
+
+        const isArtPal =
+          host === "artpal.com" ||
+          host.endsWith(".artpal.com");
+
+        if (isArtPal) {
+          /*
+           * The ArtPal page itself can already display these images. Capture
+           * the thumbnail bytes while still inside that browser session so
+           * React Native and later social publishing do not have to hotlink
+           * img.artpal.com directly.
+           */
+          await Promise.all(
+            products.map(
+              async function (product) {
+                try {
+                  const response =
+                    await fetch(
+                      product.imageUrl,
+                      {
+                        credentials:
+                          "include",
+                        cache:
+                          "force-cache"
+                      }
+                    );
+
+                  if (!response.ok) {
+                    return;
+                  }
+
+                  const blob =
+                    await response.blob();
+
+                  if (
+                    !blob.type ||
+                    !blob.type.startsWith(
+                      "image/"
+                    )
+                  ) {
+                    return;
+                  }
+
+                  product.imageDataUrl =
+                    await new Promise(
+                      function (
+                        resolve
+                      ) {
+                        const reader =
+                          new FileReader();
+
+                        reader.onloadend =
+                          function () {
+                            resolve(
+                              String(
+                                reader.result ||
+                                  ""
+                              )
+                            );
+                          };
+
+                        reader.onerror =
+                          function () {
+                            resolve("");
+                          };
+
+                        reader.readAsDataURL(
+                          blob
+                        );
+                      }
+                    );
+                } catch {
+                  /*
+                   * Keep the normal detected product even if one image cannot
+                   * be converted. Detection must never regress because of a
+                   * thumbnail.
+                   */
+                }
+              }
+            )
+          );
+        }
+
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({
+            type: "scan_results",
+            products,
+            pageUrl:
+              window.location.href,
+            pageTitle:
+              document.title,
+            totalLinks:
+              document.querySelectorAll(
+                "a[href]"
+              ).length,
+            totalImages:
+              document.querySelectorAll(
+                "img"
+              ).length
+          })
+        );
+      };
+
+    sendScanResults();
   } catch (error) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
@@ -3457,6 +3559,13 @@ function scanEntireStore() {
             ),
           productUrl,
           imageUrl,
+          imageDataUrl:
+            storeType === "artpal"
+              ? String(
+                  item.imageDataUrl ||
+                    ""
+                )
+              : undefined,
           price:
             parsedPrice !== null &&
             Number.isFinite(
@@ -3470,6 +3579,28 @@ function scanEntireStore() {
             ) || "USD",
           selected: true,
         });
+      }
+
+      if (
+        storeType === "artpal"
+      ) {
+        const capturedCount =
+          mapped.filter(
+            (product) =>
+              Boolean(
+                product.imageDataUrl
+              )
+          ).length;
+
+        console.log(
+          "[ArtPal] Browser image capture",
+          {
+            detected:
+              mapped.length,
+            captured:
+              capturedCount,
+          }
+        );
       }
 
       setProducts(mapped);
@@ -3766,6 +3897,67 @@ setScanProgress("");
                   : item
               )
             );
+          }
+
+          if (
+            storeType === "artpal" &&
+            product.imageDataUrl
+          ) {
+            const imageResponse =
+              await fetch(
+                `${API_BASE}/catalog/artpal-image-upload`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+                  body:
+                    JSON.stringify({
+                      userId:
+                        user.id,
+                      productUrl:
+                        product.productUrl,
+                      dataUrl:
+                        product.imageDataUrl,
+                    }),
+                }
+              );
+
+            const imageText =
+              await imageResponse.text();
+
+            let imageData: any;
+
+            try {
+              imageData =
+                JSON.parse(
+                  imageText
+                );
+            } catch {
+              throw new Error(
+                `ArtPal image upload returned HTTP ${imageResponse.status}.`
+              );
+            }
+
+            if (
+              !imageResponse.ok ||
+              !imageData.success ||
+              !imageData.imageUrl
+            ) {
+              throw new Error(
+                imageData.error ||
+                  "ArtBoost could not save the ArtPal artwork image."
+              );
+            }
+
+            productToImport = {
+              ...product,
+              imageUrl:
+                String(
+                  imageData.imageUrl
+                ),
+            };
           }
 
           const response =
@@ -4419,25 +4611,45 @@ scanProgress ? (
                     )
                   }
                 >
-                  {getRedbubblePreviewImageUrl(
-                    item.imageUrl,
-                    item.productUrl
-                  ) ? (
-                    <Image
-                      source={{
-                        uri: getRedbubblePreviewImageUrl(
+                  {(storeType === "artpal"
+                    ? Boolean(
+                        item.imageDataUrl
+                      )
+                    : Boolean(
+                        getRedbubblePreviewImageUrl(
                           item.imageUrl,
                           item.productUrl
-                        ),
-                        headers: /redbubble\.net/i.test(
-                          getRedbubblePreviewImageUrl(item.imageUrl, item.productUrl)
                         )
+                      )) ? (
+                    <Image
+                      source={
+                        storeType === "artpal"
                           ? {
-                              Referer: "https://www.redbubble.com/",
-                              Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                              uri:
+                                item.imageDataUrl!,
                             }
-                          : undefined,
-                      }}
+                          : {
+                              uri:
+                                getRedbubblePreviewImageUrl(
+                                  item.imageUrl,
+                                  item.productUrl
+                                ),
+                              headers:
+                                /redbubble\.net/i.test(
+                                  getRedbubblePreviewImageUrl(
+                                    item.imageUrl,
+                                    item.productUrl
+                                  )
+                                )
+                                  ? {
+                                      Referer:
+                                        "https://www.redbubble.com/",
+                                      Accept:
+                                        "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                                    }
+                                  : undefined,
+                            }
+                      }
                       style={styles.productImage}
                       resizeMode="cover"
                     />
