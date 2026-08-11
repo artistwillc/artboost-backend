@@ -994,6 +994,11 @@ router.get(
         .trim()
         .toLowerCase();
 
+      const encodedEmail = encodeURIComponent(requestedEmail);
+      const emailQuery = requestedEmail
+        ? `&email=${encodedEmail}`
+        : "";
+
       const profile = requestedEmail
         ? await findProfileByEmail(requestedEmail)
         : null;
@@ -1060,7 +1065,7 @@ router.get(
               303,
               `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
                 tier
-              )}&unchanged=1`
+              )}&unchanged=1${emailQuery}`
             );
           }
 
@@ -1099,7 +1104,7 @@ router.get(
             303,
             `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
               tier
-            )}&updated=1`
+            )}&updated=1${emailQuery}`
           );
       }
 
@@ -1123,9 +1128,9 @@ router.get(
           success_url:
             `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
               tier
-            )}`,
+            )}${emailQuery}`,
           cancel_url:
-            `${SITE_URL}/stripe-test?token=${token}&cancelled=1`,
+            `${SITE_URL}/stripe-test?token=${token}&cancelled=1${emailQuery}`,
         });
 
       return res.redirect(303, session.url);
@@ -1230,6 +1235,12 @@ router.get(
         )
       );
 
+    const email = String(req.query.email || "")
+      .trim()
+      .toLowerCase();
+    const encodedEmail = encodeURIComponent(email);
+    const emailQuery = email ? `&email=${encodedEmail}` : "";
+
     return res.send(`
       <!doctype html>
       <html lang="en">
@@ -1251,7 +1262,7 @@ router.get(
             the matching ArtBoost profile shows the expected subscription tier.
           </p>
           <p>
-            <a style="color:#bda8ff" href="/stripe-test?token=${token}">
+            <a style="color:#bda8ff" href="/stripe-test?token=${token}${emailQuery}">
               Return to sandbox test page
             </a>
           </p>
