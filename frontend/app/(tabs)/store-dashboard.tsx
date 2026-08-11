@@ -222,12 +222,18 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
 
     if (normalizedType === "artpal") {
       router.push({
-        pathname: "/ai-store-scanner" as any,
+        pathname:
+          "/artpal-store-scanner" as any,
         params: {
           storeId,
           storeName,
           storeType: "artpal",
-          storeUrl,
+          storeUrl:
+            /artpal\.com\/artistwill/i.test(
+              storeUrl
+            )
+              ? "https://www.ArtPal.com/artists.html?id=37279"
+              : storeUrl,
         },
       });
       return;
