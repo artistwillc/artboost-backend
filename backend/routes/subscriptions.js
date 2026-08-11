@@ -384,6 +384,31 @@ async function syncStripeSubscriptionForUser({
     );
   }
 
+  const complimentary =
+    await protectComplimentaryBusiness({
+      userId,
+      email: cleanEmail,
+      context: "sync_subscription",
+    });
+
+  if (complimentary.protected) {
+    return {
+      synced: true,
+      foundCustomer: Boolean(
+        complimentary.profile?.stripe_customer_id
+      ),
+      active: true,
+      tier: "business",
+      status: "complimentary_active",
+      profilePreserved: true,
+      complimentary: true,
+      customerId:
+        complimentary.profile?.stripe_customer_id || null,
+      subscriptionId:
+        complimentary.profile?.stripe_subscription_id || null,
+    };
+  }
+
   const customers =
     await stripe.customers.list({
       email: cleanEmail,
@@ -608,7 +633,7 @@ async function profileForSubscription({ userId, email, customerId }) {
   if (cleanUserId) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier, plan, is_pro, current_period_end")
       .eq("id", cleanUserId)
       .maybeSingle();
     if (data?.id) return data;
@@ -617,7 +642,7 @@ async function profileForSubscription({ userId, email, customerId }) {
   if (cleanEmail) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier, plan, is_pro, current_period_end")
       .ilike("email", cleanEmail)
       .maybeSingle();
     if (data?.id) return data;
@@ -626,13 +651,68 @@ async function profileForSubscription({ userId, email, customerId }) {
   if (customerId) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier")
+      .select("id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_tier, plan, is_pro, current_period_end")
       .eq("stripe_customer_id", String(customerId))
       .maybeSingle();
     if (data?.id) return data;
   }
 
   return null;
+}
+
+function isComplimentaryBusinessProfile(profile) {
+  if (!profile) return false;
+
+  const plan = String(profile.plan || "").trim().toLowerCase();
+  const status = String(profile.subscription_status || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    profile.subscription_tier === "business" &&
+    (
+      plan === "complimentary_business" ||
+      plan === "tester_business" ||
+      plan === "internal_business" ||
+      status === "complimentary_active"
+    )
+  );
+}
+
+async function protectComplimentaryBusiness({
+  userId = "",
+  email = "",
+  customerId = "",
+  context = "stripe_event",
+}) {
+  const profile = await profileForSubscription({
+    userId,
+    email,
+    customerId,
+  });
+
+  if (!isComplimentaryBusinessProfile(profile)) {
+    return {
+      protected: false,
+      profile,
+    };
+  }
+
+  console.log(
+    "Complimentary Business entitlement protected from Stripe mutation:",
+    {
+      context,
+      profileId: profile.id,
+      email: profile.email || null,
+      plan: profile.plan,
+      status: profile.subscription_status,
+    }
+  );
+
+  return {
+    protected: true,
+    profile,
+  };
 }
 
 async function createCheckout({
@@ -882,6 +962,18 @@ router.post(
             break;
           }
 
+          const complimentary =
+            await protectComplimentaryBusiness({
+              userId,
+              email,
+              customerId: session.customer,
+              context: "checkout.session.completed",
+            });
+
+          if (complimentary.protected) {
+            break;
+          }
+
           const update =
             await updateProfile({
               userId,
@@ -967,6 +1059,18 @@ router.post(
               subscription.customer
             ));
 
+          const complimentary =
+            await protectComplimentaryBusiness({
+              userId,
+              email,
+              customerId: subscription.customer,
+              context: event.type,
+            });
+
+          if (complimentary.protected) {
+            break;
+          }
+
           await updateProfile({
             userId,
             email,
@@ -1013,6 +1117,18 @@ router.post(
           const email =
             subscription.metadata?.userEmail ||
             (await customerEmail(subscription.customer));
+
+          const complimentary =
+            await protectComplimentaryBusiness({
+              userId,
+              email,
+              customerId: subscription.customer,
+              context: "customer.subscription.deleted",
+            });
+
+          if (complimentary.protected) {
+            break;
+          }
 
           const profile = await profileForSubscription({
             userId,
