@@ -2304,6 +2304,7 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
 
 app.use(subscriptionsRoutes);
 app.use(subscriptionsRoutes);
+app.use(stripeSandboxRoutes);
 
 app.post(
   "/stripe-webhook",
