@@ -13,7 +13,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 
-const API_BASE = "https://artboost-ai.onrender.com";
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 type DashboardActionProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -92,6 +95,7 @@ export default function StoreDashboardScreen() {
     storeId?: string;
     storeName?: string;
     storeType?: string;
+    storeUrl?: string;
     productCount?: string;
     connected?: string;
     lastSyncedAt?: string;
@@ -100,6 +104,7 @@ export default function StoreDashboardScreen() {
   const storeId = params.storeId || "";
   const storeName = params.storeName || "Connected Store";
   const storeType = params.storeType || "store";
+  const storeUrl = params.storeUrl || "";
   const [syncing, setSyncing] = useState(false);
   const [liveLastSyncedAt, setLiveLastSyncedAt] = useState(params.lastSyncedAt || "");
 
@@ -201,6 +206,7 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
         storeId,
         storeName,
         storeType,
+        storeUrl,
         productCount: String(productCount),
         connected: String(connected),
       },
@@ -209,6 +215,32 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
 
   async function syncProducts() {
     if (!storeId || syncing) return;
+
+    const normalizedType = String(storeType)
+      .trim()
+      .toLowerCase();
+
+    if (normalizedType === "artpal") {
+      if (!storeUrl) {
+        Alert.alert(
+          "ArtPal Store URL Missing",
+          "ArtBoost could not locate the saved ArtPal storefront URL."
+        );
+        return;
+      }
+
+      router.push({
+        pathname: "/artpal-sync" as any,
+        params: {
+          storeId,
+          storeName,
+          storeType: "artpal",
+          storeUrl,
+          productCount: String(productCount),
+        },
+      });
+      return;
+    }
 
     try {
       setSyncing(true);
