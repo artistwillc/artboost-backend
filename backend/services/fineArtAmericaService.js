@@ -95,159 +95,6 @@ function isFineArtAmericaUrl(value) {
   }
 }
 
-
-function getProfileIdentity(storeUrl) {
-  const parsed = new URL(storeUrl);
-  const profileMatch = parsed.pathname.match(
-    /\/profiles\/([^/?#]+)/i
-  );
-
-  const slug = profileMatch?.[1]
-    ? decodeURIComponent(profileMatch[1])
-        .replace(/\.html$/i, "")
-        .trim()
-        .toLowerCase()
-    : "";
-
-  const artistName = slug
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map(
-      (word) =>
-        word.charAt(0).toUpperCase() +
-        word.slice(1)
-    )
-    .join(" ");
-
-  return {
-    slug,
-    artistName,
-  };
-}
-
-function normalizeArtistName(value = "") {
-  return decodeHtmlEntities(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getSchemaArtistName(schema) {
-  const candidate =
-    schema?.artist ||
-    schema?.author ||
-    schema?.creator ||
-    schema?.copyrightHolder;
-
-  if (typeof candidate === "string") {
-    return candidate;
-  }
-
-  if (Array.isArray(candidate)) {
-    return candidate
-      .map((item) =>
-        typeof item === "string"
-          ? item
-          : item?.name
-      )
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  return candidate?.name || "";
-}
-
-function extractArtistName({
-  html,
-  productSchema,
-  title,
-  description,
-}) {
-  const schemaArtist =
-    getSchemaArtistName(productSchema);
-
-  if (schemaArtist) {
-    return stripHtml(schemaArtist);
-  }
-
-  const sources = [
-    title,
-    description,
-    getMetaContent(html, "og:title"),
-    getMetaContent(html, "og:description"),
-    getPageTitle(html),
-  ];
-
-  for (const source of sources) {
-    const match = String(source || "").match(
-      /\bby\s+([^|–—-]+?)(?:\s+(?:wall art|art print|canvas|poster|painting|photograph|fine art america)\b|$)/i
-    );
-
-    if (match?.[1]) {
-      return stripHtml(match[1]);
-    }
-  }
-
-  return "";
-}
-
-function listingBelongsToProfile({
-  productUrl,
-  artistName,
-  profileSlug,
-  expectedArtistName,
-}) {
-  if (!profileSlug) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(productUrl);
-
-    const pathname = decodeURIComponent(
-      parsed.pathname
-    )
-      .toLowerCase()
-      .replace(/\/+$/, "");
-
-    /*
-     * Fine Art America artwork URLs normally end with
-     * the artist's profile slug, for example:
-     *
-     * /featured/starry-frontier-will-cooper.html
-     *
-     * This strict suffix prevents recommendations,
-     * famous works, and other artists from being imported.
-     */
-    const expectedSuffix =
-      `-${profileSlug}.html`;
-
-    if (pathname.endsWith(expectedSuffix)) {
-      return true;
-    }
-
-    /*
-     * Allow an exact artist match only as a fallback when
-     * the URL itself contains the same profile slug.
-     */
-    const normalizedExpected =
-      normalizeArtistName(expectedArtistName);
-
-    const normalizedArtist =
-      normalizeArtistName(artistName);
-
-    return (
-      normalizedArtist &&
-      normalizedExpected &&
-      normalizedArtist === normalizedExpected &&
-      pathname.includes(profileSlug)
-    );
-  } catch {
-    return false;
-  }
-}
-
 function normalizeUrl(value, baseUrl) {
   try {
     const parsed = new URL(value, baseUrl);
@@ -358,11 +205,7 @@ function isLikelyArtworkUrl(value) {
   }
 }
 
-function extractArtworkLinks(
-  html,
-  pageUrl,
-  profileSlug
-) {
+function extractArtworkLinks(html, pageUrl) {
   const links = new Set();
 
   const hrefRegex =
@@ -376,79 +219,99 @@ function extractArtworkLinks(
       pageUrl
     );
 
-    if (!normalized) {
-      continue;
+    if (
+      normalized &&
+      isLikelyArtworkUrl(normalized)
+    ) {
+      links.add(normalized);
     }
+  }
 
-    try {
-      const parsed = new URL(normalized);
-      const pathname = decodeURIComponent(
-        parsed.pathname
-      )
-        .toLowerCase()
-        .replace(/\/+$/, "");
+  for (const item of extractJsonLd(html)) {
+    const candidates = [
+      item?.url,
+      item?.mainEntityOfPage,
+      item?.offers?.url,
+      item?.contentUrl,
+    ];
 
-      const expectedSuffix =
-        `-${profileSlug}.html`;
+    for (const candidate of candidates) {
+      const normalized = normalizeUrl(
+        typeof candidate === "string"
+          ? candidate
+          : candidate?.["@id"],
+        pageUrl
+      );
 
       if (
-        isLikelyArtworkUrl(normalized) &&
-        pathname.endsWith(expectedSuffix)
+        normalized &&
+        isLikelyArtworkUrl(normalized)
       ) {
         links.add(normalized);
       }
-    } catch {
-      // Ignore invalid links.
+    }
+
+    const itemList = item?.itemListElement || [];
+
+    for (const entry of itemList) {
+      const candidate =
+        entry?.url ||
+        entry?.item?.url ||
+        entry?.item?.["@id"];
+
+      const normalized = normalizeUrl(
+        candidate,
+        pageUrl
+      );
+
+      if (
+        normalized &&
+        isLikelyArtworkUrl(normalized)
+      ) {
+        links.add(normalized);
+      }
     }
   }
 
   return [...links];
 }
 
-function getCandidateStorePages(
-  storeUrl,
-  pageNumber
-) {
+function getCandidateStorePages(storeUrl, pageNumber) {
   const parsed = new URL(storeUrl);
   parsed.hash = "";
 
+  const roots = new Set([
+    parsed.toString(),
+    new URL(
+      `${parsed.pathname.replace(/\/$/, "")}/art`,
+      parsed.origin
+    ).toString(),
+    new URL(
+      `${parsed.pathname.replace(/\/$/, "")}/shop`,
+      parsed.origin
+    ).toString(),
+  ]);
+
   const pages = [];
 
-  const basePage = new URL(parsed.toString());
+  for (const root of roots) {
+    const pageUrl = new URL(root);
 
-  if (pageNumber > 1) {
-    basePage.searchParams.set(
-      "page",
-      String(pageNumber)
-    );
+    if (pageNumber > 1) {
+      pageUrl.searchParams.set(
+        "page",
+        String(pageNumber)
+      );
+    }
+
+    pages.push(pageUrl.toString());
   }
 
-  pages.push(basePage.toString());
-
-  const imagesPage = new URL(
-    parsed.toString()
-  );
-
-  imagesPage.searchParams.set(
-    "tab",
-    "artworkgalleries"
-  );
-
-  if (pageNumber > 1) {
-    imagesPage.searchParams.set(
-      "page",
-      String(pageNumber)
-    );
-  }
-
-  pages.push(imagesPage.toString());
-
-  return [...new Set(pages)];
+  return pages;
 }
 
 async function discoverArtworkLinks({
   storeUrl,
-  profileSlug,
   maxPages = 20,
 }) {
   const links = new Set();
@@ -472,8 +335,7 @@ async function discoverArtworkLinks({
 
         const found = extractArtworkLinks(
           html,
-          responseUrl,
-          profileSlug
+          responseUrl
         );
 
         for (const link of found) {
@@ -511,8 +373,6 @@ function parseArtworkPage({
   html,
   responseUrl,
   originalUrl,
-  profileSlug,
-  expectedArtistName,
 }) {
   const jsonLd = extractJsonLd(html);
 
@@ -568,24 +428,6 @@ function parseArtworkPage({
     return null;
   }
 
-  const artistName = extractArtistName({
-    html,
-    productSchema,
-    title,
-    description,
-  });
-
-  if (
-    !listingBelongsToProfile({
-      productUrl,
-      artistName,
-      profileSlug,
-      expectedArtistName,
-    })
-  ) {
-    return null;
-  }
-
   const keywords =
     getMetaContent(html, "keywords")
       .split(",")
@@ -606,9 +448,6 @@ function parseArtworkPage({
       sourceUrl: originalUrl,
       schemaType:
         productSchema?.["@type"] || null,
-      artistName:
-        artistName || expectedArtistName,
-      profileSlug,
     },
   };
 }
@@ -744,23 +583,9 @@ export async function importFineArtAmericaStore({
     );
   }
 
-  const {
-    slug: profileSlug,
-    artistName: expectedArtistName,
-  } = getProfileIdentity(
-    resolvedStoreUrl
-  );
-
-  if (!profileSlug || !expectedArtistName) {
-    throw new Error(
-      "The Fine Art America profile URL could not be identified."
-    );
-  }
-
   const discoveredLinks =
     await discoverArtworkLinks({
       storeUrl: resolvedStoreUrl,
-      profileSlug,
       maxPages: Math.min(
         Math.max(Number(maxPages) || 20, 1),
         50
@@ -777,7 +602,7 @@ export async function importFineArtAmericaStore({
 
   if (limitedLinks.length === 0) {
     throw new Error(
-      `No Fine Art America listings ending in -${profileSlug}.html were found for ${expectedArtistName}.`
+      "No Fine Art America artwork listings could be found. The storefront may be private, blocked, or using a page layout the importer does not recognize yet."
     );
   }
 
@@ -793,8 +618,6 @@ export async function importFineArtAmericaStore({
           html,
           responseUrl,
           originalUrl: artworkUrl,
-          profileSlug,
-          expectedArtistName,
         });
       }
     );
@@ -810,7 +633,7 @@ export async function importFineArtAmericaStore({
 
   if (uniqueProducts.length === 0) {
     throw new Error(
-      `Listings were found, but none could be verified as belonging to ${expectedArtistName}.`
+      "Fine Art America listings were found, but their product information could not be read."
     );
   }
 

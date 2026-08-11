@@ -1,256 +1,84 @@
 import express from "express";
 
-import {
-  getStores,
-} from "../services/productService.js";
-import {
-  importRedbubbleStore,
-} from "../services/redbubbleService.js";
-import {
-  importFineArtAmericaStore,
-} from "../services/fineArtAmericaService.js";
-import {
-  importUniversalStore,
-} from "../services/universalStoreImportService.js";
+import { getStores } from "../services/productService.js";
+import { importRedbubbleStore } from "../services/redbubbleService.js";
+import { importFineArtAmericaStore } from "../services/fineArtAmericaService.js";
+import { importUniversalStore } from "../services/universalStoreImporter.js";
+import { syncStoreConnection, runDueStoreSyncs, startStoreSyncWorker } from "../services/storeSyncService.js";
 
 const router = express.Router();
 
-/*
- * GET /stores
- */
+// Start once when the stores router is loaded by server.js.
+startStoreSyncWorker();
+
 router.get("/", async (req, res) => {
   try {
     const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
-
-    const stores = await getStores({
-      userId: String(userId),
-    });
-
-    return res.json({
-      success: true,
-      total: stores.length,
-      stores,
-    });
+    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    const stores = await getStores({ userId: String(userId) });
+    return res.json({ success: true, total: stores.length, stores });
   } catch (error) {
-    console.error("Stores route error:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: "Stores request failed.",
-      details:
-        error instanceof Error
-          ? error.message
-          : String(error),
-    });
+    return res.status(500).json({ success: false, error: "Stores request failed.", details: error instanceof Error ? error.message : String(error) });
   }
 });
 
-/*
- * POST /stores/redbubble/import
- */
-router.post(
-  "/redbubble/import",
-  async (req, res) => {
-    try {
-      const {
-        userId,
-        storeUrl,
-        url,
-        storefrontUrl,
-      } = req.body ?? {};
+router.post("/:storeId/sync", async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { userId } = req.body ?? {};
+    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
 
-      const resolvedStoreUrl =
-        storeUrl ?? storefrontUrl ?? url;
-
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
-
-      if (!resolvedStoreUrl) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Missing Redbubble store URL.",
-        });
-      }
-
-      const result =
-        await importRedbubbleStore({
-          userId: String(userId),
-          storeUrl: String(
-            resolvedStoreUrl
-          ).trim(),
-        });
-
-      return res.status(200).json({
-        success: true,
-        message:
-          "Redbubble store imported successfully.",
-        ...result,
-      });
-    } catch (error) {
-      console.error(
-        "Redbubble store import error:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "Redbubble store import failed.",
-        details:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-    }
+    const result = await syncStoreConnection({ userId: String(userId), storeId: String(storeId), reason: "manual" });
+    return res.status(200).json({ success: true, message: "Store sync complete.", ...result });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Store sync failed.", details: error instanceof Error ? error.message : String(error) });
   }
-);
+});
 
-/*
- * POST /stores/fine-art-america/import
- *
- * Expected body:
- * {
- *   userId,
- *   storeId,
- *   storeUrl,
- *   maxPages?,
- *   maxListings?
- * }
- */
-router.post(
-  "/fine-art-america/import",
-  async (req, res) => {
-    try {
-      const {
-        userId,
-        storeId,
-        storeUrl,
-        maxPages,
-        maxListings,
-      } = req.body ?? {};
-
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
-
-      if (!storeId && !storeUrl) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "A Fine Art America storeId or storeUrl is required.",
-        });
-      }
-
-      const result =
-        await importFineArtAmericaStore({
-          userId: String(userId),
-          storeId: storeId
-            ? String(storeId)
-            : undefined,
-          storeUrl: storeUrl
-            ? String(storeUrl).trim()
-            : undefined,
-          maxPages,
-          maxListings,
-        });
-
-      return res.status(200).json({
-        success: true,
-        message:
-          "Fine Art America store imported successfully.",
-        ...result,
-      });
-    } catch (error) {
-      console.error(
-        "Fine Art America import error:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "Fine Art America store import failed.",
-        details:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-    }
+router.post("/sync-due/run", async (_req, res) => {
+  try {
+    const result = await runDueStoreSyncs();
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Scheduled store sync failed.", details: error instanceof Error ? error.message : String(error) });
   }
-);
+});
 
-/*
- * POST /stores/universal/import
- *
- * Used for ArtPal, personal websites, and
- * other connected stores that do not have a
- * dedicated API importer yet.
- */
-router.post(
-  "/universal/import",
-  async (req, res) => {
-    try {
-      const {
-        userId,
-        storeId,
-        maxPages,
-        maxListings,
-      } = req.body ?? {};
-
-      if (!userId || !storeId) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Missing userId or storeId.",
-        });
-      }
-
-      const result =
-        await importUniversalStore({
-          userId: String(userId),
-          storeId: String(storeId),
-          maxPages,
-          maxListings,
-        });
-
-      return res.status(200).json({
-        success: true,
-        message:
-          "Store imported successfully.",
-        ...result,
-      });
-    } catch (error) {
-      console.error(
-        "Universal store import error:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "Store import failed.",
-        details:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-    }
+router.post("/universal/import", async (req, res) => {
+  try {
+    const { userId, storeId, storeUrl, maxProducts } = req.body ?? {};
+    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A storeId or storeUrl is required." });
+    const result = await importUniversalStore({ userId: String(userId), storeId: storeId ? String(storeId) : undefined, storeUrl: storeUrl ? String(storeUrl).trim() : undefined, maxProducts });
+    return res.status(200).json({ success: true, message: "Store imported successfully.", ...result });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Universal store import failed.", details: error instanceof Error ? error.message : String(error) });
   }
-);
+});
+
+router.post("/redbubble/import", async (req, res) => {
+  try {
+    const { userId, storeUrl, url, storefrontUrl } = req.body ?? {};
+    const resolvedStoreUrl = storeUrl ?? storefrontUrl ?? url;
+    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    if (!resolvedStoreUrl) return res.status(400).json({ success: false, error: "Missing Redbubble store URL." });
+    const result = await importRedbubbleStore({ userId: String(userId), storeUrl: String(resolvedStoreUrl).trim() });
+    return res.status(200).json({ success: true, message: "Redbubble store imported successfully.", ...result });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Redbubble store import failed.", details: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+router.post("/fine-art-america/import", async (req, res) => {
+  try {
+    const { userId, storeId, storeUrl, maxPages, maxListings } = req.body ?? {};
+    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A Fine Art America storeId or storeUrl is required." });
+    const result = await importFineArtAmericaStore({ userId: String(userId), storeId: storeId ? String(storeId) : undefined, storeUrl: storeUrl ? String(storeUrl).trim() : undefined, maxPages, maxListings });
+    return res.status(200).json({ success: true, message: "Fine Art America store imported successfully.", ...result });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Fine Art America store import failed.", details: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 export default router;
