@@ -105,7 +105,7 @@ export async function getStores({
         store_url,
         connected,
         metadata,
-        connected_at,
+        created_at,
         updated_at
       `
     )
@@ -236,15 +236,13 @@ export async function getStores({
         ] ||
         0,
       connectedAt:
-        connection.connected_at || null,
+        connection.created_at || null,
       updatedAt:
         connection.updated_at || null,
       lastSyncedAt:
-        connection.last_synced_at || null,
-      lastSyncStatus:
-        connection.last_sync_status || null,
-      lastSyncError:
-        connection.last_sync_error || null,
+        connection.updated_at || null,
+      lastSyncStatus: null,
+      lastSyncError: null,
     };
   });
 
