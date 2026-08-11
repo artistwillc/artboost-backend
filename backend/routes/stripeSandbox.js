@@ -761,6 +761,14 @@ router.get(
         )
       );
 
+    const email =
+      String(req.query.email || "")
+        .trim()
+        .toLowerCase();
+
+    const encodedEmail =
+      encodeURIComponent(email);
+
     return res.send(`
       <!doctype html>
       <html lang="en">
@@ -861,11 +869,16 @@ router.get(
               Do not use this page for a live customer.
             </div>
 
+            <div class="warning">
+              Sandbox ArtBoost account: <code>${htmlEscape(email || "not specified")}</code><br>
+              For upgrade/downgrade tests, open this page with <code>&amp;email=YOUR_ARTBOOST_EMAIL</code> so ArtBoost can modify the existing sandbox subscription instead of creating a duplicate.
+            </div>
+
             <div class="plans">
               <section class="plan">
                 <h2>Starter</h2>
                 <div class="price">$12.99/mo</div>
-                <a href="/stripe-test/checkout/starter?token=${token}">
+                <a href="/stripe-test/checkout/starter?token=${token}&email=${encodedEmail}">
                   Test Starter
                 </a>
               </section>
@@ -873,7 +886,7 @@ router.get(
               <section class="plan">
                 <h2>Pro</h2>
                 <div class="price">$24.99/mo</div>
-                <a href="/stripe-test/checkout/pro?token=${token}">
+                <a href="/stripe-test/checkout/pro?token=${token}&email=${encodedEmail}">
                   Test Pro
                 </a>
               </section>
@@ -881,7 +894,7 @@ router.get(
               <section class="plan">
                 <h2>Business</h2>
                 <div class="price">$49.99/mo</div>
-                <a href="/stripe-test/checkout/business?token=${token}">
+                <a href="/stripe-test/checkout/business?token=${token}&email=${encodedEmail}">
                   Test Business
                 </a>
               </section>
@@ -910,13 +923,11 @@ router.get(
   requireTestToken,
   async (req, res) => {
     try {
-      const stripe =
-        getSandboxStripe();
+      const stripe = getSandboxStripe();
 
-      const tier =
-        normalizeTier(
-          req.params.tier
-        );
+      const tier = normalizeTier(
+        req.params.tier
+      );
 
       if (!tier) {
         return res
@@ -926,36 +937,121 @@ router.get(
           );
       }
 
-      const priceId =
-        SANDBOX_PRICE_IDS[
-          tier
-        ];
+      const priceId = SANDBOX_PRICE_IDS[tier];
+      const token = encodeURIComponent(
+        String(req.query.token)
+      );
 
-      const token =
-        encodeURIComponent(
-          String(
-            req.query.token
-          )
-        );
+      const requestedEmail = String(
+        req.query.email || ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const profile = requestedEmail
+        ? await findProfileByEmail(requestedEmail)
+        : null;
+
+      if (profile && isProtectedLiveSubscription(profile)) {
+        return res
+          .status(409)
+          .send(
+            "Sandbox checkout refused because this ArtBoost account has a live paid subscription."
+          );
+      }
 
       const metadata = {
         app: "ArtBoost AI",
-        environment:
-          "sandbox",
+        environment: "sandbox",
         tier,
+        ...(requestedEmail
+          ? { userEmail: requestedEmail }
+          : {}),
       };
+
+      const currentSandboxSubscriptionId =
+        profile &&
+        String(profile.subscription_status || "").startsWith("sandbox_") &&
+        profile.stripe_subscription_id
+          ? String(profile.stripe_subscription_id)
+          : "";
+
+      if (currentSandboxSubscriptionId) {
+        let subscription;
+
+        try {
+          subscription = await stripe.subscriptions.retrieve(
+            currentSandboxSubscriptionId,
+            {
+              expand: ["items.data.price"],
+            }
+          );
+        } catch (error) {
+          console.log(
+            "Sandbox existing subscription lookup failed; falling back to new checkout:",
+            error?.message || error
+          );
+        }
+
+        if (subscription && subscription.status !== "canceled") {
+          const currentTier = tierFromSubscription(subscription);
+
+          if (currentTier === tier) {
+            return res.redirect(
+              303,
+              `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
+                tier
+              )}&unchanged=1`
+            );
+          }
+
+          const item = subscription.items?.data?.[0];
+
+          if (!item?.id) {
+            throw new Error(
+              "Existing sandbox subscription does not contain an editable subscription item."
+            );
+          }
+
+          const updated = await stripe.subscriptions.update(
+            subscription.id,
+            {
+              items: [
+                {
+                  id: item.id,
+                  price: priceId,
+                },
+              ],
+              metadata,
+              proration_behavior: "create_prorations",
+            }
+          );
+
+          await updateSandboxProfile({
+            email: requestedEmail ||
+              (await customerEmail(stripe, updated.customer)),
+            tier,
+            status: "sandbox_active",
+            customerId: updated.customer,
+            subscriptionId: updated.id,
+          });
+
+          return res.redirect(
+            303,
+            `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
+              tier
+            )}&updated=1`
+          );
+        }
+      }
 
       const session =
         await stripe.checkout.sessions.create({
-          mode:
-            "subscription",
-          payment_method_types: [
-            "card",
-          ],
+          mode: "subscription",
+          payment_method_types: ["card"],
           line_items: [
             {
-              price:
-                priceId,
+              price: priceId,
               quantity: 1,
             },
           ],
@@ -963,6 +1059,9 @@ router.get(
           subscription_data: {
             metadata,
           },
+          ...(requestedEmail
+            ? { customer_email: requestedEmail }
+            : {}),
           success_url:
             `${SITE_URL}/stripe-test/success?token=${token}&tier=${encodeURIComponent(
               tier
@@ -971,10 +1070,7 @@ router.get(
             `${SITE_URL}/stripe-test?token=${token}&cancelled=1`,
         });
 
-      return res.redirect(
-        303,
-        session.url
-      );
+      return res.redirect(303, session.url);
     } catch (error) {
       console.error(
         "Stripe sandbox checkout creation failed:",
@@ -994,6 +1090,68 @@ router.get(
             </body>
           </html>
         `);
+    }
+  }
+);
+
+router.get(
+  "/stripe-test/cancel",
+  requireTestToken,
+  async (req, res) => {
+    try {
+      const email = String(req.query.email || "")
+        .trim()
+        .toLowerCase();
+
+      if (!email) {
+        return res.status(400).send(
+          "A sandbox ArtBoost account email is required."
+        );
+      }
+
+      const profile = await findProfileByEmail(email);
+
+      if (!profile) {
+        return res.status(404).send(
+          "No matching ArtBoost profile was found."
+        );
+      }
+
+      if (isProtectedLiveSubscription(profile)) {
+        return res.status(409).send(
+          "Sandbox cancellation refused because this account has a live paid subscription."
+        );
+      }
+
+      if (
+        !String(profile.subscription_status || "").startsWith("sandbox_") ||
+        !profile.stripe_subscription_id
+      ) {
+        return res.status(409).send(
+          "This ArtBoost profile does not have an active sandbox subscription."
+        );
+      }
+
+      const stripe = getSandboxStripe();
+      await stripe.subscriptions.cancel(
+        String(profile.stripe_subscription_id)
+      );
+
+      return res.send(
+        "Sandbox subscription cancellation requested. Verify the customer.subscription.deleted webhook and Supabase profile."
+      );
+    } catch (error) {
+      console.error(
+        "Stripe sandbox cancellation failed:",
+        error
+      );
+
+      return res.status(500).send(
+        htmlEscape(
+          error?.message ||
+            "Unable to cancel Stripe sandbox subscription."
+        )
+      );
     }
   }
 );
