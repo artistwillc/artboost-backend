@@ -222,11 +222,12 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
 
     if (normalizedType === "artpal") {
       router.push({
-        pathname: "/catalog-importer" as any,
+        pathname: "/ai-store-scanner" as any,
         params: {
           storeId,
           storeName,
           storeType: "artpal",
+          storeUrl,
         },
       });
       return;
