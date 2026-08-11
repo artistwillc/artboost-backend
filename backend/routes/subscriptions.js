@@ -322,34 +322,30 @@ async function syncStripeSubscriptionForUser({
     });
 
   if (!customers.data.length) {
-    await updateProfile({
-      userId,
-      email: cleanEmail,
-      customerId: null,
-      updateData: {
-        is_pro: false,
-        subscription_tier:
-          "free",
-        subscription_status:
-          "free",
-        plan: "free",
-        stripe_customer_id:
-          null,
-        stripe_subscription_id:
-          null,
-        current_period_end:
-          null,
-        updated_at:
-          new Date().toISOString(),
-      },
-    });
+    /*
+     * IMPORTANT:
+     * "No Stripe customer found" is not proof that the ArtBoost account
+     * should be Free. The account may be internal/admin, manually granted,
+     * grandfathered, referral-funded, or not yet linked to Stripe.
+     *
+     * Preserve the existing ArtBoost entitlement and report the Stripe
+     * lookup result without mutating the profile.
+     */
+    console.warn(
+      "Stripe sync found no customer; preserving existing ArtBoost profile:",
+      {
+        userId: userId || null,
+        email: cleanEmail,
+      }
+    );
 
     return {
       synced: true,
       foundCustomer: false,
-      active: false,
-      tier: "free",
-      status: "free",
+      active: null,
+      tier: null,
+      status: "stripe_customer_not_found",
+      profilePreserved: true,
     };
   }
 
