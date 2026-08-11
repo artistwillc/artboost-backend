@@ -423,7 +423,13 @@ accountForm?.addEventListener("submit", async (event) => {
     if (authMode === "login") {
       result = await client.auth.signInWithPassword({ email, password });
     } else {
-      result = await client.auth.signUp({ email, password });
+      result = await client.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/?account=confirmed`,
+        },
+      });
     }
 
     if (result.error) {
@@ -499,6 +505,82 @@ const searchParams = new URLSearchParams(window.location.search);
 const checkoutStatus = searchParams.get("checkout");
 const checkoutTier = searchParams.get("tier");
 const accountRequired = searchParams.get("account");
+
+if (accountRequired === "confirmed") {
+  window.setTimeout(async () => {
+    try {
+      const client = await loadAuthClient();
+      const { data } = await client.auth.getSession();
+
+      if (data.session?.user) {
+        await ensureWebsiteProfile(data.session);
+
+        pendingTier = "";
+        setAccountMode("login");
+        setModalOpen(pm, false);
+        setModalOpen(fm, false);
+        setModalOpen(am, true);
+        updateSignedInUi(data.session);
+
+        const title = document.getElementById("accountTitle");
+        const intro = document.getElementById("accountIntro");
+
+        if (title) {
+          title.textContent = "Email confirmed";
+        }
+
+        if (intro) {
+          intro.textContent =
+            "Your ArtBoost account is confirmed and ready. You can now choose a plan or continue using your account.";
+        }
+
+        setAccountStatus(
+          `Confirmed: ${data.session.user.email || "your ArtBoost account"}.`
+        );
+      } else {
+        pendingTier = "";
+        setAccountMode("login");
+        setModalOpen(pm, false);
+        setModalOpen(fm, false);
+        setModalOpen(am, true);
+
+        const title = document.getElementById("accountTitle");
+        const intro = document.getElementById("accountIntro");
+
+        if (title) {
+          title.textContent = "Email confirmed";
+        }
+
+        if (intro) {
+          intro.textContent =
+            "Your email has been confirmed. Log in with the email and password you created to continue.";
+        }
+
+        setAccountStatus("Email confirmed successfully. Please log in.");
+      }
+    } catch (error) {
+      setModalOpen(am, true);
+      setAccountMode("login");
+
+      const title = document.getElementById("accountTitle");
+      const intro = document.getElementById("accountIntro");
+
+      if (title) {
+        title.textContent = "Email confirmed";
+      }
+
+      if (intro) {
+        intro.textContent =
+          "Your confirmation link was accepted. Log in to continue to ArtBoost.";
+      }
+
+      setAccountStatus(
+        error?.message || "Email confirmed. Please log in to continue.",
+        true
+      );
+    }
+  }, 150);
+}
 
 if (checkoutStatus === "success") {
   showToast(
