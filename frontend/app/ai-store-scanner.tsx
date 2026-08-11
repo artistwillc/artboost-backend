@@ -366,35 +366,13 @@ const SCAN_PAGE_SCRIPT = `
         return;
       }
 
-      const artPalCandidates = [
-        image.currentSrc,
-        image.getAttribute("src"),
-        image.getAttribute("data-original"),
-        image.getAttribute("data-src"),
-        image.getAttribute("data-lazy-src")
-      ]
-        .map(function (value) {
-          return absoluteUrl(value);
-        })
-        .filter(function (value) {
-          return (
-            /^https?:\/\//i.test(value) &&
-            !/\/img\/c\.gif(?:[?#]|$)/i.test(value)
-          );
-        });
-
-      const loadedArtPalImage =
-        artPalCandidates.find(function (value) {
-          return /\/97273\//i.test(value) ||
-            /img\.artpal\.com/i.test(value);
-        }) || "";
-
       const imageUrl =
-        loadedArtPalImage ||
-        artPalCandidates[0] ||
-        "";
+        getHttpImageUrl(image);
 
-      if (!imageUrl) {
+      if (
+        !imageUrl ||
+        imageUrl.includes("/img/c.gif")
+      ) {
         return;
       }
 
@@ -2461,31 +2439,6 @@ const REDBUBBLE_DETAIL_SCRIPT = `
 `;
 
 
-function getArtPalPreviewSource(
-  imageUrl: string
-) {
-  const normalized =
-    normalizeUrl(imageUrl);
-
-  if (!normalized) {
-    return null;
-  }
-
-  return {
-    uri: normalized,
-    headers: {
-      Referer:
-        "https://www.artpal.com/",
-      Origin:
-        "https://www.artpal.com",
-      Accept:
-        "image/avif,image/webp,image/apng,image/jpeg,image/png,image/*,*/*;q=0.8",
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/151 Mobile Safari/537.36",
-    },
-  };
-}
-
 function getRedbubblePreviewImageUrl(
   imageUrl: string,
   productUrl: string
@@ -4466,46 +4419,25 @@ scanProgress ? (
                     )
                   }
                 >
-                  {(storeType === "artpal"
-                    ? Boolean(
-                        getArtPalPreviewSource(
-                          item.imageUrl
-                        )
-                      )
-                    : Boolean(
-                        getRedbubblePreviewImageUrl(
+                  {getRedbubblePreviewImageUrl(
+                    item.imageUrl,
+                    item.productUrl
+                  ) ? (
+                    <Image
+                      source={{
+                        uri: getRedbubblePreviewImageUrl(
                           item.imageUrl,
                           item.productUrl
+                        ),
+                        headers: /redbubble\.net/i.test(
+                          getRedbubblePreviewImageUrl(item.imageUrl, item.productUrl)
                         )
-                      )) ? (
-                    <Image
-                      source={
-                        storeType === "artpal"
-                          ? getArtPalPreviewSource(
-                              item.imageUrl
-                            )!
-                          : {
-                              uri:
-                                getRedbubblePreviewImageUrl(
-                                  item.imageUrl,
-                                  item.productUrl
-                                ),
-                              headers:
-                                /redbubble\.net/i.test(
-                                  getRedbubblePreviewImageUrl(
-                                    item.imageUrl,
-                                    item.productUrl
-                                  )
-                                )
-                                  ? {
-                                      Referer:
-                                        "https://www.redbubble.com/",
-                                      Accept:
-                                        "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
-                                    }
-                                  : undefined,
+                          ? {
+                              Referer: "https://www.redbubble.com/",
+                              Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
                             }
-                      }
+                          : undefined,
+                      }}
                       style={styles.productImage}
                       resizeMode="cover"
                     />
