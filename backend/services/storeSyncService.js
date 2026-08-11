@@ -3,7 +3,7 @@ import { importRedbubbleStore } from "./redbubbleService.js";
 import { importFineArtAmericaStore } from "./fineArtAmericaService.js";
 import { importUniversalStore } from "./universalStoreImporter.js";
 
-const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-10";
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 const SHOPIFY_SYNC_MINUTES = Number(process.env.STORE_SYNC_SHOPIFY_MINUTES || 15);
 const MARKETPLACE_SYNC_MINUTES = Number(process.env.STORE_SYNC_MARKETPLACE_MINUTES || 360);
 const SYNC_BATCH_SIZE = Math.max(1, Number(process.env.STORE_SYNC_BATCH_SIZE || 8));
@@ -27,12 +27,59 @@ async function loadStoreConnection({ userId, storeId }) {
     .maybeSingle();
 
   if (error) throw new Error(`Unable to load store connection: ${error.message}`);
-  if (!data) throw new Error("Store connection not found.");
-  return data;
+  if (data) {
+    return { ...data, _connectionTable: "store_connections" };
+  }
+
+  // Compatibility path for stores connected before store_connections existed.
+  // Shopify OAuth currently persists its authorization in social_connections,
+  // and existing products use that legacy connection id as store_connection_id.
+  const { data: legacy, error: legacyError } = await supabase
+    .from("social_connections")
+    .select("id,user_id,platform,connected,shop_domain,access_token,refresh_token,scopes,connected_at,updated_at")
+    .eq("id", String(storeId))
+    .eq("user_id", String(userId))
+    .maybeSingle();
+
+  if (legacyError) {
+    throw new Error(`Unable to load legacy store connection: ${legacyError.message}`);
+  }
+
+  if (!legacy) throw new Error("Store connection not found.");
+
+  return {
+    id: legacy.id,
+    user_id: legacy.user_id,
+    platform: legacy.platform,
+    store_name: legacy.shop_domain || legacy.platform,
+    store_url: legacy.shop_domain || null,
+    external_store_id: null,
+    access_token: legacy.access_token || null,
+    refresh_token: legacy.refresh_token || null,
+    connected: legacy.connected !== false,
+    sync_enabled: true,
+    metadata: { legacyConnection: true },
+    last_synced_at: null,
+    last_sync_status: null,
+    last_sync_error: null,
+    _connectionTable: "social_connections",
+  };
 }
 
 async function setSyncStatus(connection, status, syncError = null, extraMetadata = {}) {
   const now = new Date().toISOString();
+
+  // Legacy social_connections does not have the v2 sync-status columns.
+  // Keep it healthy without trying to write columns that do not exist.
+  if (connection._connectionTable === "social_connections") {
+    await supabase
+      .from("social_connections")
+      .update({ updated_at: now })
+      .eq("id", connection.id)
+      .eq("user_id", connection.user_id);
+    return now;
+  }
+
   const payload = {
     last_sync_status: status,
     last_sync_error: syncError,
@@ -284,8 +331,36 @@ export async function runDueStoreSyncs() {
 
     if (error) throw new Error(`Unable to load stores due for sync: ${error.message}`);
 
+    // Include legacy Shopify OAuth connections so existing users receive
+    // automatic catalog updates without reconnecting their stores.
+    const { data: legacyShopify, error: legacyError } = await supabase
+      .from("social_connections")
+      .select("id,user_id,platform,connected,updated_at")
+      .eq("platform", "shopify")
+      .eq("connected", true)
+      .limit(100);
+
+    if (legacyError) {
+      throw new Error(`Unable to load legacy Shopify stores due for sync: ${legacyError.message}`);
+    }
+
+    const v2Ids = new Set((data || []).map((item) => String(item.id)));
+    const legacyRows = (legacyShopify || [])
+      .filter((item) => !v2Ids.has(String(item.id)))
+      .map((item) => ({
+        id: item.id,
+        user_id: item.user_id,
+        platform: item.platform,
+        connected: item.connected,
+        sync_enabled: true,
+        // Legacy rows have no last_synced_at. Use updated_at only to avoid
+        // hammering Shopify on every worker tick after a successful sync.
+        last_synced_at: item.updated_at || null,
+      }));
+
+    const candidates = [...(data || []), ...legacyRows];
     const nowMs = Date.now();
-    const due = (data || []).filter((item) => isDue(item, nowMs)).slice(0, SYNC_BATCH_SIZE);
+    const due = candidates.filter((item) => isDue(item, nowMs)).slice(0, SYNC_BATCH_SIZE);
     const results = [];
 
     for (const item of due) {
@@ -297,7 +372,7 @@ export async function runDueStoreSyncs() {
       }
     }
 
-    return { checked: (data || []).length, due: due.length, results };
+    return { checked: candidates.length, due: due.length, results };
   } finally {
     workerRunning = false;
   }
