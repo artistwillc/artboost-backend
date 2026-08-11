@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import subscriptionsRoutes from "./routes/subscriptions.js";
+import stripeSandboxRoutes from "./routes/stripeSandbox.js";
 import tiktokRoutes from "./routes/tiktok.js";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
@@ -2301,6 +2302,7 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
   };
 }
 
+app.use(subscriptionsRoutes);
 app.use(subscriptionsRoutes);
 
 app.post(
