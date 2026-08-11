@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import subscriptionsRoutes from "./routes/subscriptions.js";
 import tiktokRoutes from "./routes/tiktok.js";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
@@ -2299,6 +2300,8 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
     plan: updateData.plan,
   };
 }
+
+app.use(subscriptionsRoutes);
 
 app.post(
   "/stripe-webhook",
