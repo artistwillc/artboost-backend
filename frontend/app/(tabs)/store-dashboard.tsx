@@ -221,22 +221,12 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
       .toLowerCase();
 
     if (normalizedType === "artpal") {
-      if (!storeUrl) {
-        Alert.alert(
-          "ArtPal Store URL Missing",
-          "ArtBoost could not locate the saved ArtPal storefront URL."
-        );
-        return;
-      }
-
       router.push({
-        pathname: "/artpal-sync" as any,
+        pathname: "/catalog-importer" as any,
         params: {
           storeId,
           storeName,
           storeType: "artpal",
-          storeUrl,
-          productCount: String(productCount),
         },
       });
       return;
