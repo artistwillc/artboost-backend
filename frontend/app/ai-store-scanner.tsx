@@ -2531,6 +2531,36 @@ export default function AIStoreScannerScreen() {
     .trim()
     .toLowerCase();
 
+
+  function getArtPalHostedImageUrl(
+    imageUrl: string
+  ) {
+    const normalized =
+      normalizeUrl(imageUrl);
+
+    if (!normalized) {
+      return "";
+    }
+
+    try {
+      const parsed =
+        new URL(normalized);
+
+      if (
+        parsed.hostname
+          .replace(/^www\./i, "")
+          .toLowerCase() ===
+        "img.artpal.com"
+      ) {
+        return `${API_BASE}/catalog/artpal-image?url=${encodeURIComponent(
+          normalized
+        )}`;
+      }
+    } catch {}
+
+    return normalized;
+  }
+
   const scannerCacheKey =
     storeId ||
     `${storeType}:${String(params.storeUrl || storeName)}`;
@@ -3768,6 +3798,24 @@ setScanProgress("");
             );
           }
 
+          if (
+            storeType === "artpal" &&
+            productToImport.imageUrl
+          ) {
+            const hostedArtPalImage =
+              getArtPalHostedImageUrl(
+                productToImport.imageUrl
+              );
+
+            if (hostedArtPalImage) {
+              productToImport = {
+                ...productToImport,
+                imageUrl:
+                  hostedArtPalImage,
+              };
+            }
+          }
+
           const response =
             await fetch(
               `${API_BASE}/catalog/import-product`,
@@ -4419,24 +4467,38 @@ scanProgress ? (
                     )
                   }
                 >
-                  {getRedbubblePreviewImageUrl(
-                    item.imageUrl,
-                    item.productUrl
-                  ) ? (
+                  {(storeType === "artpal"
+                    ? getArtPalHostedImageUrl(
+                        item.imageUrl
+                      )
+                    : getRedbubblePreviewImageUrl(
+                        item.imageUrl,
+                        item.productUrl
+                      )) ? (
                     <Image
                       source={{
-                        uri: getRedbubblePreviewImageUrl(
-                          item.imageUrl,
-                          item.productUrl
-                        ),
-                        headers: /redbubble\.net/i.test(
-                          getRedbubblePreviewImageUrl(item.imageUrl, item.productUrl)
-                        )
-                          ? {
-                              Referer: "https://www.redbubble.com/",
-                              Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
-                            }
-                          : undefined,
+                        uri:
+                          storeType === "artpal"
+                            ? getArtPalHostedImageUrl(
+                                item.imageUrl
+                              )
+                            : getRedbubblePreviewImageUrl(
+                                item.imageUrl,
+                                item.productUrl
+                              ),
+                        headers:
+                          storeType !== "artpal" &&
+                          /redbubble\.net/i.test(
+                            getRedbubblePreviewImageUrl(
+                              item.imageUrl,
+                              item.productUrl
+                            )
+                          )
+                            ? {
+                                Referer: "https://www.redbubble.com/",
+                                Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
+                              }
+                            : undefined,
                       }}
                       style={styles.productImage}
                       resizeMode="cover"
