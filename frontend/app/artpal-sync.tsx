@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -60,11 +60,11 @@ function cleanText(value: unknown) {
 const ARTPAL_FULL_SYNC_SCRIPT = `
 (function () {
   try {
-    var MAX_STEPS = 90;
-    var WAIT_MS = 550;
-    var stableRounds = 0;
-    var previousCount = -1;
+    var MAX_STEPS = 70;
+    var WAIT_MS = 500;
     var step = 0;
+    var previousCount = -1;
+    var stableRounds = 0;
     var discoveredByUrl = {};
 
     function cleanText(value) {
@@ -86,14 +86,10 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
 
     function sameArtPalHost(value) {
       try {
-        var url = new URL(
-          value,
-          window.location.href
-        );
-        var host =
-          String(url.hostname || "")
-            .replace(/^www\\./i, "")
-            .toLowerCase();
+        var url = new URL(value, window.location.href);
+        var host = String(url.hostname || "")
+          .replace(/^www\\./i, "")
+          .toLowerCase();
 
         return (
           host === "artpal.com" ||
@@ -107,7 +103,7 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
     function usableImage(img) {
       if (!img) return "";
 
-      var candidates = [
+      var values = [
         img.getAttribute("data-original"),
         img.getAttribute("data-src"),
         img.getAttribute("data-lazy-src"),
@@ -117,27 +113,19 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
         img.getAttribute("src")
       ];
 
-      for (
-        var i = 0;
-        i < candidates.length;
-        i += 1
-      ) {
-        var value =
-          absoluteUrl(candidates[i]);
+      for (var i = 0; i < values.length; i += 1) {
+        var url = absoluteUrl(values[i]);
 
         if (
-          !value ||
-          value.indexOf("/img/c.gif") >= 0 ||
-          value.indexOf("data:image/gif") === 0 ||
-          value.indexOf("spacer") >= 0 ||
-          value.indexOf("logo") >= 0 ||
-          value.indexOf("icon") >= 0 ||
-          value.indexOf("avatar") >= 0
+          !url ||
+          url.indexOf("data:image/gif") === 0 ||
+          url.indexOf("/img/c.gif") >= 0 ||
+          /(?:logo|icon|avatar|spacer)/i.test(url)
         ) {
           continue;
         }
 
-        return value;
+        return url;
       }
 
       return "";
@@ -149,78 +137,25 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
       var src = usableImage(img);
       if (!src) return false;
 
-      var width =
-        Number(
-          img.naturalWidth ||
-          img.width ||
-          img.getAttribute("width") ||
-          0
-        );
+      var rect = img.getBoundingClientRect
+        ? img.getBoundingClientRect()
+        : { width: 0, height: 0 };
 
-      var height =
-        Number(
-          img.naturalHeight ||
-          img.height ||
-          img.getAttribute("height") ||
-          0
-        );
-
-      var rect =
-        img.getBoundingClientRect
-          ? img.getBoundingClientRect()
-          : { width: 0, height: 0 };
-
-      width =
-        Math.max(
-          width,
-          Number(rect.width) || 0
-        );
-      height =
-        Math.max(
-          height,
-          Number(rect.height) || 0
-        );
-
-      /*
-       * ArtPal artwork thumbnails are visually substantial.
-       * Exclude tiny social icons, logos, badges, etc.
-       */
-      return (
-        width >= 90 &&
-        height >= 70
+      var width = Math.max(
+        Number(img.naturalWidth || img.width || 0),
+        Number(rect.width || 0)
       );
+
+      var height = Math.max(
+        Number(img.naturalHeight || img.height || 0),
+        Number(rect.height || 0)
+      );
+
+      return width >= 90 && height >= 70;
     }
 
-    function nearestLink(img) {
-      if (!img) return null;
-
-      var node = img;
-      var depth = 0;
-
-      while (
-        node &&
-        node !== document.body &&
-        depth < 8
-      ) {
-        if (
-          node.tagName &&
-          String(node.tagName)
-            .toLowerCase() === "a"
-        ) {
-          return node;
-        }
-
-        node = node.parentElement;
-        depth += 1;
-      }
-
-      return null;
-    }
-
-    function linkFromDataAttributes(node) {
-      if (!node || !node.getAttribute) {
-        return "";
-      }
+    function readUrlFromNode(node) {
+      if (!node || !node.getAttribute) return "";
 
       var attrs = [
         "href",
@@ -232,22 +167,12 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
         "data-art-url"
       ];
 
-      for (
-        var i = 0;
-        i < attrs.length;
-        i += 1
-      ) {
-        var raw =
-          node.getAttribute(attrs[i]);
-
+      for (var i = 0; i < attrs.length; i += 1) {
+        var raw = node.getAttribute(attrs[i]);
         if (!raw) continue;
 
         var url = absoluteUrl(raw);
-
-        if (
-          url &&
-          sameArtPalHost(url)
-        ) {
+        if (url && sameArtPalHost(url)) {
           return url;
         }
       }
@@ -255,27 +180,16 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
       return "";
     }
 
-    function isExcludedUrl(urlValue) {
+    function excludedUrl(value) {
       try {
-        var url = new URL(urlValue);
-        var path =
-          String(url.pathname || "")
-            .toLowerCase();
+        var url = new URL(value);
+        var path = String(url.pathname || "").toLowerCase();
 
         if (
           path === "/" ||
           path === "/artistwill" ||
-          /\/(login|signup|register|cart|contact|about|help|privacy|terms|blog|search)(\/|$)/i.test(
-            path
-          )
-        ) {
-          return true;
-        }
-
-        if (
-          /\.(jpg|jpeg|png|gif|webp|svg|css|js)(\?|$)/i.test(
-            path
-          )
+          /\/(?:login|signup|register|cart|contact|about|help|privacy|terms|blog|search)(?:\/|$)/i.test(path) ||
+          /\.(?:jpg|jpeg|png|gif|webp|svg|css|js)(?:\?|$)/i.test(path)
         ) {
           return true;
         }
@@ -286,398 +200,153 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
       }
     }
 
-    function titleFor(img, link) {
-      var container =
-        link ||
-        (img && img.parentElement);
-
-      var values = [
-        img &&
-          img.getAttribute &&
-          img.getAttribute("alt"),
-        img &&
-          img.getAttribute &&
-          img.getAttribute("title"),
-        link &&
-          link.getAttribute &&
-          link.getAttribute("title"),
-        link &&
-          link.getAttribute &&
-          link.getAttribute("aria-label")
-      ];
-
-      if (container) {
-        var node = container;
-        var depth = 0;
-
-        while (
-          node &&
-          node !== document.body &&
-          depth < 5
-        ) {
-          if (node.querySelector) {
-            var titleNode =
-              node.querySelector(
-                "h1,h2,h3,h4,strong,.title,.name,[class*='title'],[class*='name']"
-              );
-
-            if (
-              titleNode &&
-              titleNode !== node
-            ) {
-              values.push(
-                titleNode.textContent
-              );
-            }
-          }
-
-          node = node.parentElement;
-          depth += 1;
-        }
-      }
-
-      for (
-        var i = 0;
-        i < values.length;
-        i += 1
-      ) {
-        var value =
-          cleanText(values[i]);
-
-        if (
-          value &&
-          value.length > 2 &&
-          value.length < 260 &&
-          value.toLowerCase() !== "artpal" &&
-          value.toLowerCase() !== "artistwill"
-        ) {
-          return value;
-        }
-      }
-
-      return "ArtPal Artwork";
-    }
-
-    function candidateUrl(img) {
-      var link = nearestLink(img);
-
-      if (link) {
-        var url =
-          linkFromDataAttributes(link);
-
-        if (
-          url &&
-          !isExcludedUrl(url)
-        ) {
-          return {
-            url: url,
-            link: link
-          };
-        }
-      }
-
-      /*
-       * Some ArtPal cards put navigation attributes on a wrapping div
-       * rather than on the image's nearest anchor.
-       */
-      var node =
-        img && img.parentElement;
+    function nearestCandidateNode(img) {
+      var node = img;
       var depth = 0;
 
       while (
         node &&
         node !== document.body &&
-        depth < 8
+        depth < 10
       ) {
-        var dataUrl =
-          linkFromDataAttributes(node);
-
-        if (
-          dataUrl &&
-          !isExcludedUrl(dataUrl)
-        ) {
-          return {
-            url: dataUrl,
-            link: node
-          };
+        var url = readUrlFromNode(node);
+        if (url && !excludedUrl(url)) {
+          return { node: node, url: url };
         }
 
         node = node.parentElement;
         depth += 1;
       }
 
-      return {
-        url: "",
-        link: link
-      };
+      return { node: null, url: "" };
+    }
+
+    function titleFor(img, node) {
+      var values = [
+        img && img.getAttribute && img.getAttribute("alt"),
+        img && img.getAttribute && img.getAttribute("title"),
+        node && node.getAttribute && node.getAttribute("title"),
+        node && node.getAttribute && node.getAttribute("aria-label")
+      ];
+
+      var scope = node || (img && img.parentElement);
+      var depth = 0;
+
+      while (
+        scope &&
+        scope !== document.body &&
+        depth < 5
+      ) {
+        if (scope.querySelector) {
+          var titleNode = scope.querySelector(
+            "h1,h2,h3,h4,strong,.title,.name,[class*='title'],[class*='name']"
+          );
+
+          if (titleNode && titleNode !== scope) {
+            values.push(titleNode.textContent);
+          }
+        }
+
+        scope = scope.parentElement;
+        depth += 1;
+      }
+
+      for (var i = 0; i < values.length; i += 1) {
+        var text = cleanText(values[i]);
+
+        if (
+          text &&
+          text.length > 2 &&
+          text.length < 260 &&
+          text.toLowerCase() !== "artpal" &&
+          text.toLowerCase() !== "artistwill"
+        ) {
+          return text;
+        }
+      }
+
+      return "ArtPal Artwork";
     }
 
     function collectProducts() {
-      var images =
-        Array.from(
-          document.querySelectorAll("img")
-        );
+      var images = Array.from(document.querySelectorAll("img"));
 
       images.forEach(function (img) {
-        if (!looksLikeArtworkImage(img)) {
-          return;
-        }
+        if (!looksLikeArtworkImage(img)) return;
 
-        var candidate =
-          candidateUrl(img);
+        var candidate = nearestCandidateNode(img);
+        if (!candidate.url) return;
 
-        if (!candidate.url) {
-          return;
-        }
+        var imageUrl = usableImage(img);
+        if (!imageUrl) return;
 
-        var imageUrl =
-          usableImage(img);
-
-        if (!imageUrl) {
-          return;
-        }
-
-        var title =
-          titleFor(
-            img,
-            candidate.link
-          );
-
-        /*
-         * Keep the first good rendition for a URL, but improve the
-         * title/image later if a better duplicate card appears.
-         */
-        var current =
-          discoveredByUrl[
-            candidate.url
-          ];
-
-        if (!current) {
-          discoveredByUrl[
-            candidate.url
-          ] = {
-            title: title,
+        if (!discoveredByUrl[candidate.url]) {
+          discoveredByUrl[candidate.url] = {
+            title: titleFor(img, candidate.node),
             description: "",
-            productUrl:
-              candidate.url,
+            productUrl: candidate.url,
             imageUrl: imageUrl,
             price: null,
             currency: "USD"
           };
-          return;
-        }
-
-        if (
-          current.title ===
-            "ArtPal Artwork" &&
-          title !==
-            "ArtPal Artwork"
-        ) {
-          current.title = title;
-        }
-
-        if (
-          !current.imageUrl &&
-          imageUrl
-        ) {
-          current.imageUrl =
-            imageUrl;
         }
       });
 
-      /*
-       * Second pass: inspect all same-host links whose surrounding
-       * card contains a substantial image. This catches ArtPal card
-       * layouts where the image itself is not nested directly in the link.
-       */
-      var links =
-        Array.from(
-          document.querySelectorAll(
-            "a[href],[data-href],[data-url],[data-link]"
-          )
-        );
-
-      links.forEach(function (node) {
-        var url =
-          linkFromDataAttributes(node);
-
-        if (
-          !url ||
-          isExcludedUrl(url) ||
-          discoveredByUrl[url]
-        ) {
-          return;
-        }
-
-        var scope = node;
-        var depth = 0;
-        var image = null;
-
-        while (
-          scope &&
-          scope !== document.body &&
-          depth < 5 &&
-          !image
-        ) {
-          if (
-            scope.querySelectorAll
-          ) {
-            var imgs =
-              Array.from(
-                scope.querySelectorAll(
-                  "img"
-                )
-              );
-
-            image =
-              imgs.find(
-                looksLikeArtworkImage
-              ) || null;
-          }
-
-          scope =
-            scope.parentElement;
-          depth += 1;
-        }
-
-        if (!image) return;
-
-        var imageUrl =
-          usableImage(image);
-
-        if (!imageUrl) return;
-
-        discoveredByUrl[url] = {
-          title:
-            titleFor(
-              image,
-              node
-            ),
-          description: "",
-          productUrl: url,
-          imageUrl: imageUrl,
-          price: null,
-          currency: "USD"
-        };
-      });
-
-      return Object.keys(
-        discoveredByUrl
-      ).map(function (key) {
+      return Object.keys(discoveredByUrl).map(function (key) {
         return discoveredByUrl[key];
       });
     }
 
-    function sampleDiagnostics() {
-      var anchors =
-        Array.from(
-          document.querySelectorAll(
-            "a[href]"
-          )
-        )
-          .slice(0, 40)
-          .map(function (a) {
-            return {
-              text:
-                cleanText(
-                  a.textContent
-                ).slice(0, 100),
-              href:
-                absoluteUrl(
-                  a.getAttribute("href")
-                )
-            };
-          });
+    function getScrollableCandidates() {
+      var nodes = [document.scrollingElement, document.documentElement, document.body]
+        .concat(Array.from(document.querySelectorAll("div,main,section")));
 
-      var images =
-        Array.from(
-          document.querySelectorAll(
-            "img"
-          )
-        )
-          .slice(0, 40)
-          .map(function (img) {
-            return {
-              alt:
-                cleanText(
-                  img.getAttribute("alt")
-                ).slice(0, 100),
-              src:
-                usableImage(img),
-              width:
-                img.naturalWidth ||
-                img.width ||
-                0,
-              height:
-                img.naturalHeight ||
-                img.height ||
-                0
-            };
-          });
+      var ranked = [];
 
-      return {
-        sampleLinks: anchors,
-        sampleImages: images
-      };
+      nodes.forEach(function (el) {
+        if (!el) return;
+
+        var scrollHeight = Number(el.scrollHeight || 0);
+        var clientHeight = Number(el.clientHeight || 0);
+
+        if (scrollHeight <= clientHeight + 40) {
+          return;
+        }
+
+        var overflowY = "";
+        try {
+          overflowY = window.getComputedStyle(el).overflowY || "";
+        } catch {}
+
+        var score =
+          (scrollHeight - clientHeight) +
+          (/auto|scroll/i.test(overflowY) ? 100000 : 0);
+
+        ranked.push({
+          el: el,
+          score: score,
+          scrollHeight: scrollHeight,
+          clientHeight: clientHeight
+        });
+      });
+
+      ranked.sort(function (a, b) {
+        return b.score - a.score;
+      });
+
+      return ranked;
     }
 
-    function post(type, extra) {
-      var products =
-        collectProducts();
-
-      var payload =
-        Object.assign(
-          {
-            type: type,
-            products: products,
-            scannedCount:
-              products.length,
-            step: step,
-            pageUrl:
-              window.location.href,
-            scrollY:
-              window.scrollY,
-            scrollHeight:
-              Math.max(
-                document.body.scrollHeight,
-                document.documentElement.scrollHeight
-              )
-          },
-          extra || {}
-        );
-
-      if (
-        type ===
-          "artpal_complete" &&
-        products.length === 0
-      ) {
-        payload =
-          Object.assign(
-            payload,
-            sampleDiagnostics()
-          );
-      }
-
-      window.ReactNativeWebView.postMessage(
-        JSON.stringify(payload)
-      );
-
-      return products;
+    function getScroller() {
+      var ranked = getScrollableCandidates();
+      return ranked.length ? ranked[0].el : (document.scrollingElement || document.documentElement || document.body);
     }
 
     function clickLoadMore() {
-      var candidates =
-        Array.from(
-          document.querySelectorAll(
-            "button,a,[role='button']"
-          )
-        );
-
-      candidates.forEach(function (el) {
-        var label =
-          cleanText(
-            el.textContent
-          ).toLowerCase();
+      Array.from(
+        document.querySelectorAll("button,a,[role='button']")
+      ).forEach(function (el) {
+        var label = cleanText(el.textContent).toLowerCase();
 
         if (
           label === "show more" ||
@@ -692,107 +361,162 @@ const ARTPAL_FULL_SYNC_SCRIPT = `
       });
     }
 
-    function continueScan() {
-      step += 1;
+    function diagnostics() {
+      var scroller = getScroller();
 
-      var products =
-        post("artpal_progress");
+      return {
+        pageTitle: document.title,
+        bodyScrollHeight: document.body ? document.body.scrollHeight : 0,
+        documentScrollHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
+        scrollerTag: scroller && scroller.tagName ? scroller.tagName : "unknown",
+        scrollerClass: scroller && scroller.className ? String(scroller.className).slice(0, 300) : "",
+        scrollerScrollTop: scroller ? Number(scroller.scrollTop || 0) : 0,
+        scrollerScrollHeight: scroller ? Number(scroller.scrollHeight || 0) : 0,
+        scrollerClientHeight: scroller ? Number(scroller.clientHeight || 0) : 0,
+        sampleLinks: Array.from(document.querySelectorAll("a[href]"))
+          .slice(0, 80)
+          .map(function (a) {
+            return {
+              text: cleanText(a.textContent).slice(0, 120),
+              href: absoluteUrl(a.getAttribute("href"))
+            };
+          }),
+        sampleImages: Array.from(document.querySelectorAll("img"))
+          .slice(0, 80)
+          .map(function (img) {
+            return {
+              alt: cleanText(img.getAttribute("alt")).slice(0, 120),
+              src: usableImage(img),
+              width: img.naturalWidth || img.width || 0,
+              height: img.naturalHeight || img.height || 0
+            };
+          })
+      };
+    }
 
-      if (
-        products.length ===
-        previousCount
-      ) {
-        stableRounds += 1;
-      } else {
-        stableRounds = 0;
-        previousCount =
-          products.length;
-      }
+    function post(type, extra) {
+      var products = collectProducts();
 
-      clickLoadMore();
-
-      var viewport =
-        Math.max(
-          window.innerHeight || 0,
-          document.documentElement.clientHeight || 0,
-          600
-        );
-
-      /*
-       * Move gradually so ArtPal's lazy-loaded cards actually enter
-       * the viewport instead of jumping directly past them.
-       */
-      var nextY =
-        window.scrollY +
-        Math.max(
-          Math.floor(
-            viewport * 0.78
-          ),
-          420
-        );
-
-      var maxY =
-        Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight
-        ) - viewport;
-
-      window.scrollTo(
-        0,
-        Math.min(
-          nextY,
-          Math.max(
-            maxY,
-            0
-          )
-        )
+      var payload = Object.assign(
+        {
+          type: type,
+          products: products,
+          scannedCount: products.length,
+          step: step,
+          pageUrl: window.location.href
+        },
+        extra || {}
       );
 
-      var reachedBottom =
-        window.scrollY >=
-        Math.max(
-          maxY - 30,
-          0
-        );
+      window.ReactNativeWebView.postMessage(
+        JSON.stringify(payload)
+      );
 
-      if (
-        step >= MAX_STEPS ||
-        (
-          reachedBottom &&
-          stableRounds >= 8
+      return products;
+    }
+
+    function finish(reason) {
+      post(
+        "artpal_complete",
+        Object.assign(
+          { finishReason: reason || "complete" },
+          diagnostics()
         )
-      ) {
-        /*
-         * One final collection pass after lazy content settles.
-         */
-        setTimeout(
-          function () {
-            post(
-              "artpal_complete"
-            );
-          },
-          900
-        );
-        return;
-      }
-
-      setTimeout(
-        continueScan,
-        WAIT_MS
       );
     }
 
-    setTimeout(
-      continueScan,
-      1200
-    );
+    function advanceScroller() {
+      var scroller = getScroller();
+
+      if (!scroller) return false;
+
+      var viewport = Math.max(
+        Number(scroller.clientHeight || 0),
+        Number(window.innerHeight || 0),
+        500
+      );
+
+      var maxTop = Math.max(
+        Number(scroller.scrollHeight || 0) - viewport,
+        0
+      );
+
+      var currentTop =
+        scroller === document.documentElement ||
+        scroller === document.body ||
+        scroller === document.scrollingElement
+          ? Number(window.scrollY || scroller.scrollTop || 0)
+          : Number(scroller.scrollTop || 0);
+
+      var nextTop = Math.min(
+        currentTop + Math.max(Math.floor(viewport * 0.75), 400),
+        maxTop
+      );
+
+      try {
+        if (
+          scroller === document.documentElement ||
+          scroller === document.body ||
+          scroller === document.scrollingElement
+        ) {
+          window.scrollTo(0, nextTop);
+        } else {
+          scroller.scrollTop = nextTop;
+          if (scroller.scrollTo) {
+            scroller.scrollTo(0, nextTop);
+          }
+        }
+      } catch {}
+
+      return nextTop >= Math.max(maxTop - 20, 0);
+    }
+
+    function runStep() {
+      step += 1;
+
+      var products = post("artpal_progress");
+
+      if (products.length === previousCount) {
+        stableRounds += 1;
+      } else {
+        stableRounds = 0;
+        previousCount = products.length;
+      }
+
+      clickLoadMore();
+      var reachedBottom = advanceScroller();
+
+      if (
+        step >= MAX_STEPS ||
+        (reachedBottom && stableRounds >= 8)
+      ) {
+        setTimeout(function () {
+          finish(
+            step >= MAX_STEPS
+              ? "max_steps"
+              : "stable_bottom"
+          );
+        }, 700);
+        return;
+      }
+
+      setTimeout(runStep, WAIT_MS);
+    }
+
+    /*
+     * Hard watchdog: never allow this WebView scan to spin indefinitely.
+     */
+    setTimeout(function () {
+      finish("hard_timeout");
+    }, 58000);
+
+    setTimeout(runStep, 1000);
   } catch (error) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
         type: "artpal_error",
         error:
-          error &&
-          error.message
+          error && error.message
             ? error.message
             : String(error)
       })
@@ -814,6 +538,7 @@ export default function ArtPalSyncScreen() {
 
   const webViewRef = useRef<WebView>(null);
   const startedRef = useRef(false);
+  const finishedRef = useRef(false);
 
   const storeId = String(params.storeId || "");
   const storeName = String(params.storeName || "ArtPal");
@@ -833,6 +558,25 @@ export default function ArtPalSyncScreen() {
     useState(true);
   const [detected, setDetected] =
     useState(0);
+
+  useEffect(() => {
+    if (!syncing) return;
+
+    const timer = setTimeout(() => {
+      if (finishedRef.current) return;
+
+      finishedRef.current = true;
+      setSyncing(false);
+      setStatus("ArtPal scan timed out.");
+
+      Alert.alert(
+        "ArtPal Scan Timed Out",
+        "ArtBoost stopped the ArtPal scan after 65 seconds. Check the Metro terminal for ARTPAL SCAN DIAGNOSTICS."
+      );
+    }, 65000);
+
+    return () => clearTimeout(timer);
+  }, [syncing]);
 
   async function importProducts(
     products: ArtPalProduct[]
@@ -1106,14 +850,16 @@ export default function ArtPalSyncScreen() {
         return;
       }
 
-      if (
-        Number(message.scannedCount || 0) === 0
-      ) {
-        console.log(
-          "ARTPAL SCAN DIAGNOSTICS",
-          message
-        );
+      if (finishedRef.current) {
+        return;
       }
+
+      finishedRef.current = true;
+
+      console.log(
+        "ARTPAL SCAN DIAGNOSTICS",
+        message
+      );
 
       const products =
         Array.isArray(
