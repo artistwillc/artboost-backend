@@ -1,8 +1,12 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import subscriptionsRoutes from "./routes/subscriptions.js";
+import stripeSandboxRoutes from "./routes/stripeSandbox.js";
+import tiktokRoutes from "./routes/tiktok.js";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
+import catalogCsvRouter from "./routes/catalogCsv.js";
 import automationRoutes from "./routes/automations.js";
 import {
   calculateNextRun,
@@ -57,6 +61,30 @@ const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
 const INSTAGRAM_REDIRECT_URI =
   process.env.INSTAGRAM_REDIRECT_URI ||
   "https://artboost-ai.onrender.com/auth/instagram/callback";
+const THREADS_APP_ID = process.env.THREADS_APP_ID;
+const THREADS_APP_SECRET = process.env.THREADS_APP_SECRET;
+const THREADS_REDIRECT_URI =
+  process.env.THREADS_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/threads/callback";
+const THREADS_API_BASE =
+  process.env.THREADS_API_BASE ||
+  "https://graph.threads.net/v1.0";
+const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
+const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
+const LINKEDIN_REDIRECT_URI =
+  process.env.LINKEDIN_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/linkedin/callback";
+const LINKEDIN_SCOPES =
+  process.env.LINKEDIN_SCOPES ||
+  "openid profile email w_member_social";
+const X_CLIENT_ID = process.env.X_CLIENT_ID;
+const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET;
+const X_REDIRECT_URI =
+  process.env.X_REDIRECT_URI ||
+  "https://artboost-ai.onrender.com/auth/x/callback";
+const X_SCOPES =
+  process.env.X_SCOPES ||
+  "tweet.read tweet.write users.read offline.access media.write";
 const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
 const SHOPIFY_CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const SHOPIFY_SCOPES =
@@ -74,7 +102,7 @@ const ETSY_SHARED_SECRET =
 
 const ETSY_REDIRECT_URI =
   process.env.ETSY_REDIRECT_URI ||
-  "https://artboostai.com/auth/etsy/callback";
+  "https://artboost-ai.onrender.com/auth/etsy/callback";
 
   function createEtsyState(userId) {
   const payload = {
@@ -635,401 +663,6 @@ app.get(
   }
 );
 
-
-// =========================================================
-// ETSY LISTING SYNC
-// Uses the user-scoped Etsy OAuth connection already stored
-// in social_connections. Tokens never leave the backend.
-// =========================================================
-
-const ETSY_API_BASE = "https://openapi.etsy.com/v3/application";
-
-function parseEtsyMoney(money) {
-  if (!money || typeof money !== "object") return { price: null, currency: "USD" };
-  const amount = Number(money.amount);
-  const divisor = Number(money.divisor) || 100;
-  return {
-    price: Number.isFinite(amount) ? amount / divisor : null,
-    currency: String(money.currency_code || "USD").toUpperCase(),
-  };
-}
-
-function etsyTimestamp(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return new Date(n * 1000).toISOString();
-}
-
-async function etsyJson(url, accessToken) {
-  const response = await fetch(url, {
-    headers: {
-      "x-api-key": ETSY_API_KEY,
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
-  });
-
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Etsy returned ${response.status}: ${text.slice(0, 200)}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data?.error_description || data?.error || data?.message ||
-      `Etsy request failed with status ${response.status}.`
-    );
-  }
-  return data;
-}
-
-async function refreshEtsyAccessToken(connection) {
-  const expiresAt = connection?.expires_at ? new Date(connection.expires_at).getTime() : 0;
-  const stillValid = connection?.access_token && expiresAt > Date.now() + 5 * 60 * 1000;
-  if (stillValid) return connection.access_token;
-
-  if (!connection?.refresh_token) {
-    throw new Error("Etsy access expired. Reconnect Etsy in ArtBoost.");
-  }
-
-  const response = await fetch("https://openapi.etsy.com/v3/public/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: ETSY_API_KEY,
-      refresh_token: connection.refresh_token,
-    }),
-  });
-
-  const text = await response.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch {
-    throw new Error(`Etsy token refresh returned ${response.status}: ${text.slice(0, 200)}`);
-  }
-  if (!response.ok || !data.access_token) {
-    throw new Error(data?.error_description || data?.error || "Unable to refresh Etsy access.");
-  }
-
-  const expiresIn = Number(data.expires_in) || 3600;
-  const expiresAtIso = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const update = {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token || connection.refresh_token,
-    expires_in: expiresIn,
-    expires_at: expiresAtIso,
-    connected: true,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase
-    .from("social_connections")
-    .update(update)
-    .eq("id", connection.id);
-  if (error) throw new Error(`Unable to save refreshed Etsy token: ${error.message}`);
-
-  return data.access_token;
-}
-
-async function getEtsyShop(accessToken) {
-  const me = await etsyJson(`${ETSY_API_BASE}/users/me`, accessToken);
-  const userId = me?.user_id || String(accessToken || "").split(".")[0];
-  if (!userId) throw new Error("Etsy user ID could not be determined.");
-
-  const shopData = await etsyJson(
-    `${ETSY_API_BASE}/users/${encodeURIComponent(userId)}/shops`,
-    accessToken
-  );
-  const shop = Array.isArray(shopData?.results) ? shopData.results[0] : shopData;
-  if (!shop?.shop_id) throw new Error("No Etsy shop was found for this account.");
-  return shop;
-}
-
-async function fetchAllEtsyListings(shopId, accessToken) {
-  const results = [];
-  const limit = 100;
-  let offset = 0;
-  while (true) {
-    const data = await etsyJson(
-      `${ETSY_API_BASE}/shops/${encodeURIComponent(shopId)}/listings/active?limit=${limit}&offset=${offset}`,
-      accessToken
-    );
-    const page = Array.isArray(data?.results) ? data.results : [];
-    results.push(...page);
-    offset += page.length;
-    if (page.length < limit || offset >= Number(data?.count || 0)) break;
-  }
-  return results;
-}
-
-async function addEtsyImages(listings, accessToken) {
-  const batchSize = 10;
-  for (let i = 0; i < listings.length; i += batchSize) {
-    const batch = listings.slice(i, i + batchSize);
-    await Promise.all(batch.map(async (listing) => {
-      if (Array.isArray(listing.images) && listing.images.length) return;
-      try {
-        const imageData = await etsyJson(
-          `${ETSY_API_BASE}/listings/${encodeURIComponent(listing.listing_id)}/images`,
-          accessToken
-        );
-        listing.images = Array.isArray(imageData?.results) ? imageData.results : [];
-      } catch (error) {
-        console.warn(`Etsy image fetch failed for ${listing.listing_id}:`, error.message);
-        listing.images = [];
-      }
-    }));
-  }
-}
-
-async function ensureEtsyStoreConnection(userId, shop, accessToken, oauthConnection, syncNow) {
-  const shopId = String(shop.shop_id);
-  const storeName = shop.shop_name || shop.title || "Etsy";
-  const storeUrl = shop.url || `https://www.etsy.com/shop/${encodeURIComponent(storeName)}`;
-
-  const { data: existing, error: findError } = await supabase
-    .from("store_connections")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("platform", "etsy")
-    .eq("external_store_id", shopId)
-    .maybeSingle();
-  if (findError) throw new Error(`Unable to check Etsy store connection: ${findError.message}`);
-
-  const payload = {
-    user_id: userId,
-    platform: "etsy",
-    store_name: storeName,
-    store_url: storeUrl,
-    external_store_id: shopId,
-    access_token: accessToken,
-    refresh_token: oauthConnection.refresh_token || null,
-    token_expires_at: oauthConnection.expires_at || null,
-    scopes: ["shops_r", "listings_r"],
-    connected: true,
-    sync_enabled: true,
-    metadata: { shopId, loginName: shop.login_name || null },
-    last_synced_at: syncNow,
-    last_sync_status: "success",
-    last_sync_error: null,
-    updated_at: syncNow,
-  };
-
-  if (existing?.id) {
-    const { error } = await supabase.from("store_connections").update(payload).eq("id", existing.id);
-    if (error) throw new Error(`Unable to update Etsy store connection: ${error.message}`);
-    return existing.id;
-  }
-
-  const { data, error } = await supabase
-    .from("store_connections")
-    .insert(payload)
-    .select("id")
-    .single();
-  if (error) throw new Error(`Unable to create Etsy store connection: ${error.message}`);
-  return data.id;
-}
-
-async function upsertEtsyProduct(userId, storeConnectionId, shop, listing, syncNow) {
-  const externalProductId = String(listing.listing_id);
-  const money = parseEtsyMoney(listing.price);
-  const firstImage = Array.isArray(listing.images) ? listing.images[0] : null;
-  const imageUrl = firstImage?.url_fullxfull || firstImage?.url_570xN || firstImage?.url_300x300 || firstImage?.url_170x135 || null;
-  const payload = {
-    user_id: userId,
-    store_type: "etsy",
-    store_name: shop.shop_name || "Etsy",
-    store_connection_id: storeConnectionId,
-    external_product_id: externalProductId,
-    external_variant_id: null,
-    title: String(listing.title || `Etsy Listing ${externalProductId}`).trim(),
-    description: listing.description || null,
-    image_url: imageUrl,
-    product_url: listing.url || `https://www.etsy.com/listing/${externalProductId}`,
-    price: money.price,
-    currency: money.currency,
-    tags: Array.isArray(listing.tags) ? listing.tags : [],
-    categories: listing.taxonomy_id ? [String(listing.taxonomy_id)] : [],
-    metadata: {
-      etsyListingId: listing.listing_id,
-      shopId: listing.shop_id || shop.shop_id,
-      state: listing.state || "active",
-      quantity: listing.quantity ?? null,
-      views: listing.views ?? null,
-      numFavorers: listing.num_favorers ?? null,
-      imageCount: Array.isArray(listing.images) ? listing.images.length : 0,
-    },
-    status: listing.state === "active" ? "active" : "inactive",
-    automation_enabled: true,
-    last_synced_at: syncNow,
-    source_created_at: etsyTimestamp(listing.created_timestamp || listing.creation_timestamp),
-    source_updated_at: etsyTimestamp(listing.updated_timestamp),
-    updated_at: syncNow,
-  };
-
-  const { data: existing, error: findError } = await supabase
-    .from("products")
-    .select("id, automation_enabled, priority")
-    .eq("user_id", userId)
-    .eq("store_type", "etsy")
-    .eq("external_product_id", externalProductId)
-    .maybeSingle();
-  if (findError) throw new Error(`Unable to check Etsy product ${externalProductId}: ${findError.message}`);
-
-  if (existing?.id) {
-    // Preserve user-controlled automation/priority settings during store sync.
-    delete payload.automation_enabled;
-    const { error } = await supabase.from("products").update(payload).eq("id", existing.id);
-    if (error) throw new Error(`Unable to update Etsy product ${externalProductId}: ${error.message}`);
-    return "updated";
-  }
-
-  const { error } = await supabase.from("products").insert(payload);
-  if (error) throw new Error(`Unable to import Etsy product ${externalProductId}: ${error.message}`);
-  return "inserted";
-}
-
-app.post("/etsy/sync", async (req, res) => {
-  const userId = String(req.body?.userId || "").trim();
-  if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
-  if (!ETSY_API_KEY) return res.status(500).json({ success: false, error: "Etsy is not configured on the server." });
-
-  let storeConnectionId = null;
-  try {
-    const { data: oauthConnection, error } = await supabase
-      .from("social_connections")
-      .select("id, access_token, refresh_token, expires_at, connected")
-      .eq("user_id", userId)
-      .eq("platform", "etsy")
-      .maybeSingle();
-    if (error) throw new Error(`Unable to load Etsy connection: ${error.message}`);
-    if (!oauthConnection?.connected || !oauthConnection?.access_token) {
-      return res.status(409).json({ success: false, error: "Etsy is not connected. Connect Etsy first." });
-    }
-
-    const accessToken = await refreshEtsyAccessToken(oauthConnection);
-    // Reload in case refresh changed expiry/refresh token.
-    const { data: currentOauth } = await supabase
-      .from("social_connections")
-      .select("id, access_token, refresh_token, expires_at, connected")
-      .eq("id", oauthConnection.id)
-      .single();
-
-    const shop = await getEtsyShop(accessToken);
-    const listings = await fetchAllEtsyListings(shop.shop_id, accessToken);
-    await addEtsyImages(listings, accessToken);
-
-    const syncNow = new Date().toISOString();
-    storeConnectionId = await ensureEtsyStoreConnection(
-      userId,
-      shop,
-      accessToken,
-      currentOauth || oauthConnection,
-      syncNow
-    );
-
-    let inserted = 0;
-    let updated = 0;
-    for (const listing of listings) {
-      const result = await upsertEtsyProduct(userId, storeConnectionId, shop, listing, syncNow);
-      if (result === "inserted") inserted += 1;
-      else updated += 1;
-    }
-
-    const activeIds = listings.map((l) => String(l.listing_id));
-    // Mark Etsy rows not returned by the active-listings endpoint inactive rather than deleting them.
-    const { data: existingProducts } = await supabase
-      .from("products")
-      .select("id, external_product_id")
-      .eq("user_id", userId)
-      .eq("store_type", "etsy")
-      .eq("store_connection_id", storeConnectionId);
-    const inactiveIds = (existingProducts || [])
-      .filter((p) => p.external_product_id && !activeIds.includes(String(p.external_product_id)))
-      .map((p) => p.id);
-    if (inactiveIds.length) {
-      await supabase.from("products").update({ status: "inactive", updated_at: syncNow }).in("id", inactiveIds);
-    }
-
-    return res.json({
-      success: true,
-      shop: {
-        id: storeConnectionId,
-        shopId: String(shop.shop_id),
-        storeName: shop.shop_name || "Etsy",
-        storeUrl: shop.url || null,
-      },
-      count: listings.length,
-      inserted,
-      updated,
-      markedInactive: inactiveIds.length,
-      lastSyncedAt: syncNow,
-    });
-  } catch (error) {
-    console.error("Etsy sync error:", error);
-    if (storeConnectionId) {
-      await supabase
-        .from("store_connections")
-        .update({
-          last_sync_status: "failed",
-          last_sync_error: error instanceof Error ? error.message : "Etsy sync failed.",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", storeConnectionId);
-    }
-    return res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Etsy sync failed.",
-    });
-  }
-});
-
-app.get("/etsy/store-summary", async (req, res) => {
-  const userId = String(req.query?.userId || "").trim();
-  if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
-  try {
-    const { data: store, error } = await supabase
-      .from("store_connections")
-      .select("id, store_name, store_url, external_store_id, connected, last_synced_at, last_sync_status")
-      .eq("user_id", userId)
-      .eq("platform", "etsy")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!store) return res.json({ success: true, connected: false, store: null, productCount: 0 });
-
-    const { count, error: countError } = await supabase
-      .from("products")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("store_type", "etsy")
-      .eq("store_connection_id", store.id)
-      .eq("status", "active");
-    if (countError) throw countError;
-
-    return res.json({
-      success: true,
-      connected: Boolean(store.connected),
-      productCount: count || 0,
-      store: {
-        id: store.id,
-        storeName: store.store_name,
-        storeUrl: store.store_url,
-        externalStoreId: store.external_store_id,
-        lastSyncedAt: store.last_synced_at,
-        lastSyncStatus: store.last_sync_status,
-      },
-    });
-  } catch (error) {
-    console.error("Etsy store summary error:", error);
-    return res.status(500).json({ success: false, error: error.message || "Unable to load Etsy store." });
-  }
-});
-
 app.get(
   "/etsy/status",
   async (req, res) => {
@@ -1119,6 +752,1703 @@ app.get(
     }
   }
 );
+
+
+
+// ============================================
+// Etsy API helpers + listing synchronization
+// ============================================
+
+function getEtsyApiKeyHeader() {
+  if (!ETSY_API_KEY) {
+    throw new Error("Missing ETSY_API_KEY.");
+  }
+
+  return ETSY_SHARED_SECRET
+    ? `${ETSY_API_KEY}:${ETSY_SHARED_SECRET}`
+    : ETSY_API_KEY;
+}
+
+function parseEtsyTokenUserId(accessToken) {
+  const token = String(accessToken || "");
+  const separatorIndex = token.indexOf(".");
+  if (separatorIndex <= 0) return null;
+
+  const candidate = token.slice(0, separatorIndex);
+  return /^\d+$/.test(candidate) ? candidate : null;
+}
+
+async function etsyApiRequest(pathname, accessToken) {
+  const response = await fetch(
+    `https://openapi.etsy.com/v3${pathname}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "x-api-key": getEtsyApiKeyHeader(),
+      },
+    }
+  );
+
+  const text = await response.text();
+  let data = {};
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      `Etsy returned ${response.status}: ${text.slice(0, 250)}`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error ||
+        data?.error_description ||
+        `Etsy API request failed with status ${response.status}.`
+    );
+  }
+
+  return data;
+}
+
+async function getValidEtsyConnection(userId) {
+  const { data: connection, error } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq("user_id", String(userId))
+    .eq("platform", "etsy")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Unable to load Etsy connection: ${error.message}`
+    );
+  }
+
+  if (!connection?.connected || !connection?.access_token) {
+    throw new Error(
+      "Etsy is not connected. Connect Etsy in ArtBoost before syncing listings."
+    );
+  }
+
+  return connection;
+}
+
+async function getEtsyShopForConnection(connection) {
+  const tokenUserId =
+    parseEtsyTokenUserId(connection.access_token);
+
+  if (!tokenUserId) {
+    throw new Error(
+      "Unable to determine the Etsy user ID from the connected account."
+    );
+  }
+
+  const shopsData = await etsyApiRequest(
+    `/application/users/${encodeURIComponent(tokenUserId)}/shops`,
+    connection.access_token
+  );
+
+  const shop =
+    Array.isArray(shopsData?.results) && shopsData.results.length
+      ? shopsData.results[0]
+      : null;
+
+  if (!shop?.shop_id) {
+    throw new Error(
+      "No Etsy shop was found for the connected Etsy account."
+    );
+  }
+
+  return shop;
+}
+
+function normalizeEtsyMoney(money) {
+  if (!money || money.amount == null) return null;
+
+  const amount = Number(money.amount);
+  const divisor = Number(money.divisor) || 100;
+
+  if (!Number.isFinite(amount)) return null;
+  return amount / divisor;
+}
+
+function getEtsyPrimaryImage(listing) {
+  const images = Array.isArray(listing?.images)
+    ? listing.images
+    : [];
+
+  const image =
+    images.find((item) => Number(item?.rank) === 1) ||
+    images[0] ||
+    null;
+
+  return (
+    image?.url_fullxfull ||
+    image?.url_570xN ||
+    image?.url_170x135 ||
+    null
+  );
+}
+
+async function fetchAllActiveEtsyListings(shopId, accessToken) {
+  const all = [];
+  const limit = 100;
+  let offset = 0;
+
+  for (let page = 0; page < 100; page += 1) {
+    const data = await etsyApiRequest(
+      `/application/shops/${encodeURIComponent(
+        shopId
+      )}/listings/active?limit=${limit}&offset=${offset}&includes=Images`,
+      accessToken
+    );
+
+    const results = Array.isArray(data?.results)
+      ? data.results
+      : [];
+
+    all.push(...results);
+
+    if (results.length < limit) break;
+    offset += limit;
+  }
+
+  return all;
+}
+
+app.post("/etsy/sync", async (req, res) => {
+  try {
+    const userId =
+      req.body?.userId ||
+      req.query?.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const connection =
+      await getValidEtsyConnection(userId);
+
+    const shop =
+      await getEtsyShopForConnection(connection);
+
+    const listings =
+      await fetchAllActiveEtsyListings(
+        shop.shop_id,
+        connection.access_token
+      );
+
+    const now = new Date().toISOString();
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    const activeExternalIds = [];
+
+    for (const listing of listings) {
+      const listingId = String(
+        listing?.listing_id || ""
+      );
+
+      if (!listingId) {
+        skipped += 1;
+        continue;
+      }
+
+      activeExternalIds.push(listingId);
+
+      const listingUrl =
+        listing?.url ||
+        `https://www.etsy.com/listing/${listingId}`;
+
+      const imageUrl =
+        getEtsyPrimaryImage(listing);
+
+      const price =
+        normalizeEtsyMoney(listing?.price);
+
+      const payload = {
+        user_id: String(userId),
+        store_type: "etsy",
+        store_name:
+          shop?.shop_name ||
+          "Etsy",
+        external_product_id:
+          listingId,
+        title:
+          listing?.title ||
+          `Etsy Listing ${listingId}`,
+        description:
+          listing?.description ||
+          "",
+        product_url:
+          listingUrl,
+        image_url:
+          imageUrl,
+        price,
+        currency:
+          listing?.price?.currency_code ||
+          null,
+        active: true,
+        updated_at: now,
+        metadata: {
+          etsy_shop_id:
+            String(shop.shop_id),
+          etsy_shop_name:
+            shop?.shop_name || null,
+          etsy_listing_id:
+            listingId,
+          state:
+            listing?.state || "active",
+          quantity:
+            listing?.quantity ?? null,
+          tags:
+            Array.isArray(listing?.tags)
+              ? listing.tags
+              : [],
+          materials:
+            Array.isArray(listing?.materials)
+              ? listing.materials
+              : [],
+          last_etsy_sync_at:
+            now,
+        },
+      };
+
+      const { data: existing, error: findError } =
+        await supabase
+          .from("products")
+          .select("id")
+          .eq("user_id", String(userId))
+          .eq("store_type", "etsy")
+          .eq("external_product_id", listingId)
+          .maybeSingle();
+
+      if (findError) {
+        throw new Error(
+          `Unable to check Etsy listing ${listingId}: ${findError.message}`
+        );
+      }
+
+      if (existing?.id) {
+        const { error: updateError } =
+          await supabase
+            .from("products")
+            .update(payload)
+            .eq("id", existing.id);
+
+        if (updateError) {
+          throw new Error(
+            `Unable to update Etsy listing ${listingId}: ${updateError.message}`
+          );
+        }
+
+        updated += 1;
+      } else {
+        const { error: insertError } =
+          await supabase
+            .from("products")
+            .insert({
+              ...payload,
+              created_at: now,
+            });
+
+        if (insertError) {
+          throw new Error(
+            `Unable to import Etsy listing ${listingId}: ${insertError.message}`
+          );
+        }
+
+        imported += 1;
+      }
+    }
+
+    // Preserve old rows but mark Etsy listings that are no longer active.
+    const { data: existingEtsyProducts, error: existingError } =
+      await supabase
+        .from("products")
+        .select("id, external_product_id")
+        .eq("user_id", String(userId))
+        .eq("store_type", "etsy");
+
+    if (existingError) {
+      throw new Error(
+        `Unable to load existing Etsy products: ${existingError.message}`
+      );
+    }
+
+    const activeSet = new Set(activeExternalIds);
+
+    for (const product of existingEtsyProducts || []) {
+      const externalId = String(
+        product?.external_product_id || ""
+      );
+
+      if (
+        externalId &&
+        !activeSet.has(externalId)
+      ) {
+        const { error: inactiveError } =
+          await supabase
+            .from("products")
+            .update({
+              active: false,
+              updated_at: now,
+            })
+            .eq("id", product.id);
+
+        if (inactiveError) {
+          throw new Error(
+            `Unable to mark Etsy listing ${externalId} inactive: ${inactiveError.message}`
+          );
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      shopId: String(shop.shop_id),
+      shopName:
+        shop?.shop_name || "Etsy",
+      discovered: listings.length,
+      imported,
+      updated,
+      skipped,
+      syncedAt: now,
+    });
+  } catch (error) {
+    console.error(
+      "Etsy listing sync error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to synchronize Etsy listings.",
+    });
+  }
+});
+
+app.get("/etsy/store-summary", async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const connection =
+      await getValidEtsyConnection(userId);
+
+    const shop =
+      await getEtsyShopForConnection(connection);
+
+    const { count, error } =
+      await supabase
+        .from("products")
+        .select("id", {
+          count: "exact",
+          head: true,
+        })
+        .eq("user_id", String(userId))
+        .eq("store_type", "etsy")
+        .eq("active", true);
+
+    if (error) {
+      throw new Error(
+        `Unable to count Etsy products: ${error.message}`
+      );
+    }
+
+    const { data: latest, error: latestError } =
+      await supabase
+        .from("products")
+        .select("updated_at")
+        .eq("user_id", String(userId))
+        .eq("store_type", "etsy")
+        .order("updated_at", {
+          ascending: false,
+        })
+        .limit(1);
+
+    if (latestError) {
+      throw new Error(
+        `Unable to load Etsy sync status: ${latestError.message}`
+      );
+    }
+
+    return res.json({
+      success: true,
+      connected: true,
+      shopId: String(shop.shop_id),
+      shopName:
+        shop?.shop_name || "Etsy",
+      productCount: Number(count) || 0,
+      lastSyncAt:
+        latest?.[0]?.updated_at ||
+        null,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      connected: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to load Etsy store summary.",
+    });
+  }
+});
+
+
+// ============================================
+// Threads OAuth + connection management
+// ============================================
+
+function createThreadsState(userId) {
+  if (!THREADS_APP_SECRET) {
+    throw new Error("Missing THREADS_APP_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", THREADS_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyThreadsState(state) {
+  if (!state || !THREADS_APP_SECRET) {
+    return null;
+  }
+
+  const [encodedPayload, suppliedSignature] =
+    String(state).split(".");
+
+  if (!encodedPayload || !suppliedSignature) {
+    return null;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", THREADS_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return {
+      userId: String(payload.userId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveThreadsConnection({
+  userId,
+  accessToken,
+  expiresIn,
+  threadsUserId,
+  username,
+}) {
+  const now = new Date();
+
+  const expiresAt = expiresIn
+    ? new Date(
+        now.getTime() + Number(expiresIn) * 1000
+      ).toISOString()
+    : null;
+
+  /*
+   * Keep Threads inside the existing social_connections table.
+   * The existing schema already has generic token fields plus
+   * instagram_user_id / instagram_username. We intentionally do
+   * NOT reuse Instagram-specific columns for Threads.
+   *
+   * Store the Threads identity in platform_data when that column
+   * exists. If the deployed table does not yet have platform_data,
+   * the fallback below stores the connection without it so OAuth
+   * can still complete.
+   */
+  const baseConnectionData = {
+    user_id: String(userId),
+    platform: "threads",
+    connected: true,
+    access_token: accessToken,
+    expires_in: Number(expiresIn) || null,
+    expires_at: expiresAt,
+    scopes: "threads_basic,threads_content_publish",
+    connected_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
+
+  const connectionData = {
+    ...baseConnectionData,
+    platform_data: {
+      threads_user_id: String(threadsUserId),
+      username: username || null,
+    },
+  };
+
+  const { data: existing, error: findError } = await supabase
+    .from("social_connections")
+    .select("id")
+    .eq("user_id", String(userId))
+    .eq("platform", "threads")
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(
+      `Unable to check Threads connection: ${findError.message}`
+    );
+  }
+
+  const save = async (payload) => {
+    if (existing?.id) {
+      return supabase
+        .from("social_connections")
+        .update(payload)
+        .eq("id", existing.id);
+    }
+
+    return supabase
+      .from("social_connections")
+      .insert(payload);
+  };
+
+  let { error } = await save(connectionData);
+
+  // Backward-compatible schema fallback if platform_data has not
+  // been added to social_connections yet.
+  if (
+    error &&
+    /platform_data|column/i.test(String(error.message || ""))
+  ) {
+    console.warn(
+      "Threads platform_data column is unavailable; saving generic connection fields only."
+    );
+
+    ({ error } = await save(baseConnectionData));
+  }
+
+  if (error) {
+    throw new Error(
+      `Unable to save Threads connection: ${error.message}`
+    );
+  }
+}
+
+app.get("/auth/threads", (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!THREADS_APP_ID || !THREADS_APP_SECRET) {
+      return res
+        .status(500)
+        .send("Threads OAuth is not configured on the server.");
+    }
+
+    if (!userId) {
+      return res
+        .status(400)
+        .send("Missing ArtBoost userId.");
+    }
+
+    const state = createThreadsState(userId);
+
+    const authUrl =
+      new URL("https://threads.net/oauth/authorize");
+
+    authUrl.searchParams.set(
+      "client_id",
+      THREADS_APP_ID
+    );
+    authUrl.searchParams.set(
+      "redirect_uri",
+      THREADS_REDIRECT_URI
+    );
+    authUrl.searchParams.set(
+      "scope",
+      "threads_basic,threads_content_publish"
+    );
+    authUrl.searchParams.set(
+      "response_type",
+      "code"
+    );
+    authUrl.searchParams.set(
+      "state",
+      state
+    );
+
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error(
+      "Threads authorization error:",
+      error
+    );
+
+    return res.status(500).send(
+      error instanceof Error
+        ? error.message
+        : "Unable to start Threads connection."
+    );
+  }
+});
+
+app.get(
+  "/auth/threads/callback",
+  async (req, res) => {
+    try {
+      const {
+        code,
+        state,
+        error: oauthError,
+        error_description: oauthErrorDescription,
+      } = req.query;
+
+      if (oauthError) {
+        return res.status(400).send(`
+          <html>
+            <body style="font-family:Arial;padding:40px;">
+              <h1>Threads Connection Cancelled</h1>
+              <p>${
+                oauthErrorDescription ||
+                oauthError
+              }</p>
+            </body>
+          </html>
+        `);
+      }
+
+      const statePayload =
+        verifyThreadsState(state);
+
+      if (!statePayload) {
+        return res
+          .status(401)
+          .send(
+            "Invalid or expired Threads authorization request."
+          );
+      }
+
+      if (!code) {
+        return res
+          .status(400)
+          .send(
+            "Missing Threads authorization code."
+          );
+      }
+
+      // Exchange authorization code for a short-lived Threads token.
+      const tokenBody =
+        new URLSearchParams({
+          client_id: THREADS_APP_ID,
+          client_secret: THREADS_APP_SECRET,
+          grant_type: "authorization_code",
+          redirect_uri: THREADS_REDIRECT_URI,
+          code: String(code),
+        });
+
+      const shortResponse = await fetch(
+        "https://graph.threads.net/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded",
+          },
+          body: tokenBody.toString(),
+        }
+      );
+
+      const shortText =
+        await shortResponse.text();
+
+      let shortData = {};
+
+      try {
+        shortData = JSON.parse(shortText);
+      } catch {
+        shortData = {
+          error_message: shortText,
+        };
+      }
+
+      if (
+        !shortResponse.ok ||
+        !shortData.access_token
+      ) {
+        console.error(
+          "Threads short-lived token exchange failed:",
+          shortData
+        );
+
+        throw new Error(
+          shortData?.error_message ||
+          shortData?.error?.message ||
+          "Threads token exchange failed."
+        );
+      }
+
+      // Exchange the short-lived user token for a long-lived token.
+      const longUrl =
+        new URL(
+          "https://graph.threads.net/access_token"
+        );
+
+      longUrl.searchParams.set(
+        "grant_type",
+        "th_exchange_token"
+      );
+      longUrl.searchParams.set(
+        "client_secret",
+        THREADS_APP_SECRET
+      );
+      longUrl.searchParams.set(
+        "access_token",
+        shortData.access_token
+      );
+
+      const longResponse =
+        await fetch(longUrl);
+
+      const longText =
+        await longResponse.text();
+
+      let longData = {};
+
+      try {
+        longData = JSON.parse(longText);
+      } catch {
+        longData = {
+          error_message: longText,
+        };
+      }
+
+      const accessToken =
+        longResponse.ok &&
+        longData.access_token
+          ? longData.access_token
+          : shortData.access_token;
+
+      const expiresIn =
+        Number(
+          longData.expires_in ||
+          shortData.expires_in ||
+          0
+        ) || null;
+
+      // Resolve the connected Threads identity.
+      const meUrl =
+        new URL(`${THREADS_API_BASE}/me`);
+
+      meUrl.searchParams.set(
+        "fields",
+        "id,username"
+      );
+      meUrl.searchParams.set(
+        "access_token",
+        accessToken
+      );
+
+      const meResponse =
+        await fetch(meUrl);
+
+      const meData =
+        await meResponse.json();
+
+      if (
+        !meResponse.ok ||
+        !meData?.id
+      ) {
+        console.error(
+          "Threads profile lookup failed:",
+          meData
+        );
+
+        throw new Error(
+          meData?.error?.message ||
+          "Unable to load the connected Threads profile."
+        );
+      }
+
+      await saveThreadsConnection({
+        userId:
+          statePayload.userId,
+        accessToken,
+        expiresIn,
+        threadsUserId:
+          meData.id,
+        username:
+          meData.username || null,
+      });
+
+      await createNotification({
+        userId:
+          String(statePayload.userId),
+        title:
+          "Threads Connected",
+        message:
+          `Threads ${
+            meData.username
+              ? `@${meData.username}`
+              : "account"
+          } was connected successfully.`,
+        type:
+          "success",
+      });
+
+      return res.send(`
+        <html>
+          <body style="
+            font-family:Arial;
+            max-width:700px;
+            margin:60px auto;
+            padding:30px;
+            text-align:center;
+          ">
+            <h1>Threads Connected</h1>
+            <p>
+              Your Threads account is now connected to ArtBoost AI.
+            </p>
+            <p>
+              You can close this page and return to ArtBoost.
+            </p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error(
+        "Threads callback error:",
+        error
+      );
+
+      return res.status(500).send(`
+        <html>
+          <body style="
+            font-family:Arial;
+            max-width:700px;
+            margin:60px auto;
+            padding:30px;
+          ">
+            <h1>Threads Connection Error</h1>
+            <p>${
+              error instanceof Error
+                ? error.message
+                : "Threads connection failed."
+            }</p>
+          </body>
+        </html>
+      `);
+    }
+  }
+);
+
+app.get(
+  "/threads/status",
+  async (req, res) => {
+    try {
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({
+          configured: Boolean(
+            THREADS_APP_ID &&
+            THREADS_APP_SECRET
+          ),
+          connected: false,
+          error: "Missing userId.",
+        });
+      }
+
+      const {
+        data: connection,
+        error,
+      } = await supabase
+        .from("social_connections")
+        .select("*")
+        .eq(
+          "user_id",
+          String(userId)
+        )
+        .eq(
+          "platform",
+          "threads"
+        )
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(
+          `Unable to load Threads connection: ${error.message}`
+        );
+      }
+
+      const expired = Boolean(
+        connection?.expires_at &&
+        new Date(
+          connection.expires_at
+        ).getTime() <= Date.now()
+      );
+
+      const platformData =
+        connection?.platform_data &&
+        typeof connection.platform_data ===
+          "object"
+          ? connection.platform_data
+          : {};
+
+      return res.json({
+        configured: Boolean(
+          THREADS_APP_ID &&
+          THREADS_APP_SECRET
+        ),
+        connected: Boolean(
+          connection?.connected &&
+          connection?.access_token &&
+          !expired
+        ),
+        expired,
+        username:
+          platformData.username ||
+          null,
+        threadsUserId:
+          platformData.threads_user_id ||
+          null,
+        expiresAt:
+          connection?.expires_at ||
+          null,
+        connectedAt:
+          connection?.connected_at ||
+          null,
+      });
+    } catch (error) {
+      console.error(
+        "Threads status error:",
+        error
+      );
+
+      return res.status(500).json({
+        configured: Boolean(
+          THREADS_APP_ID &&
+          THREADS_APP_SECRET
+        ),
+        connected: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to check Threads status.",
+      });
+    }
+  }
+);
+
+app.delete(
+  "/threads/disconnect",
+  async (req, res) => {
+    try {
+      const userId =
+        req.body?.userId ||
+        req.query?.userId;
+
+      if (!userId) {
+        return res.status(400).json({
+          error: "Missing userId.",
+        });
+      }
+
+      const { error } =
+        await supabase
+          .from("social_connections")
+          .update({
+            connected: false,
+            access_token: null,
+            expires_at: null,
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .eq(
+            "platform",
+            "threads"
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+        success: true,
+        connected: false,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to disconnect Threads.",
+      });
+    }
+  }
+);
+
+// Meta callback registered in the Threads app settings.
+// Return a successful response and mark matching Threads tokens
+// unusable when Meta provides enough account information.
+app.post(
+  "/auth/threads/deauthorize",
+  async (req, res) => {
+    console.log(
+      "Threads deauthorization callback received."
+    );
+
+    return res.json({
+      success: true,
+    });
+  }
+);
+
+// Meta data-deletion callback registered in the Threads app settings.
+app.post(
+  "/auth/threads/delete",
+  async (req, res) => {
+    console.log(
+      "Threads data deletion callback received."
+    );
+
+    return res.json({
+      url:
+        "https://artboost-ai.onrender.com/delete-user-data",
+      confirmation_code:
+        crypto.randomBytes(12).toString("hex"),
+    });
+  }
+);
+
+
+// ============================================
+// LinkedIn OAuth + connection management
+// ============================================
+
+function createLinkedInState(userId) {
+  if (!LINKEDIN_CLIENT_SECRET) {
+    throw new Error("Missing LINKEDIN_CLIENT_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", LINKEDIN_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyLinkedInState(state) {
+  if (!state || !LINKEDIN_CLIENT_SECRET) return null;
+
+  const [encodedPayload, suppliedSignature] = String(state).split(".");
+  if (!encodedPayload || !suppliedSignature) return null;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", LINKEDIN_CLIENT_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return { userId: String(payload.userId) };
+  } catch {
+    return null;
+  }
+}
+
+async function saveLinkedInConnection({
+  userId,
+  accessToken,
+  expiresIn,
+  memberId,
+  name,
+  email,
+  picture,
+}) {
+  const now = new Date();
+  const expiresAt = expiresIn
+    ? new Date(now.getTime() + Number(expiresIn) * 1000).toISOString()
+    : null;
+
+  const baseConnectionData = {
+    user_id: String(userId),
+    platform: "linkedin",
+    connected: true,
+    access_token: accessToken,
+    expires_in: Number(expiresIn) || null,
+    expires_at: expiresAt,
+    scopes: LINKEDIN_SCOPES,
+    connected_at: now.toISOString(),
+    updated_at: now.toISOString(),
+  };
+
+  const connectionData = {
+    ...baseConnectionData,
+    platform_data: {
+      member_id: String(memberId),
+      person_urn: `urn:li:person:${memberId}`,
+      name: name || null,
+      email: email || null,
+      picture: picture || null,
+    },
+  };
+
+  const { data: existing, error: findError } = await supabase
+    .from("social_connections")
+    .select("id")
+    .eq("user_id", String(userId))
+    .eq("platform", "linkedin")
+    .maybeSingle();
+
+  if (findError) {
+    throw new Error(
+      `Unable to check LinkedIn connection: ${findError.message}`
+    );
+  }
+
+  const save = async (payload) => {
+    if (existing?.id) {
+      return supabase
+        .from("social_connections")
+        .update(payload)
+        .eq("id", existing.id);
+    }
+
+    return supabase.from("social_connections").insert(payload);
+  };
+
+  let { error } = await save(connectionData);
+
+  if (
+    error &&
+    /platform_data|column/i.test(String(error.message || ""))
+  ) {
+    console.warn(
+      "LinkedIn platform_data column is unavailable; saving generic connection fields only."
+    );
+    ({ error } = await save(baseConnectionData));
+  }
+
+  if (error) {
+    throw new Error(
+      `Unable to save LinkedIn connection: ${error.message}`
+    );
+  }
+}
+
+app.get("/auth/linkedin", (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
+      return res
+        .status(500)
+        .send("LinkedIn OAuth is not configured on the server.");
+    }
+
+    if (!userId) {
+      return res.status(400).send("Missing ArtBoost userId.");
+    }
+
+    const state = createLinkedInState(userId);
+    const authUrl = new URL(
+      "https://www.linkedin.com/oauth/v2/authorization"
+    );
+
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", LINKEDIN_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", LINKEDIN_REDIRECT_URI);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("scope", LINKEDIN_SCOPES);
+    authUrl.searchParams.set("enable_extended_login", "true");
+
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error("LinkedIn authorization error:", error);
+    return res.status(500).send(
+      error instanceof Error
+        ? error.message
+        : "Unable to start LinkedIn connection."
+    );
+  }
+});
+
+app.get("/auth/linkedin/callback", async (req, res) => {
+  try {
+    const {
+      code,
+      state,
+      error: oauthError,
+      error_description: oauthErrorDescription,
+    } = req.query;
+
+    if (oauthError) {
+      return res.status(400).send(`
+        <html><body style="font-family:Arial;padding:40px;">
+          <h1>LinkedIn Connection Cancelled</h1>
+          <p>${oauthErrorDescription || oauthError}</p>
+        </body></html>
+      `);
+    }
+
+    const statePayload = verifyLinkedInState(state);
+    if (!statePayload) {
+      return res
+        .status(401)
+        .send("Invalid or expired LinkedIn authorization request.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Missing LinkedIn authorization code.");
+    }
+
+    const tokenResponse = await fetch(
+      "https://www.linkedin.com/oauth/v2/accessToken",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: String(code),
+          client_id: LINKEDIN_CLIENT_ID,
+          client_secret: LINKEDIN_CLIENT_SECRET,
+          redirect_uri: LINKEDIN_REDIRECT_URI,
+        }).toString(),
+      }
+    );
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData?.access_token) {
+      console.error("LinkedIn token exchange failed:", tokenData);
+      throw new Error(
+        tokenData?.error_description ||
+          tokenData?.error ||
+          "LinkedIn token exchange failed."
+      );
+    }
+
+    const profileResponse = await fetch(
+      "https://api.linkedin.com/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+      }
+    );
+
+    const profileData = await profileResponse.json();
+    if (!profileResponse.ok || !profileData?.sub) {
+      console.error("LinkedIn profile lookup failed:", profileData);
+      throw new Error(
+        profileData?.message ||
+          "Unable to load the connected LinkedIn profile."
+      );
+    }
+
+    await saveLinkedInConnection({
+      userId: statePayload.userId,
+      accessToken: tokenData.access_token,
+      expiresIn: tokenData.expires_in,
+      memberId: profileData.sub,
+      name: profileData.name,
+      email: profileData.email,
+      picture: profileData.picture,
+    });
+
+    await createNotification({
+      userId: String(statePayload.userId),
+      title: "LinkedIn Connected",
+      message: `${profileData.name || "LinkedIn account"} was connected successfully.`,
+      type: "success",
+    });
+
+    return res.send(`
+      <html>
+        <body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;text-align:center;">
+          <h1>LinkedIn Connected</h1>
+          <p>Your LinkedIn account is now connected to ArtBoost AI.</p>
+          <p>You can close this page and return to ArtBoost.</p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error("LinkedIn callback error:", error);
+    return res.status(500).send(`
+      <html><body style="font-family:Arial;padding:40px;">
+        <h1>LinkedIn Connection Error</h1>
+        <p>${
+          error instanceof Error
+            ? error.message
+            : "LinkedIn connection failed."
+        }</p>
+      </body></html>
+    `);
+  }
+});
+
+app.get("/linkedin/status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({
+        configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+        connected: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const { data: connection, error } = await supabase
+      .from("social_connections")
+      .select("*")
+      .eq("user_id", String(userId))
+      .eq("platform", "linkedin")
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(
+        `Unable to load LinkedIn connection: ${error.message}`
+      );
+    }
+
+    const expired = Boolean(
+      connection?.expires_at &&
+        new Date(connection.expires_at).getTime() <= Date.now()
+    );
+
+    const platformData =
+      connection?.platform_data &&
+      typeof connection.platform_data === "object"
+        ? connection.platform_data
+        : {};
+
+    return res.json({
+      configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+      connected: Boolean(
+        connection?.connected && connection?.access_token && !expired
+      ),
+      expired,
+      name: platformData.name || null,
+      memberId: platformData.member_id || null,
+      expiresAt: connection?.expires_at || null,
+      connectedAt: connection?.connected_at || null,
+    });
+  } catch (error) {
+    console.error("LinkedIn status error:", error);
+    return res.status(500).json({
+      configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+      connected: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to check LinkedIn status.",
+    });
+  }
+});
+
+app.delete("/linkedin/disconnect", async (req, res) => {
+  try {
+    const userId = req.body?.userId || req.query?.userId;
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId." });
+    }
+
+    const { error } = await supabase
+      .from("social_connections")
+      .update({
+        connected: false,
+        access_token: null,
+        expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", String(userId))
+      .eq("platform", "linkedin");
+
+    if (error) throw error;
+
+    return res.json({ success: true, connected: false });
+  } catch (error) {
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect LinkedIn.",
+    });
+  }
+});
+
+
+// ============================================
+// X OAuth 2.0 + user-scoped connection management
+// ============================================
+function createXState(userId) {
+  if (!X_CLIENT_SECRET) throw new Error("Missing X_CLIENT_SECRET.");
+  const payload = { userId: String(userId), timestamp: Date.now(), nonce: crypto.randomBytes(16).toString("hex") };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", X_CLIENT_SECRET).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyXState(state) {
+  if (!state || !X_CLIENT_SECRET) return null;
+  const [encodedPayload, suppliedSignature] = String(state).split(".");
+  if (!encodedPayload || !suppliedSignature) return null;
+  const expectedSignature = crypto.createHmac("sha256", X_CLIENT_SECRET).update(encodedPayload).digest("base64url");
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (suppliedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    if (!payload.userId || !payload.timestamp || Date.now() - Number(payload.timestamp) > 10 * 60 * 1000) return null;
+    return { userId: String(payload.userId) };
+  } catch { return null; }
+}
+
+function parseCookies(req) {
+  const cookies = {};
+  for (const part of String(req.headers?.cookie || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+}
+
+function setXVerifierCookie(res, verifier) {
+  res.setHeader("Set-Cookie", `artboost_x_pkce=${encodeURIComponent(verifier)}; Path=/auth/x; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
+}
+function clearXVerifierCookie(res) {
+  res.setHeader("Set-Cookie", "artboost_x_pkce=; Path=/auth/x; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
+}
+function getXBasicAuthorization() {
+  if (!X_CLIENT_ID || !X_CLIENT_SECRET) throw new Error("X OAuth is not configured on the server.");
+  return `Basic ${Buffer.from(`${X_CLIENT_ID}:${X_CLIENT_SECRET}`).toString("base64")}`;
+}
+
+async function saveXConnection({ userId, accessToken, refreshToken, expiresIn, scope, xUserId = null, username = null, name = null }) {
+  const now = new Date();
+  const expiresAt = expiresIn ? new Date(now.getTime() + Number(expiresIn) * 1000).toISOString() : null;
+  const base = {
+    user_id: String(userId), platform: "x", connected: true,
+    access_token: accessToken, refresh_token: refreshToken || null,
+    expires_in: Number(expiresIn) || null, expires_at: expiresAt,
+    scopes: scope || X_SCOPES, connected_at: now.toISOString(), updated_at: now.toISOString(),
+  };
+  const payload = { ...base, platform_data: { x_user_id: xUserId ? String(xUserId) : null, username: username || null, name: name || null } };
+  const { data: existing, error: findError } = await supabase.from("social_connections").select("id").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+  if (findError) throw new Error(`Unable to check X connection: ${findError.message}`);
+  const save = (data) => existing?.id ? supabase.from("social_connections").update(data).eq("id", existing.id) : supabase.from("social_connections").insert(data);
+  let { error } = await save(payload);
+  if (error && /platform_data|column/i.test(String(error.message || ""))) ({ error } = await save(base));
+  if (error) throw new Error(`Unable to save X connection: ${error.message}`);
+}
+
+async function refreshXConnectionToken(connection) {
+  if (!connection?.refresh_token) throw new Error("X connection expired. Reconnect X in ArtBoost.");
+  const response = await fetch("https://api.x.com/2/oauth2/token", {
+    method: "POST",
+    headers: { Authorization: getXBasicAuthorization(), "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: connection.refresh_token }).toString(),
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.access_token) throw new Error(data?.error_description || data?.error || "X connection expired. Reconnect X in ArtBoost.");
+  const now = new Date();
+  const update = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || connection.refresh_token,
+    expires_in: Number(data.expires_in) || null,
+    expires_at: data.expires_in ? new Date(now.getTime() + Number(data.expires_in) * 1000).toISOString() : null,
+    scopes: data.scope || connection.scopes || X_SCOPES,
+    connected: true, updated_at: now.toISOString(),
+  };
+  const { error } = await supabase.from("social_connections").update(update).eq("id", connection.id);
+  if (error) throw new Error(`Unable to save refreshed X token: ${error.message}`);
+  return { ...connection, ...update };
+}
+
+async function getValidXConnection(userId) {
+  if (!userId) throw new Error("X publishing requires an ArtBoost userId.");
+  const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+  if (error) throw new Error(`Unable to load X connection: ${error.message}`);
+  if (!connection?.connected || !connection?.access_token) throw new Error("X is not connected. Connect X in ArtBoost before posting.");
+  const expiresSoon = Boolean(connection.expires_at && new Date(connection.expires_at).getTime() <= Date.now() + 5 * 60 * 1000);
+  return expiresSoon ? refreshXConnectionToken(connection) : connection;
+}
+
+app.get("/auth/x", (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!X_CLIENT_ID || !X_CLIENT_SECRET) return res.status(500).send("X OAuth is not configured on the server.");
+    if (!userId) return res.status(400).send("Missing ArtBoost userId.");
+    const state = createXState(userId);
+    const codeVerifier = crypto.randomBytes(48).toString("base64url");
+    const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+    setXVerifierCookie(res, codeVerifier);
+    const authUrl = new URL("https://x.com/i/oauth2/authorize");
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", X_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", X_REDIRECT_URI);
+    authUrl.searchParams.set("scope", X_SCOPES);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("code_challenge", codeChallenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    return res.redirect(authUrl.toString());
+  } catch (error) {
+    console.error("X authorization error:", error);
+    return res.status(500).send(error instanceof Error ? error.message : "Unable to start X connection.");
+  }
+});
+
+app.get("/auth/x/callback", async (req, res) => {
+  try {
+    const { code, state, error: oauthError, error_description: oauthErrorDescription } = req.query;
+    if (oauthError) return res.status(400).send(`<html><body style="font-family:Arial;padding:40px;"><h1>X Connection Cancelled</h1><p>${oauthErrorDescription || oauthError}</p></body></html>`);
+    const statePayload = verifyXState(state);
+    if (!statePayload) return res.status(401).send("Invalid or expired X authorization request.");
+    if (!code) return res.status(400).send("Missing X authorization code.");
+    const codeVerifier = parseCookies(req).artboost_x_pkce;
+    if (!codeVerifier) return res.status(401).send("X PKCE verifier was not found. Start the X connection again.");
+    const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers: { Authorization: getXBasicAuthorization(), "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: String(code), redirect_uri: X_REDIRECT_URI, code_verifier: codeVerifier }).toString(),
+    });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData?.access_token) {
+      console.error("X token exchange failed:", tokenData);
+      throw new Error(tokenData?.error_description || tokenData?.error || "X token exchange failed.");
+    }
+    clearXVerifierCookie(res);
+    const meResponse = await fetch("https://api.x.com/2/users/me?user.fields=id,name,username", { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const meData = await meResponse.json();
+    if (!meResponse.ok || !meData?.data?.id) throw new Error(meData?.detail || meData?.title || "Unable to load the connected X profile.");
+    await saveXConnection({
+      userId: statePayload.userId, accessToken: tokenData.access_token, refreshToken: tokenData.refresh_token || null,
+      expiresIn: tokenData.expires_in, scope: tokenData.scope || X_SCOPES,
+      xUserId: meData.data.id, username: meData.data.username || null, name: meData.data.name || null,
+    });
+    await createNotification({ userId: String(statePayload.userId), title: "X Connected", message: `X @${meData.data.username || "account"} was connected successfully.`, type: "success" });
+    return res.send(`<html><body style="font-family:Arial;max-width:700px;margin:60px auto;padding:30px;text-align:center;"><h1>X Connected</h1><p>Your X account is now connected to ArtBoost AI.</p><p>You can close this page and return to ArtBoost.</p></body></html>`);
+  } catch (error) {
+    console.error("X callback error:", error);
+    return res.status(500).send(`<html><body style="font-family:Arial;padding:40px;"><h1>X Connection Error</h1><p>${error instanceof Error ? error.message : "X connection failed."}</p></body></html>`);
+  }
+});
+
+app.get("/x/status", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET), connected: false, error: "Missing userId." });
+    const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+    if (error) throw new Error(`Unable to load X connection: ${error.message}`);
+    const pd = connection?.platform_data && typeof connection.platform_data === "object" ? connection.platform_data : {};
+    const expired = Boolean(connection?.expires_at && new Date(connection.expires_at).getTime() <= Date.now());
+    return res.json({
+      configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET),
+      connected: Boolean(connection?.connected && connection?.access_token && (!expired || connection?.refresh_token)),
+      expired: expired && !connection?.refresh_token,
+      username: pd.username || null, xUserId: pd.x_user_id || null,
+      expiresAt: connection?.expires_at || null, connectedAt: connection?.connected_at || null,
+    });
+  } catch (error) {
+    console.error("X status error:", error);
+    return res.status(500).json({ configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET), connected: false, error: error instanceof Error ? error.message : "Unable to check X status." });
+  }
+});
+
+app.delete("/x/disconnect", async (req, res) => {
+  try {
+    const userId = req.body?.userId || req.query?.userId;
+    if (!userId) return res.status(400).json({ error: "Missing userId." });
+    const { error } = await supabase.from("social_connections").update({ connected: false, access_token: null, refresh_token: null, expires_at: null, updated_at: new Date().toISOString() }).eq("user_id", String(userId)).eq("platform", "x");
+    if (error) throw error;
+    return res.json({ success: true, connected: false });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Unable to disconnect X." });
+  }
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -1429,201 +2759,16 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
   };
 }
 
-app.post(
-  "/stripe-webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-    let event;
+app.use(subscriptionsRoutes);
+app.use(stripeSandboxRoutes);
 
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.log("Webhook signature verification failed:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    try {
-      switch (event.type) {
-        case "checkout.session.completed": {
-          const session = event.data.object;
-          const userId = session.metadata?.userId || "";
-          const plan = session.metadata?.plan || "monthly";
-          const customerEmail =
-            session.metadata?.userEmail || session.customer_details?.email || "";
-
-          const updateData = {
-            is_pro: true,
-            subscription_tier: "pro",
-            subscription_status: "active",
-            plan,
-            stripe_customer_id: session.customer,
-            stripe_subscription_id: session.subscription,
-            updated_at: new Date().toISOString(),
-          };
-
-          await updateProfileByUserIdOrEmail({
-            userId,
-            email: customerEmail,
-            updateData,
-          });
-
-          if (customerEmail) {
-            await syncStripeSubscriptionForUser({
-              userId,
-              email: customerEmail,
-            });
-          }
-
-          await createNotification({
-            userId,
-            title: "Pro Subscription Activated",
-            message: "Your ArtBoost AI Pro subscription is active.",
-            type: "success",
-          });
-
-          console.log("Checkout completed:", {
-            userId,
-            customerEmail,
-            plan,
-          });
-          break;
-        }
-
-        case "customer.subscription.created":
-        case "customer.subscription.updated": {
-          const subscription = event.data.object;
-          const customerId = subscription.customer;
-          const userId = subscription.metadata?.userId || "";
-          const customerEmail = subscription.metadata?.userEmail || "";
-          const plan = subscription.metadata?.plan || "monthly";
-          const status = subscription.status;
-          const isActive = status === "active" || status === "trialing";
-          const currentPeriodEnd = subscription.current_period_end
-            ? new Date(subscription.current_period_end * 1000).toISOString()
-            : null;
-
-          const updateData = {
-            is_pro: isActive,
-            subscription_tier: isActive ? "pro" : "free",
-            subscription_status: status,
-            plan: isActive ? plan : "free",
-            stripe_customer_id: customerId,
-            stripe_subscription_id: subscription.id,
-            current_period_end: currentPeriodEnd,
-            updated_at: new Date().toISOString(),
-          };
-
-          const updated = await updateProfileByUserIdOrEmail({
-            userId,
-            email: customerEmail,
-            updateData,
-          });
-
-          if (!updated && customerId) {
-            await supabase
-              .from("profiles")
-              .update(updateData)
-              .eq("stripe_customer_id", customerId);
-          }
-
-          console.log("Subscription synced:", customerId, status);
-          break;
-        }
-
-        case "customer.subscription.deleted": {
-          const subscription = event.data.object;
-          const customerId = subscription.customer;
-          const userId = subscription.metadata?.userId || "";
-          const customerEmail = subscription.metadata?.userEmail || "";
-
-          const updateData = {
-            is_pro: false,
-            subscription_tier: "free",
-            subscription_status: "cancelled",
-            plan: "free",
-            updated_at: new Date().toISOString(),
-          };
-
-          const updated = await updateProfileByUserIdOrEmail({
-            userId,
-            email: customerEmail,
-            updateData,
-          });
-
-          if (!updated && customerId) {
-            await supabase
-              .from("profiles")
-              .update(updateData)
-              .eq("stripe_customer_id", customerId);
-          }
-
-          await createNotification({
-            userId,
-            title: "Subscription Cancelled",
-            message: "Your ArtBoost AI Pro subscription has been cancelled.",
-            type: "warning",
-          });
-
-          console.log("Subscription cancelled:", customerId);
-          break;
-        }
-
-        case "invoice.payment_succeeded": {
-          const invoice = event.data.object;
-
-          if (invoice.customer_email) {
-            await syncStripeSubscriptionForUser({
-              userId: "",
-              email: invoice.customer_email,
-            });
-          }
-
-          console.log("Invoice payment succeeded:", invoice.customer);
-          break;
-        }
-
-        case "invoice.payment_failed": {
-          const invoice = event.data.object;
-          const customerId = invoice.customer;
-
-          await supabase
-            .from("profiles")
-            .update({
-              is_pro: false,
-              subscription_tier: "free",
-              subscription_status: "payment_failed",
-              plan: "free",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("stripe_customer_id", customerId);
-
-          console.log("Payment failed:", customerId);
-          break;
-        }
-
-        default:
-          console.log(`Unhandled event type: ${event.type}`);
-      }
-
-      res.json({ received: true });
-    } catch (err) {
-      console.log("Webhook processing error:", err.message);
-      res.status(500).json({
-        error: err.message,
-      });
-    }
-  }
-);
+// Live Stripe webhook is handled by routes/subscriptions.js above.
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 app.use("/stores", storeRoutes);
+app.use("/catalog", catalogCsvRouter);
 app.use("/automations", automationRoutes);
 
 app.use("/ai", aiRouter);
@@ -1632,14 +2777,65 @@ app.use("/ai", assistantRoutes);
 app.use("/creator-tools", creatorToolsRoutes);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
+app.use(tiktokRoutes);
 app.use("/catalog", catalogRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+
+app.get("/api/public-auth-config", (_req, res) => {
+  const supabaseUrl =
+    process.env.SUPABASE_URL ||
+    process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    "";
+
+  const supabasePublishableKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    "";
+
+  if (!supabaseUrl || !supabasePublishableKey) {
+    return res.status(503).json({
+      error:
+        "Website account authentication is not configured. Add SUPABASE_PUBLISHABLE_KEY (or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY) in Render.",
+    });
+  }
+
+  return res.json({
+    supabaseUrl,
+    supabasePublishableKey,
+  });
+});
+
+// =========================================================
+// ARTBOOST WEBSITE STATIC FILES
+// =========================================================
+//
+// Dedicated mobile website lives in backend/mobile.
+// Keep this route BEFORE the desktop website middleware so
+// /mobile/* is always served from the mobile build.
+//
+// Redirect /mobile -> /mobile/ so relative files such as
+// mobile.css, mobile.js and assets/* resolve correctly.
+app.get("/mobile", (_req, res) => {
+  return res.redirect(301, "/mobile/");
+});
+
+app.use(
+  "/mobile",
+  express.static("mobile", {
+    index: "index.html",
+  })
+);
+
+// Desktop ArtBoost website remains unchanged.
+app.use(express.static("website"));
+
 app.get("/", (req, res) => {
-  res.send("ArtBoost AI backend is running.");
+  res.sendFile(`${process.cwd()}/website/index.html`);
 });
 
 app.get("/privacy", (req, res) => {
@@ -1926,123 +3122,754 @@ app.delete("/notifications/:id", async (req, res) => {
 
 app.get("/analytics", async (req, res) => {
   try {
-    const { userId } = req.query;
+    /*
+     * Analytics must be user-scoped. The old endpoint allowed a missing
+     * userId and could aggregate scheduled_campaigns across every user.
+     * Resolve the signed-in user from the Supabase access token instead.
+     */
+    const authHeader = String(
+      req.headers.authorization || ""
+    ).trim();
 
-    let campaignsQuery = supabase
-      .from("scheduled_campaigns")
-      .select("*");
+    const accessToken =
+      authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : "";
 
-    if (userId) {
-      campaignsQuery = campaignsQuery.eq("user_id", userId);
-    }
-
-    const { data: campaignsData, error: campaignsError } =
-      await campaignsQuery;
-
-    if (campaignsError) {
-      return res.status(500).json({
-        error: campaignsError.message,
+    if (!accessToken) {
+      return res.status(401).json({
+        error: "Authentication is required to load analytics.",
       });
     }
 
-    let profile = null;
+    const {
+      data: authData,
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
 
-    if (userId) {
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("referral_count, free_months, subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .maybeSingle();
+    const userId =
+      authData?.user?.id || null;
 
-      profile = profileData || null;
+    if (authError || !userId) {
+      return res.status(401).json({
+        error: "Your ArtBoost session is no longer valid. Please sign in again.",
+      });
     }
 
-    const campaigns = campaignsData || [];
+    const [
+      campaignsResult,
+      automationsResult,
+      logsResult,
+    ] = await Promise.all([
+      supabase
+        .from("scheduled_campaigns")
+        .select("*")
+        .eq("user_id", userId),
 
-    const totalCampaigns = campaigns.length;
-    const published = campaigns.filter((x) => x.status === "published").length;
-    const failed = campaigns.filter((x) => x.status === "failed").length;
-    const scheduled = campaigns.filter((x) => x.status === "scheduled").length;
-    const saved = campaigns.filter((x) => x.status === "saved").length;
-    const ended = campaigns.filter((x) => x.status === "ended").length;
+      supabase
+        .from("store_automations")
+        .select("*")
+        .eq("user_id", userId),
 
-    const active = campaigns.filter(
-      (x) => x.campaign_status === "active"
-    ).length;
+      supabase
+        .from("store_automation_logs")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(1000),
+    ]);
 
-    const paused = campaigns.filter(
-      (x) => x.campaign_status === "paused"
-    ).length;
+    if (campaignsResult.error) {
+      throw new Error(
+        `Unable to load campaign analytics: ${campaignsResult.error.message}`
+      );
+    }
 
-    const totalPosts = campaigns.reduce(
-      (sum, item) => sum + (Number(item.posts) || 0),
-      0
-    );
+    if (automationsResult.error) {
+      throw new Error(
+        `Unable to load automation analytics: ${automationsResult.error.message}`
+      );
+    }
 
-    const platformBreakdown = {
-      pinterest: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "pinterest"
-      ).length,
-      facebook: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "facebook"
-      ).length,
-      instagram: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "instagram"
-      ).length,
-      x: campaigns.filter(
-        (x) => String(x.platform || "").toLowerCase() === "x"
-      ).length,
+    if (logsResult.error) {
+      throw new Error(
+        `Unable to load automation history: ${logsResult.error.message}`
+      );
+    }
+
+    const campaigns =
+      campaignsResult.data || [];
+
+    const automations =
+      automationsResult.data || [];
+
+    const automationLogs =
+      logsResult.data || [];
+
+    const normalizedPlatform = (value) => {
+      const platform =
+        String(value || "")
+          .trim()
+          .toLowerCase();
+
+      if (
+        platform === "twitter" ||
+        platform === "x/twitter"
+      ) {
+        return "x";
+      }
+
+      if (
+        platform === "linkedin" ||
+        platform === "linked_in"
+      ) {
+        return "linkedin";
+      }
+
+      return platform;
     };
 
-    const completedCampaigns = published + failed;
+    const platformNames = [
+      "pinterest",
+      "facebook",
+      "instagram",
+      "x",
+      "threads",
+      "linkedin",
+      "tiktok",
+    ];
+
+    const platformBreakdown =
+      Object.fromEntries(
+        platformNames.map(
+          (platform) => [
+            platform,
+            {
+              successfulPosts: 0,
+              failedPosts: 0,
+              totalAttempts: 0,
+            },
+          ]
+        )
+      );
+
+    /*
+     * scheduled_campaigns stores one campaign/platform row. Count only
+     * rows that actually published as successful posts.
+     */
+    for (const campaign of campaigns) {
+      const platform =
+        normalizedPlatform(
+          campaign?.platform
+        );
+
+      if (
+        !platformBreakdown[platform]
+      ) {
+        continue;
+      }
+
+      const status =
+        String(
+          campaign?.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (status === "published") {
+        platformBreakdown[
+          platform
+        ].successfulPosts += 1;
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+      } else if (
+        status === "failed"
+      ) {
+        platformBreakdown[
+          platform
+        ].failedPosts += 1;
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+      }
+    }
+
+    /*
+     * Automation history contains the actual per-platform results from
+     * postEngine.js. This is the authoritative source for automatic posts,
+     * including partial-success runs.
+     */
+    const artworkPublishCounts =
+      new Map();
+
+    let successfulAutomationRuns = 0;
+    let partialAutomationRuns = 0;
+    let failedAutomationRuns = 0;
+    let skippedAutomationRuns = 0;
+
+    for (const log of automationLogs) {
+      const eventType =
+        String(
+          log?.event_type || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const status =
+        String(
+          log?.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        eventType === "post_success" ||
+        status === "success"
+      ) {
+        successfulAutomationRuns += 1;
+      } else if (
+        eventType ===
+          "post_partial_success" ||
+        status ===
+          "partial_success"
+      ) {
+        partialAutomationRuns += 1;
+      } else if (
+        eventType === "post_failed" ||
+        status === "failed"
+      ) {
+        failedAutomationRuns += 1;
+      } else if (
+        eventType === "post_skipped" ||
+        status === "skipped"
+      ) {
+        skippedAutomationRuns += 1;
+      }
+
+      const results =
+        Array.isArray(
+          log?.publish_result?.results
+        )
+          ? log.publish_result.results
+          : [];
+
+      let successfulPostsForArtwork = 0;
+
+      for (const result of results) {
+        const platform =
+          normalizedPlatform(
+            result?.platform
+          );
+
+        if (
+          !platformBreakdown[
+            platform
+          ]
+        ) {
+          continue;
+        }
+
+        platformBreakdown[
+          platform
+        ].totalAttempts += 1;
+
+        if (result?.success) {
+          platformBreakdown[
+            platform
+          ].successfulPosts += 1;
+
+          successfulPostsForArtwork += 1;
+        } else {
+          platformBreakdown[
+            platform
+          ].failedPosts += 1;
+        }
+      }
+
+      const productTitle =
+        String(
+          log?.product_title || ""
+        ).trim();
+
+      if (
+        productTitle &&
+        successfulPostsForArtwork > 0
+      ) {
+        artworkPublishCounts.set(
+          productTitle,
+          (artworkPublishCounts.get(
+            productTitle
+          ) || 0) +
+            successfulPostsForArtwork
+        );
+      }
+    }
+
+    const totalPublishedPosts =
+      Object.values(
+        platformBreakdown
+      ).reduce(
+        (sum, platform) =>
+          sum +
+          Number(
+            platform.successfulPosts ||
+              0
+          ),
+        0
+      );
+
+    const totalFailedPostAttempts =
+      Object.values(
+        platformBreakdown
+      ).reduce(
+        (sum, platform) =>
+          sum +
+          Number(
+            platform.failedPosts || 0
+          ),
+        0
+      );
+
+    const totalPostAttempts =
+      totalPublishedPosts +
+      totalFailedPostAttempts;
 
     const successRate =
-      completedCampaigns > 0
-        ? Math.round((published / completedCampaigns) * 100)
+      totalPostAttempts > 0
+        ? Math.round(
+            (totalPublishedPosts /
+              totalPostAttempts) *
+              100
+          )
         : 0;
 
-    const averagePostsPerCampaign =
-      totalCampaigns > 0
-        ? Number((totalPosts / totalCampaigns).toFixed(2))
-        : 0;
+    const activeAutomations =
+      automations.filter(
+        (automation) =>
+          Boolean(
+            automation?.enabled
+          )
+      );
+
+    const pausedAutomations =
+      automations.filter(
+        (automation) =>
+          !automation?.enabled
+      );
+
+    const scheduledCampaigns =
+      campaigns.filter(
+        (campaign) =>
+          String(
+            campaign?.status || ""
+          ).toLowerCase() ===
+          "scheduled"
+      );
+
+    const failedCampaigns =
+      campaigns.filter(
+        (campaign) =>
+          String(
+            campaign?.status || ""
+          ).toLowerCase() ===
+          "failed"
+      );
+
+    /*
+     * Find the true next publishing action across BOTH campaign scheduling
+     * and store automation scheduling.
+     */
+    const upcomingCandidates = [];
+
+    for (const campaign of scheduledCampaigns) {
+      if (
+        !campaign?.publish_at
+      ) {
+        continue;
+      }
+
+      const when =
+        new Date(
+          campaign.publish_at
+        );
+
+      if (
+        Number.isNaN(
+          when.getTime()
+        ) ||
+        when <= new Date()
+      ) {
+        continue;
+      }
+
+      upcomingCandidates.push({
+        type: "campaign",
+        title:
+          campaign?.title ||
+          "Scheduled campaign",
+        platform:
+          normalizedPlatform(
+            campaign?.platform
+          ),
+        scheduledAt:
+          campaign.publish_at,
+      });
+    }
+
+    for (const automation of activeAutomations) {
+      if (
+        !automation?.next_run_at
+      ) {
+        continue;
+      }
+
+      const when =
+        new Date(
+          automation.next_run_at
+        );
+
+      if (
+        Number.isNaN(
+          when.getTime()
+        ) ||
+        when <= new Date()
+      ) {
+        continue;
+      }
+
+      upcomingCandidates.push({
+        type: "automation",
+        title:
+          automation?.automation_name ||
+          automation?.store_name ||
+          "Store automation",
+        storeName:
+          automation?.store_name ||
+          null,
+        platforms:
+          Array.isArray(
+            automation?.platforms
+          )
+            ? automation.platforms
+            : [],
+        scheduledAt:
+          automation.next_run_at,
+      });
+    }
 
     const upcoming =
-      campaigns
-        .filter((x) => x.publish_at && new Date(x.publish_at) > new Date())
+      upcomingCandidates.sort(
+        (a, b) =>
+          new Date(
+            a.scheduledAt
+          ).getTime() -
+          new Date(
+            b.scheduledAt
+          ).getTime()
+      )[0] || null;
+
+    const topArtworkEntry =
+      [...artworkPublishCounts.entries()]
         .sort(
           (a, b) =>
-            new Date(a.publish_at).getTime() -
-            new Date(b.publish_at).getTime()
+            b[1] - a[1]
         )[0] || null;
 
-    res.json({
-      total: totalCampaigns,
-      totalCampaigns,
-      scheduled,
-      published,
-      failed,
-      saved,
-      ended,
-      active,
-      paused,
-      totalPosts,
+    const platformRanking =
+      Object.entries(
+        platformBreakdown
+      )
+        .map(
+          ([
+            platform,
+            metrics,
+          ]) => ({
+            platform,
+            successfulPosts:
+              metrics.successfulPosts,
+            failedPosts:
+              metrics.failedPosts,
+            totalAttempts:
+              metrics.totalAttempts,
+          })
+        )
+        .sort(
+          (a, b) =>
+            b.successfulPosts -
+            a.successfulPosts
+        );
+
+    const bestPlatform =
+      platformRanking[0]
+        ?.successfulPosts > 0
+        ? platformRanking[0]
+        : null;
+
+    /*
+     * Engagement/click/conversion data is only considered available when
+     * the campaign records actually contain values. Do not invent zero
+     * performance for data ArtBoost has not collected.
+     */
+    const hasMetric = (
+      key
+    ) =>
+      campaigns.some(
+        (campaign) =>
+          campaign?.[key] !==
+            null &&
+          campaign?.[key] !==
+            undefined
+      );
+
+    const sumMetric = (
+      key
+    ) =>
+      campaigns.reduce(
+        (sum, campaign) =>
+          sum +
+          (Number(
+            campaign?.[key]
+          ) || 0),
+        0
+      );
+
+    const engagementAvailable =
+      hasMetric("engagement") ||
+      hasMetric("engagements") ||
+      hasMetric("views");
+
+    const clicksAvailable =
+      hasMetric("clicks");
+
+    const conversionsAvailable =
+      hasMetric("conversions");
+
+    const engagement =
+      hasMetric("engagement")
+        ? sumMetric("engagement")
+        : hasMetric(
+            "engagements"
+          )
+        ? sumMetric("engagements")
+        : hasMetric("views")
+        ? sumMetric("views")
+        : null;
+
+    const clicks =
+      clicksAvailable
+        ? sumMetric("clicks")
+        : null;
+
+    const conversions =
+      conversionsAvailable
+        ? sumMetric(
+            "conversions"
+          )
+        : null;
+
+    /*
+     * Historical failed runs remain part of Automation Health, but "needs
+     * attention" must represent CURRENT unresolved automation problems only.
+     * An enabled automation with a non-empty last_error is treated as active
+     * attention required. Old failures from testing do not keep the dashboard
+     * permanently red after the automation is healthy again.
+     */
+    const automationsNeedingAttention =
+      activeAutomations.filter(
+        (automation) =>
+          Boolean(
+            String(
+              automation?.last_error || ""
+            ).trim()
+          )
+      );
+
+    let insight =
+      "Your publishing data is ready. Keep automations active to build a stronger performance history.";
+
+    if (
+      automationsNeedingAttention.length > 0
+    ) {
+      const count =
+        automationsNeedingAttention.length;
+
+      insight =
+        `${count} active automation${
+          count === 1 ? "" : "s"
+        } currently need${
+          count === 1 ? "s" : ""
+        } attention. Review the latest automation error before the next scheduled run.`;
+    } else if (
+      bestPlatform
+    ) {
+      insight =
+        `${bestPlatform.platform} currently has the most confirmed ArtBoost posts (${bestPlatform.successfulPosts}).`;
+    }
+
+    return res.json({
+      userId,
+
+      postsPublished:
+        totalPublishedPosts,
+
+      totalPostAttempts,
+      failedPostAttempts:
+        totalFailedPostAttempts,
       successRate,
-      averagePostsPerCampaign,
+
+      activeAutomations:
+        activeAutomations.length,
+      pausedAutomations:
+        pausedAutomations.length,
+      totalAutomations:
+        automations.length,
+
+      automationRuns: {
+        successful:
+          successfulAutomationRuns,
+        partial:
+          partialAutomationRuns,
+        failed:
+          failedAutomationRuns,
+        skipped:
+          skippedAutomationRuns,
+        total:
+          successfulAutomationRuns +
+          partialAutomationRuns +
+          failedAutomationRuns +
+          skippedAutomationRuns,
+      },
+
+      automationHealth: {
+        currentNeedsAttention:
+          automationsNeedingAttention.length,
+        historicalFailedRuns:
+          failedAutomationRuns,
+      },
+
+      campaigns: {
+        total:
+          campaigns.length,
+        scheduled:
+          scheduledCampaigns.length,
+        failed:
+          failedCampaigns.length,
+        published:
+          campaigns.filter(
+            (campaign) =>
+              String(
+                campaign?.status || ""
+              ).toLowerCase() ===
+              "published"
+          ).length,
+        saved:
+          campaigns.filter(
+            (campaign) =>
+              String(
+                campaign?.status || ""
+              ).toLowerCase() ===
+              "saved"
+          ).length,
+      },
+
       platformBreakdown,
-      pinterestPosts: platformBreakdown.pinterest,
-      facebookPosts: platformBreakdown.facebook,
-      instagramPosts: platformBreakdown.instagram,
-      xPosts: platformBreakdown.x,
-      referralCount: profile?.referral_count || 0,
-      freeMonthsEarned: profile?.free_months || 0,
-      subscriptionTier: profile?.subscription_tier || "free",
-      monthlyCampaignCount: profile?.monthly_campaign_count || 0,
-      pinterestConnected: pinterestConnection.connected,
+      platformRanking,
+
+      topArtwork: topArtworkEntry
+        ? {
+            title:
+              topArtworkEntry[0],
+            confirmedPosts:
+              topArtworkEntry[1],
+          }
+        : null,
+
+      bestPlatform,
+
       upcoming,
+
+      performanceTracking: {
+        engagementAvailable,
+        clicksAvailable,
+        conversionsAvailable,
+        engagement,
+        clicks,
+        conversions,
+      },
+
+      insight,
+      generatedAt:
+        new Date().toISOString(),
+
+      /*
+       * Compatibility fields for older clients while the new Analytics
+       * screen rolls out.
+       */
+      published:
+        totalPublishedPosts,
+      totalPosts:
+        totalPublishedPosts,
+      active:
+        activeAutomations.length,
+      scheduled:
+        scheduledCampaigns.length,
+      failed:
+        failedCampaigns.length +
+        failedAutomationRuns,
+      paused:
+        pausedAutomations.length,
+      saved:
+        campaigns.filter(
+          (campaign) =>
+            String(
+              campaign?.status || ""
+            ).toLowerCase() ===
+            "saved"
+        ).length,
+      pinterestPosts:
+        platformBreakdown
+          .pinterest
+          .successfulPosts,
+      facebookPosts:
+        platformBreakdown
+          .facebook
+          .successfulPosts,
+      instagramPosts:
+        platformBreakdown
+          .instagram
+          .successfulPosts,
+      xPosts:
+        platformBreakdown.x
+          .successfulPosts,
+      threadsPosts:
+        platformBreakdown
+          .threads
+          .successfulPosts,
+      linkedinPosts:
+        platformBreakdown
+          .linkedin
+          .successfulPosts,
+      tiktokPosts:
+        platformBreakdown
+          .tiktok
+          .successfulPosts,
     });
   } catch (err) {
-    res.status(500).json({
-      error: err.message,
+    console.error(
+      "Analytics error:",
+      err
+    );
+
+    return res.status(500).json({
+      error:
+        err instanceof Error
+          ? err.message
+          : "Unable to load analytics.",
     });
   }
 });
@@ -2058,6 +3885,9 @@ app.get("/health", async (req, res) => {
     scheduledCampaigns: count || 0,
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
     stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+    threadsConfigured: Boolean(
+      THREADS_APP_ID && THREADS_APP_SECRET && THREADS_REDIRECT_URI
+    ),
     supabaseConfigured: Boolean(
       process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
     ),
@@ -2065,148 +3895,7 @@ app.get("/health", async (req, res) => {
   });
 });
 
-app.post("/create-checkout-session", async (req, res) => {
-  try {
-    const { plan, userEmail, userId } = req.body;
-
-    if (!userEmail || !userId) {
-      return res.status(400).json({
-        error: "Missing logged-in user information.",
-      });
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("free_months")
-      .eq("id", userId)
-      .single();
-
-    if (profileError) {
-      return res.status(500).json({
-        error: "Unable to check free month balance.",
-        details: profileError.message,
-      });
-    }
-
-    const freeMonths = profile?.free_months || 0;
-
-    if (freeMonths > 0) {
-      const periodEnd = new Date();
-      periodEnd.setDate(periodEnd.getDate() + 30);
-
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          is_pro: true,
-          subscription_tier: "pro",
-          subscription_status: "active",
-          plan: "referral_free_month",
-          free_months: freeMonths - 1,
-          current_period_end: periodEnd.toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", userId);
-
-      if (updateError) {
-        return res.status(500).json({
-          error: "Failed to activate free month.",
-          details: updateError.message,
-        });
-      }
-
-      await createNotification({
-        userId,
-        title: "Free Month Activated",
-        message: "Your referral reward was used to activate 1 free month of ArtBoost AI Pro.",
-        type: "success",
-      });
-
-      return res.json({
-        success: true,
-        usedFreeMonth: true,
-        message: "Free month activated.",
-      });
-    }
-
-    const priceId =
-      plan === "yearly"
-        ? process.env.STRIPE_YEARLY_PRICE_ID
-        : process.env.STRIPE_MONTHLY_PRICE_ID;
-
-    if (!priceId) {
-      return res.status(400).json({
-        error: "Missing Stripe price ID for selected plan.",
-      });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      payment_method_types: ["card"],
-      customer_email: userEmail,
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      subscription_data: {
-        metadata: {
-          app: "ArtBoost AI",
-          plan: plan || "monthly",
-          userEmail,
-          userId,
-        },
-      },
-      success_url: "https://artboost-ai.onrender.com/stripe-success",
-      cancel_url: "https://artboost-ai.onrender.com/stripe-cancel",
-      metadata: {
-        app: "ArtBoost AI",
-        plan: plan || "monthly",
-        userEmail,
-        userId,
-      },
-    });
-
-    res.json({
-      success: true,
-      url: session.url,
-    });
-  } catch (err) {
-    console.error("Stripe checkout error:", err);
-    res.status(500).json({
-      error: "Failed to create Stripe checkout session.",
-      details: err.message,
-    });
-  }
-});
-
-app.post("/sync-subscription", async (req, res) => {
-  try {
-    const { userId, email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        error: "Missing email.",
-      });
-    }
-
-    const result = await syncStripeSubscriptionForUser({
-      userId,
-      email,
-    });
-
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (err) {
-    console.error("Subscription sync error:", err);
-    res.status(500).json({
-      error: "Failed to sync Stripe subscription.",
-      details: err.message,
-    });
-  }
-});
+// Live Stripe checkout and subscription sync are handled by routes/subscriptions.js.
 
 app.post("/apply-referral", async (req, res) => {
   try {
@@ -2817,6 +4506,77 @@ async function saveInstagramConnection({
   }
 }
 
+
+function createInstagramState(userId) {
+  if (!FACEBOOK_APP_SECRET) {
+    throw new Error("Missing FACEBOOK_APP_SECRET.");
+  }
+
+  const payload = {
+    userId: String(userId),
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(16).toString("hex"),
+  };
+
+  const encodedPayload =
+    Buffer.from(JSON.stringify(payload)).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyInstagramState(state) {
+  if (!state || !FACEBOOK_APP_SECRET) {
+    return null;
+  }
+
+  const [encodedPayload, suppliedSignature] =
+    String(state).split(".");
+
+  if (!encodedPayload || !suppliedSignature) {
+    return null;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", FACEBOOK_APP_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  const suppliedBuffer = Buffer.from(suppliedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    suppliedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (
+      !payload.userId ||
+      !payload.timestamp ||
+      Date.now() - Number(payload.timestamp) > 10 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return {
+      userId: String(payload.userId),
+    };
+  } catch {
+    return null;
+  }
+}
+
 app.get("/auth/instagram", (req, res) => {
   const { userId } = req.query;
 
@@ -3318,87 +5078,45 @@ app.post("/facebook/post", async (req, res) => {
 // ================================
 app.post("/instagram/post", async (req, res) => {
   try {
-    const { message, imageUrl } = req.body;
+    const { userId = null, message = "", imageUrl = "" } = req.body || {};
 
-    const instagramUserId = process.env.INSTAGRAM_USER_ID;
-    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
-
-    if (!instagramUserId || !accessToken) {
+    if (!userId) {
       return res.status(400).json({
-        error: "Instagram not configured",
+        success: false,
+        error: "Instagram publishing requires an ArtBoost userId.",
       });
     }
 
     if (!imageUrl) {
       return res.status(400).json({
+        success: false,
         error: "Instagram requires an imageUrl to publish.",
       });
     }
 
-    const createContainerResponse = await fetch(
-      `https://graph.instagram.com/v23.0/${instagramUserId}/media`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image_url: imageUrl,
-          caption: message || "",
-          access_token: accessToken,
-        }),
-      }
-    );
+    const publishData = await publishInstagramPost({
+      userId,
+      title: String(message || "").trim(),
+      description: "",
+      hashtags: "",
+      cta: "",
+      imageUrl: String(imageUrl || "").trim(),
+    });
 
-    const createContainerData = await createContainerResponse.json();
-
-    if (createContainerData.error) {
-      console.log("Instagram Container Error:", createContainerData.error);
-
-      return res.status(500).json({
-        error: createContainerData.error,
-      });
-    }
-
-    const creationId = createContainerData.id;
-
-    await new Promise((resolve) => setTimeout(resolve, 8000));
-
-    const publishResponse = await fetch(
-      `https://graph.instagram.com/v23.0/${instagramUserId}/media_publish`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          creation_id: creationId,
-          access_token: accessToken,
-        }),
-      }
-    );
-
-    const publishData = await publishResponse.json();
-
-    if (publishData.error) {
-      console.log("Instagram Publish Error:", publishData.error);
-
-      return res.status(500).json({
-        error: publishData.error,
-      });
-    }
-
-    res.json({
+    return res.json({
       success: true,
       platform: "instagram",
-      creationId,
       result: publishData,
     });
   } catch (err) {
     console.error("Instagram post error:", err);
 
-    res.status(500).json({
-      error: err.message,
+    return res.status(500).json({
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Instagram could not publish this post.",
     });
   }
 });
@@ -4732,6 +6450,701 @@ async function publishFacebookPost({
   };
 }
 
+
+async function publishLinkedInPost({
+  userId,
+  title,
+  description,
+  hashtags,
+  cta,
+  productLink,
+  imageUrl,
+}) {
+  if (!userId) {
+    throw new Error("LinkedIn publishing requires an ArtBoost userId.");
+  }
+
+  const { data: connection, error: connectionError } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq("user_id", String(userId))
+    .eq("platform", "linkedin")
+    .maybeSingle();
+
+  if (connectionError) {
+    throw new Error(
+      `Unable to load LinkedIn connection: ${connectionError.message}`
+    );
+  }
+
+  if (!connection?.connected || !connection?.access_token) {
+    throw new Error(
+      "LinkedIn is not connected. Reconnect LinkedIn before posting."
+    );
+  }
+
+  if (
+    connection.expires_at &&
+    new Date(connection.expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "LinkedIn connection expired. Reconnect LinkedIn in ArtBoost, then try again."
+    );
+  }
+
+  const platformData =
+    connection?.platform_data &&
+    typeof connection.platform_data === "object"
+      ? connection.platform_data
+      : {};
+
+  const memberId = platformData.member_id;
+  if (!memberId) {
+    throw new Error(
+      "LinkedIn member ID is missing. Reconnect LinkedIn once to refresh the connection."
+    );
+  }
+
+  const accessToken = connection.access_token;
+  const author = `urn:li:person:${memberId}`;
+
+  const cleanProductLink =
+    String(productLink || "").trim();
+
+  const message = [
+    String(title || "").trim(),
+    String(description || "").trim(),
+    String(cta || "").trim(),
+    String(hashtags || "").trim(),
+    cleanProductLink,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!message && !cleanProductLink && !imageUrl) {
+    throw new Error("LinkedIn post requires text, a link, or an image.");
+  }
+
+  let uploadedAsset = null;
+
+  if (imageUrl) {
+    const registerResponse = await fetch(
+      "https://api.linkedin.com/v2/assets?action=registerUpload",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify({
+          registerUploadRequest: {
+            recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
+            owner: author,
+            serviceRelationships: [
+              {
+                relationshipType: "OWNER",
+                identifier: "urn:li:userGeneratedContent",
+              },
+            ],
+          },
+        }),
+      }
+    );
+
+    const registerData = await registerResponse.json();
+    if (!registerResponse.ok || !registerData?.value?.asset) {
+      console.error("LinkedIn image registration error:", registerData);
+      throw new Error(
+        registerData?.message || "LinkedIn could not register the image upload."
+      );
+    }
+
+    const uploadUrl =
+      registerData?.value?.uploadMechanism?.[
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+      ]?.uploadUrl;
+    uploadedAsset = registerData.value.asset;
+
+    if (!uploadUrl) {
+      throw new Error("LinkedIn did not return an image upload URL.");
+    }
+
+    const sourceImageResponse = await fetch(String(imageUrl));
+    if (!sourceImageResponse.ok) {
+      throw new Error(
+        `Unable to download artwork image for LinkedIn (${sourceImageResponse.status}).`
+      );
+    }
+
+    const imageBuffer = Buffer.from(
+      await sourceImageResponse.arrayBuffer()
+    );
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type":
+          sourceImageResponse.headers.get("content-type") || "image/jpeg",
+      },
+      body: imageBuffer,
+    });
+
+    if (!uploadResponse.ok) {
+      const uploadText = await uploadResponse.text();
+      console.error("LinkedIn image upload error:", uploadText);
+      throw new Error(
+        `LinkedIn image upload failed with status ${uploadResponse.status}.`
+      );
+    }
+  }
+
+  const shareContent = {
+    shareCommentary: {
+      text: message || cleanProductLink,
+    },
+    shareMediaCategory: uploadedAsset
+      ? "IMAGE"
+      : cleanProductLink
+        ? "ARTICLE"
+        : "NONE",
+  };
+
+  if (uploadedAsset) {
+    shareContent.media = [
+      {
+        status: "READY",
+        media: uploadedAsset,
+        title: { text: String(title || "Artwork").slice(0, 200) },
+        description: {
+          text: String(description || "").slice(0, 300),
+        },
+      },
+    ];
+  } else if (cleanProductLink) {
+    shareContent.media = [
+      {
+        status: "READY",
+        originalUrl: cleanProductLink,
+        title: { text: String(title || "View artwork").slice(0, 200) },
+        description: {
+          text: String(description || "").slice(0, 300),
+        },
+      },
+    ];
+  }
+
+  const postResponse = await fetch(
+    "https://api.linkedin.com/v2/ugcPosts",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      body: JSON.stringify({
+        author,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": shareContent,
+        },
+        visibility: {
+          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
+      }),
+    }
+  );
+
+  const responseText = await postResponse.text();
+  let postData = {};
+  try {
+    postData = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    postData = { raw: responseText };
+  }
+
+  if (!postResponse.ok) {
+    console.error("LinkedIn publish error:", postData);
+    throw new Error(
+      postData?.message ||
+        postData?.error_description ||
+        `LinkedIn publishing failed with status ${postResponse.status}.`
+    );
+  }
+
+  const postId =
+    postResponse.headers.get("x-restli-id") ||
+    postData?.id ||
+    null;
+
+  console.log("LinkedIn post published:", {
+    userId: String(userId),
+    postId,
+    hasImage: Boolean(uploadedAsset),
+    hasProductLink: Boolean(productLink),
+  });
+
+  return {
+    success: true,
+    postId,
+    result: postData,
+  };
+}
+
+app.post("/linkedin/post", async (req, res) => {
+  try {
+    const result = await publishLinkedInPost(req.body || {});
+    return res.json(result);
+  } catch (error) {
+    console.error("LinkedIn Post Error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "LinkedIn post failed.",
+    });
+  }
+});
+
+async function publishThreadsPost({
+  userId,
+  title,
+  description,
+  hashtags,
+  cta,
+  productLink,
+  imageUrl,
+}) {
+  if (!userId) {
+    throw new Error(
+      "Threads publishing requires an ArtBoost userId."
+    );
+  }
+
+  const {
+    data: connection,
+    error: connectionError,
+  } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq(
+      "user_id",
+      String(userId)
+    )
+    .eq(
+      "platform",
+      "threads"
+    )
+    .maybeSingle();
+
+  if (connectionError) {
+    throw new Error(
+      `Unable to load Threads connection: ${connectionError.message}`
+    );
+  }
+
+  if (
+    !connection?.connected ||
+    !connection?.access_token
+  ) {
+    throw new Error(
+      "Threads is not connected. Reconnect Threads before posting."
+    );
+  }
+
+  if (
+    connection.expires_at &&
+    new Date(
+      connection.expires_at
+    ).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "Threads connection expired. Reconnect Threads in ArtBoost, then try again."
+    );
+  }
+
+  const accessToken =
+    connection.access_token;
+
+  const THREADS_TEXT_LIMIT = 500;
+
+  const threadsTitle =
+    String(title || "").trim();
+
+  const threadsDescription =
+    String(description || "").trim();
+
+  const threadsCta =
+    String(cta || "").trim();
+
+  const threadsProductLink =
+    String(productLink || "").trim();
+
+  const threadsHashtags =
+    String(hashtags || "").trim();
+
+  /*
+   * Threads currently limits post text to 500 characters.
+   * Preserve the title, CTA, product link, and hashtags whenever
+   * possible, then use the remaining space for the description.
+   */
+  const preservedParts = [
+    threadsTitle,
+    threadsCta,
+    threadsProductLink,
+    threadsHashtags,
+  ].filter(Boolean);
+
+  const preservedText =
+    preservedParts
+      .join("\n\n")
+      .trim();
+
+  let message = preservedText;
+
+  if (threadsDescription) {
+    const separator =
+      preservedText
+        ? "\n\n"
+        : "";
+
+    const remaining =
+      Math.max(
+        THREADS_TEXT_LIMIT -
+          preservedText.length -
+          separator.length,
+        0
+      );
+
+    let safeDescription =
+      threadsDescription;
+
+    if (
+      safeDescription.length >
+      remaining
+    ) {
+      const ellipsis =
+        remaining >= 3
+          ? "..."
+          : "";
+
+      safeDescription =
+        safeDescription
+          .slice(
+            0,
+            Math.max(
+              remaining -
+                ellipsis.length,
+              0
+            )
+          )
+          .trimEnd() +
+        ellipsis;
+    }
+
+    if (
+      safeDescription &&
+      remaining > 0
+    ) {
+      message =
+        `${preservedText}${separator}${safeDescription}`
+          .trim();
+    }
+  }
+
+  /*
+   * Very long titles/links/hashtags can still exceed 500 by
+   * themselves. Clamp as a final safety net so Meta never receives
+   * an invalid Threads text payload.
+   */
+  if (
+    message.length >
+    THREADS_TEXT_LIMIT
+  ) {
+    message =
+      message
+        .slice(
+          0,
+          THREADS_TEXT_LIMIT
+        )
+        .trimEnd();
+  }
+
+  console.log(
+    "Threads automation text prepared:",
+    {
+      length: message.length,
+      limit: THREADS_TEXT_LIMIT,
+      hasProductLink:
+        Boolean(
+          threadsProductLink
+        ),
+    }
+  );
+
+  if (!message && !imageUrl) {
+    throw new Error(
+      "Threads post requires text or an image."
+    );
+  }
+
+  // Threads uses the media-container -> publish flow.
+  const createUrl =
+    new URL(
+      `${THREADS_API_BASE}/me/threads`
+    );
+
+  createUrl.searchParams.set(
+    "media_type",
+    imageUrl ? "IMAGE" : "TEXT"
+  );
+
+  if (imageUrl) {
+    createUrl.searchParams.set(
+      "image_url",
+      String(imageUrl)
+    );
+  }
+
+  if (message) {
+    createUrl.searchParams.set(
+      "text",
+      message
+    );
+  }
+
+  createUrl.searchParams.set(
+    "access_token",
+    accessToken
+  );
+
+  const createResponse =
+    await fetch(
+      createUrl,
+      {
+        method: "POST",
+      }
+    );
+
+  const createData =
+    await createResponse.json();
+
+  if (
+    !createResponse.ok ||
+    !createData?.id
+  ) {
+    console.error(
+      "Threads container creation error:",
+      createData
+    );
+
+    throw new Error(
+      createData?.error?.message ||
+      "Threads could not create the post container."
+    );
+  }
+
+  const publishUrl =
+    new URL(
+      `${THREADS_API_BASE}/me/threads_publish`
+    );
+
+  publishUrl.searchParams.set(
+    "creation_id",
+    String(createData.id)
+  );
+  publishUrl.searchParams.set(
+    "access_token",
+    accessToken
+  );
+
+  // Threads image containers can take a few seconds to become
+  // publishable after Meta creates them. Publishing immediately can
+  // intermittently return code 24 / "Media Not Found".
+  //
+  // Give Meta a short head start, then retry the SAME creation_id
+  // when that transient media-processing error occurs.
+  await new Promise((resolve) =>
+    setTimeout(resolve, 5000)
+  );
+
+  let publishResponse = null;
+  let publishData = null;
+
+  const maxPublishAttempts = 4;
+
+  for (
+    let attempt = 1;
+    attempt <= maxPublishAttempts;
+    attempt += 1
+  ) {
+    publishResponse =
+      await fetch(
+        publishUrl,
+        {
+          method: "POST",
+        }
+      );
+
+    publishData =
+      await publishResponse.json();
+
+    if (
+      publishResponse.ok &&
+      publishData?.id
+    ) {
+      break;
+    }
+
+    const errorCode =
+      Number(
+        publishData?.error?.code || 0
+      );
+
+    const errorSubcode =
+      Number(
+        publishData?.error?.error_subcode || 0
+      );
+
+    const errorTitle =
+      String(
+        publishData?.error?.error_user_title || ""
+      );
+
+    const errorMessage =
+      String(
+        publishData?.error?.message || ""
+      );
+
+    const mediaStillProcessing =
+      errorCode === 24 ||
+      errorSubcode === 4279009 ||
+      /media not found/i.test(errorTitle) ||
+      /requested resource does not exist/i.test(
+        errorMessage
+      );
+
+    console.warn(
+      "Threads publish attempt failed:",
+      {
+        attempt,
+        maxPublishAttempts,
+        errorCode,
+        errorSubcode,
+        errorTitle:
+          errorTitle || null,
+        errorMessage:
+          errorMessage || null,
+        willRetry:
+          mediaStillProcessing &&
+          attempt < maxPublishAttempts,
+      }
+    );
+
+    if (
+      !mediaStillProcessing ||
+      attempt >= maxPublishAttempts
+    ) {
+      break;
+    }
+
+    // Keep the same creation_id and allow Meta additional time
+    // to finish fetching/processing the image.
+    await new Promise((resolve) =>
+      setTimeout(resolve, 5000)
+    );
+  }
+
+  if (
+    !publishResponse?.ok ||
+    !publishData?.id
+  ) {
+    console.error(
+      "Threads publish error:",
+      publishData
+    );
+
+    throw new Error(
+      publishData?.error?.message ||
+      "Threads publishing failed."
+    );
+  }
+
+  console.log(
+    "Threads post published:",
+    {
+      userId:
+        String(userId),
+      postId:
+        publishData.id,
+      hasImage:
+        Boolean(imageUrl),
+      hasProductLink:
+        Boolean(productLink),
+    }
+  );
+
+  return {
+    success: true,
+    postId:
+      publishData.id,
+    containerId:
+      createData.id,
+    result:
+      publishData,
+  };
+}
+
+app.post(
+  "/threads/post",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        title,
+        description,
+        hashtags,
+        cta,
+        productLink,
+        imageUrl,
+        message,
+      } = req.body || {};
+
+      const result =
+        await publishThreadsPost({
+          userId,
+          title:
+            title ||
+            message ||
+            "",
+          description,
+          hashtags,
+          cta,
+          productLink,
+          imageUrl,
+        });
+
+      return res.json(result);
+    } catch (error) {
+      console.error(
+        "Threads Post Error:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Threads post failed.",
+      });
+    }
+  }
+);
+
+
 async function publishInstagramPost({
   userId,
   title,
@@ -4853,275 +7266,119 @@ async function publishXPost({
   imageUrl,
   userId = null,
 }) {
-  const cleanTitle = String(
-    title || description || "Check out this product"
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleanTitle = String(title || description || "Check out this product").replace(/\s+/g, " ").trim();
+  const cleanProductLink = String(productLink || "").trim();
+  if (!cleanTitle) throw new Error("Missing X post title.");
 
-  const cleanProductLink = String(
-    productLink || ""
-  ).trim();
-
-  if (!cleanTitle) {
-    throw new Error(
-      "Missing X post title."
-    );
-  }
-
-  const oauth = OAuth({
-    consumer: {
-      key:
-        process.env.X_API_KEY,
-      secret:
-        process.env.X_API_SECRET,
-    },
-    signature_method:
-      "HMAC-SHA1",
-    hash_function(
-      baseString,
-      key
-    ) {
-      return CryptoJS
-        .HmacSHA1(
-          baseString,
-          key
-        )
-        .toString(
-          CryptoJS.enc.Base64
-        );
-    },
-  });
-
-  const token = {
-    key:
-      process.env.X_ACCESS_TOKEN,
-    secret:
-      process.env
-        .X_ACCESS_TOKEN_SECRET,
-  };
-
-  /*
-   * X counts normal URLs as shortened links.
-   * We still keep the raw final text under 280
-   * characters for predictable behavior.
-   */
-  const separator =
-    cleanProductLink
-      ? "\n\n"
-      : "";
-
-  const availableTitleLength =
-    Math.max(
-      280 -
-        separator.length -
-        cleanProductLink.length,
-      1
-    );
-
-  const finalTitle =
-    cleanTitle.length >
-    availableTitleLength
-      ? `${cleanTitle
-          .slice(
-            0,
-            Math.max(
-              availableTitleLength -
-                3,
-              1
-            )
-          )
-          .trim()}...`
-      : cleanTitle;
-
-  const message = [
-    finalTitle,
-    cleanProductLink,
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-
-  if (!message) {
-    throw new Error(
-      "Missing X post message."
-    );
-  }
+  const connection = await getValidXConnection(userId);
+  const separator = cleanProductLink ? "\n\n" : "";
+  const availableTitleLength = Math.max(280 - separator.length - cleanProductLink.length, 1);
+  const finalTitle = cleanTitle.length > availableTitleLength
+    ? `${cleanTitle.slice(0, Math.max(availableTitleLength - 3, 1)).trim()}...`
+    : cleanTitle;
+  const message = [finalTitle, cleanProductLink].filter(Boolean).join("\n\n").trim();
+  if (!message) throw new Error("Missing X post message.");
 
   let mediaId = null;
 
-  console.log(
-    "X PRODUCT LINK:",
-    cleanProductLink
-  );
-
-  console.log(
-    "X HAS PRODUCT LINK:",
-    Boolean(cleanProductLink)
-  );
-
-  console.log(
-    "X HAS IMAGE URL:",
-    Boolean(imageUrl)
-  );
-
-  /*
-   * Upload the product image even when the
-   * tweet also includes a product link.
-   */
   if (imageUrl) {
-    const imageResponse =
-      await fetch(imageUrl);
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) throw new Error(`Unable to download X image: ${imageResponse.status}`);
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const contentType = String(imageResponse.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    const formData = new FormData();
+    formData.append("media", new Blob([imageBuffer], { type: contentType }), contentType.includes("png") ? "artboost-image.png" : "artboost-image.jpg");
+    formData.append("media_category", "tweet_image");
 
-    if (!imageResponse.ok) {
-      throw new Error(
-        `Unable to download X image: ${imageResponse.status}`
-      );
+    const uploadResponse = await fetch("https://api.x.com/2/media/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${connection.access_token}` },
+      body: formData,
+    });
+    const uploadData = await uploadResponse.json();
+    mediaId = uploadData?.data?.id || uploadData?.media_id_string || uploadData?.media_id || null;
+    if (!uploadResponse.ok || !mediaId) {
+      console.error("X Media Upload Error:", uploadData);
+      throw new Error(uploadData?.detail || uploadData?.title || uploadData?.error || "X image upload failed.");
     }
-
-    const imageBuffer =
-      Buffer.from(
-        await imageResponse.arrayBuffer()
-      );
-
-    const uploadRequestData = {
-      url:
-        "https://upload.twitter.com/1.1/media/upload.json",
-      method:
-        "POST",
-    };
-
-    const uploadAuthHeader =
-      oauth.toHeader(
-        oauth.authorize(
-          uploadRequestData,
-          token
-        )
-      );
-
-    const formData =
-      new FormData();
-
-    formData.append(
-      "media",
-      new Blob([
-        imageBuffer,
-      ]),
-      "artboost-image.jpg"
-    );
-
-    const uploadResponse =
-      await fetch(
-        uploadRequestData.url,
-        {
-          method:
-            "POST",
-          headers: {
-            ...uploadAuthHeader,
-          },
-          body:
-            formData,
-        }
-      );
-
-    const uploadData =
-      await uploadResponse.json();
-
-    if (
-      !uploadResponse.ok ||
-      !uploadData.media_id_string
-    ) {
-      console.error(
-        "X Media Upload Error:",
-        uploadData
-      );
-
-      throw new Error(
-        `X image upload failed: ${JSON.stringify(
-          uploadData
-        )}`
-      );
-    }
-
-    mediaId =
-      uploadData.media_id_string;
   }
 
-  const tweetRequestData = {
-    url:
-      "https://api.twitter.com/2/tweets",
-    method:
-      "POST",
-  };
+  const tweetBody = { text: message };
+  if (mediaId) tweetBody.media = { media_ids: [String(mediaId)] };
 
-  const tweetAuthHeader =
-    oauth.toHeader(
-      oauth.authorize(
-        tweetRequestData,
-        token
-      )
-    );
-
-  const tweetBody = {
-    text:
-      message,
-  };
-
-  if (mediaId) {
-    tweetBody.media = {
-      media_ids: [
-        mediaId,
-      ],
-    };
-  }
-
-  console.log(
-    "X MESSAGE LENGTH:",
-    message.length
-  );
-
-  console.log(
-    "X MESSAGE:"
-  );
-
-  console.log(
-    message
-  );
-
-  const response =
-    await fetch(
-      tweetRequestData.url,
-      {
-        method:
-          "POST",
-        headers: {
-          ...tweetAuthHeader,
-          "Content-Type":
-            "application/json",
-        },
-        body:
-          JSON.stringify(
-            tweetBody
-          ),
-      }
-    );
-
-  const data =
-    await response.json();
-
+  const response = await fetch("https://api.x.com/2/tweets", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${connection.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(tweetBody),
+  });
+  const data = await response.json();
   if (!response.ok) {
-    console.error(
-      "X Scheduled Post Error:",
-      data
-    );
-
-    throw new Error(
-      JSON.stringify(data)
-    );
+    console.error("X Post Error:", data);
+    if (response.status === 401 || /token|oauth|unauthorized/i.test(JSON.stringify(data))) {
+      throw new Error("X connection is no longer valid. Reconnect X in ArtBoost.");
+    }
+    throw new Error(data?.detail || data?.title || JSON.stringify(data));
   }
-
+  console.log("X post published:", { userId, postId: data?.data?.id || null, hasImage: Boolean(mediaId), hasProductLink: Boolean(cleanProductLink) });
   return data;
 }
+
+app.post("/x/post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      message = "",
+      title = "",
+      description = "",
+      productLink = "",
+      imageUrl = "",
+    } = req.body || {};
+
+    const cleanMessage =
+      String(
+        message ||
+          title ||
+          description ||
+          ""
+      ).trim();
+
+    if (!cleanMessage) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing X post content.",
+      });
+    }
+
+    const publishData =
+      await publishXPost({
+        title: cleanMessage,
+        description: "",
+        productLink:
+          String(productLink || "").trim(),
+        imageUrl:
+          String(imageUrl || "").trim(),
+        userId,
+      });
+
+    return res.json({
+      success: true,
+      post: publishData,
+    });
+  } catch (err) {
+    console.error(
+      "Manual X publish failed:",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "X could not publish this post.",
+    });
+  }
+});
 
 app.post("/pinterest/create-pin", async (req, res) => {
   try {
@@ -5511,6 +7768,8 @@ registerSocialPublishers({
   publishFacebookPost,
   publishInstagramPost,
   publishXPost,
+  publishThreadsPost,
+  publishLinkedInPost,
 });
 
 let storeAutomationSchedulerRunning = false;
@@ -5673,6 +7932,28 @@ async function runScheduledCampaigns() {
           description: campaign.description,
           hashtags: campaign.hashtags,
           cta: campaign.cta,
+          imageUrl: campaign.image_url,
+          userId: campaign.user_id,
+        });
+      } else if (platform === "threads") {
+        console.log("Publishing Threads campaign:", campaign.id);
+        publishData = await publishThreadsPost({
+          title: campaign.title,
+          description: campaign.description,
+          hashtags: campaign.hashtags,
+          cta: campaign.cta,
+          productLink: campaign.product_link,
+          imageUrl: campaign.image_url,
+          userId: campaign.user_id,
+        });
+      } else if (platform === "linkedin") {
+        console.log("Publishing LinkedIn campaign:", campaign.id);
+        publishData = await publishLinkedInPost({
+          title: campaign.title,
+          description: campaign.description,
+          hashtags: campaign.hashtags,
+          cta: campaign.cta,
+          productLink: campaign.product_link,
           imageUrl: campaign.image_url,
           userId: campaign.user_id,
         });
@@ -5841,6 +8122,291 @@ async function expireFreeMonthSubscriptions() {
 setInterval(runScheduledCampaigns, 60 * 1000);
 setInterval(runDueStoreAutomations, 60 * 1000);
 setInterval(expireFreeMonthSubscriptions, 60 * 60 * 1000);
+
+
+app.post("/marketing-consultant/profile", async (req, res) => {
+  try {
+    const authHeader = String(
+      req.headers.authorization || ""
+    ).trim();
+
+    const accessToken =
+      authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : "";
+
+    if (!accessToken) {
+      return res.status(401).json({
+        error: "Authentication is required to use the AI Marketing Consultant.",
+      });
+    }
+
+    const {
+      data: authData,
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
+
+    const userId =
+      authData?.user?.id || null;
+
+    if (authError || !userId) {
+      return res.status(401).json({
+        error: "Your ArtBoost session is no longer valid. Please sign in again.",
+      });
+    }
+
+    const {
+      artistName,
+      artworkTypes = [],
+      brandTraits = [],
+      audiences = [],
+      marketingGoal = "",
+      additionalDetails = "",
+    } = req.body || {};
+
+    if (!String(artistName || "").trim()) {
+      return res.status(400).json({
+        error: "Artist or business name is required.",
+      });
+    }
+
+    if (!Array.isArray(artworkTypes) || artworkTypes.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one artwork type.",
+      });
+    }
+
+    if (!Array.isArray(brandTraits) || brandTraits.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one brand trait.",
+      });
+    }
+
+    if (!Array.isArray(audiences) || audiences.length === 0) {
+      return res.status(400).json({
+        error: "Choose at least one target audience.",
+      });
+    }
+
+    if (!String(marketingGoal || "").trim()) {
+      return res.status(400).json({
+        error: "Choose a marketing goal.",
+      });
+    }
+
+    const [
+      storeResult,
+      connectionResult,
+      automationResult,
+    ] = await Promise.all([
+      supabase
+        .from("store_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("connected", true),
+
+      supabase
+        .from("social_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("connected", true),
+
+      supabase
+        .from("store_automations")
+        .select(
+          "id,store_name,store_type,enabled,frequency,posting_time,timezone,platforms,selection_mode,repeat_delay_days,last_error"
+        )
+        .eq("user_id", userId),
+    ]);
+
+    const stores = [];
+
+    for (const row of storeResult.data || []) {
+      stores.push({
+        platform:
+          row.platform ||
+          row.store_type ||
+          "store",
+        name:
+          row.store_name ||
+          row.store_url ||
+          row.platform ||
+          "Connected store",
+      });
+    }
+
+    /*
+     * social_connections contains both social networks and some legacy store
+     * connections. Only treat known publishing networks as social context.
+     */
+    const knownSocialPlatforms = new Set([
+      "facebook",
+      "instagram",
+      "pinterest",
+      "x",
+      "twitter",
+      "threads",
+      "linkedin",
+      "tiktok",
+    ]);
+
+    const connectedPlatforms =
+      [
+        ...new Set(
+          (connectionResult.data || [])
+            .map((row) =>
+              String(row.platform || "")
+                .trim()
+                .toLowerCase()
+            )
+            .filter((platform) =>
+              knownSocialPlatforms.has(platform)
+            )
+            .map((platform) =>
+              platform === "twitter"
+                ? "x"
+                : platform
+            )
+        ),
+      ];
+
+    const automations =
+      (automationResult.data || []).map(
+        (automation) => ({
+          storeName:
+            automation.store_name,
+          storeType:
+            automation.store_type,
+          enabled:
+            Boolean(automation.enabled),
+          frequency:
+            automation.frequency,
+          postingTime:
+            automation.posting_time,
+          timezone:
+            automation.timezone,
+          platforms:
+            Array.isArray(
+              automation.platforms
+            )
+              ? automation.platforms
+              : [],
+          selectionMode:
+            automation.selection_mode,
+          repeatDelayDays:
+            automation.repeat_delay_days,
+          lastError:
+            automation.last_error || null,
+        })
+      );
+
+    const response =
+      await openai.responses.create({
+        model: "gpt-4.1-mini",
+        input: `
+You are the ArtBoost AI Marketing Consultant.
+
+Your job is to create a practical marketing profile for an artist or small
+online seller using BOTH the answers they supplied and the real ArtBoost
+connection context supplied below.
+
+USER PROFILE INPUT
+Artist/business name: ${String(artistName).trim()}
+Artwork types: ${artworkTypes.join(", ")}
+Brand traits: ${brandTraits.join(", ")}
+Target audiences: ${audiences.join(", ")}
+Primary marketing goal: ${String(marketingGoal).trim()}
+Additional details: ${String(additionalDetails || "").trim() || "None provided"}
+
+LIVE ARTBOOST CONTEXT
+Connected stores:
+${stores.length ? JSON.stringify(stores) : "No connected stores found"}
+
+Connected social publishing platforms:
+${connectedPlatforms.length ? connectedPlatforms.join(", ") : "No connected social platforms found"}
+
+Existing store automations:
+${automations.length ? JSON.stringify(automations) : "No store automations found"}
+
+IMPORTANT RULES
+- Recommendations must be specific, useful, and realistic for an independent artist/seller.
+- Prefer social platforms that are actually connected in ArtBoost.
+- If a useful platform is not connected, clearly label it as an optional platform to connect rather than pretending it is available.
+- Consider the connected store types when recommending campaigns.
+- If an existing automation is enabled and healthy, do not tell the user to create a duplicate automation; recommend how to improve or use it.
+- Do not claim access to sales, engagement, clicks, or conversion data unless it is explicitly present above.
+- Do not make exaggerated marketing claims.
+- Keep the brand voice concise enough to be useful as an instruction to future content generators.
+- Hashtags should be relevant to the user's actual artwork categories and audience.
+- The example post should sound like a polished real social post but must not invent a specific product name or URL.
+
+Return ONLY valid JSON. No markdown and no surrounding commentary.
+
+Exact schema:
+{
+  "brandName": "",
+  "brandVoice": "",
+  "targetAudience": "",
+  "defaultCTA": "",
+  "defaultHashtags": ["#Tag1", "#Tag2"],
+  "avoidWords": "",
+  "recommendedPlatforms": "",
+  "recommendedSchedule": "",
+  "recommendedAutomation": "",
+  "recommendedCampaigns": "",
+  "examplePost": ""
+}
+`,
+      });
+
+    let raw =
+      String(response.output_text || "")
+        .trim();
+
+    raw = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    let profile;
+
+    try {
+      profile = JSON.parse(raw);
+    } catch (parseError) {
+      console.error(
+        "Marketing consultant JSON parse failed:",
+        raw
+      );
+
+      throw new Error(
+        "The AI Marketing Consultant returned an invalid profile."
+      );
+    }
+
+    return res.json({
+      success: true,
+      profile,
+      context: {
+        connectedStores: stores.length,
+        connectedPlatforms,
+        automations: automations.length,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Marketing consultant profile error:",
+      error
+    );
+
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to generate the marketing profile.",
+    });
+  }
+});
 
 app.post("/generate", upload.single("image"), async (req, res) => {
   try {
@@ -7970,7 +10536,6 @@ app.listen(PORT, async () => {
   console.log("LIVE SERVER VERSION: INSTAGRAM DEBUG 2");
   console.log("LIVE SERVER VERSION: AUTOMATION RELIABILITY FIX 1");
   console.log("LIVE SERVER VERSION: PINTEREST USER SCOPED OAUTH FIX 1");
-  console.log("LIVE SERVER VERSION: ETSY LISTING SYNC 1");
 
   console.log(
     `Stripe configured: ${process.env.STRIPE_SECRET_KEY ? "yes" : "no"

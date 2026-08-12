@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   SafeAreaView,
@@ -10,6 +12,11 @@ import {
   Text,
   View,
 } from "react-native";
+
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 type DashboardActionProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -97,7 +104,7 @@ export default function StoreDashboardScreen() {
   const storeName = params.storeName || "Connected Store";
   const storeType = params.storeType || "store";
 
-  const productCount = useMemo(() => {
+  const initialProductCount = useMemo(() => {
     const parsedCount = Number(params.productCount);
 
     if (Number.isNaN(parsedCount)) {
@@ -106,6 +113,15 @@ export default function StoreDashboardScreen() {
 
     return parsedCount;
   }, [params.productCount]);
+
+  const [productCount, setProductCount] =
+    useState(initialProductCount);
+
+  const [lastSyncedAt, setLastSyncedAt] =
+    useState(params.lastSyncedAt || "");
+
+  const [syncing, setSyncing] =
+    useState(false);
 
   const connected =
     params.connected === undefined ||
@@ -173,18 +189,18 @@ export default function StoreDashboardScreen() {
   }, [platformLabel, storeName]);
 
   const lastSyncedText = useMemo(() => {
-  if (!params.lastSyncedAt) {
-    return "Not available";
-  }
+    if (!lastSyncedAt) {
+      return "Not available";
+    }
 
-  const date = new Date(params.lastSyncedAt);
+    const date = new Date(lastSyncedAt);
 
-  if (Number.isNaN(date.getTime())) {
-    return "Not available";
-  }
+    if (Number.isNaN(date.getTime())) {
+      return "Not available";
+    }
 
-  return date.toLocaleString();
-}, [params.lastSyncedAt]);
+    return date.toLocaleString();
+  }, [lastSyncedAt]);
 
 const syncButtonLabel = useMemo(() => {
   const type = String(storeType)
@@ -196,7 +212,7 @@ const syncButtonLabel = useMemo(() => {
   }
 
   if (type === "etsy") {
-    return "Sync Listings";
+    return syncing ? "Syncing..." : "Sync Listings";
   }
 
   if (type === "redbubble") {
@@ -206,7 +222,7 @@ const syncButtonLabel = useMemo(() => {
   return productCount > 0
     ? "Import More"
     : "Import Products";
-}, [productCount, storeType]);
+}, [productCount, storeType, syncing]);
 
   function openProducts() {
     router.push({
@@ -221,7 +237,7 @@ const syncButtonLabel = useMemo(() => {
     });
   }
 
-  function syncProducts() {
+  async function syncProducts() {
     const type = String(storeType)
       .trim()
       .toLowerCase();
@@ -236,10 +252,95 @@ const syncButtonLabel = useMemo(() => {
     }
 
     if (type === "etsy") {
-      Alert.alert(
-        "Etsy Sync",
-        "Etsy listing synchronization will use the connected Etsy account."
-      );
+      if (syncing) {
+        return;
+      }
+
+      try {
+        setSyncing(true);
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError) {
+          throw userError;
+        }
+
+        if (!user) {
+          throw new Error(
+            "Please sign in to ArtBoost before syncing Etsy listings."
+          );
+        }
+
+        const response = await fetch(
+          `${API_BASE}/etsy/sync`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userId: user.id,
+            }),
+          }
+        );
+
+        const responseText =
+          await response.text();
+
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          throw new Error(
+            `ArtBoost received an invalid Etsy sync response (${response.status}).`
+          );
+        }
+
+        if (!response.ok || !data?.success) {
+          throw new Error(
+            data?.error ||
+              "Etsy listings could not be synchronized."
+          );
+        }
+
+        const syncedCount =
+          Number(data.discovered);
+
+        if (Number.isFinite(syncedCount)) {
+          setProductCount(syncedCount);
+        }
+
+        if (data.syncedAt) {
+          setLastSyncedAt(
+            String(data.syncedAt)
+          );
+        }
+
+        Alert.alert(
+          "Etsy Sync Complete",
+          [
+            `${Number(data.discovered) || 0} active listings found.`,
+            `${Number(data.imported) || 0} new listings imported.`,
+            `${Number(data.updated) || 0} existing listings refreshed.`,
+            `${Number(data.skipped) || 0} listings skipped.`,
+          ].join("\n")
+        );
+      } catch (error) {
+        Alert.alert(
+          "Etsy Sync Failed",
+          error instanceof Error
+            ? error.message
+            : "Etsy listings could not be synchronized."
+        );
+      } finally {
+        setSyncing(false);
+      }
 
       return;
     }
@@ -422,16 +523,27 @@ const syncButtonLabel = useMemo(() => {
 
           <View style={styles.primaryActionsRow}>
             <Pressable
-              style={styles.syncButton}
+              style={[
+                styles.syncButton,
+                syncing && styles.syncButtonDisabled,
+              ]}
               onPress={syncProducts}
+              disabled={syncing}
             >
-              <Ionicons
-                name="sync"
-                size={20}
-                color="#ffffff"
-              />
+              {syncing ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#ffffff"
+                />
+              ) : (
+                <Ionicons
+                  name="sync"
+                  size={20}
+                  color="#ffffff"
+                />
+              )}
               <Text style={styles.syncButtonText}>
-                  {syncButtonLabel}
+                {syncButtonLabel}
               </Text>
             </Pressable>
 
@@ -797,6 +909,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+
+  syncButtonDisabled: {
+    opacity: 0.65,
   },
 
   syncButtonText: {
