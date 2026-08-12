@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">
+  <meta name="theme-color" content="#03030a">
+  <meta name="description" content="ArtBoost AI — mobile marketing workspace for artists and creators.">
+  <title>ArtBoost AI Mobile</title>
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+  <header class="mobile-header">
+    <a href="#top" class="mobile-brand" aria-label="ArtBoost AI home">
+      <span class="brand-mark">A</span>
+      <span class="brand-text">ARTBOOST <b>AI</b></span>
+    </a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobileMenu">☰</button>
+  </header>
+
+  <nav id="mobileMenu" class="mobile-menu" aria-label="Mobile navigation">
+    <a href="#features">Features</a>
+    <a href="#creator-tools">Creator Tools</a>
+    <button type="button" data-pricing>View Plans & Pricing</button>
+    <a href="faq.html">FAQ</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms</a>
+    <button type="button" data-account="signin">Sign In</button>
+    <button type="button" class="menu-start" data-account="signup">Start Free</button>
+  </nav>
+
+  <main id="top">
+    <section class="hero">
+      <img src="assets/hero.webp" alt="ArtBoost AI — Turn Your Art Into a Movement" class="hero-art">
+      <div class="hero-actions">
+        <button class="primary" data-account="signup">Create an Account</button>
+        <button class="secondary" data-account="signin">Sign In</button>
+      </div>
+      <div class="social-row">
+        <a href="https://pin.it/56GxHsru1" target="_blank" rel="noopener">Pinterest</a>
+        <a href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener">Facebook</a>
+        <a href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener">Instagram</a>
+        <a href="https://www.tiktok.com/@artboostai" target="_blank" rel="noopener">TikTok</a>
+        <a href="https://x.com/ArtBoostAI" target="_blank" rel="noopener">X</a>
+      </div>
+    </section>
+
+    <section class="section intro" id="features">
+      <p class="eyebrow">AI MARKETING FOR CREATORS</p>
+      <h1>Build your art business from your phone.</h1>
+      <p>Generate content, connect stores, schedule campaigns, review analytics, and manage creator tools in one mobile-friendly workspace.</p>
+      <button class="primary full" data-account="signup">Start Free</button>
+      <button class="secondary full" data-pricing>View Plans & Pricing</button>
+    </section>
+
+    <section class="section" id="creator-tools">
+      <p class="eyebrow">CREATOR TOOLS</p>
+      <h2>Tap a tool to learn more.</h2>
+
+      <div class="tool-list">
+        <button data-tool="content"><span>01</span><div><strong>AI Content Generation</strong><small>Titles, descriptions, captions, hashtags & CTAs.</small></div></button>
+        <button data-tool="image"><span>02</span><div><strong>AI Image Generation</strong><small>Generate supporting visuals and concepts.</small></div></button>
+        <button data-tool="scheduler"><span>03</span><div><strong>Smart Scheduler</strong><small>Plan posts and recurring promotions.</small></div></button>
+        <button data-tool="connect"><span>04</span><div><strong>Social Media Connect</strong><small>Connect supported stores and platforms.</small></div></button>
+        <button data-tool="chat"><span>05</span><div><strong>AI Chat Assistant</strong><small>Get help using ArtBoost and troubleshooting.</small></div></button>
+        <button data-tool="caption"><span>06</span><div><strong>AI Caption Generation</strong><small>Create campaign-ready captions.</small></div></button>
+        <button data-tool="analytics"><span>07</span><div><strong>Analytics & Reports</strong><small>Review activity and performance.</small></div></button>
+        <button data-tool="hashtags"><span>08</span><div><strong>Hashtag Generator</strong><small>Build targeted hashtag groups.</small></div></button>
+        <button data-tool="rewriter"><span>09</span><div><strong>AI Rewriter</strong><small>Refresh existing marketing copy.</small></div></button>
+        <button data-tool="keywords"><span>10</span><div><strong>Keyword Optimizer</strong><small>Improve listing and campaign discoverability.</small></div></button>
+        <button data-tool="uploader"><span>11</span><div><strong>Bulk Uploader</strong><small>Bring larger catalogs into ArtBoost.</small></div></button>
+        <button data-tool="settings"><span>12</span><div><strong>Settings</strong><small>Manage account, connections, and subscriptions.</small></div></button>
+      </div>
+    </section>
+
+    <section class="section mobile-demo">
+      <p class="eyebrow">SEE IT IN ACTION</p>
+      <h2>AI Content Generator</h2>
+      <img src="assets/content-generator.webp" alt="ArtBoost AI content generator preview">
+      <button class="primary full" type="button" data-demo-generate>Generate Demo Content</button>
+      <button class="secondary full" type="button" data-pricing>View Plans & Pricing</button>
+      <p id="demoStatus" class="demo-status" aria-live="polite"></p>
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">HOW IT WORKS</p>
+      <h2>Create. Schedule. Connect.</h2>
+      <div class="workflow-stack">
+        <button data-tool="content"><img src="assets/workflow-create.webp" alt="Create"></button>
+        <button data-tool="scheduler"><img src="assets/workflow-schedule.webp" alt="Schedule"></button>
+        <button data-tool="connect"><img src="assets/workflow-connect.webp" alt="Connect"></button>
+      </div>
+    </section>
+
+    <section class="section" id="integrations">
+      <p class="eyebrow">CONNECT YOUR BUSINESS</p>
+      <h2>Stores & platforms</h2>
+      <div class="integration-list">
+        <button data-tool="connect"><img src="assets/shopify.webp" alt=""><span>Shopify</span><b>›</b></button>
+        <button data-tool="connect"><img src="assets/redbubble.webp" alt=""><span>Redbubble</span><b>›</b></button>
+        <button data-tool="connect"><img src="assets/etsy.webp" alt=""><span>Etsy</span><b>›</b></button>
+        <button data-tool="connect"><img src="assets/artpal.webp" alt=""><span>ArtPal</span><b>›</b></button>
+        <a href="https://pin.it/56GxHsru1" target="_blank" rel="noopener"><img src="assets/pinterest.webp" alt=""><span>Pinterest</span><b>›</b></a>
+        <a href="https://www.facebook.com/share/18p7LknXpq/?mibextid=wwXIfr" target="_blank" rel="noopener"><img src="assets/facebook.webp" alt=""><span>Facebook</span><b>›</b></a>
+        <a href="https://www.instagram.com/artboostai/" target="_blank" rel="noopener"><img src="assets/instagram.webp" alt=""><span>Instagram</span><b>›</b></a>
+        <a href="https://x.com/ArtBoostAI" target="_blank" rel="noopener"><img src="assets/x.webp" alt=""><span>X</span><b>›</b></a>
+      </div>
+    </section>
+
+    <section class="mobile-banner">
+      <img src="assets/limitless-banner.webp" alt="Your Art. Our AI. Limitless Possibilities.">
+      <button class="primary full" data-account="signup">Start Free Today</button>
+    </section>
+  </main>
+
+  <footer class="mobile-footer">
+    <div class="footer-brand"><span class="brand-mark">A</span><strong>ARTBOOST AI</strong></div>
+    <a href="#features">Features</a>
+    <a href="#creator-tools">Creator Tools</a>
+    <button type="button" data-pricing>Pricing</button>
+    <a href="faq.html">FAQ</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms</a>
+    <a href="mailto:support@artboostai.com">Support</a>
+    <small>© 2026 ArtBoost AI</small>
+  </footer>
+
+  <div class="sheet" id="toolSheet" aria-hidden="true">
+    <div class="sheet-backdrop" data-close-tool></div>
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" data-close-tool aria-label="Close">×</button>
+      <p class="eyebrow">ARTBOOST CREATOR TOOL</p>
+      <h2 id="toolTitle"></h2>
+      <p id="toolBody"></p>
+      <ul id="toolList"></ul>
+      <button class="primary full" data-pricing>View Plans & Pricing</button>
+      <a class="secondary full" href="artboostai://">Open ArtBoost App</a>
+    </div>
+  </div>
+
+  <div class="sheet" id="pricingSheet" aria-hidden="true">
+    <div class="sheet-backdrop" data-close-pricing></div>
+    <div class="sheet-card pricing-card">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" data-close-pricing aria-label="Close">×</button>
+      <p class="eyebrow">PLANS & PRICING</p>
+      <h2>Choose the plan that fits your business.</h2>
+
+      <article class="plan">
+        <div><strong>Free</strong><span>$0/month</span></div>
+        <p>Start exploring ArtBoost without a credit card.</p>
+        <button class="primary full" data-account="signup">Start Free</button>
+      </article>
+
+      <article class="plan">
+        <div><strong>Starter</strong><span>$12.99/month</span></div>
+        <p>For creators building a consistent marketing routine.</p>
+        <a class="primary full" href="https://artboost-ai.onrender.com/subscribe/starter">Choose Starter</a>
+      </article>
+
+      <article class="plan popular">
+        <em>MOST POPULAR</em>
+        <div><strong>Pro</strong><span>$24.99/month</span></div>
+        <p>For serious artists and print-on-demand sellers.</p>
+        <a class="primary full" href="https://artboost-ai.onrender.com/subscribe/pro">Choose Pro</a>
+      </article>
+
+      <article class="plan">
+        <div><strong>Business</strong><span>$49.99/month</span></div>
+        <p>For high-volume sellers and growing creative businesses.</p>
+        <a class="primary full" href="https://artboost-ai.onrender.com/subscribe/business">Choose Business</a>
+      </article>
+    </div>
+  </div>
+
+  <div class="sheet" id="accountSheet" aria-hidden="true">
+    <div class="sheet-backdrop" data-close-account></div>
+    <div class="sheet-card account-card">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" data-close-account aria-label="Close">×</button>
+      <p class="eyebrow">ARTBOOST ACCOUNT</p>
+      <h2 id="accountTitle">Create your ArtBoost account</h2>
+      <p id="accountCopy">Create your account and start on the Free tier.</p>
+      <div class="account-switch">
+        <button type="button" data-account-tab="signup">Create Account</button>
+        <button type="button" data-account-tab="signin">Sign In</button>
+      </div>
+      <a id="accountPrimary" class="account-image" href="artboostai://">
+        <img id="accountButtonImage" src="assets/create-account.webp" alt="Create an Account">
+      </a>
+      <button class="secondary full" type="button" data-pricing>View Plans & Pricing</button>
+      <p class="note">This opens the ArtBoost app when installed.</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="mobile.js"></script>
+</body>
+</html>

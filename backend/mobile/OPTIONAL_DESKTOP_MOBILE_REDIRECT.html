@@ -1,0 +1,10 @@
+<!-- OPTIONAL: add this to the DESKTOP index.html <head> if you want phones to auto-open /mobile/ -->
+<script>
+(function(){
+  var isPhone = window.matchMedia("(max-width: 699px)").matches;
+  var alreadyMobile = location.pathname.indexOf("/mobile/") !== -1;
+  if (isPhone && !alreadyMobile) {
+    location.replace("/mobile/" + location.search + location.hash);
+  }
+})();
+</script>
