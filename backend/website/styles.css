@@ -19,7 +19,9 @@ button{cursor:pointer}
 .image-stage{position:relative;width:min(1500px,100%);margin:0 auto}.image-stage>img{display:block;width:100%;height:auto}
 .hero-stage{width:min(1776px,100%);background:#000}.hotspot,.tool-hit{position:absolute;border:0;background:transparent;padding:0;z-index:4;border-radius:10px}
 .hotspot:focus-visible,.tool-hit:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
-.hero-create{left:0.3%;top:.3%;width:17.5%;height:8.8%}.hero-signin{right:.5%;top:.3%;width:11.8%;height:8.8%}
+.hero-create:hover,.hero-signin:hover{background:rgba(255,180,0,.025)}
+.hero-create{left:8.4%;top:4.0%;width:18.3%;height:10.7%;z-index:20;cursor:pointer}
+.hero-signin{left:76.7%;top:4.0%;width:18.3%;height:10.7%;z-index:20;cursor:pointer}
 .hero-social{top:77.2%;height:9.5%;width:5.5%}
 .hs-pinterest{left:35.2%}.hs-facebook{left:41.0%}.hs-instagram{left:46.8%}.hs-tiktok{left:52.6%}.hs-x{left:58.4%}.hs-threads{left:64.2%}.hs-linkedin{left:70.0%}
 .section{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:72px 0;text-align:center}.intro{padding-top:78px}
