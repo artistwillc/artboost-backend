@@ -492,7 +492,11 @@ export default function ConnectionsScreen() {
           ),
           checkSimpleStatus(
             "X",
-            "/x/status"
+            userId
+              ? `/x/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/x/status"
           ),
           checkSimpleStatus(
             "TikTok",
@@ -609,6 +613,7 @@ export default function ConnectionsScreen() {
     if (
       platform === "Threads" ||
       platform === "LinkedIn" ||
+      platform === "X" ||
       platform === "TikTok"
     ) {
       const { data: sessionData } =
@@ -628,6 +633,7 @@ export default function ConnectionsScreen() {
       const authPaths: Record<string, string> = {
         Threads: "/auth/threads",
         LinkedIn: "/auth/linkedin",
+        X: "/auth/x",
         TikTok: "/auth/tiktok",
       };
 
