@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import React, { useMemo } from "react";
 import {
   Alert,
   Pressable,
@@ -10,13 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
-  ActivityIndicator,
 } from "react-native";
-
-const API_BASE =
-  process.env.EXPO_PUBLIC_BACKEND_URL ||
-  process.env.EXPO_PUBLIC_API_URL ||
-  "https://artboost-ai.onrender.com";
 
 type DashboardActionProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -95,7 +88,6 @@ export default function StoreDashboardScreen() {
     storeId?: string;
     storeName?: string;
     storeType?: string;
-    storeUrl?: string;
     productCount?: string;
     connected?: string;
     lastSyncedAt?: string;
@@ -104,9 +96,6 @@ export default function StoreDashboardScreen() {
   const storeId = params.storeId || "";
   const storeName = params.storeName || "Connected Store";
   const storeType = params.storeType || "store";
-  const storeUrl = params.storeUrl || "";
-  const [syncing, setSyncing] = useState(false);
-  const [liveLastSyncedAt, setLiveLastSyncedAt] = useState(params.lastSyncedAt || "");
 
   const productCount = useMemo(() => {
     const parsedCount = Number(params.productCount);
@@ -184,20 +173,40 @@ export default function StoreDashboardScreen() {
   }, [platformLabel, storeName]);
 
   const lastSyncedText = useMemo(() => {
-  if (!liveLastSyncedAt) {
+  if (!params.lastSyncedAt) {
     return "Not available";
   }
 
-  const date = new Date(liveLastSyncedAt);
+  const date = new Date(params.lastSyncedAt);
 
   if (Number.isNaN(date.getTime())) {
     return "Not available";
   }
 
   return date.toLocaleString();
-}, [liveLastSyncedAt]);
+}, [params.lastSyncedAt]);
 
-const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
+const syncButtonLabel = useMemo(() => {
+  const type = String(storeType)
+    .trim()
+    .toLowerCase();
+
+  if (type === "shopify") {
+    return "Live Sync";
+  }
+
+  if (type === "etsy") {
+    return "Sync Listings";
+  }
+
+  if (type === "redbubble") {
+    return "Import Catalog";
+  }
+
+  return productCount > 0
+    ? "Import More"
+    : "Import Products";
+}, [productCount, storeType]);
 
   function openProducts() {
     router.push({
@@ -206,69 +215,43 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
         storeId,
         storeName,
         storeType,
-        storeUrl,
         productCount: String(productCount),
         connected: String(connected),
       },
     });
   }
 
-  async function syncProducts() {
-    if (!storeId || syncing) return;
-
-    const normalizedType = String(storeType)
+  function syncProducts() {
+    const type = String(storeType)
       .trim()
       .toLowerCase();
 
-    if (normalizedType === "artpal") {
-      router.push({
-        pathname:
-          "/artpal-store-scanner" as any,
-        params: {
-          storeId,
-          storeName,
-          storeType: "artpal",
-          storeUrl:
-            /artpal\.com\/artistwill/i.test(
-              storeUrl
-            )
-              ? "https://www.ArtPal.com/artists.html?id=37279"
-              : storeUrl,
-        },
-      });
+    if (type === "shopify") {
+      Alert.alert(
+        "Live Sync Active",
+        "Shopify products are synchronized through the connected Shopify store."
+      );
+
       return;
     }
 
-    try {
-      setSyncing(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Please sign in before syncing this store.");
-
-      const response = await fetch(`${API_BASE}/stores/${encodeURIComponent(storeId)}/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      });
-
-      const text = await response.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { throw new Error(`Backend returned ${response.status}: ${text.slice(0, 160)}`); }
-      if (!response.ok || !data.success) throw new Error(data.details || data.error || "Store sync failed.");
-
-      setLiveLastSyncedAt(new Date().toISOString());
+    if (type === "etsy") {
       Alert.alert(
-        "Store Synced",
-        [
-          `${Number(data.imported) || 0} new listings added.`,
-          `${Number(data.updated) || 0} existing listings refreshed.`,
-          data.removed ? `${Number(data.removed)} removed listings disabled.` : null,
-        ].filter(Boolean).join("\n")
+        "Etsy Sync",
+        "Etsy listing synchronization will use the connected Etsy account."
       );
-    } catch (error: any) {
-      Alert.alert("Sync Failed", error?.message || "ArtBoost could not sync this store.");
-    } finally {
-      setSyncing(false);
+
+      return;
     }
+
+    router.push({
+      pathname: "/catalog-importer" as any,
+      params: {
+        storeId,
+        storeName,
+        storeType,
+      },
+    });
   }
 
   function openStoreConnection() {
@@ -439,17 +422,16 @@ const syncButtonLabel = syncing ? "Syncing..." : "Sync Now";
 
           <View style={styles.primaryActionsRow}>
             <Pressable
-              style={[styles.syncButton, syncing && { opacity: 0.65 }]}
+              style={styles.syncButton}
               onPress={syncProducts}
-              disabled={syncing}
             >
-              {syncing ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <Ionicons name="sync" size={20} color="#ffffff" />
-              )}
+              <Ionicons
+                name="sync"
+                size={20}
+                color="#ffffff"
+              />
               <Text style={styles.syncButtonText}>
-                {syncButtonLabel}
+                  {syncButtonLabel}
               </Text>
             </Pressable>
 
