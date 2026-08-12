@@ -520,10 +520,133 @@ const SCAN_PAGE_SCRIPT = `
         return b.score - a.score;
       });
 
-      return (
-        candidates[0]?.url ||
-        ""
-      );
+      if (candidates[0]?.url) {
+        return candidates[0].url;
+      }
+
+      /*
+       * Gumroad sometimes renders the product artwork outside the anchor's
+       * immediate DOM subtree. As a fallback, pair the product link with the
+       * nearest large visible image on the page by screen geometry.
+       */
+      try {
+        const linkRect =
+          link.getBoundingClientRect();
+
+        const linkCenterX =
+          linkRect.left +
+          linkRect.width / 2;
+
+        const linkCenterY =
+          linkRect.top +
+          linkRect.height / 2;
+
+        const nearbyImages =
+          Array.from(
+            document.querySelectorAll("img")
+          )
+            .map(function (img) {
+              const url =
+                getHttpImageUrl(img);
+
+              if (!url) {
+                return null;
+              }
+
+              const lower =
+                url.toLowerCase();
+
+              if (
+                lower.includes("placeholder") ||
+                lower.includes("transparent") ||
+                lower.includes("spacer") ||
+                lower.includes("blank") ||
+                lower.includes("avatar") ||
+                lower.includes("profile") ||
+                lower.includes("logo") ||
+                lower.includes("icon") ||
+                lower.includes("recaptcha")
+              ) {
+                return null;
+              }
+
+              const rect =
+                img.getBoundingClientRect();
+
+              const width =
+                Math.max(
+                  Number(rect.width) || 0,
+                  Number(img.naturalWidth) || 0
+                );
+
+              const height =
+                Math.max(
+                  Number(rect.height) || 0,
+                  Number(img.naturalHeight) || 0
+                );
+
+              if (
+                width < 90 ||
+                height < 90
+              ) {
+                return null;
+              }
+
+              const centerX =
+                rect.left +
+                rect.width / 2;
+
+              const centerY =
+                rect.top +
+                rect.height / 2;
+
+              const dx =
+                centerX -
+                linkCenterX;
+
+              const dy =
+                centerY -
+                linkCenterY;
+
+              const distance =
+                Math.sqrt(
+                  dx * dx +
+                  dy * dy
+                );
+
+              return {
+                url,
+                distance,
+                area:
+                  width * height,
+              };
+            })
+            .filter(Boolean)
+            .sort(function (a, b) {
+              const aScore =
+                a.distance -
+                Math.min(
+                  a.area / 10000,
+                  400
+                );
+
+              const bScore =
+                b.distance -
+                Math.min(
+                  b.area / 10000,
+                  400
+                );
+
+              return aScore - bScore;
+            });
+
+        return (
+          nearbyImages[0]?.url ||
+          ""
+        );
+      } catch {
+        return "";
+      }
     };
 
     /*
@@ -1161,11 +1284,136 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
           return b.score - a.score;
         });
 
-        return (
-          (candidates[0] &&
-            candidates[0].url) ||
-          ""
-        );
+        if (
+          candidates[0] &&
+          candidates[0].url
+        ) {
+          return candidates[0].url;
+        }
+
+        /*
+         * Gumroad can render product media outside the link's immediate DOM
+         * subtree. Pair each product link to the nearest large page image.
+         */
+        try {
+          var linkRect =
+            link.getBoundingClientRect();
+
+          var linkCenterX =
+            linkRect.left +
+            linkRect.width / 2;
+
+          var linkCenterY =
+            linkRect.top +
+            linkRect.height / 2;
+
+          var nearbyImages =
+            Array.from(
+              document.querySelectorAll("img")
+            )
+              .map(function (img) {
+                var url =
+                  getHttpImageUrl(img);
+
+                if (!url) {
+                  return null;
+                }
+
+                var lower =
+                  url.toLowerCase();
+
+                if (
+                  lower.includes("placeholder") ||
+                  lower.includes("transparent") ||
+                  lower.includes("spacer") ||
+                  lower.includes("blank") ||
+                  lower.includes("avatar") ||
+                  lower.includes("profile") ||
+                  lower.includes("logo") ||
+                  lower.includes("icon") ||
+                  lower.includes("recaptcha")
+                ) {
+                  return null;
+                }
+
+                var rect =
+                  img.getBoundingClientRect();
+
+                var width =
+                  Math.max(
+                    Number(rect.width) || 0,
+                    Number(img.naturalWidth) || 0
+                  );
+
+                var height =
+                  Math.max(
+                    Number(rect.height) || 0,
+                    Number(img.naturalHeight) || 0
+                  );
+
+                if (
+                  width < 90 ||
+                  height < 90
+                ) {
+                  return null;
+                }
+
+                var centerX =
+                  rect.left +
+                  rect.width / 2;
+
+                var centerY =
+                  rect.top +
+                  rect.height / 2;
+
+                var dx =
+                  centerX -
+                  linkCenterX;
+
+                var dy =
+                  centerY -
+                  linkCenterY;
+
+                var distance =
+                  Math.sqrt(
+                    dx * dx +
+                    dy * dy
+                  );
+
+                return {
+                  url: url,
+                  distance: distance,
+                  area:
+                    width * height
+                };
+              })
+              .filter(Boolean)
+              .sort(function (a, b) {
+                var aScore =
+                  a.distance -
+                  Math.min(
+                    a.area / 10000,
+                    400
+                  );
+
+                var bScore =
+                  b.distance -
+                  Math.min(
+                    b.area / 10000,
+                    400
+                  );
+
+                return aScore - bScore;
+              });
+
+          return (
+            (nearbyImages[0] &&
+              nearbyImages[0].url) ||
+            ""
+          );
+        } catch {
+          return "";
+        }
       }
 
       // Gumroad product cards use /l/<product-slug> links.
