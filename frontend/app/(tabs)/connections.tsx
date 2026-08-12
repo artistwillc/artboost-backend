@@ -102,7 +102,14 @@ const socialPlatforms: SocialPlatform[] = [
       "Publish artwork marketing content and short-form campaigns to TikTok.",
     premium: true,
     available: true,
+  },  {
+    name: "Universal Social",
+    description:
+      "Connect any HTTPS publishing API or webhook and include it in Store Automation.",
+    premium: true,
+    available: true,
   },
+
 ];
 
 function formatStoreType(value: string) {
@@ -505,7 +512,15 @@ export default function ConnectionsScreen() {
                   userId
                 )}`
               : "/tiktok/status"
+          ),          checkSimpleStatus(
+            "Universal Social",
+            userId
+              ? `/universal-social/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/universal-social/status"
           ),
+
         ]);
 
         if (!userId) {
@@ -555,6 +570,14 @@ export default function ConnectionsScreen() {
   async function connectSocialPlatform(
   platform: string
 ) {
+    if (platform === "Universal Social") {
+      setSocialModalOpen(false);
+      router.push(
+        "/universal-social" as any
+      );
+      return;
+    }
+
   console.log("Platform pressed:", JSON.stringify(platform));
 
   if (platform === "Pinterest") {

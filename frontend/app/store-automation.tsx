@@ -95,7 +95,13 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     label: "TikTok",
     icon: "logo-tiktok",
     available: true,
+  },  {
+    id: "universal",
+    label: "Universal Social",
+    icon: "git-network-outline",
+    available: true,
   },
+
 ];
 
 const FREQUENCY_OPTIONS: {

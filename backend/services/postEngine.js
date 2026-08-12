@@ -1,3 +1,4 @@
+import { publishUniversalSocial } from "./universalSocialPublisher.js";
 import {
   publishPinterest,
   publishFacebook,
@@ -432,6 +433,18 @@ export async function publishToPlatform({
         tiktokOptions || {},
     });
   }
+  if (normalizedPlatform === "universal") {
+    return publishUniversalSocial({
+      userId,
+      title: cleanTitle,
+      description: cleanDescription,
+      hashtags: cleanHashtags,
+      cta: cleanCta,
+      productLink: cleanProductLink,
+      imageUrl: cleanImageUrl,
+    });
+  }
+
 
   throw new Error(
     `Unsupported social platform: ${normalizedPlatform}`

@@ -1,0 +1,115 @@
+ARTBOOST UNIVERSAL SOCIAL CONNECTOR - LAUNCH-SAFE INSTALL
+
+PURPOSE
+-------
+Adds a Universal Social publishing bridge without replacing ArtBoost's existing
+Pinterest, Facebook, Instagram, Threads, LinkedIn, X, TikTok, store, Etsy, or
+Gumroad implementations.
+
+WHAT IT CAN AUTOMATE
+--------------------
+Universal Social can fully automate a destination when that destination exposes
+an authorized HTTPS publishing API or webhook. This includes:
+- direct social APIs that accept HTTP JSON requests;
+- webhook bridges such as Make, Zapier, Pipedream, n8n, or a user's own server;
+- compatible services that can transform the standard ArtBoost payload into the
+  destination platform's required API request.
+
+No software can reliably auto-publish to a social network that offers no
+authorized posting interface. Universal Social does not use password scraping,
+browser bots, or hidden UI automation.
+
+INSTALL
+-------
+1. Extract this ZIP over E:\ArtBoostAI so these NEW files exist:
+   backend\routes\universalSocial.js
+   backend\services\universalSocialPublisher.js
+   frontend\app\universal-social.tsx
+   tools\install-universal-social.mjs
+   tools\install-universal-social.cmd
+
+2. From E:\ArtBoostAI run:
+   tools\install-universal-social.cmd
+
+The installer:
+- creates .universal-social.bak backups before editing current core files;
+- surgically patches current server.js, postEngine.js, connections.tsx, and
+  store-automation.tsx;
+- refuses to continue when expected integration markers are missing;
+- does not overwrite the existing native platform publishers.
+
+FLOW
+----
+Connections -> Universal Social -> Add Publishing Destination
+Store -> Automation -> select Universal Social
+Scheduler/Run Now -> automationRunner -> postEngine -> Universal Social
+-> every connected universal destination
+
+DEFAULT WEBHOOK PAYLOAD
+-----------------------
+{
+  "source": "artboost",
+  "event": "publish",
+  "platform": "...",
+  "profileUrl": "...",
+  "text": "...",
+  "title": "...",
+  "description": "...",
+  "hashtags": "...",
+  "cta": "...",
+  "productLink": "...",
+  "imageUrl": "...",
+  "createdAt": "..."
+}
+
+ADVANCED PAYLOAD TEMPLATES
+--------------------------
+Users can supply a JSON object template with:
+{{text}}
+{{title}}
+{{description}}
+{{hashtags}}
+{{cta}}
+{{productLink}}
+{{imageUrl}}
+{{profileUrl}}
+{{platformName}}
+
+SECURITY
+--------
+- Publishing endpoint must be HTTPS.
+- localhost, local/internal hostnames, and private/reserved IP destinations are
+  blocked to reduce SSRF risk.
+- API credentials are stored in the existing social_connections.access_token
+  field and are never returned by the connection-list API.
+- Redirects are rejected during publishing.
+
+FIRST LIVE TEST
+---------------
+1. Add ONE webhook/API test destination.
+2. Tap Validate (this checks configuration without publishing).
+3. Open any working store automation.
+4. Select ONLY Universal Social for the first test.
+5. Save.
+6. Tap Run Now.
+7. Confirm the webhook/API received title, imageUrl, productLink, and text.
+8. Then add Universal Social alongside the native platforms.
+
+ROLLBACK
+--------
+The installer creates:
+server.js.universal-social.bak
+postEngine.js.universal-social.bak
+connections.tsx.universal-social.bak
+store-automation.tsx.universal-social.bak
+
+Restore those four backups and delete the three new Universal Social source
+files to return to the exact pre-install state.
+
+FIXED BUILD NOTE
+----------------
+Installer now recognizes the current multiline unsupported-platform guard in backend/services/postEngine.js (uploaded Aug. 12, 2026) and inserts Universal Social immediately before it without replacing native publishers.
+
+FIXED V2 NOTE
+-------------
+This installer was updated against the current 2,026-line connections.tsx supplied on Aug. 12, 2026. It recognizes the current multiline TikTok status check and multiline connectSocialPlatform signature. Existing native social platforms are preserved.
