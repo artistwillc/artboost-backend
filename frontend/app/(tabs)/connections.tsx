@@ -76,9 +76,30 @@ const socialPlatforms: SocialPlatform[] = [
     available: true,
   },
   {
+    name: "Threads",
+    description:
+      "Publish artwork, product links, images, and marketing posts to Threads.",
+    premium: true,
+    available: true,
+  },
+  {
+    name: "LinkedIn",
+    description:
+      "Publish artwork, product links, images, and professional marketing posts to LinkedIn.",
+    premium: true,
+    available: true,
+  },
+  {
     name: "X",
     description:
       "Publish product links, artwork, images, and short posts.",
+    premium: true,
+    available: true,
+  },
+  {
+    name: "TikTok",
+    description:
+      "Publish artwork marketing content and short-form campaigns to TikTok.",
     premium: true,
     available: true,
   },
@@ -448,12 +469,38 @@ export default function ConnectionsScreen() {
           checkSimpleStatus(
             "Instagram",
             userId
-              ? `/instagram/status?userId=${encodeURIComponent(userId)}`
+              ? `/instagram/status?userId=${encodeURIComponent(
+                  userId
+                )}`
               : "/instagram/status"
+          ),
+          checkSimpleStatus(
+            "Threads",
+            userId
+              ? `/threads/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/threads/status"
+          ),
+          checkSimpleStatus(
+            "LinkedIn",
+            userId
+              ? `/linkedin/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/linkedin/status"
           ),
           checkSimpleStatus(
             "X",
             "/x/status"
+          ),
+          checkSimpleStatus(
+            "TikTok",
+            userId
+              ? `/tiktok/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/tiktok/status"
           ),
         ]);
 
@@ -559,9 +606,48 @@ export default function ConnectionsScreen() {
       return;
     }
 
+    if (
+      platform === "Threads" ||
+      platform === "LinkedIn" ||
+      platform === "TikTok"
+    ) {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          `Please log in before connecting ${platform}.`
+        );
+        return;
+      }
+
+      const authPaths: Record<string, string> = {
+        Threads: "/auth/threads",
+        LinkedIn: "/auth/linkedin",
+        TikTok: "/auth/tiktok",
+      };
+
+      await Linking.openURL(
+        `${BACKEND_URL}${authPaths[platform]}?userId=${encodeURIComponent(
+          userId
+        )}`
+      );
+
+      Alert.alert(
+        `${platform} Login Opened`,
+        `Complete the ${platform} authorization, return to ArtBoost, and refresh the connection status.`
+      );
+
+      return;
+    }
+
     Alert.alert(
       `${platform} Connection`,
-      `${platform} is currently configured through the ArtBoost server. Account-level authorization will be expanded in a later update.`
+      `${platform} is currently configured through the ArtBoost server.`
     );
   }
 
