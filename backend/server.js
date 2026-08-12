@@ -811,6 +811,92 @@ async function etsyApiRequest(pathname, accessToken) {
   return data;
 }
 
+async function refreshEtsyConnectionToken(connection) {
+  if (!connection?.refresh_token) {
+    throw new Error(
+      "Etsy authorization expired and no refresh token is available. Reconnect Etsy once to restore automatic token refresh."
+    );
+  }
+
+  const response = await fetch(
+    "https://api.etsy.com/v3/public/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type":
+          "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: ETSY_API_KEY,
+        refresh_token:
+          String(connection.refresh_token),
+      }).toString(),
+    }
+  );
+
+  const responseText = await response.text();
+  let tokenData = {};
+
+  try {
+    tokenData = responseText
+      ? JSON.parse(responseText)
+      : {};
+  } catch {
+    throw new Error(
+      `Etsy token refresh returned ${response.status}: ${responseText.slice(
+        0,
+        250
+      )}`
+    );
+  }
+
+  if (
+    !response.ok ||
+    !tokenData?.access_token
+  ) {
+    throw new Error(
+      tokenData?.error_description ||
+        tokenData?.error ||
+        "Etsy authorization could not be refreshed."
+    );
+  }
+
+  const now = new Date();
+  const expiresIn =
+    Number(tokenData.expires_in) || 3600;
+  const expiresAt = new Date(
+    now.getTime() + expiresIn * 1000
+  ).toISOString();
+
+  const updatePayload = {
+    connected: true,
+    access_token: tokenData.access_token,
+    refresh_token:
+      tokenData.refresh_token ||
+      connection.refresh_token,
+    expires_in: expiresIn,
+    expires_at: expiresAt,
+    updated_at: now.toISOString(),
+  };
+
+  const { data: updated, error: updateError } =
+    await supabase
+      .from("social_connections")
+      .update(updatePayload)
+      .eq("id", connection.id)
+      .select("*")
+      .single();
+
+  if (updateError) {
+    throw new Error(
+      `Unable to save refreshed Etsy authorization: ${updateError.message}`
+    );
+  }
+
+  return updated;
+}
+
 async function getValidEtsyConnection(userId) {
   const { data: connection, error } = await supabase
     .from("social_connections")
@@ -828,6 +914,25 @@ async function getValidEtsyConnection(userId) {
   if (!connection?.connected || !connection?.access_token) {
     throw new Error(
       "Etsy is not connected. Connect Etsy in ArtBoost before syncing listings."
+    );
+  }
+
+  const expiresAtMs =
+    connection.expires_at
+      ? new Date(connection.expires_at).getTime()
+      : 0;
+
+  const shouldRefresh =
+    Boolean(connection.refresh_token) &&
+    (
+      !expiresAtMs ||
+      Number.isNaN(expiresAtMs) ||
+      expiresAtMs <= Date.now() + 2 * 60 * 1000
+    );
+
+  if (shouldRefresh) {
+    return refreshEtsyConnectionToken(
+      connection
     );
   }
 
