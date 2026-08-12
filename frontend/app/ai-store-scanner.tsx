@@ -280,9 +280,15 @@ const SCAN_PAGE_SCRIPT = `
       description,
       price
     ) {
+      const gumroadProduct =
+        /(?:^|\.)gumroad\.com\/l\//i.test(
+          String(productUrl || "")
+            .replace(/^https?:\/\//i, "")
+        );
+
       if (
         !productUrl ||
-        !imageUrl ||
+        (!imageUrl && !gumroadProduct) ||
         seen[productUrl]
       ) {
         return;
@@ -773,10 +779,6 @@ const SCAN_PAGE_SCRIPT = `
           card,
           link
         );
-
-      if (!imageUrl) {
-        return;
-      }
 
       const titleNode =
         card &&
@@ -3754,7 +3756,168 @@ function scanEntireStore() {
       : new Error("Unable to read Redbubble product details after retry.");
   }
 
-  function handleScannerMessage(
+
+  async function enrichGumroadProducts(
+    items: ScannedProduct[]
+  ): Promise<ScannedProduct[]> {
+    if (
+      storeType !== "gumroad" ||
+      items.length === 0
+    ) {
+      return items;
+    }
+
+    try {
+      setScanProgress(
+        `Loading Gumroad product images — 0/${items.length}`
+      );
+
+      const response = await fetch(
+        `${API_BASE}/gumroad/enrich-products`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            products: items.map(
+              (item) => ({
+                productUrl:
+                  item.productUrl,
+                title:
+                  item.title,
+                description:
+                  item.description,
+                price:
+                  item.price,
+                currency:
+                  item.currency,
+              })
+            ),
+          }),
+        }
+      );
+
+      const responseText =
+        await response.text();
+
+      let data: any = {};
+
+      try {
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        throw new Error(
+          `ArtBoost received an invalid Gumroad image response (${response.status}).`
+        );
+      }
+
+      if (
+        !response.ok ||
+        !data?.success
+      ) {
+        throw new Error(
+          data?.error ||
+            "Gumroad product images could not be loaded."
+        );
+      }
+
+      const byUrl =
+        new Map<string, any>();
+
+      for (
+        const product of
+        Array.isArray(data.products)
+          ? data.products
+          : []
+      ) {
+        const key = normalizeUrl(
+          product?.productUrl,
+          browserUrl
+        );
+
+        if (key) {
+          byUrl.set(key, product);
+        }
+      }
+
+      const enriched =
+        items.map((item) => {
+          const key = normalizeUrl(
+            item.productUrl,
+            browserUrl
+          );
+
+          const match = byUrl.get(key);
+
+          if (!match) {
+            return item;
+          }
+
+          const matchPrice =
+            match.price === null ||
+            match.price === undefined
+              ? null
+              : Number(match.price);
+
+          return {
+            ...item,
+            title:
+              cleanText(match.title) ||
+              item.title,
+            description:
+              cleanText(match.description) ||
+              item.description,
+            imageUrl:
+              normalizeUrl(
+                match.imageUrl,
+                browserUrl
+              ) ||
+              item.imageUrl,
+            price:
+              matchPrice !== null &&
+              Number.isFinite(matchPrice)
+                ? matchPrice
+                : item.price,
+            currency:
+              cleanText(match.currency) ||
+              item.currency,
+          };
+        });
+
+      const imageCount =
+        enriched.filter(
+          (item) =>
+            Boolean(item.imageUrl)
+        ).length;
+
+      setScanProgress(
+        `Loaded ${imageCount}/${enriched.length} Gumroad product images`
+      );
+
+      console.log(
+        "[Gumroad Enrichment]",
+        {
+          requested: items.length,
+          processed: data.processed,
+          withImages: data.withImages,
+        }
+      );
+
+      return enriched;
+    } catch (error) {
+      console.log(
+        "Gumroad enrichment failed:",
+        error
+      );
+
+      return items;
+    }
+  }
+
+  async function handleScannerMessage(
     event: WebViewMessageEvent
   ) {
     try {
@@ -4254,9 +4417,16 @@ function scanEntireStore() {
         });
       }
 
-      setProducts(mapped);
+      const finalMapped =
+        storeType === "gumroad"
+          ? await enrichGumroadProducts(
+              mapped
+            )
+          : mapped;
 
-      if (mapped.length === 0) {
+      setProducts(finalMapped);
+
+      if (finalMapped.length === 0) {
         Alert.alert(
           "No Products Detected",
           [
@@ -4280,11 +4450,11 @@ function scanEntireStore() {
             ? "Full Store Scan Complete"
             : "Scan Complete",
           message.scanMode === "full_store"
-            ? `${mapped.length} unique design${
-                mapped.length === 1 ? "" : "s"
+            ? `${finalMapped.length} unique design${
+                finalMapped.length === 1 ? "" : "s"
               } detected across the store.`
-            : `${mapped.length} product${
-                mapped.length === 1 ? "" : "s"
+            : `${finalMapped.length} product${
+                finalMapped.length === 1 ? "" : "s"
               } detected on this page.`
         );
       }

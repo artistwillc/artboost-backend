@@ -2932,6 +2932,372 @@ app.use(redbubbleRoutes);
 app.use(tiktokRoutes);
 app.use("/catalog", catalogRoutes);
 
+
+// ============================================
+// Gumroad public product metadata enrichment
+// ============================================
+
+function decodeBasicHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#x2F;/gi, "/");
+}
+
+function gumroadAllowedProductUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const isGumroadHost =
+      host === "gumroad.com" ||
+      host.endsWith(".gumroad.com");
+
+    if (!isGumroadHost) return null;
+    if (!/^\/l\/[^/?#]+/i.test(parsed.pathname || "")) return null;
+
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function gumroadMetaContent(html, key) {
+  const tags = String(html || "").match(/<meta\b[^>]*>/gi) || [];
+  const wanted = String(key || "").toLowerCase();
+
+  for (const tag of tags) {
+    const propertyMatch =
+      tag.match(/\b(?:property|name)\s*=\s*["']([^"']+)["']/i);
+
+    if (
+      !propertyMatch ||
+      String(propertyMatch[1] || "").toLowerCase() !== wanted
+    ) {
+      continue;
+    }
+
+    const contentMatch =
+      tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
+
+    if (contentMatch) {
+      return decodeBasicHtmlEntities(contentMatch[1]).trim();
+    }
+  }
+
+  return "";
+}
+
+function gumroadJsonLdObjects(html) {
+  const results = [];
+  const pattern =
+    /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  let match;
+  while ((match = pattern.exec(String(html || "")))) {
+    const raw = String(match[1] || "").trim();
+    if (!raw) continue;
+
+    try {
+      results.push(JSON.parse(raw));
+    } catch {}
+  }
+
+  return results;
+}
+
+function gumroadFindProductJsonLd(value) {
+  const queue = [value];
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    if (typeof current !== "object") continue;
+
+    const type = current["@type"];
+    const isProduct =
+      String(type || "").toLowerCase() === "product" ||
+      (
+        Array.isArray(type) &&
+        type.some(
+          (item) =>
+            String(item || "").toLowerCase() === "product"
+        )
+      );
+
+    if (isProduct) return current;
+
+    if (current["@graph"]) {
+      queue.push(current["@graph"]);
+    }
+
+    for (const nested of Object.values(current)) {
+      if (nested && typeof nested === "object") {
+        queue.push(nested);
+      }
+    }
+  }
+
+  return null;
+}
+
+function gumroadImageFromJsonLd(product) {
+  if (!product) return "";
+  const image = product.image;
+
+  if (typeof image === "string") return image;
+
+  if (Array.isArray(image)) {
+    for (const item of image) {
+      if (typeof item === "string") return item;
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof item.url === "string"
+      ) {
+        return item.url;
+      }
+    }
+  }
+
+  if (image && typeof image === "object") {
+    return image.url || image.contentUrl || "";
+  }
+
+  return "";
+}
+
+function gumroadPriceFromJsonLd(product) {
+  if (!product) return null;
+
+  const offers = Array.isArray(product.offers)
+    ? product.offers[0]
+    : product.offers;
+
+  const raw = offers?.price ?? offers?.lowPrice ?? null;
+  const parsed = Number(raw);
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function fetchGumroadProductMetadata(productUrl) {
+  const safeUrl = gumroadAllowedProductUrl(productUrl);
+
+  if (!safeUrl) {
+    throw new Error("Invalid Gumroad product URL.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+
+  let response;
+  try {
+    response = await fetch(safeUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0 Safari/537.36 ArtBoost/1.0",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response?.ok) {
+    throw new Error(
+      `Gumroad returned HTTP ${response?.status || "unknown"}.`
+    );
+  }
+
+  const html = await response.text();
+
+  const jsonLdProduct =
+    gumroadJsonLdObjects(html)
+      .map(gumroadFindProductJsonLd)
+      .find(Boolean) || null;
+
+  const imageUrl =
+    gumroadMetaContent(html, "og:image") ||
+    gumroadMetaContent(html, "og:image:secure_url") ||
+    gumroadMetaContent(html, "twitter:image") ||
+    gumroadImageFromJsonLd(jsonLdProduct);
+
+  const title =
+    gumroadMetaContent(html, "og:title") ||
+    gumroadMetaContent(html, "twitter:title") ||
+    String(jsonLdProduct?.name || "").trim();
+
+  const description =
+    gumroadMetaContent(html, "og:description") ||
+    gumroadMetaContent(html, "description") ||
+    String(jsonLdProduct?.description || "").trim();
+
+  const priceMeta =
+    gumroadMetaContent(html, "product:price:amount");
+
+  const parsedMetaPrice = Number(priceMeta);
+
+  const price =
+    Number.isFinite(parsedMetaPrice)
+      ? parsedMetaPrice
+      : gumroadPriceFromJsonLd(jsonLdProduct);
+
+  const currency =
+    gumroadMetaContent(html, "product:price:currency") ||
+    (
+      Array.isArray(jsonLdProduct?.offers)
+        ? jsonLdProduct.offers[0]?.priceCurrency
+        : jsonLdProduct?.offers?.priceCurrency
+    ) ||
+    "USD";
+
+  return {
+    productUrl: safeUrl,
+    title: String(title || "").trim(),
+    description: String(description || "").trim(),
+    imageUrl:
+      /^https?:\/\//i.test(String(imageUrl || "").trim())
+        ? String(imageUrl).trim()
+        : "",
+    price,
+    currency: String(currency || "USD").trim().toUpperCase(),
+  };
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= items.length) return;
+
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  const workerCount = Math.max(
+    1,
+    Math.min(Number(limit) || 1, items.length || 1)
+  );
+
+  await Promise.all(
+    Array.from({ length: workerCount }, () => runWorker())
+  );
+
+  return results;
+}
+
+app.post("/gumroad/enrich-products", async (req, res) => {
+  try {
+    const requested = Array.isArray(req.body?.products)
+      ? req.body.products
+      : [];
+
+    if (requested.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No Gumroad products were supplied.",
+      });
+    }
+
+    if (requested.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "A maximum of 100 Gumroad products can be enriched at once.",
+      });
+    }
+
+    const cleaned = requested
+      .map((item) => ({
+        ...item,
+        productUrl: gumroadAllowedProductUrl(item?.productUrl),
+      }))
+      .filter((item) => Boolean(item.productUrl));
+
+    const enriched = await mapWithConcurrency(
+      cleaned,
+      6,
+      async (item) => {
+        try {
+          const metadata =
+            await fetchGumroadProductMetadata(item.productUrl);
+
+          return {
+            ...item,
+            title:
+              metadata.title ||
+              item.title ||
+              "Gumroad Product",
+            description:
+              metadata.description ||
+              item.description ||
+              "",
+            imageUrl: metadata.imageUrl || "",
+            price:
+              metadata.price ??
+              item.price ??
+              null,
+            currency:
+              metadata.currency ||
+              item.currency ||
+              "USD",
+            enriched: Boolean(metadata.imageUrl),
+          };
+        } catch (error) {
+          return {
+            ...item,
+            imageUrl: "",
+            enriched: false,
+            enrichError:
+              error instanceof Error
+                ? error.message
+                : String(error),
+          };
+        }
+      }
+    );
+
+    return res.json({
+      success: true,
+      requested: requested.length,
+      processed: enriched.length,
+      withImages:
+        enriched.filter((item) => Boolean(item.imageUrl)).length,
+      products: enriched,
+    });
+  } catch (error) {
+    console.error("Gumroad product enrichment failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to enrich Gumroad products.",
+    });
+  }
+});
+
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
