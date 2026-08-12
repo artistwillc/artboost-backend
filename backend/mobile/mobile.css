@@ -16,7 +16,14 @@ button{cursor:pointer}
 .mobile-menu.open{display:flex}
 .mobile-menu a,.mobile-menu button{display:block;text-align:left;padding:14px 12px;border:0;border-radius:10px;background:transparent;color:#eee;text-decoration:none;font-weight:800}
 .mobile-menu .menu-start{background:linear-gradient(180deg,#ffd45f,#e79800);color:#130b00;text-align:center}
-.hero{padding-bottom:22px;background:#000}.hero-art{display:block;width:100%;height:auto}
+.hero{padding-bottom:22px;background:#000}
+.hero-art-wrap{position:relative;width:100%}
+.hero-art{display:block;width:100%;height:auto}
+.hero-account-hotspot{position:absolute;top:4.0%;height:10.7%;width:18.3%;border:0;background:transparent;padding:0;z-index:25;cursor:pointer;border-radius:14px;-webkit-tap-highlight-color:transparent}
+.hero-account-create{left:8.4%}
+.hero-account-signin{left:76.7%}
+.hero-account-hotspot:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.hero-account-hotspot:active{background:rgba(255,180,0,.08)}
 .hero-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
 .primary,.secondary{min-height:48px;border-radius:12px;padding:13px 16px;text-decoration:none;display:flex;justify-content:center;align-items:center;font-weight:1000;border:0}
 .primary{background:linear-gradient(180deg,#ffd45f,#e89a00);color:#140c00;box-shadow:0 0 22px #f7ad0024}
