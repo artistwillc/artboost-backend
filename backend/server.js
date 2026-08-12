@@ -876,22 +876,63 @@ function normalizeEtsyMoney(money) {
   return amount / divisor;
 }
 
-function getEtsyPrimaryImage(listing) {
-  const images = Array.isArray(listing?.images)
-    ? listing.images
+function pickEtsyImageUrl(images) {
+  const list = Array.isArray(images)
+    ? images
     : [];
 
   const image =
-    images.find((item) => Number(item?.rank) === 1) ||
-    images[0] ||
+    list.find((item) => Number(item?.rank) === 1) ||
+    list[0] ||
     null;
 
   return (
     image?.url_fullxfull ||
     image?.url_570xN ||
     image?.url_170x135 ||
+    image?.url_75x75 ||
     null
   );
+}
+
+async function getEtsyPrimaryImage(
+  listing,
+  accessToken
+) {
+  const includedImage =
+    pickEtsyImageUrl(listing?.images);
+
+  if (includedImage) {
+    return includedImage;
+  }
+
+  const listingId = String(
+    listing?.listing_id || ""
+  );
+
+  if (!listingId) {
+    return null;
+  }
+
+  try {
+    const imagesData = await etsyApiRequest(
+      `/application/listings/${encodeURIComponent(
+        listingId
+      )}/images`,
+      accessToken
+    );
+
+    return pickEtsyImageUrl(
+      imagesData?.results
+    );
+  } catch (error) {
+    console.warn(
+      `Unable to load Etsy images for listing ${listingId}:`,
+      error
+    );
+
+    return null;
+  }
 }
 
 async function fetchAllActiveEtsyListings(shopId, accessToken) {
@@ -969,7 +1010,10 @@ app.post("/etsy/sync", async (req, res) => {
         `https://www.etsy.com/listing/${listingId}`;
 
       const imageUrl =
-        getEtsyPrimaryImage(listing);
+        await getEtsyPrimaryImage(
+          listing,
+          connection.access_token
+        );
 
       const price =
         normalizeEtsyMoney(listing?.price);

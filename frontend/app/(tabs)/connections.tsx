@@ -76,20 +76,6 @@ const socialPlatforms: SocialPlatform[] = [
     available: true,
   },
   {
-    name: "Threads",
-    description:
-      "Publish artwork, product links, images, and marketing posts to Threads.",
-    premium: true,
-    available: true,
-  },
-  {
-    name: "LinkedIn",
-    description:
-      "Publish artwork, product links, images, and professional marketing posts to LinkedIn.",
-    premium: true,
-    available: true,
-  },
-  {
     name: "X",
     description:
       "Publish product links, artwork, images, and short posts.",
@@ -299,51 +285,99 @@ export default function ConnectionsScreen() {
         ? data.stores
         : [];
 
-    setStores(
-      loadedStores.map((store: any) => ({
-        id: String(store.id),
-        storeType:
-          store.platform ||
-          store.storeType ||
-          "custom_store",
-        storeName:
-          store.storeName ||
-          store.store_name ||
-          store.platform ||
-          "Connected Store",
-        storeUrl:
-          store.storeUrl ||
-          store.store_url ||
-          null,
-        hostname:
-          store.metadata?.hostname ||
-          store.hostname ||
-          null,
-        connectionMethod:
-          store.metadata?.connectionMethod ||
-          store.connectionMethod ||
-          null,
-        connected:
-          store.connected !== false,
-        productCount:
-          Number(
-            store.productCount ||
-              store.product_count ||
-              store.metadata?.productCount ||
-              0
-          ) || 0,
-        connectedAt:
-          store.connectedAt ||
-          store.connected_at ||
-          store.createdAt ||
-          store.created_at ||
-          null,
-        updatedAt:
-          store.updatedAt ||
-          store.updated_at ||
-          null,
-      }))
+    const mappedStores = loadedStores.map((store: any) => ({
+      id: String(store.id),
+      storeType:
+        store.platform ||
+        store.storeType ||
+        "custom_store",
+      storeName:
+        store.storeName ||
+        store.store_name ||
+        store.platform ||
+        "Connected Store",
+      storeUrl:
+        store.storeUrl ||
+        store.store_url ||
+        null,
+      hostname:
+        store.metadata?.hostname ||
+        store.hostname ||
+        null,
+      connectionMethod:
+        store.metadata?.connectionMethod ||
+        store.connectionMethod ||
+        null,
+      connected:
+        store.connected !== false,
+      productCount:
+        Number(
+          store.productCount ||
+            store.product_count ||
+            store.metadata?.productCount ||
+            0
+        ) || 0,
+      connectedAt:
+        store.connectedAt ||
+        store.connected_at ||
+        store.createdAt ||
+        store.created_at ||
+        null,
+      updatedAt:
+        store.updatedAt ||
+        store.updated_at ||
+        null,
+    }));
+
+    const etsyIndex = mappedStores.findIndex(
+      (store: any) =>
+        String(store.storeType || "")
+          .trim()
+          .toLowerCase() === "etsy"
     );
+
+    if (etsyIndex >= 0) {
+      try {
+        const etsyResponse = await fetch(
+          `${BACKEND_URL}/etsy/store-summary?userId=${encodeURIComponent(
+            userId
+          )}`
+        );
+
+        const etsyText = await etsyResponse.text();
+        let etsyData: any = {};
+
+        try {
+          etsyData = etsyText
+            ? JSON.parse(etsyText)
+            : {};
+        } catch {}
+
+        if (
+          etsyResponse.ok &&
+          etsyData?.success
+        ) {
+          mappedStores[etsyIndex] = {
+            ...mappedStores[etsyIndex],
+            productCount:
+              Number(etsyData.productCount) || 0,
+            storeName:
+              etsyData.shopName ||
+              mappedStores[etsyIndex].storeName,
+            updatedAt:
+              etsyData.lastSyncAt ||
+              mappedStores[etsyIndex].updatedAt,
+          };
+        }
+      } catch (error) {
+        console.log(
+          "Etsy store summary load failed:",
+          error
+        );
+      }
+    }
+
+    setStores(mappedStores);
   },
   []
 );
@@ -418,22 +452,8 @@ export default function ConnectionsScreen() {
               : "/instagram/status"
           ),
           checkSimpleStatus(
-            "Threads",
-            userId
-              ? `/threads/status?userId=${encodeURIComponent(userId)}`
-              : "/threads/status"
-          ),
-          checkSimpleStatus(
-            "LinkedIn",
-            userId
-              ? `/linkedin/status?userId=${encodeURIComponent(userId)}`
-              : "/linkedin/status"
-          ),
-          checkSimpleStatus(
             "X",
-            userId
-              ? `/x/status?userId=${encodeURIComponent(userId)}`
-              : "/x/status"
+            "/x/status"
           ),
         ]);
 
@@ -534,87 +554,6 @@ export default function ConnectionsScreen() {
       Alert.alert(
         "Instagram Login Opened",
         "Complete the Meta authorization, return to ArtBoost, and refresh the connection status."
-      );
-
-      return;
-    }
-
-    if (platform === "Threads") {
-      const { data: sessionData } =
-        await supabase.auth.getSession();
-
-      const userId =
-        sessionData.session?.user?.id;
-
-      if (!userId) {
-        Alert.alert(
-          "Login Required",
-          "Please log in before connecting Threads."
-        );
-        return;
-      }
-
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/threads?userId=${encodeURIComponent(userId)}`
-      );
-
-      Alert.alert(
-        "Threads Login Opened",
-        "Complete the Threads authorization, return to ArtBoost, and refresh the connection status."
-      );
-
-      return;
-    }
-
-    if (platform === "LinkedIn") {
-      const { data: sessionData } =
-        await supabase.auth.getSession();
-
-      const userId =
-        sessionData.session?.user?.id;
-
-      if (!userId) {
-        Alert.alert(
-          "Login Required",
-          "Please log in before connecting LinkedIn."
-        );
-        return;
-      }
-
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/linkedin?userId=${encodeURIComponent(userId)}`
-      );
-
-      Alert.alert(
-        "LinkedIn Login Opened",
-        "Complete the LinkedIn authorization, return to ArtBoost, and refresh the connection status."
-      );
-
-      return;
-    }
-
-    if (platform === "X") {
-      const { data: sessionData } =
-        await supabase.auth.getSession();
-
-      const userId =
-        sessionData.session?.user?.id;
-
-      if (!userId) {
-        Alert.alert(
-          "Login Required",
-          "Please log in before connecting X."
-        );
-        return;
-      }
-
-      await Linking.openURL(
-        `${BACKEND_URL}/auth/x?userId=${encodeURIComponent(userId)}`
-      );
-
-      Alert.alert(
-        "X Login Opened",
-        "Complete the X authorization, return to ArtBoost, and refresh the connection status."
       );
 
       return;
@@ -1157,7 +1096,7 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <Text style={styles.primaryActionDescription}>
-                  Add or authorize Pinterest, Facebook, Instagram, Threads, LinkedIn, or X.
+                  Add or authorize Pinterest, Facebook, Instagram, or X.
                 </Text>
               </View>
 
@@ -1381,11 +1320,7 @@ export default function ConnectionsScreen() {
                     ? "logo-facebook"
                     : platform.name === "Instagram"
                       ? "logo-instagram"
-                      : platform.name === "Threads"
-                        ? "at-circle-outline"
-                        : platform.name === "LinkedIn"
-                          ? "logo-linkedin"
-                          : "logo-twitter";
+                      : "logo-twitter";
 
               return (
                 <Pressable
