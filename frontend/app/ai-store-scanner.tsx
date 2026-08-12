@@ -353,18 +353,127 @@ const SCAN_PAGE_SCRIPT = `
     const getGumroadImageUrl = function (card, link) {
       const candidates = [];
 
-      const collectImage = function (img) {
-        if (!img) return;
-        const value = getHttpImageUrl(img);
-        if (value) candidates.push(value);
+      const addCandidate = function (
+        url,
+        score
+      ) {
+        const normalized =
+          absoluteUrl(url);
+
+        if (
+          !/^https?:\/\//i.test(normalized)
+        ) {
+          return;
+        }
+
+        const lower =
+          normalized.toLowerCase();
+
+        if (
+          lower.includes("placeholder") ||
+          lower.includes("transparent") ||
+          lower.includes("spacer") ||
+          lower.includes("blank") ||
+          lower.includes("avatar") ||
+          lower.includes("profile") ||
+          lower.includes("logo") ||
+          lower.includes("icon")
+        ) {
+          return;
+        }
+
+        candidates.push({
+          url: normalized,
+          score:
+            Number(score) || 0,
+        });
       };
 
-      collectImage(link && link.querySelector && link.querySelector("img"));
+      const collectImage = function (
+        img,
+        bonus
+      ) {
+        if (!img) return;
 
-      if (card && card.querySelectorAll) {
-        Array.from(card.querySelectorAll("img")).forEach(collectImage);
+        const value =
+          getHttpImageUrl(img);
 
-        Array.from(card.querySelectorAll("*")).forEach(function (node) {
+        if (!value) return;
+
+        let area = 0;
+
+        try {
+          const rect =
+            img.getBoundingClientRect();
+
+          area =
+            Math.max(
+              Number(rect.width) || 0,
+              Number(img.naturalWidth) || 0
+            ) *
+            Math.max(
+              Number(rect.height) || 0,
+              Number(img.naturalHeight) || 0
+            );
+        } catch {}
+
+        const alt =
+          cleanText(
+            img.getAttribute("alt") || ""
+          ).toLowerCase();
+
+        let score =
+          area +
+          (Number(bonus) || 0);
+
+        if (area >= 12000) {
+          score += 50000;
+        }
+
+        if (
+          alt &&
+          !alt.includes("logo") &&
+          !alt.includes("avatar")
+        ) {
+          score += 5000;
+        }
+
+        addCandidate(
+          value,
+          score
+        );
+      };
+
+      if (
+        link &&
+        link.querySelectorAll
+      ) {
+        Array.from(
+          link.querySelectorAll("img")
+        ).forEach(function (img) {
+          collectImage(
+            img,
+            100000
+          );
+        });
+      }
+
+      if (
+        card &&
+        card.querySelectorAll
+      ) {
+        Array.from(
+          card.querySelectorAll("img")
+        ).forEach(function (img) {
+          collectImage(
+            img,
+            25000
+          );
+        });
+
+        Array.from(
+          card.querySelectorAll("*")
+        ).forEach(function (node) {
           try {
             const style =
               window.getComputedStyle &&
@@ -379,28 +488,40 @@ const SCAN_PAGE_SCRIPT = `
                 /url\((?:"|')?([^"')]+)(?:"|')?\)/
               );
 
-            if (match && match[1]) {
-              const url = absoluteUrl(match[1]);
-              if (/^https?:\/\//i.test(url)) {
-                candidates.push(url);
+            if (
+              match &&
+              match[1]
+            ) {
+              const rect =
+                node.getBoundingClientRect();
+
+              const area =
+                Math.max(
+                  Number(rect.width) || 0,
+                  0
+                ) *
+                Math.max(
+                  Number(rect.height) || 0,
+                  0
+                );
+
+              if (area >= 5000) {
+                addCandidate(
+                  match[1],
+                  area + 15000
+                );
               }
             }
           } catch {}
         });
       }
 
-      const unique = Array.from(new Set(candidates));
-
-      const gumroadHosted =
-        unique.filter(function (url) {
-          return /(?:gumroad|public-files|files\.gumroad|assets\.gumroad)/i.test(
-            url
-          );
-        });
+      candidates.sort(function (a, b) {
+        return b.score - a.score;
+      });
 
       return (
-        gumroadHosted[gumroadHosted.length - 1] ||
-        unique[unique.length - 1] ||
+        candidates[0]?.url ||
         ""
       );
     };
@@ -448,12 +569,77 @@ const SCAN_PAGE_SCRIPT = `
         return;
       }
 
+      const findGumroadCard = function (productLink) {
+        let node =
+          productLink.parentElement;
+
+        let fallback =
+          productLink.parentElement ||
+          productLink;
+
+        for (
+          let depth = 0;
+          node && depth < 7;
+          depth += 1, node = node.parentElement
+        ) {
+          const productLinks =
+            Array.from(
+              node.querySelectorAll(
+                "a[href]"
+              )
+            ).filter(function (candidate) {
+              try {
+                const url = new URL(
+                  candidate.getAttribute("href") || "",
+                  window.location.href
+                );
+
+                const candidateHost =
+                  url.hostname
+                    .toLowerCase()
+                    .replace(/^www\./, "");
+
+                return (
+                  (
+                    candidateHost === "gumroad.com" ||
+                    candidateHost.endsWith(".gumroad.com")
+                  ) &&
+                  /^\/l\/[^/?#]+/i.test(
+                    url.pathname || ""
+                  )
+                );
+              } catch {
+                return false;
+              }
+            });
+
+          const images =
+            node.querySelectorAll("img");
+
+          if (
+            productLinks.length === 1 &&
+            images.length > 0
+          ) {
+            return node;
+          }
+
+          if (
+            productLinks.length <= 2 &&
+            images.length > 0
+          ) {
+            fallback = node;
+          }
+
+          if (productLinks.length > 4) {
+            break;
+          }
+        }
+
+        return fallback;
+      };
+
       const card =
-        link.closest(
-          "article, li, section, [data-testid], [class*='product'], [class*='card'], [class*='tile'], [class*='grid']"
-        ) ||
-        link.parentElement ||
-        link;
+        findGumroadCard(link);
 
       const image =
         link.querySelector("img") ||
@@ -808,53 +994,176 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
       function getGumroadCardImage(card, link) {
         var candidates = [];
 
-        function addImage(img) {
-          if (!img) return;
-          var value = getHttpImageUrl(img);
-          if (value) candidates.push(value);
+        function addCandidate(
+          url,
+          score
+        ) {
+          var normalized =
+            absoluteUrl(url);
+
+          if (
+            !/^https?:\/\//i.test(normalized)
+          ) {
+            return;
+          }
+
+          var lower =
+            normalized.toLowerCase();
+
+          if (
+            lower.includes("placeholder") ||
+            lower.includes("transparent") ||
+            lower.includes("spacer") ||
+            lower.includes("blank") ||
+            lower.includes("avatar") ||
+            lower.includes("profile") ||
+            lower.includes("logo") ||
+            lower.includes("icon")
+          ) {
+            return;
+          }
+
+          candidates.push({
+            url: normalized,
+            score:
+              Number(score) || 0
+          });
         }
 
-        addImage(link && link.querySelector && link.querySelector("img"));
+        function addImage(
+          img,
+          bonus
+        ) {
+          if (!img) return;
 
-        if (card && card.querySelectorAll) {
-          Array.from(card.querySelectorAll("img")).forEach(addImage);
+          var value =
+            getHttpImageUrl(img);
 
-          Array.from(card.querySelectorAll("*")).forEach(function (node) {
+          if (!value) return;
+
+          var area = 0;
+
+          try {
+            var rect =
+              img.getBoundingClientRect();
+
+            area =
+              Math.max(
+                Number(rect.width) || 0,
+                Number(img.naturalWidth) || 0
+              ) *
+              Math.max(
+                Number(rect.height) || 0,
+                Number(img.naturalHeight) || 0
+              );
+          } catch {}
+
+          var alt =
+            cleanText(
+              img.getAttribute("alt") || ""
+            ).toLowerCase();
+
+          var score =
+            area +
+            (Number(bonus) || 0);
+
+          if (area >= 12000) {
+            score += 50000;
+          }
+
+          if (
+            alt &&
+            !alt.includes("logo") &&
+            !alt.includes("avatar")
+          ) {
+            score += 5000;
+          }
+
+          addCandidate(
+            value,
+            score
+          );
+        }
+
+        if (
+          link &&
+          link.querySelectorAll
+        ) {
+          Array.from(
+            link.querySelectorAll("img")
+          ).forEach(function (img) {
+            addImage(
+              img,
+              100000
+            );
+          });
+        }
+
+        if (
+          card &&
+          card.querySelectorAll
+        ) {
+          Array.from(
+            card.querySelectorAll("img")
+          ).forEach(function (img) {
+            addImage(
+              img,
+              25000
+            );
+          });
+
+          Array.from(
+            card.querySelectorAll("*")
+          ).forEach(function (node) {
             try {
               var style =
                 window.getComputedStyle &&
                 window.getComputedStyle(node);
 
               var background =
-                style && style.backgroundImage;
+                style &&
+                style.backgroundImage;
 
               var match =
                 String(background || "").match(
                   /url\((?:"|')?([^"')]+)(?:"|')?\)/
                 );
 
-              if (match && match[1]) {
-                var url = absoluteUrl(match[1]);
-                if (/^https?:\/\//i.test(url)) {
-                  candidates.push(url);
+              if (
+                match &&
+                match[1]
+              ) {
+                var rect =
+                  node.getBoundingClientRect();
+
+                var area =
+                  Math.max(
+                    Number(rect.width) || 0,
+                    0
+                  ) *
+                  Math.max(
+                    Number(rect.height) || 0,
+                    0
+                  );
+
+                if (area >= 5000) {
+                  addCandidate(
+                    match[1],
+                    area + 15000
+                  );
                 }
               }
             } catch {}
           });
         }
 
-        var unique = Array.from(new Set(candidates));
-
-        var gumroadHosted =
-          unique.filter(function (url) {
-            return /(?:gumroad|public-files|files\.gumroad|assets\.gumroad)/i.test(
-              url
-            );
-          });
+        candidates.sort(function (a, b) {
+          return b.score - a.score;
+        });
 
         return (
-          gumroadHosted[gumroadHosted.length - 1] ||
-          unique[unique.length - 1] ||
+          (candidates[0] &&
+            candidates[0].url) ||
           ""
         );
       }
@@ -880,9 +1189,75 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
         var pathname = parsed.pathname || "";
         if (!/^\/l\/[^/?#]+/i.test(pathname)) return;
 
-        var card = link.closest(
-          "article, li, section, [data-testid], [class*='product'], [class*='card'], [class*='tile'], [class*='grid']"
-        ) || link.parentElement || link;
+        function findGumroadCard(productLink) {
+          var node =
+            productLink.parentElement;
+
+          var fallback =
+            productLink.parentElement ||
+            productLink;
+
+          for (
+            var depth = 0;
+            node && depth < 7;
+            depth += 1, node = node.parentElement
+          ) {
+            var productLinks =
+              Array.from(
+                node.querySelectorAll("a[href]")
+              ).filter(function (candidate) {
+                try {
+                  var url = new URL(
+                    candidate.getAttribute("href") || "",
+                    window.location.href
+                  );
+
+                  var candidateHost =
+                    url.hostname
+                      .toLowerCase()
+                      .replace(/^www\./, "");
+
+                  return (
+                    (
+                      candidateHost === "gumroad.com" ||
+                      candidateHost.endsWith(".gumroad.com")
+                    ) &&
+                    /^\/l\/[^/?#]+/i.test(
+                      url.pathname || ""
+                    )
+                  );
+                } catch {
+                  return false;
+                }
+              });
+
+            var images =
+              node.querySelectorAll("img");
+
+            if (
+              productLinks.length === 1 &&
+              images.length > 0
+            ) {
+              return node;
+            }
+
+            if (
+              productLinks.length <= 2 &&
+              images.length > 0
+            ) {
+              fallback = node;
+            }
+
+            if (productLinks.length > 4) {
+              break;
+            }
+          }
+
+          return fallback;
+        }
+
+        var card =
+          findGumroadCard(link);
 
         var image =
           link.querySelector("img") ||
