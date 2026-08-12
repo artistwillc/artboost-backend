@@ -275,7 +275,7 @@ const syncButtonLabel = useMemo(() => {
         }
 
         const response = await fetch(
-          `${API_BASE}/etsy/sync`,
+          `${API_BASE}/etsy/sync?userId=${encodeURIComponent(user.id)}`,
           {
             method: "POST",
             headers: {
