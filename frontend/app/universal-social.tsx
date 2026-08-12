@@ -520,13 +520,13 @@ export default function UniversalSocialScreen() {
             <Text
               style={styles.unsupportedTitle}
             >
-              {query.trim()} is not registered yet
+              More Platforms Coming Soon
             </Text>
 
             <Text
               style={styles.unsupportedBody}
             >
-              The Universal Social Connector is already installed. This platform only needs a provider definition on the ArtBoost server; the customer flow stays the same and the app does not need another connector screen.
+              We’re expanding ArtBoost with additional social platforms. New connections will appear here as they become available.
             </Text>
           </View>
         ) : null}

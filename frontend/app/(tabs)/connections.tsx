@@ -102,14 +102,7 @@ const socialPlatforms: SocialPlatform[] = [
       "Publish artwork marketing content and short-form campaigns to TikTok.",
     premium: true,
     available: true,
-  },  {
-    name: "Universal Social",
-    description:
-      "Connect any HTTPS publishing API or webhook and include it in Store Automation.",
-    premium: true,
-    available: true,
   },
-
 ];
 
 function formatStoreType(value: string) {
@@ -512,15 +505,7 @@ export default function ConnectionsScreen() {
                   userId
                 )}`
               : "/tiktok/status"
-          ),          checkSimpleStatus(
-            "Universal Social",
-            userId
-              ? `/universal-social/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/universal-social/status"
           ),
-
         ]);
 
         if (!userId) {
@@ -570,14 +555,6 @@ export default function ConnectionsScreen() {
   async function connectSocialPlatform(
   platform: string
 ) {
-    if (platform === "Universal Social") {
-      setSocialModalOpen(false);
-      router.push(
-        "/universal-social" as any
-      );
-      return;
-    }
-
   console.log("Platform pressed:", JSON.stringify(platform));
 
   if (platform === "Pinterest") {
@@ -1211,7 +1188,7 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <Text style={styles.primaryActionDescription}>
-                  Type any supported platform, sign in, and connect it through one universal social connector.
+                  Connect supported social platforms now, with more platforms coming soon.
                 </Text>
               </View>
 
@@ -1407,7 +1384,7 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <Text style={styles.modalSubtitle}>
-                  Choose the account you want to authorize or reconnect.
+                  Choose a supported platform to authorize or reconnect. More platforms are coming soon.
                 </Text>
               </View>
 
