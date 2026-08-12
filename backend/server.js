@@ -5,6 +5,7 @@ import subscriptionsRoutes from "./routes/subscriptions.js";
 import stripeSandboxRoutes from "./routes/stripeSandbox.js";
 import tiktokRoutes from "./routes/tiktok.js";
 import universalSocialRoutes from "./routes/universalSocial.js";
+import socialConnectRoutes from "./routes/socialConnect.js";
 import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import catalogCsvRouter from "./routes/catalogCsv.js";
@@ -2932,6 +2933,7 @@ app.use(etsyRoutes);
 app.use(redbubbleRoutes);
 app.use(tiktokRoutes);
 app.use(universalSocialRoutes);
+app.use(socialConnectRoutes);
 app.use("/catalog", catalogRoutes);
 
 

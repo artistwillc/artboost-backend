@@ -1195,7 +1195,7 @@ export default function ConnectionsScreen() {
 
             <Pressable
               style={styles.connectSocialButton}
-              onPress={() => setSocialModalOpen(true)}
+              onPress={() => router.push("/universal-social" as any)}
             >
               <View style={styles.primaryActionIcon}>
                 <Ionicons
@@ -1211,7 +1211,7 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <Text style={styles.primaryActionDescription}>
-                  Add or authorize Pinterest, Facebook, Instagram, or X.
+                  Type any supported platform, sign in, and connect it through one universal social connector.
                 </Text>
               </View>
 

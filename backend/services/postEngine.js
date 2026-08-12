@@ -1,3 +1,5 @@
+import { findSocialProvider } from "../config/socialProviderRegistry.js";
+import { publishDynamicProvider } from "./genericSocialPublisher.js";
 import { publishUniversalSocial } from "./universalSocialPublisher.js";
 import {
   publishPinterest,
@@ -433,6 +435,28 @@ export async function publishToPlatform({
         tiktokOptions || {},
     });
   }
+  const dynamicProvider =
+    findSocialProvider(
+      normalizedPlatform
+    );
+
+  if (
+    dynamicProvider &&
+    dynamicProvider.authMode === "oauth2"
+  ) {
+    return publishDynamicProvider({
+      providerId:
+        dynamicProvider.id,
+      userId,
+      title: cleanTitle,
+      description: cleanDescription,
+      hashtags: cleanHashtags,
+      cta: cleanCta,
+      productLink: cleanProductLink,
+      imageUrl: cleanImageUrl,
+    });
+  }
+
   if (normalizedPlatform === "universal") {
     return publishUniversalSocial({
       userId,
