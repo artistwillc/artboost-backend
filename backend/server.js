@@ -996,7 +996,7 @@ app.post("/etsy/sync", async (req, res) => {
         currency:
           listing?.price?.currency_code ||
           null,
-        active: true,
+        status: "active",
         updated_at: now,
         metadata: {
           etsy_shop_id:
@@ -1099,7 +1099,7 @@ app.post("/etsy/sync", async (req, res) => {
           await supabase
             .from("products")
             .update({
-              active: false,
+              status: "inactive",
               updated_at: now,
             })
             .eq("id", product.id);
@@ -1165,7 +1165,7 @@ app.get("/etsy/store-summary", async (req, res) => {
         })
         .eq("user_id", String(userId))
         .eq("store_type", "etsy")
-        .eq("active", true);
+        .eq("status", "active");
 
     if (error) {
       throw new Error(
