@@ -1,15 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, {
-  useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -26,52 +25,30 @@ const API_BASE =
   process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
-type UniversalConnection = {
+type Provider = {
   id: string;
-  platformId: string;
-  connected: boolean;
-  displayName: string;
-  profileUrl: string;
-  publishEndpoint: string;
-  method: string;
-  authType: string;
-  authHeader: string;
-  hasCredential: boolean;
+  name: string;
+  aliases: string[];
+  authMode: string;
+  automationPlatform: string;
+  requiresUserId: boolean;
 };
 
-const METHODS = [
-  "POST",
-  "PUT",
-  "PATCH",
-] as const;
-
-const AUTH_TYPES = [
-  {
-    id: "none",
-    label: "None",
-  },
-  {
-    id: "bearer",
-    label: "Bearer Token",
-  },
-  {
-    id: "api_key",
-    label: "API Key",
-  },
-] as const;
-
 export default function UniversalSocialScreen() {
+  const [
+    query,
+    setQuery,
+  ] = useState("");
+
+  const [
+    providers,
+    setProviders,
+  ] = useState<Provider[]>([]);
+
   const [
     userId,
     setUserId,
   ] = useState("");
-
-  const [
-    connections,
-    setConnections,
-  ] = useState<
-    UniversalConnection[]
-  >([]);
 
   const [
     loading,
@@ -79,153 +56,104 @@ export default function UniversalSocialScreen() {
   ] = useState(true);
 
   const [
-    saving,
-    setSaving,
-  ] = useState(false);
+    connected,
+    setConnected,
+  ] = useState<
+    Record<string, boolean>
+  >({});
 
-  const [
-    displayName,
-    setDisplayName,
-  ] = useState("");
+  const normalized =
+    query.trim().toLowerCase();
 
-  const [
-    profileUrl,
-    setProfileUrl,
-  ] = useState("");
+  const matches =
+    useMemo(() => {
+      if (!normalized) {
+        return providers;
+      }
 
-  const [
-    publishEndpoint,
-    setPublishEndpoint,
-  ] = useState("");
-
-  const [
-    method,
-    setMethod,
-  ] = useState("POST");
-
-  const [
-    authType,
-    setAuthType,
-  ] = useState("none");
-
-  const [
-    credential,
-    setCredential,
-  ] = useState("");
-
-  const [
-    authHeader,
-    setAuthHeader,
-  ] = useState("X-API-Key");
-
-  const [
-    payloadTemplate,
-    setPayloadTemplate,
-  ] = useState("");
-
-  const loadConnections =
-    useCallback(
-      async (
-        resolvedUserId?: string
-      ) => {
-        const id =
-          resolvedUserId ||
-          userId;
-
-        if (!id) {
-          return;
-        }
-
-        try {
-          setLoading(true);
-
-          const response =
-            await fetch(
-              `${API_BASE}/universal-social/connections?userId=${encodeURIComponent(
-                id
-              )}`
-            );
-
-          const text =
-            await response.text();
-
-          let data: any = {};
-
-          try {
-            data =
-              text
-                ? JSON.parse(
-                    text
-                  )
-                : {};
-          } catch {}
-
-          if (
-            !response.ok ||
-            !data?.success
-          ) {
-            throw new Error(
-              data?.error ||
-                "Unable to load Universal Social connections."
-            );
-          }
-
-          setConnections(
-            Array.isArray(
-              data.connections
-            )
-              ? data.connections
-              : []
-          );
-        } catch (error: any) {
-          Alert.alert(
-            "Unable to Load",
-            error?.message ||
-              "Universal Social connections could not be loaded."
-          );
-        } finally {
-          setLoading(false);
-        }
-      },
-      [userId]
-    );
+      return providers.filter(
+        (provider) =>
+          provider.name
+            .toLowerCase()
+            .includes(normalized) ||
+          provider.id.includes(
+            normalized
+          ) ||
+          provider.aliases?.some(
+            (alias) =>
+              alias.includes(
+                normalized
+              )
+          )
+      );
+    }, [
+      normalized,
+      providers,
+    ]);
 
   useEffect(() => {
     let active = true;
 
     async function initialize() {
-      const {
-        data,
-        error,
-      } =
-        await supabase.auth.getUser();
+      try {
+        const {
+          data,
+        } =
+          await supabase.auth.getSession();
 
-      if (!active) {
-        return;
-      }
+        const id =
+          data.session?.user?.id ||
+          "";
 
-      if (
-        error ||
-        !data.user
-      ) {
-        setLoading(false);
+        if (!active) return;
 
-        Alert.alert(
-          "Login Required",
-          "Please log in before adding a Universal Social publishing destination."
+        setUserId(id);
+
+        const response =
+          await fetch(
+            `${API_BASE}/social-connect/providers`
+          );
+
+        const dataJson =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !dataJson?.success
+        ) {
+          throw new Error(
+            dataJson?.error ||
+            "Unable to load social platforms."
+          );
+        }
+
+        const list =
+          Array.isArray(
+            dataJson.providers
+          )
+            ? dataJson.providers
+            : [];
+
+        if (active) {
+          setProviders(list);
+        }
+
+        await refreshStatuses(
+          list,
+          id,
+          active
         );
-
-        return;
+      } catch (error: any) {
+        Alert.alert(
+          "Unable to Load",
+          error?.message ||
+            "ArtBoost could not load social platforms."
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
-
-      const id =
-        data.user.id;
-
-      setUserId(id);
-
-      await loadConnections(
-        id
-      );
     }
 
     initialize();
@@ -233,234 +161,131 @@ export default function UniversalSocialScreen() {
     return () => {
       active = false;
     };
-  }, [loadConnections]);
+  }, []);
 
-  async function saveConnection() {
-    if (
-      !displayName.trim() ||
-      !profileUrl.trim() ||
-      !publishEndpoint.trim()
-    ) {
-      Alert.alert(
-        "Missing Information",
-        "Enter the platform name, profile URL, and publishing API/webhook URL."
+  async function refreshStatuses(
+    list = providers,
+    id = userId,
+    active = true
+  ) {
+    const entries =
+      await Promise.all(
+        list.map(
+          async (provider) => {
+            try {
+              const response =
+                await fetch(
+                  `${API_BASE}/social-connect/status/${encodeURIComponent(
+                    provider.id
+                  )}?userId=${encodeURIComponent(
+                    id
+                  )}`
+                );
+
+              const data =
+                await response.json();
+
+              if (
+                data?.delegated &&
+                data?.statusPath
+              ) {
+                const separator =
+                  data.statusPath.includes(
+                    "?"
+                  )
+                    ? "&"
+                    : "?";
+
+                const nativeUrl =
+                  data.requiresUserId &&
+                  id
+                    ? `${API_BASE}${data.statusPath}${separator}userId=${encodeURIComponent(
+                        id
+                      )}`
+                    : `${API_BASE}${data.statusPath}`;
+
+                const nativeResponse =
+                  await fetch(nativeUrl);
+
+                const nativeData =
+                  await nativeResponse.json();
+
+                return [
+                  provider.id,
+                  Boolean(
+                    nativeData?.connected
+                  ),
+                ] as const;
+              }
+
+              return [
+                provider.id,
+                Boolean(
+                  data?.connected
+                ),
+              ] as const;
+            } catch {
+              return [
+                provider.id,
+                false,
+              ] as const;
+            }
+          }
+        )
       );
 
-      return;
+    if (active) {
+      setConnected(
+        Object.fromEntries(
+          entries
+        )
+      );
     }
+  }
 
+  async function connect(
+    provider: Provider
+  ) {
     if (
-      authType !== "none" &&
-      !credential.trim()
+      provider.requiresUserId &&
+      !userId
     ) {
       Alert.alert(
-        "Credential Required",
-        "Enter the token or API key required by this publishing endpoint."
+        "Login Required",
+        `Please log in to ArtBoost before connecting ${provider.name}.`
       );
-
       return;
     }
 
     try {
-      setSaving(true);
-
-      const response =
-        await fetch(
-          `${API_BASE}/universal-social/connect`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body:
-              JSON.stringify({
-                userId,
-                displayName:
-                  displayName.trim(),
-                profileUrl:
-                  profileUrl.trim(),
-                publishEndpoint:
-                  publishEndpoint.trim(),
-                method,
-                authType,
-                credential:
-                  credential.trim(),
-                authHeader:
-                  authHeader.trim() ||
-                  "X-API-Key",
-                payloadTemplate:
-                  payloadTemplate.trim() ||
-                  null,
-              }),
-          }
-        );
-
-      const text =
-        await response.text();
-
-      let data: any = {};
-
-      try {
-        data =
-          text
-            ? JSON.parse(text)
-            : {};
-      } catch {}
-
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
-        throw new Error(
-          data?.error ||
-            "Unable to connect this publishing destination."
-        );
-      }
-
-      setDisplayName("");
-      setProfileUrl("");
-      setPublishEndpoint("");
-      setMethod("POST");
-      setAuthType("none");
-      setCredential("");
-      setAuthHeader(
-        "X-API-Key"
-      );
-      setPayloadTemplate("");
-
-      await loadConnections();
-
-      Alert.alert(
-        "Connected",
-        "This destination is now available to Store Automation through Universal Social."
+      await Linking.openURL(
+        `${API_BASE}/social-connect/auth/${encodeURIComponent(
+          provider.id
+        )}?userId=${encodeURIComponent(
+          userId
+        )}`
       );
     } catch (error: any) {
       Alert.alert(
-        "Connection Failed",
+        "Unable to Connect",
         error?.message ||
-          "ArtBoost could not save this publishing destination."
+          `${provider.name} authorization could not be opened.`
+      );
+    }
+  }
+
+  async function refresh() {
+    setLoading(true);
+
+    try {
+      await refreshStatuses(
+        providers,
+        userId,
+        true
       );
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  }
-
-  async function validateConnection(
-    connection:
-      UniversalConnection
-  ) {
-    try {
-      const response =
-        await fetch(
-          `${API_BASE}/universal-social/${encodeURIComponent(
-            connection.id
-          )}/test`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body:
-              JSON.stringify({
-                userId,
-              }),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
-        throw new Error(
-          data?.error ||
-            "Validation failed."
-        );
-      }
-
-      Alert.alert(
-        "Configuration Ready",
-        data.message ||
-          "The publishing destination is configured."
-      );
-    } catch (error: any) {
-      Alert.alert(
-        "Validation Failed",
-        error?.message ||
-          "This publishing destination could not be validated."
-      );
-    }
-  }
-
-  async function removeConnection(
-    connection:
-      UniversalConnection
-  ) {
-    Alert.alert(
-      "Remove Connection?",
-      `Remove ${connection.displayName} from Universal Social?`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Remove",
-          style:
-            "destructive",
-          onPress:
-            async () => {
-              try {
-                const response =
-                  await fetch(
-                    `${API_BASE}/universal-social/${encodeURIComponent(
-                      connection.id
-                    )}`,
-                    {
-                      method:
-                        "DELETE",
-                      headers: {
-                        "Content-Type":
-                          "application/json",
-                      },
-                      body:
-                        JSON.stringify({
-                          userId,
-                        }),
-                    }
-                  );
-
-                const data =
-                  await response.json();
-
-                if (
-                  !response.ok ||
-                  !data?.success
-                ) {
-                  throw new Error(
-                    data?.error ||
-                      "Unable to remove connection."
-                  );
-                }
-
-                await loadConnections();
-              } catch (
-                error: any
-              ) {
-                Alert.alert(
-                  "Unable to Remove",
-                  error?.message ||
-                    "The connection could not be removed."
-                );
-              }
-            },
-        },
-      ]
-    );
   }
 
   return (
@@ -486,14 +311,10 @@ export default function UniversalSocialScreen() {
         </Pressable>
 
         <View
-          style={
-            styles.headerText
-          }
+          style={styles.headerText}
         >
           <Text
-            style={
-              styles.eyebrow
-            }
+            style={styles.eyebrow}
           >
             UNIVERSAL SOCIAL
           </Text>
@@ -501,523 +322,216 @@ export default function UniversalSocialScreen() {
           <Text
             style={styles.title}
           >
-            Add Publishing Destination
+            Connect Social Platform
           </Text>
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={
-          Platform.OS ===
-          "ios"
-            ? "padding"
-            : undefined
+      <ScrollView
+        contentContainerStyle={
+          styles.content
         }
+        keyboardShouldPersistTaps="handled"
       >
-        <ScrollView
-          contentContainerStyle={
-            styles.content
-          }
-          keyboardShouldPersistTaps="handled"
+        <View
+          style={styles.hero}
         >
           <View
-            style={styles.infoCard}
+            style={styles.heroIcon}
           >
             <Ionicons
-              name="git-network-outline"
+              name="share-social-outline"
               size={28}
-              color="#c4b5fd"
+              color="#ffffff"
             />
-
-            <View
-              style={
-                styles.infoTextWrap
-              }
-            >
-              <Text
-                style={
-                  styles.infoTitle
-                }
-              >
-                One automation bridge
-              </Text>
-
-              <Text
-                style={
-                  styles.infoText
-                }
-              >
-                Connect any social destination that provides an HTTPS publishing API or webhook. Store Automation can then send the selected listing, image, caption, hashtags, CTA, and product link through this destination automatically.
-              </Text>
-            </View>
           </View>
 
-          <Text
-            style={
-              styles.sectionTitle
-            }
+          <View
+            style={styles.heroText}
           >
-            Connected Destinations
-          </Text>
+            <Text
+              style={styles.heroTitle}
+            >
+              Type it. Log in. Connected.
+            </Text>
 
-          {loading ? (
-            <View
-              style={
-                styles.loadingCard
+            <Text
+              style={styles.heroBody}
+            >
+              ArtBoost uses one connector experience for every supported social platform. New providers appear here automatically when added to the server registry.
+            </Text>
+          </View>
+        </View>
+
+        <View
+          style={styles.searchWrap}
+        >
+          <Ionicons
+            name="search"
+            size={20}
+            color="#8b8b8b"
+          />
+
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Type a social platform..."
+            placeholderTextColor="#686868"
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          {query ? (
+            <Pressable
+              onPress={() =>
+                setQuery("")
               }
             >
-              <ActivityIndicator
-                size="small"
-                color="#a78bfa"
+              <Ionicons
+                name="close-circle"
+                size={21}
+                color="#777777"
               />
+            </Pressable>
+          ) : null}
+        </View>
 
-              <Text
-                style={
-                  styles.loadingText
-                }
-              >
-                Loading...
-              </Text>
-            </View>
-          ) : connections.length ===
-            0 ? (
-            <View
-              style={
-                styles.emptyCard
-              }
-            >
-              <Text
-                style={
-                  styles.emptyTitle
-                }
-              >
-                No Universal Social destinations yet
-              </Text>
-
-              <Text
-                style={
-                  styles.emptyText
-                }
-              >
-                Add an HTTPS API or webhook below. It will become available to your store automations.
-              </Text>
-            </View>
+        <Pressable
+          style={styles.refresh}
+          onPress={refresh}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator
+              size="small"
+              color="#ffffff"
+            />
           ) : (
-            connections.map(
-              (
-                connection
-              ) => (
-                <View
-                  key={
-                    connection.id
-                  }
-                  style={
-                    styles.connectionCard
-                  }
-                >
-                  <View
-                    style={
-                      styles.connectionTop
-                    }
-                  >
-                    <View
-                      style={
-                        styles.connectionIcon
-                      }
-                    >
-                      <Ionicons
-                        name="share-social-outline"
-                        size={23}
-                        color="#ffffff"
-                      />
-                    </View>
-
-                    <View
-                      style={
-                        styles.connectionInfo
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.connectionName
-                        }
-                      >
-                        {
-                          connection.displayName
-                        }
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.connectionUrl
-                        }
-                        numberOfLines={
-                          1
-                        }
-                      >
-                        {
-                          connection.profileUrl
-                        }
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.connectionStatus
-                        }
-                      >
-                        Connected • {
-                          connection.method
-                        }
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View
-                    style={
-                      styles.connectionActions
-                    }
-                  >
-                    <Pressable
-                      style={
-                        styles.secondaryButton
-                      }
-                      onPress={() =>
-                        validateConnection(
-                          connection
-                        )
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.secondaryButtonText
-                        }
-                      >
-                        Validate
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={
-                        styles.removeButton
-                      }
-                      onPress={() =>
-                        removeConnection(
-                          connection
-                        )
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.removeButtonText
-                        }
-                      >
-                        Remove
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              )
-            )
+            <Ionicons
+              name="refresh-outline"
+              size={18}
+              color="#ffffff"
+            />
           )}
 
           <Text
-            style={
-              styles.sectionTitle
-            }
+            style={styles.refreshText}
           >
-            Add Destination
+            Refresh Connection Status
           </Text>
+        </Pressable>
 
-          <View
-            style={styles.formCard}
-          >
-            <Field
-              label="Platform / Destination Name"
-              value={displayName}
-              onChangeText={
-                setDisplayName
-              }
-              placeholder="Bluesky, Mastodon, Make, Zapier..."
-            />
+        <Text
+          style={styles.sectionTitle}
+        >
+          {normalized
+            ? "Matches"
+            : "Available Platforms"}
+        </Text>
 
-            <Field
-              label="Social Profile URL"
-              value={profileUrl}
-              onChangeText={
-                setProfileUrl
-              }
-              placeholder="https://..."
-              autoCapitalize="none"
-            />
+        {matches.map(
+          (provider) => {
+            const isConnected =
+              Boolean(
+                connected[
+                  provider.id
+                ]
+              );
 
-            <Field
-              label="Publishing API / Webhook URL"
-              value={
-                publishEndpoint
-              }
-              onChangeText={
-                setPublishEndpoint
-              }
-              placeholder="https://..."
-              autoCapitalize="none"
-            />
-
-            <Text
-              style={
-                styles.fieldLabel
-              }
-            >
-              HTTP Method
-            </Text>
-
-            <View
-              style={styles.choiceRow}
-            >
-              {METHODS.map(
-                (value) => (
-                  <Choice
-                    key={value}
-                    label={value}
-                    selected={
-                      method ===
-                      value
-                    }
-                    onPress={() =>
-                      setMethod(
-                        value
-                      )
-                    }
-                  />
-                )
-              )}
-            </View>
-
-            <Text
-              style={
-                styles.fieldLabel
-              }
-            >
-              Authentication
-            </Text>
-
-            <View
-              style={
-                styles.choiceWrap
-              }
-            >
-              {AUTH_TYPES.map(
-                (value) => (
-                  <Choice
-                    key={
-                      value.id
-                    }
-                    label={
-                      value.label
-                    }
-                    selected={
-                      authType ===
-                      value.id
-                    }
-                    onPress={() =>
-                      setAuthType(
-                        value.id
-                      )
-                    }
-                  />
-                )
-              )}
-            </View>
-
-            {authType !==
-            "none" ? (
-              <Field
-                label={
-                  authType ===
-                  "bearer"
-                    ? "Bearer Token"
-                    : "API Key"
-                }
-                value={
-                  credential
-                }
-                onChangeText={
-                  setCredential
-                }
-                placeholder="Credential"
-                autoCapitalize="none"
-                secureTextEntry
-              />
-            ) : null}
-
-            {authType ===
-            "api_key" ? (
-              <Field
-                label="API Key Header"
-                value={
-                  authHeader
-                }
-                onChangeText={
-                  setAuthHeader
-                }
-                placeholder="X-API-Key"
-                autoCapitalize="none"
-              />
-            ) : null}
-
-            <Text
-              style={
-                styles.fieldLabel
-              }
-            >
-              Advanced JSON Payload Template (optional)
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                styles.multilineInput,
-              ]}
-              value={
-                payloadTemplate
-              }
-              onChangeText={
-                setPayloadTemplate
-              }
-              multiline
-              placeholder={
-                '{"text":"{{text}}","image":"{{imageUrl}}","url":"{{productLink}}"}'
-              }
-              placeholderTextColor="#666666"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text
-              style={
-                styles.templateHelp
-              }
-            >
-              Available variables: {"{{text}}"}, {"{{title}}"}, {"{{description}}"}, {"{{hashtags}}"}, {"{{cta}}"}, {"{{productLink}}"}, {"{{imageUrl}}"}, {"{{profileUrl}}"}, {"{{platformName}}"}.
-            </Text>
-
-            <Pressable
-              style={[
-                styles.saveButton,
-                saving &&
-                  styles.disabledButton,
-              ]}
-              onPress={
-                saveConnection
-              }
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#ffffff"
-                />
-              ) : (
-                <Ionicons
-                  name="add-circle-outline"
-                  size={21}
-                  color="#ffffff"
-                />
-              )}
-
-              <Text
-                style={
-                  styles.saveButtonText
-                }
+            return (
+              <View
+                key={provider.id}
+                style={styles.card}
               >
-                {saving
-                  ? "Connecting..."
-                  : "Connect Destination"}
-              </Text>
-            </Pressable>
-          </View>
+                <View
+                  style={styles.platformIcon}
+                >
+                  <Ionicons
+                    name="share-social-outline"
+                    size={25}
+                    color="#ffffff"
+                  />
+                </View>
 
+                <View
+                  style={styles.platformInfo}
+                >
+                  <Text
+                    style={styles.platformName}
+                  >
+                    {provider.name}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.status,
+                      isConnected &&
+                        styles.connected,
+                    ]}
+                  >
+                    {isConnected
+                      ? "Connected"
+                      : "Not connected"}
+                  </Text>
+
+                  <Text
+                    style={styles.description}
+                  >
+                    Sign in once. ArtBoost can then use this platform in supported store automations.
+                  </Text>
+                </View>
+
+                <Pressable
+                  style={[
+                    styles.connectButton,
+                    isConnected &&
+                      styles.reconnectButton,
+                  ]}
+                  onPress={() =>
+                    connect(provider)
+                  }
+                >
+                  <Text
+                    style={styles.connectText}
+                  >
+                    {isConnected
+                      ? "Reconnect"
+                      : "Connect"}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          }
+        )}
+
+        {!loading &&
+        normalized &&
+        matches.length === 0 ? (
           <View
-            style={
-              styles.launchNote
-            }
+            style={styles.unsupported}
           >
             <Ionicons
-              name="shield-checkmark-outline"
-              size={21}
-              color="#86efac"
+              name="information-circle-outline"
+              size={27}
+              color="#c4b5fd"
             />
 
             <Text
-              style={
-                styles.launchNoteText
-              }
+              style={styles.unsupportedTitle}
             >
-              ArtBoost validates HTTPS endpoints and blocks private-network destinations. Credentials are stored in the existing social connection credential field and are never returned to the mobile app.
+              {query.trim()} is not registered yet
+            </Text>
+
+            <Text
+              style={styles.unsupportedBody}
+            >
+              The Universal Social Connector is already installed. This platform only needs a provider definition on the ArtBoost server; the customer flow stays the same and the app does not need another connector screen.
             </Text>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function Field({
-  label,
-  ...props
-}: any) {
-  return (
-    <View
-      style={
-        styles.fieldWrap
-      }
-    >
-      <Text
-        style={
-          styles.fieldLabel
-        }
-      >
-        {label}
-      </Text>
-
-      <TextInput
-        style={styles.input}
-        placeholderTextColor="#666666"
-        autoCorrect={false}
-        {...props}
-      />
-    </View>
-  );
-}
-
-function Choice({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={[
-        styles.choice,
-        selected &&
-          styles.choiceSelected,
-      ]}
-      onPress={onPress}
-    >
-      <Text
-        style={[
-          styles.choiceText,
-          selected &&
-            styles.choiceTextSelected,
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -1025,351 +539,197 @@ const styles =
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor:
-        "#0b0b0b",
+      backgroundColor: "#0b0b0b",
     },
-
     header: {
       minHeight: 72,
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 18,
       borderBottomWidth: 1,
-      borderBottomColor:
-        "#1f1f1f",
+      borderBottomColor: "#202020",
     },
-
     backButton: {
-      width: 44,
-      height: 44,
+      width: 43,
+      height: 43,
       borderRadius: 15,
-      backgroundColor:
-        "#171717",
+      backgroundColor: "#191919",
       alignItems: "center",
-      justifyContent:
-        "center",
+      justifyContent: "center",
     },
-
     headerText: {
-      paddingLeft: 13,
       flex: 1,
+      paddingLeft: 13,
     },
-
     eyebrow: {
       color: "#8b5cf6",
       fontSize: 10,
       fontWeight: "900",
-      letterSpacing: 1.3,
+      letterSpacing: 1.2,
     },
-
     title: {
       color: "#ffffff",
       fontSize: 21,
       fontWeight: "900",
       marginTop: 3,
     },
-
     content: {
       padding: 18,
       paddingBottom: 60,
     },
-
-    infoCard: {
+    hero: {
       flexDirection: "row",
-      borderRadius: 20,
-      backgroundColor:
-        "#181324",
-      borderWidth: 1,
-      borderColor:
-        "#4b3973",
       padding: 16,
-      marginBottom: 24,
+      borderRadius: 20,
+      backgroundColor: "#181324",
+      borderWidth: 1,
+      borderColor: "#4b3973",
+      marginBottom: 15,
     },
-
-    infoTextWrap: {
+    heroIcon: {
+      width: 50,
+      height: 50,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#8b5cf6",
+    },
+    heroText: {
       flex: 1,
       paddingLeft: 13,
     },
-
-    infoTitle: {
+    heroTitle: {
       color: "#ffffff",
+      fontSize: 17,
       fontWeight: "900",
-      fontSize: 16,
     },
-
-    infoText: {
-      color: "#b9afc7",
+    heroBody: {
+      color: "#b5acbf",
       fontSize: 12,
       lineHeight: 18,
       marginTop: 5,
     },
-
+    searchWrap: {
+      minHeight: 55,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: "#393939",
+      backgroundColor: "#161616",
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 14,
+    },
+    searchInput: {
+      flex: 1,
+      color: "#ffffff",
+      fontSize: 14,
+      paddingHorizontal: 10,
+    },
+    refresh: {
+      minHeight: 46,
+      marginTop: 10,
+      borderRadius: 13,
+      backgroundColor: "#2d6cdf",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+    },
+    refreshText: {
+      color: "#ffffff",
+      fontSize: 12,
+      fontWeight: "900",
+    },
     sectionTitle: {
       color: "#ffffff",
       fontSize: 17,
       fontWeight: "900",
+      marginTop: 22,
       marginBottom: 11,
-      marginTop: 8,
     },
-
-    loadingCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      borderRadius: 18,
-      backgroundColor:
-        "#171717",
-      padding: 17,
-      marginBottom: 22,
-    },
-
-    loadingText: {
-      color: "#aaaaaa",
-      paddingLeft: 10,
-    },
-
-    emptyCard: {
-      borderRadius: 18,
-      backgroundColor:
-        "#171717",
-      borderWidth: 1,
-      borderColor:
-        "#292929",
-      padding: 17,
-      marginBottom: 22,
-    },
-
-    emptyTitle: {
-      color: "#ffffff",
-      fontWeight: "900",
-    },
-
-    emptyText: {
-      color: "#999999",
-      fontSize: 12,
-      lineHeight: 18,
-      marginTop: 5,
-    },
-
-    connectionCard: {
+    card: {
+      minHeight: 116,
       borderRadius: 19,
-      backgroundColor:
-        "#171717",
+      backgroundColor: "#181818",
       borderWidth: 1,
-      borderColor:
-        "#302641",
-      padding: 15,
-      marginBottom: 12,
-    },
-
-    connectionTop: {
+      borderColor: "#303030",
+      padding: 14,
       flexDirection: "row",
       alignItems: "center",
+      marginBottom: 11,
     },
-
-    connectionIcon: {
-      width: 46,
-      height: 46,
+    platformIcon: {
+      width: 48,
+      height: 48,
       borderRadius: 15,
-      backgroundColor:
-        "#6d4ab4",
+      backgroundColor: "#302248",
+      borderWidth: 1,
+      borderColor: "#5d438b",
       alignItems: "center",
-      justifyContent:
-        "center",
+      justifyContent: "center",
     },
-
-    connectionInfo: {
+    platformInfo: {
       flex: 1,
-      paddingLeft: 12,
+      paddingHorizontal: 12,
     },
-
-    connectionName: {
+    platformName: {
       color: "#ffffff",
+      fontSize: 16,
       fontWeight: "900",
-      fontSize: 15,
     },
-
-    connectionUrl: {
-      color: "#9d8bb9",
-      fontSize: 11,
+    status: {
+      color: "#8e8e8e",
+      fontSize: 10,
+      fontWeight: "800",
       marginTop: 3,
     },
-
-    connectionStatus: {
-      color: "#86efac",
+    connected: {
+      color: "#34d399",
+    },
+    description: {
+      color: "#9b9b9b",
       fontSize: 11,
-      fontWeight: "800",
+      lineHeight: 16,
+      marginTop: 6,
+    },
+    connectButton: {
+      minWidth: 82,
+      minHeight: 42,
+      borderRadius: 12,
+      backgroundColor: "#12a86b",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 10,
+    },
+    reconnectButton: {
+      backgroundColor: "#2d6cdf",
+    },
+    connectText: {
+      color: "#ffffff",
+      fontSize: 11,
+      fontWeight: "900",
+    },
+    unsupported: {
+      borderRadius: 18,
+      backgroundColor: "#17131f",
+      borderWidth: 1,
+      borderColor: "#493664",
+      padding: 18,
+      alignItems: "center",
       marginTop: 5,
     },
-
-    connectionActions: {
-      flexDirection: "row",
-      gap: 10,
-      marginTop: 13,
-    },
-
-    secondaryButton: {
-      flex: 1,
-      minHeight: 40,
-      borderRadius: 12,
-      backgroundColor:
-        "#2b2145",
-      alignItems: "center",
-      justifyContent:
-        "center",
-    },
-
-    secondaryButtonText: {
-      color: "#c4b5fd",
-      fontWeight: "900",
-    },
-
-    removeButton: {
-      flex: 1,
-      minHeight: 40,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor:
-        "#63333b",
-      alignItems: "center",
-      justifyContent:
-        "center",
-    },
-
-    removeButtonText: {
-      color: "#fca5a5",
-      fontWeight: "900",
-    },
-
-    formCard: {
-      borderRadius: 20,
-      backgroundColor:
-        "#151515",
-      borderWidth: 1,
-      borderColor:
-        "#292929",
-      padding: 16,
-    },
-
-    fieldWrap: {
-      marginBottom: 14,
-    },
-
-    fieldLabel: {
-      color: "#d9d9d9",
-      fontSize: 12,
-      fontWeight: "800",
-      marginBottom: 7,
-    },
-
-    input: {
-      minHeight: 48,
-      borderRadius: 13,
-      borderWidth: 1,
-      borderColor:
-        "#343434",
-      backgroundColor:
-        "#0f0f0f",
+    unsupportedTitle: {
       color: "#ffffff",
-      paddingHorizontal: 13,
-      fontSize: 13,
+      fontSize: 16,
+      fontWeight: "900",
+      marginTop: 10,
+      textAlign: "center",
     },
-
-    multilineInput: {
-      minHeight: 115,
-      textAlignVertical:
-        "top",
-      paddingTop: 12,
-    },
-
-    choiceRow: {
-      flexDirection: "row",
-      gap: 8,
-      marginBottom: 15,
-    },
-
-    choiceWrap: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      marginBottom: 15,
-    },
-
-    choice: {
-      minHeight: 38,
-      paddingHorizontal: 13,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor:
-        "#333333",
-      alignItems: "center",
-      justifyContent:
-        "center",
-    },
-
-    choiceSelected: {
-      backgroundColor:
-        "#6d4ab4",
-      borderColor:
-        "#8b5cf6",
-    },
-
-    choiceText: {
-      color: "#9a9a9a",
-      fontWeight: "800",
+    unsupportedBody: {
+      color: "#a79cad",
       fontSize: 12,
-    },
-
-    choiceTextSelected: {
-      color: "#ffffff",
-    },
-
-    templateHelp: {
-      color: "#777777",
-      fontSize: 10,
-      lineHeight: 15,
+      lineHeight: 18,
       marginTop: 7,
-      marginBottom: 15,
-    },
-
-    saveButton: {
-      minHeight: 52,
-      borderRadius: 15,
-      backgroundColor:
-        "#8b5cf6",
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "center",
-      gap: 8,
-    },
-
-    saveButtonText: {
-      color: "#ffffff",
-      fontWeight: "900",
-      fontSize: 14,
-    },
-
-    disabledButton: {
-      opacity: 0.55,
-    },
-
-    launchNote: {
-      flexDirection: "row",
-      borderRadius: 16,
-      backgroundColor:
-        "#101a13",
-      borderWidth: 1,
-      borderColor:
-        "#254a30",
-      padding: 14,
-      marginTop: 18,
-    },
-
-    launchNoteText: {
-      flex: 1,
-      paddingLeft: 10,
-      color: "#a7c9af",
-      fontSize: 11,
-      lineHeight: 17,
+      textAlign: "center",
     },
   });
