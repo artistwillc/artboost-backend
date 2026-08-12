@@ -2353,6 +2353,28 @@ app.get("/api/public-auth-config", (_req, res) => {
   });
 });
 
+// =========================================================
+// ARTBOOST WEBSITE STATIC FILES
+// =========================================================
+//
+// Dedicated mobile website lives in backend/mobile.
+// Keep this route BEFORE the desktop website middleware so
+// /mobile/* is always served from the mobile build.
+//
+// Redirect /mobile -> /mobile/ so relative files such as
+// mobile.css, mobile.js and assets/* resolve correctly.
+app.get("/mobile", (_req, res) => {
+  return res.redirect(301, "/mobile/");
+});
+
+app.use(
+  "/mobile",
+  express.static("mobile", {
+    index: "index.html",
+  })
+);
+
+// Desktop ArtBoost website remains unchanged.
 app.use(express.static("website"));
 
 app.get("/", (req, res) => {
