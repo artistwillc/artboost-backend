@@ -850,9 +850,12 @@ async function getEtsyShopForConnection(connection) {
   );
 
   const shop =
-    Array.isArray(shopsData?.results) && shopsData.results.length
-      ? shopsData.results[0]
-      : null;
+    shopsData?.shop_id
+      ? shopsData
+      : Array.isArray(shopsData?.results) &&
+          shopsData.results.length
+        ? shopsData.results[0]
+        : null;
 
   if (!shop?.shop_id) {
     throw new Error(
