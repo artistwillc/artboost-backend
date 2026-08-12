@@ -41,7 +41,6 @@ type ScannedProduct = {
   description: string;
   productUrl: string;
   imageUrl: string;
-  imageDataUrl?: string;
   price: number | null;
   currency: string;
   selected: boolean;
@@ -52,7 +51,6 @@ type RawScannedProduct = {
   description?: string;
   productUrl?: string;
   imageUrl?: string;
-  imageDataUrl?: string;
   price?: number | null;
   currency?: string;
   artworkId?: string | null;
@@ -130,47 +128,6 @@ function normalizeUrl(
     ).toString();
   } catch {
     return "";
-  }
-}
-
-
-function normalizeArtPalStorefrontUrl(
-  value: string
-) {
-  const normalized = normalizeUrl(value);
-
-  if (!normalized) {
-    return "";
-  }
-
-  try {
-    const url = new URL(normalized);
-    const host = url.hostname
-      .replace(/^www\./i, "")
-      .toLowerCase();
-
-    if (
-      host !== "artpal.com" &&
-      !host.endsWith(".artpal.com")
-    ) {
-      return normalized;
-    }
-
-    /*
-     * ArtPal artwork detail links look like:
-     *   /artistname?i=37279-174
-     * and ArtPal can also leave the artist/root ID as:
-     *   /artistname/?i=37279
-     *
-     * The Universal Scanner must start from the artist gallery, not a
-     * detail state. Removing the i parameter restores the full card grid.
-     */
-    url.searchParams.delete("i");
-    url.hash = "";
-
-    return url.toString();
-  } catch {
-    return normalized;
   }
 }
 
@@ -393,6 +350,96 @@ const SCAN_PAGE_SCRIPT = `
     });
 
     /*
+     * Gumroad
+     *
+     * Gumroad storefront product cards link to /l/<product-slug>.
+     * Support both creator subdomains such as artistwill.gumroad.com
+     * and www.gumroad.com/l/... links.
+     */
+    Array.from(
+      document.querySelectorAll("a[href]")
+    ).forEach(function (link) {
+      const rawHref =
+        link.getAttribute("href") || "";
+
+      let parsed;
+      try {
+        parsed = new URL(
+          rawHref,
+          window.location.href
+        );
+      } catch {
+        return;
+      }
+
+      const host =
+        parsed.hostname
+          .toLowerCase()
+          .replace(/^www\./, "");
+
+      const isGumroadHost =
+        host === "gumroad.com" ||
+        host.endsWith(".gumroad.com");
+
+      if (!isGumroadHost) {
+        return;
+      }
+
+      const pathname =
+        parsed.pathname || "";
+
+      if (!/^\/l\/[^/?#]+/i.test(pathname)) {
+        return;
+      }
+
+      const card =
+        link.closest(
+          "article, li, section, [data-testid], [class*='product'], [class*='card'], [class*='tile'], [class*='grid']"
+        ) ||
+        link.parentElement ||
+        link;
+
+      const image =
+        link.querySelector("img") ||
+        (card && card.querySelector("img"));
+
+      const imageUrl =
+        getHttpImageUrl(image);
+
+      if (!imageUrl) {
+        return;
+      }
+
+      const titleNode =
+        card &&
+        card.querySelector(
+          "h1, h2, h3, h4, [class*='title'], [class*='name'], [data-testid*='title']"
+        );
+
+      const descriptionNode =
+        card &&
+        card.querySelector(
+          "p, [class*='description'], [class*='summary']"
+        );
+
+      addProduct(
+        parsed.toString(),
+        imageUrl,
+        cleanText(
+          (titleNode && titleNode.textContent) ||
+          link.getAttribute("aria-label") ||
+          (image && image.getAttribute("alt")) ||
+          "Gumroad Product"
+        ),
+        cleanText(
+          descriptionNode &&
+          descriptionNode.textContent
+        ),
+        getPrice(card)
+      );
+    });
+
+    /*
      * Redbubble
      *
      * Current storefronts can expose artwork links as:
@@ -483,118 +530,18 @@ const SCAN_PAGE_SCRIPT = `
       );
     });
 
-    const sendScanResults =
-      async function () {
-        const host =
-          String(
-            window.location.hostname || ""
-          )
-            .replace(/^www\./i, "")
-            .toLowerCase();
-
-        const isArtPal =
-          host === "artpal.com" ||
-          host.endsWith(".artpal.com");
-
-        if (isArtPal) {
-          /*
-           * The ArtPal page itself can already display these images. Capture
-           * the thumbnail bytes while still inside that browser session so
-           * React Native and later social publishing do not have to hotlink
-           * img.artpal.com directly.
-           */
-          await Promise.all(
-            products.map(
-              async function (product) {
-                try {
-                  const response =
-                    await fetch(
-                      product.imageUrl,
-                      {
-                        credentials:
-                          "include",
-                        cache:
-                          "force-cache"
-                      }
-                    );
-
-                  if (!response.ok) {
-                    return;
-                  }
-
-                  const blob =
-                    await response.blob();
-
-                  if (
-                    !blob.type ||
-                    !blob.type.startsWith(
-                      "image/"
-                    )
-                  ) {
-                    return;
-                  }
-
-                  product.imageDataUrl =
-                    await new Promise(
-                      function (
-                        resolve
-                      ) {
-                        const reader =
-                          new FileReader();
-
-                        reader.onloadend =
-                          function () {
-                            resolve(
-                              String(
-                                reader.result ||
-                                  ""
-                              )
-                            );
-                          };
-
-                        reader.onerror =
-                          function () {
-                            resolve("");
-                          };
-
-                        reader.readAsDataURL(
-                          blob
-                        );
-                      }
-                    );
-                } catch {
-                  /*
-                   * Keep the normal detected product even if one image cannot
-                   * be converted. Detection must never regress because of a
-                   * thumbnail.
-                   */
-                }
-              }
-            )
-          );
-        }
-
-        window.ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: "scan_results",
-            products,
-            pageUrl:
-              window.location.href,
-            pageTitle:
-              document.title,
-            totalLinks:
-              document.querySelectorAll(
-                "a[href]"
-              ).length,
-            totalImages:
-              document.querySelectorAll(
-                "img"
-              ).length
-          })
-        );
-      };
-
-    sendScanResults();
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: "scan_results",
+        products,
+        pageUrl: window.location.href,
+        pageTitle: document.title,
+        totalLinks:
+          document.querySelectorAll("a[href]").length,
+        totalImages:
+          document.querySelectorAll("img").length
+      })
+    );
   } catch (error) {
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
@@ -794,6 +741,62 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
           productUrl: absoluteUrl(rawHref),
           imageUrl: imageUrl,
           price: null,
+          currency: "USD"
+        });
+      });
+
+      // Gumroad product cards use /l/<product-slug> links.
+      Array.from(document.querySelectorAll("a[href]")).forEach(function (link) {
+        var rawHref = link.getAttribute("href") || "";
+        var parsed;
+
+        try {
+          parsed = new URL(rawHref, window.location.href);
+        } catch {
+          return;
+        }
+
+        var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+        var isGumroadHost =
+          host === "gumroad.com" ||
+          host.endsWith(".gumroad.com");
+
+        if (!isGumroadHost) return;
+
+        var pathname = parsed.pathname || "";
+        if (!/^\/l\/[^/?#]+/i.test(pathname)) return;
+
+        var card = link.closest(
+          "article, li, section, [data-testid], [class*='product'], [class*='card'], [class*='tile'], [class*='grid']"
+        ) || link.parentElement || link;
+
+        var image =
+          link.querySelector("img") ||
+          (card && card.querySelector("img"));
+
+        var imageUrl = getHttpImageUrl(image);
+
+        if (!imageUrl) return;
+
+        var titleNode = card && card.querySelector(
+          "h1, h2, h3, h4, [class*='title'], [class*='name'], [data-testid*='title']"
+        );
+
+        var descriptionNode = card && card.querySelector(
+          "p, [class*='description'], [class*='summary']"
+        );
+
+        push({
+          title:
+            cleanText(titleNode && titleNode.textContent) ||
+            cleanText(link.getAttribute("aria-label")) ||
+            cleanText(image && image.getAttribute("alt")) ||
+            "Gumroad Product",
+          description:
+            cleanText(descriptionNode && descriptionNode.textContent),
+          productUrl: parsed.toString(),
+          imageUrl: imageUrl,
+          price: getPrice(card),
           currency: "USD"
         });
       });
@@ -2641,44 +2644,16 @@ export default function AIStoreScannerScreen() {
     scannerSessionCache.get(scannerCacheKey);
 
   const [storeUrl, setStoreUrl] =
-    useState(() => {
-      const requestedUrl =
-        String(params.storeUrl || "");
-
-      if (storeType === "artpal") {
-        return normalizeArtPalStorefrontUrl(
-          requestedUrl ||
-            cachedScannerSession?.storeUrl ||
-            cachedScannerSession?.browserUrl ||
-            ""
-        );
-      }
-
-      return (
-        cachedScannerSession?.storeUrl ||
-        requestedUrl
-      );
-    });
+    useState(() =>
+      cachedScannerSession?.storeUrl ||
+      String(params.storeUrl || "")
+    );
 
   const [browserUrl, setBrowserUrl] =
-    useState(() => {
-      if (storeType === "artpal") {
-        const requestedUrl =
-          normalizeArtPalStorefrontUrl(
-            String(params.storeUrl || "") ||
-              cachedScannerSession?.storeUrl ||
-              cachedScannerSession?.browserUrl ||
-              ""
-          );
-
-        return requestedUrl;
-      }
-
-      return (
-        cachedScannerSession?.browserUrl ||
-        ""
-      );
-    });
+    useState(() =>
+      cachedScannerSession?.browserUrl ||
+      ""
+    );
 
   const [redbubbleDetailUrl, setRedbubbleDetailUrl] =
     useState("");
@@ -2710,40 +2685,6 @@ export default function AIStoreScannerScreen() {
     products,
   ]);
 
-  useEffect(() => {
-    if (storeType !== "artpal") {
-      return;
-    }
-
-    const requested =
-      normalizeArtPalStorefrontUrl(
-        String(params.storeUrl || "") ||
-          storeUrl ||
-          browserUrl
-      );
-
-    if (!requested) {
-      return;
-    }
-
-    /*
-     * ArtPal must always reopen at the storefront/gallery when this screen
-     * is entered. This prevents a previous artwork detail page from becoming
-     * the next scanner starting point through scannerSessionCache.
-     */
-    if (storeUrl !== requested) {
-      setStoreUrl(requested);
-    }
-
-    if (browserUrl !== requested) {
-      setBrowserUrl(requested);
-      setProducts([]);
-    }
-  }, [
-    storeType,
-    params.storeUrl,
-  ]);
-
   const [pageLoading, setPageLoading] =
     useState(false);
 
@@ -2773,9 +2714,7 @@ const [scanProgress, setScanProgress] =
 
   function openStore() {
     let normalized =
-      storeType === "artpal"
-        ? normalizeArtPalStorefrontUrl(storeUrl)
-        : normalizeUrl(storeUrl);
+      normalizeUrl(storeUrl);
 
     if (
       !normalized &&
@@ -3559,13 +3498,6 @@ function scanEntireStore() {
             ),
           productUrl,
           imageUrl,
-          imageDataUrl:
-            storeType === "artpal"
-              ? String(
-                  item.imageDataUrl ||
-                    ""
-                )
-              : undefined,
           price:
             parsedPrice !== null &&
             Number.isFinite(
@@ -3579,28 +3511,6 @@ function scanEntireStore() {
             ) || "USD",
           selected: true,
         });
-      }
-
-      if (
-        storeType === "artpal"
-      ) {
-        const capturedCount =
-          mapped.filter(
-            (product) =>
-              Boolean(
-                product.imageDataUrl
-              )
-          ).length;
-
-        console.log(
-          "[ArtPal] Browser image capture",
-          {
-            detected:
-              mapped.length,
-            captured:
-              capturedCount,
-          }
-        );
       }
 
       setProducts(mapped);
@@ -3897,67 +3807,6 @@ setScanProgress("");
                   : item
               )
             );
-          }
-
-          if (
-            storeType === "artpal" &&
-            product.imageDataUrl
-          ) {
-            const imageResponse =
-              await fetch(
-                `${API_BASE}/catalog/artpal-image-upload`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type":
-                      "application/json",
-                  },
-                  body:
-                    JSON.stringify({
-                      userId:
-                        user.id,
-                      productUrl:
-                        product.productUrl,
-                      dataUrl:
-                        product.imageDataUrl,
-                    }),
-                }
-              );
-
-            const imageText =
-              await imageResponse.text();
-
-            let imageData: any;
-
-            try {
-              imageData =
-                JSON.parse(
-                  imageText
-                );
-            } catch {
-              throw new Error(
-                `ArtPal image upload returned HTTP ${imageResponse.status}.`
-              );
-            }
-
-            if (
-              !imageResponse.ok ||
-              !imageData.success ||
-              !imageData.imageUrl
-            ) {
-              throw new Error(
-                imageData.error ||
-                  "ArtBoost could not save the ArtPal artwork image."
-              );
-            }
-
-            productToImport = {
-              ...product,
-              imageUrl:
-                String(
-                  imageData.imageUrl
-                ),
-            };
           }
 
           const response =
@@ -4611,45 +4460,25 @@ scanProgress ? (
                     )
                   }
                 >
-                  {(storeType === "artpal"
-                    ? Boolean(
-                        item.imageDataUrl
-                      )
-                    : Boolean(
-                        getRedbubblePreviewImageUrl(
+                  {getRedbubblePreviewImageUrl(
+                    item.imageUrl,
+                    item.productUrl
+                  ) ? (
+                    <Image
+                      source={{
+                        uri: getRedbubblePreviewImageUrl(
                           item.imageUrl,
                           item.productUrl
+                        ),
+                        headers: /redbubble\.net/i.test(
+                          getRedbubblePreviewImageUrl(item.imageUrl, item.productUrl)
                         )
-                      )) ? (
-                    <Image
-                      source={
-                        storeType === "artpal"
                           ? {
-                              uri:
-                                item.imageDataUrl!,
+                              Referer: "https://www.redbubble.com/",
+                              Accept: "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
                             }
-                          : {
-                              uri:
-                                getRedbubblePreviewImageUrl(
-                                  item.imageUrl,
-                                  item.productUrl
-                                ),
-                              headers:
-                                /redbubble\.net/i.test(
-                                  getRedbubblePreviewImageUrl(
-                                    item.imageUrl,
-                                    item.productUrl
-                                  )
-                                )
-                                  ? {
-                                      Referer:
-                                        "https://www.redbubble.com/",
-                                      Accept:
-                                        "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
-                                    }
-                                  : undefined,
-                            }
-                      }
+                          : undefined,
+                      }}
                       style={styles.productImage}
                       resizeMode="cover"
                     />
