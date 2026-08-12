@@ -349,6 +349,62 @@ const SCAN_PAGE_SCRIPT = `
       );
     });
 
+
+    const getGumroadImageUrl = function (card, link) {
+      const candidates = [];
+
+      const collectImage = function (img) {
+        if (!img) return;
+        const value = getHttpImageUrl(img);
+        if (value) candidates.push(value);
+      };
+
+      collectImage(link && link.querySelector && link.querySelector("img"));
+
+      if (card && card.querySelectorAll) {
+        Array.from(card.querySelectorAll("img")).forEach(collectImage);
+
+        Array.from(card.querySelectorAll("*")).forEach(function (node) {
+          try {
+            const style =
+              window.getComputedStyle &&
+              window.getComputedStyle(node);
+
+            const background =
+              style &&
+              style.backgroundImage;
+
+            const match =
+              String(background || "").match(
+                /url\((?:"|')?([^"')]+)(?:"|')?\)/
+              );
+
+            if (match && match[1]) {
+              const url = absoluteUrl(match[1]);
+              if (/^https?:\/\//i.test(url)) {
+                candidates.push(url);
+              }
+            }
+          } catch {}
+        });
+      }
+
+      const unique = Array.from(new Set(candidates));
+
+      const gumroadHosted =
+        unique.filter(function (url) {
+          return /(?:gumroad|public-files|files\.gumroad|assets\.gumroad)/i.test(
+            url
+          );
+        });
+
+      return (
+        gumroadHosted[gumroadHosted.length - 1] ||
+        unique[unique.length - 1] ||
+        ""
+      );
+    };
+
     /*
      * Gumroad
      *
@@ -404,7 +460,10 @@ const SCAN_PAGE_SCRIPT = `
         (card && card.querySelector("img"));
 
       const imageUrl =
-        getHttpImageUrl(image);
+        getGumroadImageUrl(
+          card,
+          link
+        );
 
       if (!imageUrl) {
         return;
@@ -745,6 +804,61 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
         });
       });
 
+
+      function getGumroadCardImage(card, link) {
+        var candidates = [];
+
+        function addImage(img) {
+          if (!img) return;
+          var value = getHttpImageUrl(img);
+          if (value) candidates.push(value);
+        }
+
+        addImage(link && link.querySelector && link.querySelector("img"));
+
+        if (card && card.querySelectorAll) {
+          Array.from(card.querySelectorAll("img")).forEach(addImage);
+
+          Array.from(card.querySelectorAll("*")).forEach(function (node) {
+            try {
+              var style =
+                window.getComputedStyle &&
+                window.getComputedStyle(node);
+
+              var background =
+                style && style.backgroundImage;
+
+              var match =
+                String(background || "").match(
+                  /url\((?:"|')?([^"')]+)(?:"|')?\)/
+                );
+
+              if (match && match[1]) {
+                var url = absoluteUrl(match[1]);
+                if (/^https?:\/\//i.test(url)) {
+                  candidates.push(url);
+                }
+              }
+            } catch {}
+          });
+        }
+
+        var unique = Array.from(new Set(candidates));
+
+        var gumroadHosted =
+          unique.filter(function (url) {
+            return /(?:gumroad|public-files|files\.gumroad|assets\.gumroad)/i.test(
+              url
+            );
+          });
+
+        return (
+          gumroadHosted[gumroadHosted.length - 1] ||
+          unique[unique.length - 1] ||
+          ""
+        );
+      }
+
       // Gumroad product cards use /l/<product-slug> links.
       Array.from(document.querySelectorAll("a[href]")).forEach(function (link) {
         var rawHref = link.getAttribute("href") || "";
@@ -774,7 +888,11 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
           link.querySelector("img") ||
           (card && card.querySelector("img"));
 
-        var imageUrl = getHttpImageUrl(image);
+        var imageUrl =
+          getGumroadCardImage(
+            card,
+            link
+          );
 
         if (!imageUrl) return;
 
