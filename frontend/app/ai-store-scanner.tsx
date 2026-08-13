@@ -3615,7 +3615,7 @@ async function scanFineArtAmericaShop() {
   try {
     setProducts([]);
     setFullStoreScanning(true);
-    setScanProgress("Restoring Fine Art America catalog import...");
+    setScanProgress("Scanning Fine Art America owner catalog...");
 
     const {
       data: { user },
@@ -3713,13 +3713,13 @@ async function scanFineArtAmericaShop() {
     ).length;
 
     Alert.alert(
-      "Fine Art America Restored",
+      "Fine Art America Scan Complete",
       [
-        `${Number(data.discovered) || mapped.length} listings found.`,
-        `${mapped.length} listings loaded into ArtBoost.`,
+        `${mapped.length} verified owner listings detected.`,
         `${thumbnailCount} thumbnails resolved.`,
-        "",
-        "This uses the dedicated Fine Art America importer that was working before the Universal Scanner changes.",
+        thumbnailCount === mapped.length
+          ? "All detected listings have thumbnails."
+          : `${mapped.length - thumbnailCount} listing(s) still need a thumbnail.`,
       ].join("\n")
     );
   } catch (error: any) {

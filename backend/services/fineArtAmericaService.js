@@ -117,6 +117,53 @@ function cleanArtworkTitle(value = "") {
     .trim();
 }
 
+function normalizePersonName(value = "") {
+  return decodeHtmlEntities(String(value))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ownerNameFromProfileUrl(storeUrl) {
+  try {
+    const parsed = new URL(storeUrl);
+    const match = parsed.pathname.match(/^\/profiles\/([^/?#]+)/i);
+    if (!match?.[1]) return "";
+    return decodeURIComponent(match[1])
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+function extractArtworkArtistName(html, productSchema) {
+  const candidates = [
+    productSchema?.artist?.name,
+    productSchema?.creator?.name,
+    productSchema?.author?.name,
+    typeof productSchema?.artist === "string" ? productSchema.artist : "",
+    typeof productSchema?.creator === "string" ? productSchema.creator : "",
+    typeof productSchema?.author === "string" ? productSchema.author : "",
+    getMetaContent(html, "author"),
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = stripHtml(candidate || "");
+    if (cleaned) return cleaned;
+  }
+
+  // FAA artwork pages consistently expose the artist in visible text as
+  // "by <artist>" near the artwork title. This fallback is deliberately
+  // limited to a short human-name shaped value so recommendation/footer
+  // content cannot become the owner identity.
+  const visible = stripHtml(html);
+  const byMatch = visible.match(/\bby\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,4})\b/);
+  return byMatch?.[1]?.trim() || "";
+}
+
 function createExternalProductId(productUrl) {
   return crypto
     .createHash("sha256")
@@ -434,6 +481,8 @@ function parseArtworkPage({
       .map((item) => item.trim())
       .filter(Boolean);
 
+  const artistName = extractArtworkArtistName(html, productSchema);
+
   return {
     externalProductId:
       createExternalProductId(productUrl),
@@ -443,6 +492,7 @@ function parseArtworkPage({
     productUrl,
     tags: keywords,
     categories: ["Artwork"],
+    artistName,
     metadata: {
       marketplace: "fine_art_america",
       sourceUrl: originalUrl,
@@ -622,9 +672,21 @@ export async function importFineArtAmericaStore({
       }
     );
 
+  const expectedOwnerName = ownerNameFromProfileUrl(resolvedStoreUrl);
+  const expectedOwnerKey = normalizePersonName(expectedOwnerName);
+
+  // CRITICAL FAA ownership gate:
+  // The public profile/shop HTML contains site-wide recommendations and
+  // famous artwork. Only accept an artwork page when the artwork page itself
+  // identifies its artist as the owner encoded in /profiles/<owner>.
+  const ownerProducts = parsedProducts.filter((product) => {
+    const artistKey = normalizePersonName(product.artistName || "");
+    return Boolean(expectedOwnerKey && artistKey === expectedOwnerKey);
+  });
+
   const uniqueProducts = [
     ...new Map(
-      parsedProducts.map((product) => [
+      ownerProducts.map((product) => [
         product.externalProductId,
         product,
       ])
@@ -633,7 +695,7 @@ export async function importFineArtAmericaStore({
 
   if (uniqueProducts.length === 0) {
     throw new Error(
-      "Fine Art America listings were found, but their product information could not be read."
+      `Fine Art America listings were found, but none could be verified as artwork by ${expectedOwnerName || "the connected artist"}.`
     );
   }
 
@@ -724,6 +786,8 @@ export async function importFineArtAmericaStore({
         hostname: "fineartamerica.com",
         importMethod: "storefront_scan",
         lastDiscoveredCount:
+          uniqueProducts.length,
+        lastRawCandidateCount:
           discoveredLinks.length,
         lastImportedCount:
           uniqueProducts.length,
@@ -741,7 +805,8 @@ export async function importFineArtAmericaStore({
     storeId: connection.id,
     storeName,
     storeUrl: resolvedStoreUrl,
-    discovered: discoveredLinks.length,
+    discovered: uniqueProducts.length,
+    rawCandidates: discoveredLinks.length,
     processed: limitedLinks.length,
     imported: uniqueProducts.length -
       alreadyExisted,
