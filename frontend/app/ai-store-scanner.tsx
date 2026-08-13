@@ -27,6 +27,10 @@ import {
 } from "react-native-webview";
 
 import { SafeAreaView } from "react-native-safe-area-context";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+
+import { buildCatalogCsv } from "@/lib/catalogCsv";
 
 import { supabase } from "@/lib/supabase";
 
@@ -98,7 +102,10 @@ type ScannerMessage = {
   diagnosticAnchorIds?: string[];
   diagnosticCollectedIds?: string[];
   diagnosticHtmlOnlyCount?: number;
+  diagnosticDocumentArtworkCount?: number;
   productUrl?: string;
+  artworkId?: string | null;
+  designTitle?: string | null;
   imageUrl?: string | null;
   description?: string | null;
   price?: number | null;
@@ -137,6 +144,27 @@ function makeProductId(productUrl: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 140);
+}
+
+
+function getRedbubbleArtworkIdFromUrl(value: string) {
+  const text = String(value || "");
+  const match =
+    text.match(/\/shop\/ap\/(\d+)/i) ||
+    text.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i);
+
+  return match?.[1] || "";
+}
+
+function hasVerifiedCatalogImage(value: string) {
+  const image = String(value || "").trim();
+
+  return (
+    /^https?:\/\//i.test(image) &&
+    /redbubble\.net/i.test(image) &&
+    !/\.svg(?:[?#]|$)/i.test(image) &&
+    !/(placeholder|transparent|spacer|blank)/i.test(image)
+  );
 }
 
 /*
@@ -270,6 +298,109 @@ const SCAN_PAGE_SCRIPT = `
         : null;
     };
 
+
+    function bestImageFromNode(node) {
+      if (!node) return "";
+
+      var candidates = [];
+      var seenImages = [];
+
+      function rememberImage(image) {
+        if (!image || seenImages.indexOf(image) >= 0) return;
+        seenImages.push(image);
+        var url = getHttpImageUrl(image);
+        if (!url) return;
+
+        var score = 0;
+        var lower = String(url).toLowerCase();
+        var width = Number(image.naturalWidth || image.width || image.getAttribute && image.getAttribute("width") || 0);
+        var height = Number(image.naturalHeight || image.height || image.getAttribute && image.getAttribute("height") || 0);
+        score += Math.min(5000, width * height) / 1000;
+        if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+        if (/artworkimages|images-medium|mediumlarge|rendered/i.test(lower)) score += 750;
+        if (/logo|icon|avatar|profile|sprite/i.test(lower)) score -= 1000;
+        candidates.push({ url: url, score: score });
+      }
+
+      if (node.tagName && String(node.tagName).toLowerCase() === "img") {
+        rememberImage(node);
+      }
+      if (node.querySelectorAll) {
+        Array.from(node.querySelectorAll("img")).forEach(rememberImage);
+      }
+
+      var current = node;
+      for (var depth = 0; current && depth < 6; depth += 1) {
+        if (current.querySelectorAll) {
+          Array.from(current.querySelectorAll("img")).forEach(rememberImage);
+        }
+        current = current.parentElement;
+      }
+
+      var attributeNames = [
+        "data-image",
+        "data-image-url",
+        "data-src-large",
+        "data-large-image",
+        "data-original-src",
+        "data-zoom-image",
+        "data-full",
+        "data-full-src"
+      ];
+
+      var attributeNodes = [node];
+      if (node.querySelectorAll) {
+        attributeNodes = attributeNodes.concat(Array.from(node.querySelectorAll("*")));
+      }
+
+      attributeNodes.slice(0, 220).forEach(function (candidateNode) {
+        if (!candidateNode || !candidateNode.getAttribute) return;
+
+        attributeNames.forEach(function (name) {
+          var raw = candidateNode.getAttribute(name);
+          var url = raw ? absoluteUrl(raw) : "";
+          if (!url || !/^https?:\/\//i.test(url)) return;
+          var lower = url.toLowerCase();
+          var score = 0;
+          if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+          if (/artworkimages|images-medium|mediumlarge|rendered/i.test(lower)) score += 750;
+          if (/logo|icon|avatar|profile|sprite/i.test(lower)) score -= 1000;
+          candidates.push({ url: url, score: score });
+        });
+
+        var style = candidateNode.getAttribute("style") || "";
+        var bgMatch = style.match(/background(?:-image)?\s*:[^;]*url\(["']?([^"')]+)["']?\)/i);
+        if (bgMatch && bgMatch[1]) {
+          var bgUrl = absoluteUrl(bgMatch[1]);
+          if (/^https?:\/\//i.test(bgUrl)) {
+            var bgScore = /fineartamerica\.com|pixels\.com/i.test(bgUrl) ? 1600 : 300;
+            candidates.push({ url: bgUrl, score: bgScore });
+          }
+        }
+      });
+
+      candidates.sort(function (a, b) { return b.score - a.score; });
+      return candidates.length ? candidates[0].url : "";
+    }
+
+    function nearestProductCard(link) {
+      if (!link) return null;
+      var current = link;
+      var fallback = link.parentElement || link;
+
+      for (var depth = 0; current && depth < 7; depth += 1) {
+        if (current.querySelectorAll) {
+          var featuredCount = current.querySelectorAll('a[href*="/featured/"]').length;
+          var imageCount = current.querySelectorAll("img").length;
+          if (imageCount > 0 && featuredCount <= 3) {
+            return current;
+          }
+        }
+        current = current.parentElement;
+      }
+
+      return fallback;
+    }
     const products = [];
     const seen = {};
 
@@ -280,15 +411,9 @@ const SCAN_PAGE_SCRIPT = `
       description,
       price
     ) {
-      const gumroadProduct =
-        /(?:^|\.)gumroad\.com\/l\//i.test(
-          String(productUrl || "")
-            .replace(/^https?:\/\//i, "")
-        );
-
       if (
         !productUrl ||
-        (!imageUrl && !gumroadProduct) ||
+        !imageUrl ||
         seen[productUrl]
       ) {
         return;
@@ -355,312 +480,12 @@ const SCAN_PAGE_SCRIPT = `
       );
     });
 
-
-    const getGumroadImageUrl = function (card, link) {
-      const candidates = [];
-
-      const addCandidate = function (
-        url,
-        score
-      ) {
-        const normalized =
-          absoluteUrl(url);
-
-        if (
-          !/^https?:\/\//i.test(normalized)
-        ) {
-          return;
-        }
-
-        const lower =
-          normalized.toLowerCase();
-
-        if (
-          lower.includes("placeholder") ||
-          lower.includes("transparent") ||
-          lower.includes("spacer") ||
-          lower.includes("blank") ||
-          lower.includes("avatar") ||
-          lower.includes("profile") ||
-          lower.includes("logo") ||
-          lower.includes("icon")
-        ) {
-          return;
-        }
-
-        candidates.push({
-          url: normalized,
-          score:
-            Number(score) || 0,
-        });
-      };
-
-      const collectImage = function (
-        img,
-        bonus
-      ) {
-        if (!img) return;
-
-        const value =
-          getHttpImageUrl(img);
-
-        if (!value) return;
-
-        let area = 0;
-
-        try {
-          const rect =
-            img.getBoundingClientRect();
-
-          area =
-            Math.max(
-              Number(rect.width) || 0,
-              Number(img.naturalWidth) || 0
-            ) *
-            Math.max(
-              Number(rect.height) || 0,
-              Number(img.naturalHeight) || 0
-            );
-        } catch {}
-
-        const alt =
-          cleanText(
-            img.getAttribute("alt") || ""
-          ).toLowerCase();
-
-        let score =
-          area +
-          (Number(bonus) || 0);
-
-        if (area >= 12000) {
-          score += 50000;
-        }
-
-        if (
-          alt &&
-          !alt.includes("logo") &&
-          !alt.includes("avatar")
-        ) {
-          score += 5000;
-        }
-
-        addCandidate(
-          value,
-          score
-        );
-      };
-
-      if (
-        link &&
-        link.querySelectorAll
-      ) {
-        Array.from(
-          link.querySelectorAll("img")
-        ).forEach(function (img) {
-          collectImage(
-            img,
-            100000
-          );
-        });
-      }
-
-      if (
-        card &&
-        card.querySelectorAll
-      ) {
-        Array.from(
-          card.querySelectorAll("img")
-        ).forEach(function (img) {
-          collectImage(
-            img,
-            25000
-          );
-        });
-
-        Array.from(
-          card.querySelectorAll("*")
-        ).forEach(function (node) {
-          try {
-            const style =
-              window.getComputedStyle &&
-              window.getComputedStyle(node);
-
-            const background =
-              style &&
-              style.backgroundImage;
-
-            const match =
-              String(background || "").match(
-                /url\((?:"|')?([^"')]+)(?:"|')?\)/
-              );
-
-            if (
-              match &&
-              match[1]
-            ) {
-              const rect =
-                node.getBoundingClientRect();
-
-              const area =
-                Math.max(
-                  Number(rect.width) || 0,
-                  0
-                ) *
-                Math.max(
-                  Number(rect.height) || 0,
-                  0
-                );
-
-              if (area >= 5000) {
-                addCandidate(
-                  match[1],
-                  area + 15000
-                );
-              }
-            }
-          } catch {}
-        });
-      }
-
-      candidates.sort(function (a, b) {
-        return b.score - a.score;
-      });
-
-      if (candidates[0]?.url) {
-        return candidates[0].url;
-      }
-
-      /*
-       * Gumroad sometimes renders the product artwork outside the anchor's
-       * immediate DOM subtree. As a fallback, pair the product link with the
-       * nearest large visible image on the page by screen geometry.
-       */
-      try {
-        const linkRect =
-          link.getBoundingClientRect();
-
-        const linkCenterX =
-          linkRect.left +
-          linkRect.width / 2;
-
-        const linkCenterY =
-          linkRect.top +
-          linkRect.height / 2;
-
-        const nearbyImages =
-          Array.from(
-            document.querySelectorAll("img")
-          )
-            .map(function (img) {
-              const url =
-                getHttpImageUrl(img);
-
-              if (!url) {
-                return null;
-              }
-
-              const lower =
-                url.toLowerCase();
-
-              if (
-                lower.includes("placeholder") ||
-                lower.includes("transparent") ||
-                lower.includes("spacer") ||
-                lower.includes("blank") ||
-                lower.includes("avatar") ||
-                lower.includes("profile") ||
-                lower.includes("logo") ||
-                lower.includes("icon") ||
-                lower.includes("recaptcha")
-              ) {
-                return null;
-              }
-
-              const rect =
-                img.getBoundingClientRect();
-
-              const width =
-                Math.max(
-                  Number(rect.width) || 0,
-                  Number(img.naturalWidth) || 0
-                );
-
-              const height =
-                Math.max(
-                  Number(rect.height) || 0,
-                  Number(img.naturalHeight) || 0
-                );
-
-              if (
-                width < 90 ||
-                height < 90
-              ) {
-                return null;
-              }
-
-              const centerX =
-                rect.left +
-                rect.width / 2;
-
-              const centerY =
-                rect.top +
-                rect.height / 2;
-
-              const dx =
-                centerX -
-                linkCenterX;
-
-              const dy =
-                centerY -
-                linkCenterY;
-
-              const distance =
-                Math.sqrt(
-                  dx * dx +
-                  dy * dy
-                );
-
-              return {
-                url,
-                distance,
-                area:
-                  width * height,
-              };
-            })
-            .filter(Boolean)
-            .sort(function (a, b) {
-              const aScore =
-                a.distance -
-                Math.min(
-                  a.area / 10000,
-                  400
-                );
-
-              const bScore =
-                b.distance -
-                Math.min(
-                  b.area / 10000,
-                  400
-                );
-
-              return aScore - bScore;
-            });
-
-        return (
-          nearbyImages[0]?.url ||
-          ""
-        );
-      } catch {
-        return "";
-      }
-    };
-
     /*
-     * Gumroad
+     * Fine Art America + other supported storefronts.
      *
-     * Gumroad storefront product cards link to /l/<product-slug>.
-     * Support both creator subdomains such as artistwill.gumroad.com
-     * and www.gumroad.com/l/... links.
+     * Keep every marketplace detector additive. Fine Art America artwork
+     * pages use /featured/<slug>.html. Product-option query strings are
+     * stripped so canvas/print/sticker variants do not create duplicate art.
      */
     Array.from(
       document.querySelectorAll("a[href]")
@@ -681,130 +506,126 @@ const SCAN_PAGE_SCRIPT = `
       const host =
         parsed.hostname
           .toLowerCase()
-          .replace(/^www\./, "");
-
-      const isGumroadHost =
-        host === "gumroad.com" ||
-        host.endsWith(".gumroad.com");
-
-      if (!isGumroadHost) {
-        return;
-      }
+          .replace(/^www\\./, "");
 
       const pathname =
         parsed.pathname || "";
 
-      if (!/^\/l\/[^/?#]+/i.test(pathname)) {
+      let marketplace = "";
+      let isProductLink = false;
+
+      if (
+        host === "fineartamerica.com" ||
+        host.endsWith(".fineartamerica.com")
+      ) {
+        marketplace = "Fine Art America";
+
+        // FAA profile pages contain recommendation links for other artists.
+        // Derive the connected profile slug and keep only that artist's work.
+        const profileMatch =
+          window.location.pathname.match(/^\\/profiles\\/([^/?#]+)/i);
+        const ownerSlug =
+          profileMatch?.[1]?.toLowerCase() || "";
+        const featuredMatch =
+          pathname.match(/^\\/featured\\/([^/?#]+)\\.html$/i);
+        const featuredSlug =
+          featuredMatch?.[1]?.toLowerCase() || "";
+
+        var ownerName = ownerSlug.replace(/[-_]+/g, " ").trim();
+        var cardTextForOwner = cleanText(
+          (link.closest && link.closest("article, li, [class*=\"card\"], [class*=\"tile\"], [class*=\"artwork\"], [class*=\"product\"]") || link.parentElement || link).textContent || ""
+        ).toLowerCase();
+        var ownerMarker = "-" + ownerSlug;
+        var ownerIndex = ownerSlug ? featuredSlug.lastIndexOf(ownerMarker) : -1;
+        var ownerTail = ownerIndex >= 0
+          ? featuredSlug.slice(ownerIndex + ownerMarker.length)
+          : "";
+        var slugOwnerMatch = Boolean(ownerSlug) && (
+          featuredSlug === ownerSlug ||
+          featuredSlug.endsWith(ownerMarker) ||
+          (ownerIndex >= 0 && (ownerTail === "" || /^\-\d+$/.test(ownerTail)))
+        );
+        var textOwnerMatch = Boolean(ownerName) && cardTextForOwner.includes(ownerName);
+
+        isProductLink = Boolean(featuredMatch) &&
+          (!ownerSlug || slugOwnerMatch || textOwnerMatch);
+
+        if (isProductLink) {
+          parsed.search = "";
+          parsed.hash = "";
+        }
+      } else if (
+        host.endsWith(".myshopify.com") ||
+        host === "shopify.com" ||
+        host.endsWith(".shopify.com")
+      ) {
+        marketplace = "Shopify";
+        isProductLink = /^\\/products\\/[^/?#]+/i.test(pathname);
+      } else if (
+        host === "etsy.com" ||
+        host.endsWith(".etsy.com")
+      ) {
+        marketplace = "Etsy";
+        isProductLink = /^\\/listing\\/\\d+/i.test(pathname);
+      } else if (
+        host === "society6.com" ||
+        host.endsWith(".society6.com")
+      ) {
+        marketplace = "Society6";
+        isProductLink = /^\\/product\\/[^/?#]+/i.test(pathname);
+      } else if (
+        host === "gumroad.com" ||
+        host.endsWith(".gumroad.com")
+      ) {
+        marketplace = "Gumroad";
+        isProductLink = /^\\/l\\/[^/?#]+/i.test(pathname);
+      } else if (
+        host === "ebay.com" ||
+        host.endsWith(".ebay.com")
+      ) {
+        marketplace = "eBay";
+        isProductLink = /^\\/itm\\/(?:[^/]+\\/)?\\d+/i.test(pathname);
+      }
+
+      if (!isProductLink) {
         return;
       }
 
-      const findGumroadCard = function (productLink) {
-        let node =
-          productLink.parentElement;
-
-        let fallback =
-          productLink.parentElement ||
-          productLink;
-
-        for (
-          let depth = 0;
-          node && depth < 7;
-          depth += 1, node = node.parentElement
-        ) {
-          const productLinks =
-            Array.from(
-              node.querySelectorAll(
-                "a[href]"
-              )
-            ).filter(function (candidate) {
-              try {
-                const url = new URL(
-                  candidate.getAttribute("href") || "",
-                  window.location.href
-                );
-
-                const candidateHost =
-                  url.hostname
-                    .toLowerCase()
-                    .replace(/^www\./, "");
-
-                return (
-                  (
-                    candidateHost === "gumroad.com" ||
-                    candidateHost.endsWith(".gumroad.com")
-                  ) &&
-                  /^\/l\/[^/?#]+/i.test(
-                    url.pathname || ""
-                  )
-                );
-              } catch {
-                return false;
-              }
-            });
-
-          const images =
-            node.querySelectorAll("img");
-
-          if (
-            productLinks.length === 1 &&
-            images.length > 0
-          ) {
-            return node;
-          }
-
-          if (
-            productLinks.length <= 2 &&
-            images.length > 0
-          ) {
-            fallback = node;
-          }
-
-          if (productLinks.length > 4) {
-            break;
-          }
-        }
-
-        return fallback;
-      };
-
       const card =
-        findGumroadCard(link);
+        marketplace === "Fine Art America"
+          ? nearestProductCard(link)
+          : (link.closest(
+              "article, li, [data-testid], [class*='card'], [class*='tile'], [class*='product'], [class*='artwork'], [class*='image']"
+            ) || link.parentElement || link);
 
       const image =
         link.querySelector("img") ||
-        (card && card.querySelector("img"));
+        (card && card.querySelector && card.querySelector("img"));
 
       const imageUrl =
-        getGumroadImageUrl(
-          card,
-          link
-        );
+        marketplace === "Fine Art America"
+          ? bestImageFromNode(card || link)
+          : getHttpImageUrl(image);
+
+      if (!imageUrl && marketplace !== "Fine Art America") {
+        return;
+      }
 
       const titleNode =
-        card &&
+        card && card.querySelector &&
         card.querySelector(
-          "h1, h2, h3, h4, [class*='title'], [class*='name'], [data-testid*='title']"
-        );
-
-      const descriptionNode =
-        card &&
-        card.querySelector(
-          "p, [class*='description'], [class*='summary']"
+          "h1, h2, h3, h4, strong, [class*='title'], [data-testid*='title']"
         );
 
       addProduct(
         parsed.toString(),
         imageUrl,
-        cleanText(
-          (titleNode && titleNode.textContent) ||
-          link.getAttribute("aria-label") ||
-          (image && image.getAttribute("alt")) ||
-          "Gumroad Product"
-        ),
-        cleanText(
-          descriptionNode &&
-          descriptionNode.textContent
-        ),
+        cleanText(image && image.getAttribute("alt")) ||
+          cleanText(link.getAttribute("aria-label")) ||
+          cleanText(link.getAttribute("title")) ||
+          cleanText(titleNode && titleNode.textContent) ||
+          marketplace + " Artwork",
+        "",
         getPrice(card)
       );
     });
@@ -945,6 +766,11 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
     var BOTTOM_STABLE_ROUNDS_TO_FINISH = 32;
     var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
     var startedAt = Date.now();
+    var isFineArtAmericaPage = /(^|\.)fineartamerica\.com$/i.test(String(window.location.hostname || ""));
+    if (isFineArtAmericaPage) {
+      WAIT_MS = 1100;
+      BOTTOM_STABLE_ROUNDS_TO_FINISH = 40;
+    }
 
     function cleanText(value) {
       return String(value || "")
@@ -1030,6 +856,109 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
       return rb[rb.length - 1] || normalized[normalized.length - 1] || "";
     }
 
+
+    function bestImageFromNode(node) {
+      if (!node) return "";
+
+      var candidates = [];
+      var seenImages = [];
+
+      function rememberImage(image) {
+        if (!image || seenImages.indexOf(image) >= 0) return;
+        seenImages.push(image);
+        var url = getHttpImageUrl(image);
+        if (!url) return;
+
+        var score = 0;
+        var lower = String(url).toLowerCase();
+        var width = Number(image.naturalWidth || image.width || image.getAttribute && image.getAttribute("width") || 0);
+        var height = Number(image.naturalHeight || image.height || image.getAttribute && image.getAttribute("height") || 0);
+        score += Math.min(5000, width * height) / 1000;
+        if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+        if (/artworkimages|images-medium|mediumlarge|rendered/i.test(lower)) score += 750;
+        if (/logo|icon|avatar|profile|sprite/i.test(lower)) score -= 1000;
+        candidates.push({ url: url, score: score });
+      }
+
+      if (node.tagName && String(node.tagName).toLowerCase() === "img") {
+        rememberImage(node);
+      }
+      if (node.querySelectorAll) {
+        Array.from(node.querySelectorAll("img")).forEach(rememberImage);
+      }
+
+      var current = node;
+      for (var depth = 0; current && depth < 6; depth += 1) {
+        if (current.querySelectorAll) {
+          Array.from(current.querySelectorAll("img")).forEach(rememberImage);
+        }
+        current = current.parentElement;
+      }
+
+      var attributeNames = [
+        "data-image",
+        "data-image-url",
+        "data-src-large",
+        "data-large-image",
+        "data-original-src",
+        "data-zoom-image",
+        "data-full",
+        "data-full-src"
+      ];
+
+      var attributeNodes = [node];
+      if (node.querySelectorAll) {
+        attributeNodes = attributeNodes.concat(Array.from(node.querySelectorAll("*")));
+      }
+
+      attributeNodes.slice(0, 220).forEach(function (candidateNode) {
+        if (!candidateNode || !candidateNode.getAttribute) return;
+
+        attributeNames.forEach(function (name) {
+          var raw = candidateNode.getAttribute(name);
+          var url = raw ? absoluteUrl(raw) : "";
+          if (!url || !/^https?:\/\//i.test(url)) return;
+          var lower = url.toLowerCase();
+          var score = 0;
+          if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+          if (/artworkimages|images-medium|mediumlarge|rendered/i.test(lower)) score += 750;
+          if (/logo|icon|avatar|profile|sprite/i.test(lower)) score -= 1000;
+          candidates.push({ url: url, score: score });
+        });
+
+        var style = candidateNode.getAttribute("style") || "";
+        var bgMatch = style.match(/background(?:-image)?\s*:[^;]*url\(["']?([^"')]+)["']?\)/i);
+        if (bgMatch && bgMatch[1]) {
+          var bgUrl = absoluteUrl(bgMatch[1]);
+          if (/^https?:\/\//i.test(bgUrl)) {
+            var bgScore = /fineartamerica\.com|pixels\.com/i.test(bgUrl) ? 1600 : 300;
+            candidates.push({ url: bgUrl, score: bgScore });
+          }
+        }
+      });
+
+      candidates.sort(function (a, b) { return b.score - a.score; });
+      return candidates.length ? candidates[0].url : "";
+    }
+
+    function nearestProductCard(link) {
+      if (!link) return null;
+      var current = link;
+      var fallback = link.parentElement || link;
+
+      for (var depth = 0; current && depth < 7; depth += 1) {
+        if (current.querySelectorAll) {
+          var featuredCount = current.querySelectorAll('a[href*="/featured/"]').length;
+          var imageCount = current.querySelectorAll("img").length;
+          if (imageCount > 0 && featuredCount <= 3) {
+            return current;
+          }
+        }
+        current = current.parentElement;
+      }
+
+      return fallback;
+    }
     function getPrice(card) {
       if (!card) return null;
       var text = cleanText(card.textContent || "");
@@ -1115,314 +1044,12 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
         });
       });
 
-
-      function getGumroadCardImage(card, link) {
-        var candidates = [];
-
-        function addCandidate(
-          url,
-          score
-        ) {
-          var normalized =
-            absoluteUrl(url);
-
-          if (
-            !/^https?:\/\//i.test(normalized)
-          ) {
-            return;
-          }
-
-          var lower =
-            normalized.toLowerCase();
-
-          if (
-            lower.includes("placeholder") ||
-            lower.includes("transparent") ||
-            lower.includes("spacer") ||
-            lower.includes("blank") ||
-            lower.includes("avatar") ||
-            lower.includes("profile") ||
-            lower.includes("logo") ||
-            lower.includes("icon")
-          ) {
-            return;
-          }
-
-          candidates.push({
-            url: normalized,
-            score:
-              Number(score) || 0
-          });
-        }
-
-        function addImage(
-          img,
-          bonus
-        ) {
-          if (!img) return;
-
-          var value =
-            getHttpImageUrl(img);
-
-          if (!value) return;
-
-          var area = 0;
-
-          try {
-            var rect =
-              img.getBoundingClientRect();
-
-            area =
-              Math.max(
-                Number(rect.width) || 0,
-                Number(img.naturalWidth) || 0
-              ) *
-              Math.max(
-                Number(rect.height) || 0,
-                Number(img.naturalHeight) || 0
-              );
-          } catch {}
-
-          var alt =
-            cleanText(
-              img.getAttribute("alt") || ""
-            ).toLowerCase();
-
-          var score =
-            area +
-            (Number(bonus) || 0);
-
-          if (area >= 12000) {
-            score += 50000;
-          }
-
-          if (
-            alt &&
-            !alt.includes("logo") &&
-            !alt.includes("avatar")
-          ) {
-            score += 5000;
-          }
-
-          addCandidate(
-            value,
-            score
-          );
-        }
-
-        if (
-          link &&
-          link.querySelectorAll
-        ) {
-          Array.from(
-            link.querySelectorAll("img")
-          ).forEach(function (img) {
-            addImage(
-              img,
-              100000
-            );
-          });
-        }
-
-        if (
-          card &&
-          card.querySelectorAll
-        ) {
-          Array.from(
-            card.querySelectorAll("img")
-          ).forEach(function (img) {
-            addImage(
-              img,
-              25000
-            );
-          });
-
-          Array.from(
-            card.querySelectorAll("*")
-          ).forEach(function (node) {
-            try {
-              var style =
-                window.getComputedStyle &&
-                window.getComputedStyle(node);
-
-              var background =
-                style &&
-                style.backgroundImage;
-
-              var match =
-                String(background || "").match(
-                  /url\((?:"|')?([^"')]+)(?:"|')?\)/
-                );
-
-              if (
-                match &&
-                match[1]
-              ) {
-                var rect =
-                  node.getBoundingClientRect();
-
-                var area =
-                  Math.max(
-                    Number(rect.width) || 0,
-                    0
-                  ) *
-                  Math.max(
-                    Number(rect.height) || 0,
-                    0
-                  );
-
-                if (area >= 5000) {
-                  addCandidate(
-                    match[1],
-                    area + 15000
-                  );
-                }
-              }
-            } catch {}
-          });
-        }
-
-        candidates.sort(function (a, b) {
-          return b.score - a.score;
-        });
-
-        if (
-          candidates[0] &&
-          candidates[0].url
-        ) {
-          return candidates[0].url;
-        }
-
-        /*
-         * Gumroad can render product media outside the link's immediate DOM
-         * subtree. Pair each product link to the nearest large page image.
-         */
-        try {
-          var linkRect =
-            link.getBoundingClientRect();
-
-          var linkCenterX =
-            linkRect.left +
-            linkRect.width / 2;
-
-          var linkCenterY =
-            linkRect.top +
-            linkRect.height / 2;
-
-          var nearbyImages =
-            Array.from(
-              document.querySelectorAll("img")
-            )
-              .map(function (img) {
-                var url =
-                  getHttpImageUrl(img);
-
-                if (!url) {
-                  return null;
-                }
-
-                var lower =
-                  url.toLowerCase();
-
-                if (
-                  lower.includes("placeholder") ||
-                  lower.includes("transparent") ||
-                  lower.includes("spacer") ||
-                  lower.includes("blank") ||
-                  lower.includes("avatar") ||
-                  lower.includes("profile") ||
-                  lower.includes("logo") ||
-                  lower.includes("icon") ||
-                  lower.includes("recaptcha")
-                ) {
-                  return null;
-                }
-
-                var rect =
-                  img.getBoundingClientRect();
-
-                var width =
-                  Math.max(
-                    Number(rect.width) || 0,
-                    Number(img.naturalWidth) || 0
-                  );
-
-                var height =
-                  Math.max(
-                    Number(rect.height) || 0,
-                    Number(img.naturalHeight) || 0
-                  );
-
-                if (
-                  width < 90 ||
-                  height < 90
-                ) {
-                  return null;
-                }
-
-                var centerX =
-                  rect.left +
-                  rect.width / 2;
-
-                var centerY =
-                  rect.top +
-                  rect.height / 2;
-
-                var dx =
-                  centerX -
-                  linkCenterX;
-
-                var dy =
-                  centerY -
-                  linkCenterY;
-
-                var distance =
-                  Math.sqrt(
-                    dx * dx +
-                    dy * dy
-                  );
-
-                return {
-                  url: url,
-                  distance: distance,
-                  area:
-                    width * height
-                };
-              })
-              .filter(Boolean)
-              .sort(function (a, b) {
-                var aScore =
-                  a.distance -
-                  Math.min(
-                    a.area / 10000,
-                    400
-                  );
-
-                var bScore =
-                  b.distance -
-                  Math.min(
-                    b.area / 10000,
-                    400
-                  );
-
-                return aScore - bScore;
-              });
-
-          return (
-            (nearbyImages[0] &&
-              nearbyImages[0].url) ||
-            ""
-          );
-        } catch {
-          return "";
-        }
-      }
-
-      // Gumroad product cards use /l/<product-slug> links.
+      // Fine Art America and the remaining supported storefronts.
+      // Keep these detectors independent from Redbubble and ArtPal so changes
+      // for one marketplace cannot silently disable another marketplace.
       Array.from(document.querySelectorAll("a[href]")).forEach(function (link) {
         var rawHref = link.getAttribute("href") || "";
         var parsed;
-
         try {
           parsed = new URL(rawHref, window.location.href);
         } catch {
@@ -1430,115 +1057,104 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
         }
 
         var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-        var isGumroadHost =
-          host === "gumroad.com" ||
-          host.endsWith(".gumroad.com");
-
-        if (!isGumroadHost) return;
-
         var pathname = parsed.pathname || "";
-        if (!/^\/l\/[^/?#]+/i.test(pathname)) return;
+        var marketplace = "";
+        var isProductLink = false;
 
-        function findGumroadCard(productLink) {
-          var node =
-            productLink.parentElement;
+        if (host === "fineartamerica.com" || host.endsWith(".fineartamerica.com")) {
+          marketplace = "Fine Art America";
 
-          var fallback =
-            productLink.parentElement ||
-            productLink;
+          // FAA profile pages contain recommendation links for other artists.
+          // Derive the connected profile slug and keep only that artist's work.
+          var profileMatch =
+            window.location.pathname.match(/^\/profiles\/([^/?#]+)/i);
+          var ownerSlug =
+            profileMatch && profileMatch[1]
+              ? String(profileMatch[1]).toLowerCase()
+              : "";
+          var featuredMatch =
+            pathname.match(/^\/featured\/([^/?#]+)\.html$/i);
+          var featuredSlug =
+            featuredMatch && featuredMatch[1]
+              ? String(featuredMatch[1]).toLowerCase()
+              : "";
 
-          for (
-            var depth = 0;
-            node && depth < 7;
-            depth += 1, node = node.parentElement
-          ) {
-            var productLinks =
-              Array.from(
-                node.querySelectorAll("a[href]")
-              ).filter(function (candidate) {
-                try {
-                  var url = new URL(
-                    candidate.getAttribute("href") || "",
-                    window.location.href
-                  );
+          var ownerName = ownerSlug.replace(/[-_]+/g, " ").trim();
+          var ownerCardCandidate =
+            (link.closest && link.closest("article, li, [class*=\"card\"], [class*=\"tile\"], [class*=\"artwork\"], [class*=\"product\"]")) ||
+            link.parentElement ||
+            link;
+          var cardTextForOwner = cleanText(
+            ownerCardCandidate && ownerCardCandidate.textContent || ""
+          ).toLowerCase();
+          var ownerMarker = "-" + ownerSlug;
+          var ownerIndex = ownerSlug ? featuredSlug.lastIndexOf(ownerMarker) : -1;
+          var ownerTail = ownerIndex >= 0
+            ? featuredSlug.slice(ownerIndex + ownerMarker.length)
+            : "";
+          var slugOwnerMatch = Boolean(ownerSlug) && (
+            featuredSlug === ownerSlug ||
+            featuredSlug.endsWith(ownerMarker) ||
+            (ownerIndex >= 0 && (ownerTail === "" || /^\-\d+$/.test(ownerTail)))
+          );
+          var textOwnerMatch = Boolean(ownerName) && cardTextForOwner.includes(ownerName);
 
-                  var candidateHost =
-                    url.hostname
-                      .toLowerCase()
-                      .replace(/^www\./, "");
+          isProductLink = Boolean(featuredMatch) &&
+            (!ownerSlug || slugOwnerMatch || textOwnerMatch);
 
-                  return (
-                    (
-                      candidateHost === "gumroad.com" ||
-                      candidateHost.endsWith(".gumroad.com")
-                    ) &&
-                    /^\/l\/[^/?#]+/i.test(
-                      url.pathname || ""
-                    )
-                  );
-                } catch {
-                  return false;
-                }
-              });
-
-            var images =
-              node.querySelectorAll("img");
-
-            if (
-              productLinks.length === 1 &&
-              images.length > 0
-            ) {
-              return node;
-            }
-
-            if (
-              productLinks.length <= 2 &&
-              images.length > 0
-            ) {
-              fallback = node;
-            }
-
-            if (productLinks.length > 4) {
-              break;
-            }
+          if (isProductLink) {
+            parsed.search = "";
+            parsed.hash = "";
           }
-
-          return fallback;
+        } else if (
+          host.endsWith(".myshopify.com") ||
+          host === "shopify.com" ||
+          host.endsWith(".shopify.com")
+        ) {
+          marketplace = "Shopify";
+          isProductLink = /^\/products\/[^/?#]+/i.test(pathname);
+        } else if (host === "etsy.com" || host.endsWith(".etsy.com")) {
+          marketplace = "Etsy";
+          isProductLink = /^\/listing\/\d+/i.test(pathname);
+        } else if (host === "society6.com" || host.endsWith(".society6.com")) {
+          marketplace = "Society6";
+          isProductLink = /^\/product\/[^/?#]+/i.test(pathname);
+        } else if (host === "gumroad.com" || host.endsWith(".gumroad.com")) {
+          marketplace = "Gumroad";
+          isProductLink = /^\/l\/[^/?#]+/i.test(pathname);
+        } else if (host === "ebay.com" || host.endsWith(".ebay.com")) {
+          marketplace = "eBay";
+          isProductLink = /^\/itm\/(?:[^/]+\/)?\d+/i.test(pathname);
         }
 
-        var card =
-          findGumroadCard(link);
+        if (!isProductLink) return;
+
+        var card = marketplace === "Fine Art America"
+          ? nearestProductCard(link)
+          : (link.closest(
+              "article, li, [data-testid], [class*='card'], [class*='tile'], [class*='product'], [class*='artwork'], [class*='image']"
+            ) || link.parentElement || link);
 
         var image =
           link.querySelector("img") ||
-          (card && card.querySelector("img"));
-
-        var imageUrl =
-          getGumroadCardImage(
-            card,
-            link
-          );
-
-        if (!imageUrl) return;
-
-        var titleNode = card && card.querySelector(
-          "h1, h2, h3, h4, [class*='title'], [class*='name'], [data-testid*='title']"
-        );
-
-        var descriptionNode = card && card.querySelector(
-          "p, [class*='description'], [class*='summary']"
+          (card && card.querySelector && card.querySelector("img"));
+        var imageUrl = marketplace === "Fine Art America"
+          ? bestImageFromNode(card || link)
+          : getHttpImageUrl(image);
+        var titleNode = card && card.querySelector && card.querySelector(
+          "h1, h2, h3, h4, strong, [class*='title'], [data-testid*='title']"
         );
 
         push({
           title:
-            cleanText(titleNode && titleNode.textContent) ||
-            cleanText(link.getAttribute("aria-label")) ||
             cleanText(image && image.getAttribute("alt")) ||
-            "Gumroad Product",
-          description:
-            cleanText(descriptionNode && descriptionNode.textContent),
+            cleanText(link.getAttribute("aria-label")) ||
+            cleanText(link.getAttribute("title")) ||
+            cleanText(titleNode && titleNode.textContent) ||
+            marketplace + " Artwork",
+          description: "",
           productUrl: parsed.toString(),
-          imageUrl: imageUrl,
+          imageUrl: imageUrl || "",
           price: getPrice(card),
           currency: "USD"
         });
@@ -1743,6 +1359,12 @@ const FULL_STORE_SCAN_SCRIPT = String.raw`
           if (!grew) stableBottomRounds += 1;
           stimulateLazyLoad(true);
 
+          if (isFineArtAmericaPage && stableBottomRounds > 0 && stableBottomRounds % 6 === 0) {
+            var faaMetrics = metrics();
+            var faaRevisit = Math.max(0, faaMetrics.maxY - Math.max(faaMetrics.viewport * 2.2, 1200));
+            window.scrollTo({ top: faaRevisit, behavior: "auto" });
+          }
+
           if (stableBottomRounds >= BOTTOM_STABLE_ROUNDS_TO_FINISH) {
             // Final delayed pass: give the storefront one last opportunity to
             // append/virtualize another batch before declaring it exhausted.
@@ -1808,6 +1430,54 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
         href.match(/\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i);
 
       return match && match[1] ? match[1] : "";
+    }
+
+    function allArtworkIdsFromDocument() {
+      var ids = {};
+
+      function remember(value) {
+        var id = String(value || "").trim();
+        if (/^\d+$/.test(id)) {
+          ids[id] = true;
+        }
+      }
+
+      // Live DOM anchors.
+      Array.from(
+        document.querySelectorAll('a[href*="/shop/ap/"], a[href*="/i/"]')
+      ).forEach(function (link) {
+        remember(
+          artworkId(
+            absolute(link.getAttribute("href"))
+          )
+        );
+      });
+
+      // Redbubble can keep additional catalog entries in serialized HTML/JSON
+      // even when their cards are not currently mounted in the visible DOM.
+      var html = String(
+        document.documentElement &&
+        document.documentElement.innerHTML ||
+        ""
+      );
+
+      var patterns = [
+        /\/shop\/ap\/(\d+)/gi,
+        /\/i\/[^/"'\\\s]+\/[^/"'\\\s]+\/(\d+)(?:\/|\\u002F|["'\\\s<])/gi,
+        /["']artworkId["']\s*:\s*["']?(\d+)["']?/gi,
+        /["']artwork_id["']\s*:\s*["']?(\d+)["']?/gi
+      ];
+
+      patterns.forEach(function (regex) {
+        var match;
+        while ((match = regex.exec(html))) {
+          if (match[1]) {
+            remember(match[1]);
+          }
+        }
+      });
+
+      return Object.keys(ids);
     }
 
     function imageUrl(img) {
@@ -1971,6 +1641,74 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
         });
       });
 
+      allArtworkIdsFromDocument().forEach(function (id) {
+        if (remembered[id]) return;
+
+        var candidateLink =
+          document.querySelector(
+            'a[href*="/shop/ap/' + id + '"]'
+          ) ||
+          document.querySelector(
+            'a[href*="/' + id + '/"]'
+          );
+
+        var href = candidateLink
+          ? absolute(candidateLink.getAttribute("href"))
+          : "https://www.redbubble.com/shop/ap/" + id;
+
+        var artworkImg =
+          candidateLink
+            ? (
+                Array.from(
+                  candidateLink.querySelectorAll("img")
+                ).find(function (img) {
+                  var src = absolute(
+                    img.currentSrc ||
+                    img.getAttribute("src") ||
+                    img.getAttribute("data-src") ||
+                    img.getAttribute("data-original") ||
+                    img.getAttribute("data-lazy-src") ||
+                    ""
+                  );
+
+                  var alt = clean(
+                    img.getAttribute("alt") || ""
+                  );
+
+                  return (
+                    /redbubble\.net/i.test(src) &&
+                    !/favorite/i.test(alt) &&
+                    !/\.svg(?:[?#]|$)/i.test(src)
+                  );
+                }) || null
+              )
+            : null;
+
+        var rawText =
+          candidateLink
+            ? clean(candidateLink.textContent)
+            : "";
+
+        var title = clean(
+          rawText
+            .replace(/Shop all products/gi, " ")
+            .replace(/\s+/g, " ")
+        );
+
+        remembered[id] = true;
+
+        products.push({
+          title:
+            title ||
+            "Redbubble Artwork " + id,
+          description: "",
+          productUrl: href,
+          imageUrl: imageUrl(artworkImg),
+          price: null,
+          currency: "USD"
+        });
+      });
+
       return products;
     }
 
@@ -1983,7 +1721,9 @@ const REDBUBBLE_EXPLORE_PAGE_SCRIPT = String.raw`
           type: "redbubble_full_snapshot",
           pageUrl: window.location.href,
           products: products,
-          showMoreAvailable: !!showMore
+          showMoreAvailable: !!showMore,
+          diagnosticDocumentArtworkCount:
+            allArtworkIdsFromDocument().length
         })
       );
     }
@@ -2128,8 +1868,8 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
 
     // Catalog-size agnostic: there is no maximum design count.
     var POLL_MS = 650;
-    var GROWTH_TIMEOUT_MS = 12000;
-    var CONFIRMED_NO_GROWTH_TO_FINISH = 4;
+    var GROWTH_TIMEOUT_MS = 18000;
+    var CONFIRMED_NO_GROWTH_TO_FINISH = 12;
     var FAILSAFE_RUNTIME_MS = 30 * 60 * 1000;
 
     function clean(value) {
@@ -2392,24 +2132,37 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
         };
       });
 
+      // Promote every artwork ID discovered in Redbubble's serialized
+      // document into the catalog even if its visual card is currently
+      // virtualized out of the DOM. These rows intentionally remain
+      // image-pending until a real thumbnail/detail page resolves them.
+      htmlArtworkIds().forEach(function (id) {
+        if (remembered[id]) return;
+
+        order.push(id);
+        remembered[id] = {
+          title: "Redbubble Artwork " + id,
+          description: "",
+          productUrl:
+            "https://www.redbubble.com/shop/ap/" + id,
+          imageUrl: "",
+          price: null,
+          currency: "USD"
+        };
+      });
+
       return order.length - before;
     }
 
     function products() {
+      // Return every discovered Redbubble artwork. Some entries will not yet
+      // have a rendered thumbnail; those remain visible as image-pending and
+      // are resolved during import instead of being discarded here.
       return order
         .map(function (id) {
           return remembered[id];
         })
-        .filter(function (item) {
-          return !!(
-            item &&
-            item.imageUrl &&
-            /^https?:\/\//i.test(item.imageUrl) &&
-            /redbubble\.net/i.test(item.imageUrl) &&
-            !/\.svg(?:[?#]|$)/i.test(item.imageUrl) &&
-            !/(placeholder|transparent|spacer|blank)/i.test(item.imageUrl)
-          );
-        });
+        .filter(Boolean);
     }
 
     function anchorArtworkIds() {
@@ -2439,18 +2192,28 @@ const REDBUBBLE_FULL_STORE_VISIBLE_SCRIPT = String.raw`
           ""
         );
 
-      var regex =
-        /(?:https?:\/\/www\.redbubble\.com)?\/shop\/ap\/(\d+)/gi;
-
-      var match;
-
-      while (
-        (match = regex.exec(html))
-      ) {
-        if (match[1]) {
-          ids[match[1]] = true;
+      function remember(value) {
+        var id = String(value || "").trim();
+        if (/^\d+$/.test(id)) {
+          ids[id] = true;
         }
       }
+
+      var patterns = [
+        /(?:https?:\/\/www\.redbubble\.com)?\/shop\/ap\/(\d+)/gi,
+        /\/i\/[^/"'\\\s]+\/[^/"'\\\s]+\/(\d+)(?:\/|\\u002F|["'\\\s<])/gi,
+        /["']artworkId["']\s*:\s*["']?(\d+)["']?/gi,
+        /["']artwork_id["']\s*:\s*["']?(\d+)["']?/gi
+      ];
+
+      patterns.forEach(function (regex) {
+        var match;
+        while ((match = regex.exec(html))) {
+          if (match[1]) {
+            remember(match[1]);
+          }
+        }
+      });
 
       return Object.keys(ids);
     }
@@ -3287,6 +3050,295 @@ const REDBUBBLE_DETAIL_SCRIPT = `
 `;
 
 
+
+const FINE_ART_AMERICA_FULL_STORE_SCRIPT = `
+(async function () {
+  try {
+    function clean(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function absolute(value, base) {
+      try {
+        var parsed = new URL(value || "", base || window.location.href);
+        parsed.hash = "";
+        return parsed.toString();
+      } catch {
+        return "";
+      }
+    }
+
+    function canonicalFeaturedUrl(value, base) {
+      try {
+        var parsed = new URL(value || "", base || window.location.href);
+        if (!/(^|\.)fineartamerica\.com$/i.test(parsed.hostname)) return "";
+        if (!/^\/featured\/[^/?#]+\.html$/i.test(parsed.pathname)) return "";
+        parsed.search = "";
+        parsed.hash = "";
+        return parsed.toString();
+      } catch {
+        return "";
+      }
+    }
+
+    function bestFromSrcset(value, base) {
+      var parts = String(value || "").split(",").map(function (part) {
+        var bits = clean(part).split(/\s+/);
+        var url = absolute(bits[0], base);
+        var width = 0;
+        if (bits[1] && /w$/i.test(bits[1])) width = Number(bits[1].replace(/w$/i, "")) || 0;
+        if (bits[1] && /x$/i.test(bits[1])) width = (Number(bits[1].replace(/x$/i, "")) || 0) * 1000;
+        return { url: url, width: width };
+      }).filter(function (item) { return /^https?:\/\//i.test(item.url); });
+      parts.sort(function (a, b) { return b.width - a.width; });
+      return parts[0] ? parts[0].url : "";
+    }
+
+    function scoreImage(url) {
+      var lower = String(url || "").toLowerCase();
+      if (!/^https?:\/\//i.test(lower)) return -10000;
+      var score = 0;
+      if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+      if (/images|artwork|featured|upload/i.test(lower)) score += 250;
+      if (/\.jpe?g|\.png|\.webp/i.test(lower)) score += 100;
+      if (/logo|icon|avatar|profile|sprite|placeholder|spacer|transparent|loading/i.test(lower)) score -= 2000;
+      return score;
+    }
+
+    function imageFromNode(node, base) {
+      if (!node || !node.querySelectorAll) return "";
+      var candidates = [];
+      Array.from(node.querySelectorAll("img")).forEach(function (img) {
+        [
+          img.currentSrc,
+          img.src,
+          img.getAttribute("src"),
+          img.getAttribute("data-src"),
+          img.getAttribute("data-lazy-src"),
+          img.getAttribute("data-original"),
+          img.getAttribute("data-image"),
+          img.getAttribute("data-image-url"),
+          img.getAttribute("data-cfsrc")
+        ].forEach(function (value) {
+          var url = absolute(value, base);
+          if (url) candidates.push(url);
+        });
+        [img.getAttribute("srcset"), img.getAttribute("data-srcset")].forEach(function (value) {
+          var url = bestFromSrcset(value, base);
+          if (url) candidates.push(url);
+        });
+      });
+      Array.from(node.querySelectorAll("source[srcset],source[data-srcset]")).forEach(function (source) {
+        var url = bestFromSrcset(source.getAttribute("srcset") || source.getAttribute("data-srcset"), base);
+        if (url) candidates.push(url);
+      });
+      var bgNodes = [node].concat(Array.from(node.querySelectorAll("[style*='background']")));
+      bgNodes.forEach(function (el) {
+        try {
+          var style = window.getComputedStyle(el);
+          var bg = String(style.backgroundImage || "");
+          var match = bg.match(/url\(["']?([^"')]+)["']?\)/i);
+          if (match && match[1]) candidates.push(absolute(match[1], base));
+        } catch {}
+      });
+      var unique = Array.from(new Set(candidates.filter(Boolean)));
+      unique.sort(function (a, b) { return scoreImage(b) - scoreImage(a); });
+      return unique[0] && scoreImage(unique[0]) > 0 ? unique[0] : "";
+    }
+
+    function titleFromCard(card, ownerName) {
+      var lines = String((card && card.innerText) || (card && card.textContent) || "")
+        .split(/\n+/).map(clean).filter(Boolean);
+      for (var i = 0; i < lines.length; i += 1) {
+        var line = lines[i];
+        if (line.toLowerCase() === ownerName.toLowerCase()) continue;
+        if (/^\$\s*\d/.test(line)) continue;
+        if (/^(products?|filters?|results?:|shop|home|artists?)$/i.test(line)) continue;
+        if (/^(art prints?|canvas prints?|framed prints?|metal prints?|acrylic prints?|wood prints?|posters?|tapestries?)$/i.test(line)) continue;
+        if (/^(add to cart|quick view|view product|shop now)$/i.test(line)) continue;
+        return line.replace(/\s+(?:Print|Canvas Print|Framed Print|Art Print|Poster)$/i, "").trim();
+      }
+      return "Fine Art America Artwork";
+    }
+
+    function priceFromCard(card) {
+      var text = clean(card && card.textContent);
+      var match = text.match(/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+      if (!match) return null;
+      var value = Number(match[1]);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function compactOwnerCard(startNode, ownerName) {
+      var node = startNode;
+      var fallback = null;
+      for (var depth = 0; node && depth < 12; depth += 1, node = node.parentElement) {
+        if (!node.querySelectorAll) continue;
+        var text = clean(node.innerText || node.textContent);
+        if (!text || text.length > 1200) continue;
+        var ownerOk = text.toLowerCase().includes(ownerName.toLowerCase());
+        var hasPrice = /\$\s*\d/.test(text);
+        var hasImage = !!node.querySelector("img, picture, [style*='background']");
+        if (ownerOk && hasPrice && hasImage) {
+          fallback = node;
+          if (text.length < 500) return node;
+        }
+      }
+      return fallback;
+    }
+
+    var profileMatch = window.location.pathname.match(/^\/profiles\/([^/?#]+)/i);
+    if (!profileMatch || !profileMatch[1]) {
+      throw new Error("Fine Art America profile URL was not recognized.");
+    }
+
+    var profileSlug = decodeURIComponent(profileMatch[1]).replace(/\.html$/i, "").trim();
+    var ownerName = profileSlug.split(/[-_\s]+/).filter(Boolean).map(function (word) {
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(" ");
+
+    var products = new Map();
+    var noGrowthRounds = 0;
+    var stableHeightRounds = 0;
+    var previousHeight = 0;
+    var round = 0;
+    var expectedTotal = 0;
+
+    function harvest() {
+      var bodyText = clean(document.body && document.body.innerText);
+      var resultsMatch = bodyText.match(/Results:\s*([0-9,]+)/i);
+      if (resultsMatch && resultsMatch[1]) {
+        expectedTotal = Number(resultsMatch[1].replace(/,/g, "")) || expectedTotal;
+      }
+
+      var before = products.size;
+      var anchors = Array.from(document.querySelectorAll("a[href*='/featured/']"));
+      anchors.forEach(function (link) {
+        var productUrl = canonicalFeaturedUrl(link.getAttribute("href") || link.href, window.location.href);
+        if (!productUrl) return;
+        var card = compactOwnerCard(link, ownerName);
+        if (!card) return;
+        var text = clean(card.innerText || card.textContent).toLowerCase();
+        if (!text.includes(ownerName.toLowerCase()) || !/\$\s*\d/.test(text)) return;
+        var imageUrl = imageFromNode(card, window.location.href);
+        if (!imageUrl) return;
+        var existing = products.get(productUrl);
+        var next = {
+          title: titleFromCard(card, ownerName),
+          description: "",
+          productUrl: productUrl,
+          imageUrl: imageUrl,
+          price: priceFromCard(card),
+          currency: "USD"
+        };
+        if (!existing || (!existing.imageUrl && next.imageUrl)) products.set(productUrl, next);
+      });
+
+      // Fallback for FAA cards whose click target is stored in inline markup instead of href.
+      Array.from(document.querySelectorAll("article,li,div")).forEach(function (card) {
+        var text = clean(card.innerText || card.textContent);
+        if (!text || text.length > 650) return;
+        if (!text.toLowerCase().includes(ownerName.toLowerCase())) return;
+        if (!/\$\s*\d/.test(text)) return;
+        if (!card.querySelector("img,picture,[style*='background']")) return;
+        var markup = String(card.outerHTML || "");
+        var match = markup.match(/(?:https?:\/\/[^\"'<>\s]+)?\/featured\/[^\"'<>?\s]+\.html/i);
+        if (!match || !match[0]) return;
+        var productUrl = canonicalFeaturedUrl(match[0], window.location.href);
+        if (!productUrl) return;
+        var imageUrl = imageFromNode(card, window.location.href);
+        if (!imageUrl) return;
+        if (!products.has(productUrl)) {
+          products.set(productUrl, {
+            title: titleFromCard(card, ownerName),
+            description: "",
+            productUrl: productUrl,
+            imageUrl: imageUrl,
+            price: priceFromCard(card),
+            currency: "USD"
+          });
+        }
+      });
+
+      var added = products.size - before;
+      noGrowthRounds = added === 0 ? noGrowthRounds + 1 : 0;
+      return added;
+    }
+
+    function clickMoreIfPresent() {
+      var candidates = Array.from(document.querySelectorAll("button,a,[role='button']"));
+      for (var i = 0; i < candidates.length; i += 1) {
+        var label = clean(candidates[i].innerText || candidates[i].textContent).toLowerCase();
+        if (/^(show more|load more|more results|view more)$/.test(label)) {
+          try { candidates[i].click(); return true; } catch {}
+        }
+      }
+      return false;
+    }
+
+    // Harvest the live, rendered FAA shop instead of fetched HTML. FAA injects
+    // product cards and lazy thumbnails after page load, so static fetch parsing
+    // misses listings and images. Repeated scrolling triggers every lazy batch.
+    while (round < 160) {
+      round += 1;
+      harvest();
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "scan_progress",
+        scannedCount: products.size,
+        scanMode: "full_store"
+      }));
+
+      var doc = document.documentElement;
+      var body = document.body;
+      var height = Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0);
+      var viewportBottom = window.scrollY + window.innerHeight;
+      var nearBottom = viewportBottom >= height - Math.max(300, window.innerHeight * 0.4);
+      stableHeightRounds = height === previousHeight ? stableHeightRounds + 1 : 0;
+      previousHeight = height;
+
+      if (nearBottom) clickMoreIfPresent();
+
+      if (noGrowthRounds >= 8 && stableHeightRounds >= 5 && nearBottom) break;
+
+      var step = Math.max(500, Math.floor(window.innerHeight * 0.85));
+      var target = Math.min(window.scrollY + step, Math.max(0, height - window.innerHeight));
+      if (nearBottom) target = Math.max(0, height - window.innerHeight);
+      window.scrollTo(0, target);
+      await new Promise(function (resolve) { setTimeout(resolve, 650); });
+    }
+
+    // One final pass after the last lazy-load event settles.
+    await new Promise(function (resolve) { setTimeout(resolve, 900); });
+    harvest();
+
+    var results = Array.from(products.values());
+    if (!results.length) {
+      throw new Error("Fine Art America shop loaded, but no owner-matched artwork cards with thumbnails were found.");
+    }
+
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "scan_results",
+      products: results,
+      pageUrl: window.location.href,
+      pageTitle: ownerName + " Fine Art America Shop",
+      totalLinks: results.length,
+      totalImages: results.filter(function (item) { return !!item.imageUrl; }).length,
+      scanMode: "full_store",
+      expectedTotal: expectedTotal,
+      marketplace: "fine_art_america"
+    }));
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "scan_error",
+      error: error && error.message ? error.message : String(error)
+    }));
+  }
+  true;
+})();
+`;
+
+
 function getRedbubblePreviewImageUrl(
   imageUrl: string,
   productUrl: string
@@ -3533,12 +3585,171 @@ function getRedbubbleExploreUrl(value: string, page: number) {
   }
 }
 
+async function scanFineArtAmericaShop() {
+  const currentUrl = storeUrl || browserUrl;
+
+  if (!currentUrl) {
+    Alert.alert(
+      "Fine Art America URL Required",
+      "Open the Fine Art America artist profile or shop before scanning."
+    );
+    return;
+  }
+
+  let normalizedProfileUrl = "";
+  try {
+    const parsed = new URL(currentUrl);
+    const match = parsed.pathname.match(/^\/profiles\/([^/?#]+)/i);
+    if (!match?.[1]) {
+      throw new Error("Use a Fine Art America artist profile URL.");
+    }
+    normalizedProfileUrl = `${parsed.origin}/profiles/${match[1]}`;
+  } catch (error: any) {
+    Alert.alert(
+      "Fine Art America URL Required",
+      error?.message || "Use a Fine Art America artist profile URL."
+    );
+    return;
+  }
+
+  try {
+    setProducts([]);
+    setFullStoreScanning(true);
+    setScanProgress("Restoring Fine Art America catalog import...");
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      throw new Error(userError.message);
+    }
+
+    if (!user) {
+      throw new Error("Please sign in before scanning Fine Art America.");
+    }
+
+    const response = await fetch(
+      `${API_BASE}/stores/fine-art-america/import`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          storeId: storeId || undefined,
+          storeUrl: normalizedProfileUrl,
+          maxPages: 50,
+          maxListings: 1000,
+        }),
+      }
+    );
+
+    const responseText = await response.text();
+    let data: any;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        "ArtBoost received an invalid Fine Art America response."
+      );
+    }
+
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.details ||
+          data?.error ||
+          "Fine Art America could not be scanned."
+      );
+    }
+
+    const returnedProducts = Array.isArray(data.products)
+      ? data.products
+      : [];
+
+    const mapped: ScannedProduct[] = returnedProducts
+      .map((item: any, index: number) => {
+        const productUrl = normalizeUrl(
+          item.product_url || item.productUrl,
+          normalizedProfileUrl
+        );
+        const imageUrl = normalizeUrl(
+          item.image_url || item.imageUrl,
+          productUrl || normalizedProfileUrl
+        );
+
+        if (!productUrl) {
+          return null;
+        }
+
+        return {
+          id:
+            String(item.id || "") ||
+            makeProductId(productUrl) ||
+            `faa-${index}`,
+          title:
+            cleanText(item.title) ||
+            "Fine Art America Artwork",
+          description: cleanText(item.description),
+          productUrl,
+          imageUrl,
+          price:
+            item.price === null || item.price === undefined
+              ? null
+              : Number(item.price),
+          currency: cleanText(item.currency) || "USD",
+          selected: true,
+        } as ScannedProduct;
+      })
+      .filter(Boolean) as ScannedProduct[];
+
+    setProducts(mapped);
+
+    const thumbnailCount = mapped.filter(
+      (item) => !!item.imageUrl
+    ).length;
+
+    Alert.alert(
+      "Fine Art America Restored",
+      [
+        `${Number(data.discovered) || mapped.length} listings found.`,
+        `${mapped.length} listings loaded into ArtBoost.`,
+        `${thumbnailCount} thumbnails resolved.`,
+        "",
+        "This uses the dedicated Fine Art America importer that was working before the Universal Scanner changes.",
+      ].join("\n")
+    );
+  } catch (error: any) {
+    Alert.alert(
+      "Fine Art America Scan Failed",
+      error?.message ||
+        "ArtBoost could not restore the Fine Art America catalog."
+    );
+  } finally {
+    setFullStoreScanning(false);
+    setScanProgress("");
+  }
+}
+
 function scanEntireStore() {
   if (!browserUrl) {
     Alert.alert(
       "Open Store First",
       "Open the storefront before scanning the entire store."
     );
+    return;
+  }
+
+  if (
+    storeType === "fine_art_america" ||
+    storeType === "fine-art-america" ||
+    storeType === "fineartamerica" ||
+    /fineartamerica\.com/i.test(browserUrl)
+  ) {
+    scanFineArtAmericaShop();
     return;
   }
 
@@ -3560,7 +3771,9 @@ function scanEntireStore() {
       return;
     }
 
-    setProducts([]);
+    redbubbleFullStoreProductsRef.current.clear();
+    redbubbleFullStoreNoGrowthRoundsRef.current = 0;
+    redbubbleFullStoreNoButtonRoundsRef.current = 0;
     setFullStoreScanning(true);
 
     const currentExploreUrl =
@@ -3756,168 +3969,7 @@ function scanEntireStore() {
       : new Error("Unable to read Redbubble product details after retry.");
   }
 
-
-  async function enrichGumroadProducts(
-    items: ScannedProduct[]
-  ): Promise<ScannedProduct[]> {
-    if (
-      storeType !== "gumroad" ||
-      items.length === 0
-    ) {
-      return items;
-    }
-
-    try {
-      setScanProgress(
-        `Loading Gumroad product images — 0/${items.length}`
-      );
-
-      const response = await fetch(
-        `${API_BASE}/gumroad/enrich-products`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            products: items.map(
-              (item) => ({
-                productUrl:
-                  item.productUrl,
-                title:
-                  item.title,
-                description:
-                  item.description,
-                price:
-                  item.price,
-                currency:
-                  item.currency,
-              })
-            ),
-          }),
-        }
-      );
-
-      const responseText =
-        await response.text();
-
-      let data: any = {};
-
-      try {
-        data = responseText
-          ? JSON.parse(responseText)
-          : {};
-      } catch {
-        throw new Error(
-          `ArtBoost received an invalid Gumroad image response (${response.status}).`
-        );
-      }
-
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
-        throw new Error(
-          data?.error ||
-            "Gumroad product images could not be loaded."
-        );
-      }
-
-      const byUrl =
-        new Map<string, any>();
-
-      for (
-        const product of
-        Array.isArray(data.products)
-          ? data.products
-          : []
-      ) {
-        const key = normalizeUrl(
-          product?.productUrl,
-          browserUrl
-        );
-
-        if (key) {
-          byUrl.set(key, product);
-        }
-      }
-
-      const enriched =
-        items.map((item) => {
-          const key = normalizeUrl(
-            item.productUrl,
-            browserUrl
-          );
-
-          const match = byUrl.get(key);
-
-          if (!match) {
-            return item;
-          }
-
-          const matchPrice =
-            match.price === null ||
-            match.price === undefined
-              ? null
-              : Number(match.price);
-
-          return {
-            ...item,
-            title:
-              cleanText(match.title) ||
-              item.title,
-            description:
-              cleanText(match.description) ||
-              item.description,
-            imageUrl:
-              normalizeUrl(
-                match.imageUrl,
-                browserUrl
-              ) ||
-              item.imageUrl,
-            price:
-              matchPrice !== null &&
-              Number.isFinite(matchPrice)
-                ? matchPrice
-                : item.price,
-            currency:
-              cleanText(match.currency) ||
-              item.currency,
-          };
-        });
-
-      const imageCount =
-        enriched.filter(
-          (item) =>
-            Boolean(item.imageUrl)
-        ).length;
-
-      setScanProgress(
-        `Loaded ${imageCount}/${enriched.length} Gumroad product images`
-      );
-
-      console.log(
-        "[Gumroad Enrichment]",
-        {
-          requested: items.length,
-          processed: data.processed,
-          withImages: data.withImages,
-        }
-      );
-
-      return enriched;
-    } catch (error) {
-      console.log(
-        "Gumroad enrichment failed:",
-        error
-      );
-
-      return items;
-    }
-  }
-
-  async function handleScannerMessage(
+  function handleScannerMessage(
     event: WebViewMessageEvent
   ) {
     try {
@@ -4070,7 +4122,7 @@ function scanEntireStore() {
           );
 
           if (
-            redbubbleFullStoreNoButtonRoundsRef.current >= 5
+            redbubbleFullStoreNoButtonRoundsRef.current >= 12
           ) {
             const all = Array.from(
               redbubbleFullStoreProductsRef.current.values()
@@ -4191,8 +4243,28 @@ function scanEntireStore() {
             );
           });
 
+        const pendingImageCount =
+          all.length - importable.length;
+
         const added =
           map.size - beforeCount;
+
+        console.log(
+          "REDBUBBLE FULL SNAPSHOT",
+          {
+            pageUrl:
+              message.pageUrl,
+            snapshotProducts:
+              discovered.length,
+            documentArtworkIds:
+              message.diagnosticDocumentArtworkCount,
+            added,
+            totalUnique:
+              map.size,
+            showMoreAvailable:
+              message.showMoreAvailable,
+          }
+        );
 
         if (added > 0) {
           redbubbleFullStoreNoGrowthRoundsRef.current = 0;
@@ -4201,7 +4273,7 @@ function scanEntireStore() {
           redbubbleFullStoreNoGrowthRoundsRef.current += 1;
         }
 
-        setProducts(importable);
+        setProducts(all);
 
         if (
           all.length === 0
@@ -4218,7 +4290,7 @@ function scanEntireStore() {
         }
 
         setScanProgress(
-          `${all.length} links discovered • ${importable.length} ready to import${
+          `${all.length} listings available • ${importable.length} with thumbnails • ${pendingImageCount} images pending${
             message.showMoreAvailable
               ? " — Show more found"
               : " — checking for more..."
@@ -4227,7 +4299,7 @@ function scanEntireStore() {
 
         if (message.showMoreAvailable) {
           if (
-            redbubbleFullStoreNoGrowthRoundsRef.current >= 10
+            redbubbleFullStoreNoGrowthRoundsRef.current >= 20
           ) {
             setFullStoreScanning(false);
             setRedbubbleFullStoreUrl("");
@@ -4235,7 +4307,7 @@ function scanEntireStore() {
 
             Alert.alert(
               "Full Store Scan Stopped",
-              `${all.length} design links were discovered and ${importable.length} have verified artwork images ready to import. Redbubble stopped adding new designs after repeated Show more attempts.`
+              `${all.length} Redbubble listings are available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending. Redbubble stopped adding new designs after repeated Show more attempts.`
             );
             return;
           }
@@ -4254,7 +4326,7 @@ function scanEntireStore() {
         // The Show more control can appear after the design batch renders.
         // Require several no-button observations before declaring the end.
         if (
-          redbubbleFullStoreNoButtonRoundsRef.current < 6
+          redbubbleFullStoreNoButtonRoundsRef.current < 12
         ) {
           setTimeout(() => {
             webViewRef.current?.injectJavaScript(
@@ -4270,11 +4342,9 @@ function scanEntireStore() {
 
         Alert.alert(
           "Full Store Scan Complete",
-          `${all.length} Redbubble design link${
+          `${all.length} Redbubble listing${
             all.length === 1 ? "" : "s"
-          } discovered. ${importable.length} product${
-            importable.length === 1 ? "" : "s"
-          } have verified artwork images and are ready to import.`
+          } available. ${importable.length} have verified thumbnails and ${pendingImageCount} are image-pending.`
         );
 
         return;
@@ -4368,9 +4438,7 @@ function scanEntireStore() {
 
         if (
           !productUrl ||
-          (!imageUrl &&
-            (!fullStoreResult ||
-              redbubbleResult)) ||
+          (!imageUrl && !fullStoreResult) ||
           seen.has(productUrl)
         ) {
           continue;
@@ -4417,16 +4485,9 @@ function scanEntireStore() {
         });
       }
 
-      const finalMapped =
-        storeType === "gumroad"
-          ? await enrichGumroadProducts(
-              mapped
-            )
-          : mapped;
+      setProducts(mapped);
 
-      setProducts(finalMapped);
-
-      if (finalMapped.length === 0) {
+      if (mapped.length === 0) {
         Alert.alert(
           "No Products Detected",
           [
@@ -4450,11 +4511,11 @@ function scanEntireStore() {
             ? "Full Store Scan Complete"
             : "Scan Complete",
           message.scanMode === "full_store"
-            ? `${finalMapped.length} unique design${
-                finalMapped.length === 1 ? "" : "s"
+            ? `${mapped.length} unique design${
+                mapped.length === 1 ? "" : "s"
               } detected across the store.`
-            : `${finalMapped.length} product${
-                finalMapped.length === 1 ? "" : "s"
+            : `${mapped.length} product${
+                mapped.length === 1 ? "" : "s"
               } detected on this page.`
         );
       }
@@ -4468,6 +4529,83 @@ function scanEntireStore() {
       setScanning(false);
 setFullStoreScanning(false);
 setScanProgress("");
+    }
+  }
+
+  async function buildRedbubbleCsv() {
+    if (products.length === 0) {
+      Alert.alert(
+        "Nothing to Export",
+        "Scan the Redbubble store before building a CSV."
+      );
+      return;
+    }
+
+    try {
+      const csv = buildCatalogCsv(
+        products.map((product) => ({
+          artworkId:
+            getRedbubbleArtworkIdFromUrl(
+              product.productUrl
+            ),
+          title: product.title,
+          description: product.description,
+          productUrl: product.productUrl,
+          imageUrl: product.imageUrl || "",
+          price: product.price,
+          currency:
+            product.currency || "USD",
+          storeType,
+          storeName,
+          imageStatus:
+            hasVerifiedCatalogImage(
+              product.imageUrl
+            )
+              ? "verified"
+              : "pending",
+        }))
+      );
+
+      const safeStoreName =
+        String(storeName || "redbubble")
+          .replace(/[^a-z0-9_-]+/gi, "_")
+          .replace(/^_+|_+$/g, "") ||
+        "redbubble";
+
+      const csvFile =
+        new File(
+          Paths.cache,
+          `${safeStoreName}_artboost_catalog.csv`
+        );
+
+      csvFile.write(csv);
+
+      const fileUri =
+        csvFile.uri;
+
+      const sharingAvailable =
+        await Sharing.isAvailableAsync();
+
+      if (!sharingAvailable) {
+        Alert.alert(
+          "CSV Built",
+          `ArtBoost created a CSV with ${products.length} listings at ${fileUri}`
+        );
+        return;
+      }
+
+      await Sharing.shareAsync(fileUri, {
+        mimeType: "text/csv",
+        dialogTitle:
+          "Save ArtBoost Catalog CSV",
+        UTI: "public.comma-separated-values-text",
+      });
+    } catch (error: any) {
+      Alert.alert(
+        "CSV Build Failed",
+        error?.message ||
+          "ArtBoost could not build the catalog CSV."
+      );
     }
   }
 
@@ -5084,6 +5222,19 @@ setScanProgress("");
                     );
                   }, 1800);
                 }
+
+                if (
+                  fullStoreScanning &&
+                  /fineartamerica\.com\/profiles\/[^/]+\/shop(?:[/?#]|$)/i.test(
+                    loadedUrl
+                  )
+                ) {
+                  setTimeout(() => {
+                    webViewRef.current?.injectJavaScript(
+                      FINE_ART_AMERICA_FULL_STORE_SCRIPT
+                    );
+                  }, 900);
+                }
               }}
               onNavigationStateChange={(
                 state
@@ -5200,6 +5351,31 @@ setScanProgress("");
       : "Scan Entire Store"}
   </Text>
 </Pressable>
+
+{storeType === "redbubble" && products.length > 0 ? (
+  <Pressable
+    style={[
+      styles.csvButton,
+      (scanning || fullStoreScanning || importing) &&
+        styles.disabledButton,
+    ]}
+    onPress={buildRedbubbleCsv}
+    disabled={
+      scanning ||
+      fullStoreScanning ||
+      importing
+    }
+  >
+    <Ionicons
+      name="document-text-outline"
+      size={21}
+      color="#ffffff"
+    />
+    <Text style={styles.scanButtonText}>
+      {`Build CSV (${products.length} Listings)`}
+    </Text>
+  </Pressable>
+) : null}
 
 {fullStoreScanning &&
 scanProgress ? (
@@ -5628,6 +5804,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     marginTop: 9,
+  },
+
+  csvButton: {
+    minHeight: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#8b5cf6",
+    backgroundColor: "#21133f",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 18,
+    marginTop: 10,
   },
 
   scanProgressText: {
