@@ -370,14 +370,18 @@ const syncButtonLabel = useMemo(() => {
       <View style={styles.header}>
         <Pressable
   style={styles.backButton}
-  onPress={() =>
-  router.replace({
-    pathname: "/connections" as any,
-    params: {
-      section: "stores",
-    },
-  })
-}
+  onPress={() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({
+        pathname: "/connections" as any,
+        params: {
+          section: "stores",
+        },
+      });
+    }
+  }}
 >
   <Ionicons
     name="arrow-back"
