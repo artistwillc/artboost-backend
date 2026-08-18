@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { DEFAULT_VIDEO_TEMPLATE, getVideoTemplate } from "../video/templates.js";
@@ -13,6 +14,28 @@ const supabase = createClient(
 
 const MAX_SOURCE_IMAGES = 6;
 const MIN_SOURCE_IMAGES = 1;
+
+
+const VIDEO_STUDIO_WORKER_ID =
+  String(
+    process.env.RENDER_INSTANCE_ID ||
+      process.env.RENDER_SERVICE_ID ||
+      "artboost-video-worker"
+  ).trim() +
+  ":" +
+  process.pid +
+  ":" +
+  randomUUID();
+
+const VIDEO_STUDIO_LOCK_SECONDS = Math.min(
+  Math.max(
+    Number(
+      process.env.ARTBOOST_VIDEO_JOB_LOCK_SECONDS
+    ) || 1800,
+    300
+  ),
+  7200
+);
 
 function uniq(values) {
   return [...new Set(values.filter(Boolean))];
@@ -133,25 +156,59 @@ export async function getVideoJob({ userId, jobId }) {
 }
 
 export async function claimNextVideoJob() {
-  const { data: candidate, error } = await supabase
-    .from("video_jobs")
-    .select("*")
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`Unable to inspect video queue: ${error.message}`);
-  if (!candidate) return null;
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "claim_next_video_job",
+    {
+      p_worker_id:
+        VIDEO_STUDIO_WORKER_ID,
+      p_lock_seconds:
+        VIDEO_STUDIO_LOCK_SECONDS,
+    }
+  );
 
-  const { data, error: claimError } = await supabase
-    .from("video_jobs")
-    .update({ status: "processing", progress: 3, started_at: new Date().toISOString(), error_message: null })
-    .eq("id", candidate.id)
-    .eq("status", "queued")
-    .select("*")
-    .maybeSingle();
-  if (claimError) throw new Error(`Unable to claim video job: ${claimError.message}`);
-  return data || null;
+  if (error) {
+    throw new Error(
+      `Unable to claim video queue job: ${error.message}`
+    );
+  }
+
+  return Array.isArray(data) &&
+    data.length > 0
+    ? data[0]
+    : null;
+}
+
+export async function heartbeatVideoJob({
+  jobId,
+} = {}) {
+  if (!jobId) {
+    return false;
+  }
+
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "heartbeat_video_job",
+    {
+      p_job_id: jobId,
+      p_worker_id:
+        VIDEO_STUDIO_WORKER_ID,
+      p_lock_seconds:
+        VIDEO_STUDIO_LOCK_SECONDS,
+    }
+  );
+
+  if (error) {
+    throw new Error(
+      `Unable to heartbeat video job: ${error.message}`
+    );
+  }
+
+  return data === true;
 }
 
 export async function updateVideoJob(jobId, patch) {
