@@ -1026,7 +1026,18 @@ ${hashtags}`,
         boardId,
         pageId,
         userId,
-        tiktokOptions: {
+        idempotencyContext: {
+          automationId:
+            automation.id,
+          productId:
+            product.id,
+          runKey:
+            automation.next_run_at ??
+            automation.nextRunAt ??
+            automation.last_run_at ??
+            automation.lastRunAt ??
+            "manual",
+        },tiktokOptions: {
           privacyLevel:
             automation.tiktok_privacy_level ??
             automation.tiktokPrivacyLevel ??

@@ -1,4 +1,4 @@
-import { findSocialProvider } from "../config/socialProviderRegistry.js";
+﻿import { findSocialProvider } from "../config/socialProviderRegistry.js";
 import { publishDynamicProvider } from "./genericSocialPublisher.js";
 import { publishUniversalSocial } from "./universalSocialPublisher.js";
 import {
@@ -13,6 +13,10 @@ import {
 import {
   ensurePublishableImageUrl,
 } from "./mediaHostingService.js";
+
+import {
+  publishWithReliability,
+} from "./publishReliabilityService.js";
 
 const ARTBOOST_BACKEND_URL =
   process.env.ARTBOOST_BACKEND_URL ||
@@ -483,6 +487,7 @@ export async function publishToPlatforms({
   pageId = null,
   userId = null,
   tiktokOptions = null,
+  idempotencyContext = null,
 }) {
   if (!Array.isArray(platforms)) {
     throw new Error(
@@ -550,8 +555,9 @@ export async function publishToPlatforms({
       ] || {};
 
     try {
-      const result =
-        await publishToPlatform({
+      const publishOperation =
+        () =>
+          publishToPlatform({
           platform,
           title:
             cleanText(
@@ -576,7 +582,27 @@ export async function publishToPlatforms({
           pageId,
           userId,
           tiktokOptions,
-        });
+
+          });
+
+      const result =
+        await publishWithReliability({
+          platform,
+          userId,
+          automationId:
+            idempotencyContext?.automationId ??
+            null,
+          productId:
+            idempotencyContext?.productId ??
+            product?.id ??
+            product?.product_id ??
+            null,
+          runKey:
+            idempotencyContext?.runKey ??
+            null,
+          publish:
+            publishOperation,
+        })
 
       results.push({
         platform,
