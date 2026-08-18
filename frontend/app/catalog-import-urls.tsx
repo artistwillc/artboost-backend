@@ -206,6 +206,95 @@ export default function CatalogImportUrlsScreen() {
     );
   }
 
+  async function pollBackgroundImportJob({
+    jobId,
+    userId,
+  }: {
+    jobId: string;
+    userId: string;
+  }) {
+    const startedAt = Date.now();
+    const timeoutMs =
+      20 * 60 * 1000;
+
+    while (
+      Date.now() - startedAt <
+      timeoutMs
+    ) {
+      const response =
+        await fetch(
+          `${BACKEND_URL}/stores/import-jobs/${encodeURIComponent(
+            jobId
+          )}?userId=${encodeURIComponent(
+            userId
+          )}`
+        );
+
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data =
+          JSON.parse(
+            responseText
+          );
+      } catch {
+        throw new Error(
+          "ArtBoost received an invalid import-progress response."
+        );
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.details ||
+            data.error ||
+            "Unable to load import progress."
+        );
+      }
+
+      const job =
+        data.job || {};
+
+      const status =
+        String(
+          job.status || ""
+        ).toLowerCase();
+
+      if (
+        status ===
+        "completed"
+      ) {
+        return job;
+      }
+
+      if (
+        status === "failed"
+      ) {
+        throw new Error(
+          job.last_error ||
+            "The catalog import failed."
+        );
+      }
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            1500
+          )
+      );
+    }
+
+    throw new Error(
+      "The catalog import is still running. Please check the store again shortly."
+    );
+  }
+
   async function importProducts() {
     if (parsedUrls.length === 0) {
       Alert.alert(
@@ -272,7 +361,26 @@ export default function CatalogImportUrlsScreen() {
         );
       }
 
-      const response = await fetch(
+      const response =
+        redbubbleImportMode === "store" &&
+        storeId
+          ? await fetch(
+              `${BACKEND_URL}/stores/${encodeURIComponent(
+                storeId
+              )}/sync-background`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+                body:
+                  JSON.stringify({
+                    userId,
+                  }),
+              }
+            )
+          : await fetch(
         `${BACKEND_URL}/catalog/import-urls`,
         {
           method: "POST",
@@ -293,7 +401,7 @@ export default function CatalogImportUrlsScreen() {
               : {}),
           }),
         }
-      );
+      )
 
       const responseText =
         await response.text();
@@ -319,8 +427,35 @@ export default function CatalogImportUrlsScreen() {
         );
       }
 
-      const importedCount =
-        Number(data.importedCount) || 0;
+      let importedCount =
+        Number(
+          data.importedCount ??
+            data.createdCount ??
+            data.imported ??
+            data.totalImported ??
+            validUrls.length
+        ) ||
+        validUrls.length;
+
+      if (
+        redbubbleImportMode ===
+          "store" &&
+        data.job?.id
+      ) {
+        const completedJob =
+          await pollBackgroundImportJob({
+            jobId:
+              String(
+                data.job.id
+              ),
+            userId,
+          });
+
+        importedCount =
+          Number(
+            completedJob.imported_count
+          ) || 0;
+      }
 
       const failedCount =
         Number(data.failedCount) || 0;

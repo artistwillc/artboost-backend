@@ -186,6 +186,95 @@ export default function CatalogImporterScreen() {
       .join(" ");
   }, [storeType]);
 
+  async function pollCatalogImportJob({
+    jobId,
+    userId,
+  }: {
+    jobId: string;
+    userId: string;
+  }) {
+    const startedAt = Date.now();
+    const timeoutMs =
+      20 * 60 * 1000;
+
+    while (
+      Date.now() - startedAt <
+      timeoutMs
+    ) {
+      const response =
+        await fetch(
+          `${API_BASE}/stores/import-jobs/${encodeURIComponent(
+            jobId
+          )}?userId=${encodeURIComponent(
+            userId
+          )}`
+        );
+
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data =
+          JSON.parse(
+            responseText
+          );
+      } catch {
+        throw new Error(
+          "ArtBoost received an invalid import-progress response."
+        );
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.details ||
+            data.error ||
+            "Unable to load import progress."
+        );
+      }
+
+      const job =
+        data.job || {};
+
+      const status =
+        String(
+          job.status || ""
+        ).toLowerCase();
+
+      if (
+        status ===
+        "completed"
+      ) {
+        return job;
+      }
+
+      if (
+        status === "failed"
+      ) {
+        throw new Error(
+          job.last_error ||
+            "The catalog import failed."
+        );
+      }
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            1500
+          )
+      );
+    }
+
+    throw new Error(
+      "The catalog import is still running. Please check the store again shortly."
+    );
+  }
+
   async function importEntireStore() {
     try {
       setImportingStore(true);
@@ -202,7 +291,7 @@ export default function CatalogImporterScreen() {
 
       const response = await fetch(
         isFineArtAmerica
-          ? `${API_BASE}/stores/fine-art-america/import`
+          ? `${API_BASE}/stores/${encodeURIComponent(storeId)}/sync-background`
           : `${API_BASE}/stores/universal/import`,
         {
           method: "POST",
@@ -236,6 +325,56 @@ export default function CatalogImporterScreen() {
             "The store could not be imported."
         );
       }
+
+      const jobId =
+        String(
+          data.job?.id || ""
+        ).trim();
+
+      if (!jobId) {
+        throw new Error(
+          "ArtBoost did not return an import job ID."
+        );
+      }
+
+      const completedJob =
+        await pollCatalogImportJob({
+          jobId,
+          userId: user.id,
+        });
+
+      data = {
+        ...data,
+        imported:
+          Number(
+            completedJob.imported_count
+          ) || 0,
+        updated:
+          Number(
+            completedJob.updated_count
+          ) || 0,
+        skipped:
+          Number(
+            completedJob.skipped_count
+          ) || 0,
+        failed:
+          Number(
+            completedJob.failed_count
+          ) || 0,
+        discovered:
+          Number(
+            completedJob.imported_count
+          ) +
+          Number(
+            completedJob.updated_count
+          ) +
+          Number(
+            completedJob.skipped_count
+          ) +
+          Number(
+            completedJob.failed_count
+          ),
+      };
 
       Alert.alert(
         "Store Import Complete",
