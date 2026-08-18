@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 
 import { getStores } from "../services/productService.js";
 import { importRedbubbleStore } from "../services/redbubbleService.js";
@@ -17,10 +18,9 @@ startStoreSyncWorker();
 
 router.get("/", async (req, res) => {
   try {
-    const { userId } = req.query;
-    if (!userId) {
-      return res.status(400).json({ success: false, error: "Missing userId." });
-    }
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
     const stores = await getStores({ userId: String(userId) });
     return res.json({ success: true, total: stores.length, stores });
   } catch (error) {
@@ -35,10 +35,9 @@ router.get("/", async (req, res) => {
 router.post("/:storeId/sync", async (req, res) => {
   try {
     const { storeId } = req.params;
-    const { userId } = req.body ?? {};
-    if (!userId) {
-      return res.status(400).json({ success: false, error: "Missing userId." });
-    }
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
 
     const result = await syncStoreConnection({
       userId: String(userId),
@@ -63,11 +62,9 @@ router.post("/:storeId/sync", async (req, res) => {
 router.post("/:storeId/disconnect", async (req, res) => {
   try {
     const { storeId } = req.params;
-    const { userId } = req.body ?? {};
-
-    if (!userId) {
-      return res.status(400).json({ success: false, error: "Missing userId." });
-    }
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
 
     const now = new Date().toISOString();
 
@@ -128,8 +125,10 @@ router.post("/sync-due/run", async (_req, res) => {
 
 router.post("/universal/import", async (req, res) => {
   try {
-    const { userId, storeId, storeUrl, maxProducts } = req.body ?? {};
-    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    const { storeId, storeUrl, maxProducts } = req.body ?? {};
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
     if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A storeId or storeUrl is required." });
     const result = await importUniversalStore({
       userId: String(userId),
@@ -149,9 +148,11 @@ router.post("/universal/import", async (req, res) => {
 
 router.post("/redbubble/import", async (req, res) => {
   try {
-    const { userId, storeUrl, url, storefrontUrl } = req.body ?? {};
+    const { storeUrl, url, storefrontUrl } = req.body ?? {};
     const resolvedStoreUrl = storeUrl ?? storefrontUrl ?? url;
-    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
     if (!resolvedStoreUrl) return res.status(400).json({ success: false, error: "Missing Redbubble store URL." });
     const result = await importRedbubbleStore({
       userId: String(userId),
@@ -169,8 +170,10 @@ router.post("/redbubble/import", async (req, res) => {
 
 router.post("/fine-art-america/import", async (req, res) => {
   try {
-    const { userId, storeId, storeUrl, maxPages, maxListings } = req.body ?? {};
-    if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+    const { storeId, storeUrl, maxPages, maxListings } = req.body ?? {};
+    const userId =
+      await resolveRequestUserId(req, res);
+    if (!userId) return;
     if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A Fine Art America storeId or storeUrl is required." });
     const result = await importFineArtAmericaStore({
       userId: String(userId),

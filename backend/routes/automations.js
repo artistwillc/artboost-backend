@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 
 import {
   createOrUpdateAutomation,
@@ -32,7 +33,10 @@ router.get(
   async (req, res) => {
     try {
       const { storeId } = req.params;
-      const { userId } = req.query;
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!storeId) {
         return res.status(400).json({
@@ -41,12 +45,6 @@ router.get(
         });
       }
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
 
       const {
         data: automationRows,
@@ -102,14 +100,11 @@ router.get(
   "/",
   async (req, res) => {
     try {
-      const { userId } = req.query;
+      const userId =
+        await resolveRequestUserId(req, res);
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
+      if (!userId) return;
+
 
       const {
         data: automationRows,
@@ -158,7 +153,10 @@ router.get(
       const { automationId } =
         req.params;
 
-      const { userId } = req.query;
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!automationId) {
         return res.status(400).json({
@@ -168,12 +166,6 @@ router.get(
         });
       }
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
 
       const automation =
         await getAutomationById({
@@ -220,7 +212,6 @@ router.post(
   async (req, res) => {
     try {
       const {
-        userId,
         storeId,
         storeType,
         storeName,
@@ -246,12 +237,10 @@ router.post(
         repeatDelayDays = 30,
       } = req.body;
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!storeId) {
         return res.status(400).json({
@@ -369,7 +358,6 @@ router.post(
   async (req, res) => {
     try {
       const {
-        userId,
         storeId,
         storeType,
         storeName,
@@ -378,12 +366,10 @@ router.post(
         repeatDelayDays = 30,
       } = req.body;
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!storeId) {
         return res.status(400).json({
@@ -443,7 +429,10 @@ router.post(
       const { automationId } =
         req.params;
 
-      const { userId } = req.body;
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!automationId) {
         return res.status(400).json({
@@ -453,12 +442,6 @@ router.post(
         });
       }
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
 
       const result =
         await runAutomation({
@@ -498,9 +481,13 @@ router.patch(
         req.params;
 
       const {
-        userId,
         reason = null,
       } = req.body;
+
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (!automationId) {
         return res.status(400).json({
@@ -510,12 +497,6 @@ router.patch(
         });
       }
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
 
       const automation =
         await disableAutomation({
@@ -560,9 +541,10 @@ router.post(
         automationId,
       } = req.params;
 
-      const {
-        userId,
-      } = req.body;
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       const automation =
         await resumeAutomation({
@@ -601,18 +583,15 @@ router.delete(
   async (req, res) => {
     try {
       const {
-        userId,
         automationIds = [],
         deleteAll = false,
         storeId = null,
       } = req.body;
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       if (
         !deleteAll &&

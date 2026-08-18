@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 import supabase from "../lib/supabase.js";
 import {
   findSocialProvider,
@@ -82,7 +83,13 @@ router.get(
       }
 
       const userId =
-        clean(req.query?.userId);
+        await resolveRequestUserId(
+          req,
+          res,
+          { allowMissing: true }
+        );
+
+      if (userId === null) return;
 
       if (!userId) {
         return res.json({

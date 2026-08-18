@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -629,15 +630,10 @@ router.get("/auth/tiktok/callback", async (req, res) => {
 
 router.get("/tiktok/status", async (req, res) => {
   try {
-    const { userId } = req.query;
+    const userId =
+      await resolveRequestUserId(req, res);
 
-    if (!userId) {
-      return res.status(400).json({
-        configured: configured(),
-        connected: false,
-        error: "Missing userId.",
-      });
-    }
+    if (!userId) return;
 
     const connection = await ensureFreshConnection(userId);
 
@@ -749,14 +745,10 @@ router.get("/tiktok/media/:token", async (req, res) => {
 
 router.get("/tiktok/creator-info", async (req, res) => {
   try {
-    const { userId } = req.query;
+    const userId =
+      await resolveRequestUserId(req, res);
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    if (!userId) return;
 
     const connection = await ensureFreshConnection(userId);
 
@@ -791,7 +783,6 @@ router.get("/tiktok/creator-info", async (req, res) => {
 router.post("/tiktok/photo-post", async (req, res) => {
   try {
     const {
-      userId,
       title,
       description,
       imageUrl,
@@ -804,12 +795,10 @@ router.post("/tiktok/photo-post", async (req, res) => {
       consent,
     } = req.body || {};
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    const userId =
+      await resolveRequestUserId(req, res);
+
+    if (!userId) return;
 
     if (!imageUrl) {
       return res.status(400).json({
@@ -903,14 +892,18 @@ router.post("/tiktok/photo-post", async (req, res) => {
 router.post("/tiktok/post-status", async (req, res) => {
   try {
     const {
-      userId,
       publishId,
     } = req.body || {};
 
-    if (!userId || !publishId) {
+    const userId =
+      await resolveRequestUserId(req, res);
+
+    if (!userId) return;
+
+    if (!publishId) {
       return res.status(400).json({
         success: false,
-        error: "Missing userId or publishId.",
+        error: "Missing publishId.",
       });
     }
 
@@ -948,14 +941,10 @@ router.post("/tiktok/post-status", async (req, res) => {
 
 router.post("/tiktok/disconnect", async (req, res) => {
   try {
-    const { userId } = req.body || {};
+    const userId =
+      await resolveRequestUserId(req, res);
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    if (!userId) return;
 
     const { error } = await supabase
       .from("social_connections")

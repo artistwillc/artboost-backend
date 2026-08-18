@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { resolveRequestUserId } from "../middleware/auth.js";
 import express from "express";
 
 import supabase from "../lib/supabase.js";
@@ -581,25 +582,10 @@ router.get(
   "/etsy/status",
   async (req, res) => {
     try {
-      const userId = String(
-        req.query.userId || ""
-      ).trim();
+      const userId =
+        await resolveRequestUserId(req, res);
 
-      if (!userId) {
-        return res.status(400).json({
-          configured:
-            Boolean(
-              ETSY_CLIENT_ID
-            ),
-          connected: false,
-          expiresAt: null,
-          scopes: null,
-          connectedAt: null,
-          shopId: null,
-          shopName: null,
-          error: "Missing userId.",
-        });
-      }
+      if (!userId) return;
 
       const {
         data,

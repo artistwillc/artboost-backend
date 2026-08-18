@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 
 import {
   getProductById,
@@ -13,7 +14,6 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const {
-      userId,
       storeType,
       storeName,
       status,
@@ -21,12 +21,10 @@ router.get("/", async (req, res) => {
       offset,
     } = req.query;
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    const userId =
+      await resolveRequestUserId(req, res);
+
+    if (!userId) return;
 
     const result = await getProducts({
       userId: String(userId),
@@ -58,7 +56,11 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+
+    const userId =
+      await resolveRequestUserId(req, res);
+
+    if (!userId) return;
 
     if (!id) {
       return res.status(400).json({
@@ -67,12 +69,6 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
 
     const product = await getProductById({
       productId: String(id),

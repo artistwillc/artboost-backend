@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 import { listVideoTemplates } from "../video/templates.js";
 import {
   createVideoJob,
@@ -19,8 +20,8 @@ router.get("/templates", (_req, res) => {
 
 router.get("/jobs", async (req, res) => {
   try {
-    const userId = cleanUserId(req.query.userId);
-    if (!userId) return res.status(400).json({ success: false, error: "userId is required." });
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
     const jobs = await listVideoJobs({ userId, limit: req.query.limit });
     return res.json({ success: true, jobs });
   } catch (error) {
@@ -31,8 +32,8 @@ router.get("/jobs", async (req, res) => {
 
 router.get("/jobs/:jobId", async (req, res) => {
   try {
-    const userId = cleanUserId(req.query.userId);
-    if (!userId) return res.status(400).json({ success: false, error: "userId is required." });
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
     const job = await getVideoJob({ userId, jobId: req.params.jobId });
     return res.json({ success: true, job });
   } catch (error) {
@@ -43,10 +44,11 @@ router.get("/jobs/:jobId", async (req, res) => {
 
 router.post("/jobs", async (req, res) => {
   try {
-    const userId = cleanUserId(req.body?.userId);
+    const userId = await resolveRequestUserId(req, res);
     const productId = String(req.body?.productId || "").trim();
     const templateId = String(req.body?.templateId || "cinematic").trim();
-    if (!userId || !productId) return res.status(400).json({ success: false, error: "userId and productId are required." });
+    if (!userId) return;
+    if (!productId) return res.status(400).json({ success: false, error: "productId is required." });
     const job = await createVideoJob({ userId, productId, templateId });
     return res.status(202).json({ success: true, job });
   } catch (error) {
@@ -57,8 +59,8 @@ router.post("/jobs", async (req, res) => {
 
 router.post("/jobs/:jobId/regenerate", async (req, res) => {
   try {
-    const userId = cleanUserId(req.body?.userId);
-    if (!userId) return res.status(400).json({ success: false, error: "userId is required." });
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
     const job = await regenerateVideoJob({ userId, jobId: req.params.jobId, templateId: req.body?.templateId });
     return res.status(202).json({ success: true, job });
   } catch (error) {

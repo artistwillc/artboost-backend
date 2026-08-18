@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveRequestUserId } from "../middleware/auth.js";
 import crypto from "crypto";
 import dns from "dns/promises";
 import net from "net";
@@ -241,15 +242,9 @@ router.get(
   async (req, res) => {
     try {
       const userId =
-        clean(req.query?.userId);
+        await resolveRequestUserId(req, res);
 
-      if (!userId) {
-        return res.status(400).json({
-          connected: false,
-          count: 0,
-          error: "Missing userId.",
-        });
-      }
+      if (!userId) return;
 
       const rows =
         await loadUniversalConnections(
@@ -291,14 +286,9 @@ router.get(
   async (req, res) => {
     try {
       const userId =
-        clean(req.query?.userId);
+        await resolveRequestUserId(req, res);
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
+      if (!userId) return;
 
       const rows =
         await loadUniversalConnections(
@@ -334,7 +324,6 @@ router.post(
   async (req, res) => {
     try {
       const {
-        userId,
         displayName,
         profileUrl,
         publishEndpoint,
@@ -345,18 +334,17 @@ router.post(
         payloadTemplate = null,
       } = req.body || {};
 
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
+
       const cleanUserId =
         clean(userId);
 
       const cleanDisplayName =
         clean(displayName);
 
-      if (!cleanUserId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
-      }
 
       if (!cleanDisplayName) {
         return res.status(400).json({
@@ -534,21 +522,20 @@ router.post(
   async (req, res) => {
     try {
       const userId =
-        clean(req.body?.userId);
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       const connectionId =
         clean(
           req.params?.connectionId
         );
 
-      if (
-        !userId ||
-        !connectionId
-      ) {
+      if (!connectionId) {
         return res.status(400).json({
           success: false,
           error:
-            "Missing userId or connectionId.",
+            "Missing connectionId.",
         });
       }
 
@@ -622,24 +609,20 @@ router.delete(
   async (req, res) => {
     try {
       const userId =
-        clean(
-          req.body?.userId ||
-          req.query?.userId
-        );
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
 
       const connectionId =
         clean(
           req.params?.connectionId
         );
 
-      if (
-        !userId ||
-        !connectionId
-      ) {
+      if (!connectionId) {
         return res.status(400).json({
           success: false,
           error:
-            "Missing userId or connectionId.",
+            "Missing connectionId.",
         });
       }
 
