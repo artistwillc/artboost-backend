@@ -1,4 +1,16 @@
 import supabase from "../lib/supabase.js";
+import { randomUUID } from "node:crypto";
+
+const AUTOMATION_WORKER_ID =
+  String(
+    process.env.RENDER_INSTANCE_ID ||
+      process.env.RENDER_SERVICE_ID ||
+      "artboost-worker"
+  ).trim() +
+  ":" +
+  process.pid +
+  ":" +
+  randomUUID();
 
 import {
   getNextAutomationProduct,
@@ -54,30 +66,6 @@ boardId:
   row.board_id ||
   row.pinterest_board_id ||
   null,
-
-tiktokPrivacyLevel:
-  row.tiktok_privacy_level || null,
-
-tiktokDisableComment:
-  Boolean(row.tiktok_disable_comment),
-
-tiktokAutoAddMusic:
-  row.tiktok_auto_add_music === null ||
-  row.tiktok_auto_add_music === undefined
-    ? true
-    : Boolean(row.tiktok_auto_add_music),
-
-tiktokBrandOrganicToggle:
-  row.tiktok_brand_organic_toggle === null ||
-  row.tiktok_brand_organic_toggle === undefined
-    ? true
-    : Boolean(row.tiktok_brand_organic_toggle),
-
-tiktokBrandContentToggle:
-  Boolean(row.tiktok_brand_content_toggle),
-
-tiktokConsent:
-  Boolean(row.tiktok_consent),
 
 selectionMode:
   row.selection_mode ||
@@ -531,6 +519,77 @@ export async function getAutomationsReadyToRun({
   );
 }
 
+
+/*
+ * Atomically claims due automations through Postgres.
+ *
+ * The SQL function uses SELECT ... FOR UPDATE SKIP LOCKED, so
+ * separate Render instances cannot claim the same automation.
+ * Locks are leases rather than permanent flags; if a process
+ * dies, the row becomes claimable again after lockSeconds.
+ */
+export async function claimNextDueAutomation({
+  workerId = AUTOMATION_WORKER_ID,
+  lockSeconds = 900,
+} = {}) {
+  const parsedLockSeconds = Math.min(
+    Math.max(Number(lockSeconds) || 900, 60),
+    3600
+  );
+
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "claim_due_store_automations",
+    {
+      p_worker_id: String(workerId),
+      p_limit: 1,
+      p_lock_seconds: parsedLockSeconds,
+    }
+  );
+
+  if (error) {
+    throw new Error(
+      `Unable to claim due automation: ${error.message}`
+    );
+  }
+
+  const row =
+    Array.isArray(data) && data.length > 0
+      ? data[0]
+      : null;
+
+  return normalizeAutomation(row);
+}
+
+export async function releaseAutomationClaim({
+  automationId,
+  workerId = AUTOMATION_WORKER_ID,
+} = {}) {
+  if (!automationId) {
+    return;
+  }
+
+  const {
+    error,
+  } = await supabase
+    .from("store_automations")
+    .update({
+      run_lock_id: null,
+      run_lock_expires_at: null,
+      run_claimed_at: null,
+    })
+    .eq("id", automationId)
+    .eq("run_lock_id", String(workerId));
+
+  if (error) {
+    throw new Error(
+      `Unable to release automation claim: ${error.message}`
+    );
+  }
+}
+
 export async function createOrUpdateAutomation({
   userId,
   storeId,
@@ -545,12 +604,6 @@ export async function createOrUpdateAutomation({
   platforms = [],
   facebookPageId = null,
   pinterestBoardId = null,
-  tiktokPrivacyLevel = null,
-  tiktokDisableComment = false,
-  tiktokAutoAddMusic = true,
-  tiktokBrandOrganicToggle = true,
-  tiktokBrandContentToggle = false,
-  tiktokConsent = false,
   postingIntervalDays = 1,
   selectionMode = "least_recently_posted",
   repeatDelayDays = 30,
@@ -659,26 +712,6 @@ board_id:
         pinterestBoardId
       )
     : null,
-
-tiktok_privacy_level:
-  tiktokPrivacyLevel
-    ? String(tiktokPrivacyLevel)
-    : null,
-
-tiktok_disable_comment:
-  Boolean(tiktokDisableComment),
-
-tiktok_auto_add_music:
-  Boolean(tiktokAutoAddMusic),
-
-tiktok_brand_organic_toggle:
-  Boolean(tiktokBrandOrganicToggle),
-
-tiktok_brand_content_toggle:
-  Boolean(tiktokBrandContentToggle),
-
-tiktok_consent:
-  Boolean(tiktokConsent),
 
 posting_interval_days:
   parsedPostingIntervalDays,
@@ -1181,19 +1214,34 @@ if (
 export async function runDueAutomations({
   postExecutor,
   limit = 25,
+  workerId = AUTOMATION_WORKER_ID,
+  lockSeconds = 900,
 } = {}) {
-  const automations =
-    await getAutomationsReadyToRun({
-      limit,
-    });
+  const parsedLimit = Math.min(
+    Math.max(Number(limit) || 25, 1),
+    100
+  );
 
   const results = [];
+  let claimed = 0;
 
   /*
-   * Run sequentially in the first version to avoid
-   * overwhelming social APIs or triggering rate limits.
+   * Claim one job at a time. This avoids holding leases on a
+   * large batch while earlier jobs are publishing to social APIs.
    */
-  for (const automation of automations) {
+  while (claimed < parsedLimit) {
+    const automation =
+      await claimNextDueAutomation({
+        workerId,
+        lockSeconds,
+      });
+
+    if (!automation) {
+      break;
+    }
+
+    claimed += 1;
+
     try {
       const result =
         await runAutomation({
@@ -1213,11 +1261,42 @@ export async function runDueAutomations({
             ? error.message
             : "Automation run failed.",
       });
+
+      /*
+       * An unexpected exception can leave next_run_at unchanged.
+       * Break this polling pass so the same failed row is not
+       * immediately reclaimed in a hot loop.
+       */
+      try {
+        await releaseAutomationClaim({
+          automationId: automation.id,
+          workerId,
+        });
+      } catch (releaseError) {
+        console.error(
+          "Unable to release failed automation claim:",
+          releaseError
+        );
+      }
+
+      break;
+    }
+
+    try {
+      await releaseAutomationClaim({
+        automationId: automation.id,
+        workerId,
+      });
+    } catch (releaseError) {
+      console.error(
+        "Unable to release completed automation claim:",
+        releaseError
+      );
     }
   }
 
   return {
-    total: automations.length,
+    total: claimed,
     successful:
       results.filter(
         (result) =>
@@ -1234,6 +1313,7 @@ export async function runDueAutomations({
         (result) =>
           result.skipped === true
       ).length,
+    workerId,
     results,
   };
 }
