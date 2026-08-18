@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import subscriptionsRoutes from "./routes/subscriptions.js";
 import stripeSandboxRoutes from "./routes/stripeSandbox.js";
 import tiktokRoutes from "./routes/tiktok.js";
+import videoStudioRoutes from "./routes/videoStudio.js";
+import { startVideoStudioWorker } from "./workers/videoStudioWorker.js";
 import universalSocialRoutes from "./routes/universalSocial.js";
 import socialConnectRoutes from "./routes/socialConnect.js";
 import productRoutes from "./routes/products.js";
@@ -2932,6 +2934,7 @@ app.use("/creator-tools", creatorToolsRoutes);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
 app.use(tiktokRoutes);
+app.use("/video-studio", videoStudioRoutes);
 app.use(universalSocialRoutes);
 app.use(socialConnectRoutes);
 app.use("/catalog", catalogRoutes);
@@ -11029,6 +11032,8 @@ app.delete("/api/v2/store-connections/:id", async (req, res) => {
     });
   }
 });
+
+startVideoStudioWorker();
 
 app.listen(PORT, async () => {
 

@@ -285,6 +285,20 @@ export default function StoreProductsScreen() {
     });
   }
 
+  function createProductPost(product: Product) {
+    router.push({
+      pathname: "/product-post" as any,
+      params: { productId: product.id },
+    });
+  }
+
+  function createProductVideo(product: Product) {
+    router.push({
+      pathname: "/video-studio" as any,
+      params: { productId: product.id },
+    });
+  }
+
   function importProduct() {
     if (normalize(storeType) === "redbubble") {
       router.push({
@@ -498,93 +512,69 @@ export default function StoreProductsScreen() {
           </View>
         ) : (
           products.map((product) => (
-            <Pressable
-              key={product.id}
-              style={styles.productCard}
-              onPress={() =>
-                openProduct(product)
-              }
-            >
-              {product.imageUrl ? (
-                <Image
-                  source={{
-                    uri: product.imageUrl,
-                  }}
-                  style={styles.productImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View
-                  style={[
-                    styles.productImage,
-                    styles.imagePlaceholder,
-                  ]}
-                >
-                  <Ionicons
-                    name="image-outline"
-                    size={33}
-                    color="#777777"
-                  />
-                </View>
-              )}
-
-              <View
-                style={styles.productContent}
+            <View key={product.id} style={styles.productCard}>
+              <Pressable
+                style={styles.productMainRow}
+                onPress={() => openProduct(product)}
               >
-                <Text
-                  style={styles.productTitle}
-                  numberOfLines={2}
-                >
-                  {product.title}
-                </Text>
+                {product.imageUrl ? (
+                  <Image
+                    source={{ uri: product.imageUrl }}
+                    style={styles.productImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.productImage, styles.imagePlaceholder]}>
+                    <Ionicons name="image-outline" size={33} color="#777777" />
+                  </View>
+                )}
 
-                <Text
-                  style={styles.productDescription}
-                  numberOfLines={2}
-                >
-                  {product.description ||
-                    "No description available."}
-                </Text>
-
-                <View
-                  style={styles.productMetaRow}
-                >
-                  {product.price !== null &&
-                  product.price !== undefined ? (
-                    <Text
-                      style={styles.productPrice}
-                    >
-                      {product.currency || "USD"}{" "}
-                      {product.price.toFixed(2)}
-                    </Text>
-                  ) : (
-                    <Text
-                      style={styles.productPrice}
-                    >
-                      Price not imported
-                    </Text>
-                  )}
-
-                  <Text
-                    style={[
-                      styles.automationStatus,
-                      product.automationEnabled &&
-                        styles.automationStatusActive,
-                    ]}
-                  >
-                    {product.automationEnabled
-                      ? "Automation On"
-                      : "Automation Off"}
+                <View style={styles.productContent}>
+                  <Text style={styles.productTitle} numberOfLines={2}>
+                    {product.title}
                   </Text>
+                  <Text style={styles.productDescription} numberOfLines={2}>
+                    {product.description || "No description available."}
+                  </Text>
+                  <View style={styles.productMetaRow}>
+                    {product.price !== null && product.price !== undefined ? (
+                      <Text style={styles.productPrice}>
+                        {product.currency || "USD"}{" "}{product.price.toFixed(2)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.productPrice}>Price not imported</Text>
+                    )}
+                    <Text
+                      style={[
+                        styles.automationStatus,
+                        product.automationEnabled && styles.automationStatusActive,
+                      ]}
+                    >
+                      {product.automationEnabled ? "Automation On" : "Automation Off"}
+                    </Text>
+                  </View>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={22} color="#777777" />
+              </Pressable>
 
-              <Ionicons
-                name="chevron-forward"
-                size={22}
-                color="#777777"
-              />
-            </Pressable>
+              {/* ARTBOOST_PRODUCT_ACTIONS */}
+              <View style={styles.productActionRow}>
+                <Pressable
+                  style={styles.productActionButton}
+                  onPress={() => createProductPost(product)}
+                >
+                  <Ionicons name="sparkles-outline" size={17} color="#ffffff" />
+                  <Text style={styles.productActionText}>Create Post</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.productActionButton, styles.productVideoButton]}
+                  onPress={() => createProductVideo(product)}
+                >
+                  <Ionicons name="videocam-outline" size={18} color="#ffffff" />
+                  <Text style={styles.productActionText}>Create Video</Text>
+                </Pressable>
+              </View>
+            </View>
           ))
         )}
       </ScrollView>
@@ -777,13 +767,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   productCard: {
-    minHeight: 130,
     borderRadius: 20,
     backgroundColor: "#171717",
     borderWidth: 1,
     borderColor: "#292929",
     padding: 12,
     marginBottom: 12,
+  },
+  productMainRow: {
+    minHeight: 116,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -832,5 +824,32 @@ const styles = StyleSheet.create({
   },
   automationStatusActive: {
     color: "#86efac",
+  },
+  productActionRow: {
+    flexDirection: "row",
+    gap: 9,
+    paddingTop: 11,
+    marginTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: "#292929",
+  },
+  productActionButton: {
+    flex: 1,
+    minHeight: 43,
+    borderRadius: 13,
+    backgroundColor: "#7c3aed",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+  },
+  productVideoButton: {
+    backgroundColor: "#4338ca",
+  },
+  productActionText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
   },
 });

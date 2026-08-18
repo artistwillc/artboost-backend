@@ -1321,10 +1321,10 @@ export default function CreatorToolScreen() {
                       : "center"
                   }
                   keyboardType={
-                    "keyboardType" in
-                    field
-                      ? field.keyboardType ||
-                        "default"
+                    "keyboardType" in field
+                      ? (field.keyboardType as React.ComponentProps<
+                          typeof TextInput
+                        >["keyboardType"]) || "default"
                       : "default"
                   }
                   autoCapitalize="sentences"
