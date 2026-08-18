@@ -1,3 +1,4 @@
+import { recordError } from "../services/diagnosticsService.js";
 import { claimNextVideoJob, updateVideoJob } from "../services/videoStudioService.js";
 import { renderVideoJob } from "../services/videoRenderService.js";
 
@@ -32,13 +33,58 @@ async function processOne() {
     console.log("ArtBoost Video Studio render completed:", job.id);
   } catch (error) {
     console.error("ArtBoost Video Studio worker error:", error);
+
+    await recordError({
+      error,
+      level: "error",
+      category: "video_studio",
+      source: "videoStudioWorker",
+      eventType: "video_studio_worker_failure",
+      code: "VIDEO_STUDIO_WORKER_FAILURE",
+      jobId:
+        job?.id || null,
+      userId:
+        job?.user_id || null,
+      productId:
+        job?.product_id || null,
+      context: {
+        status:
+          job?.status || null,
+        templateId:
+          job?.template_id ||
+          job?.templateId ||
+          null,
+      },
+    });
     if (job?.id) {
       await updateVideoJob(job.id, {
         status: "failed",
         progress: 0,
         error_message: error instanceof Error ? error.message.slice(0, 1800) : "Video rendering failed.",
         failed_at: new Date().toISOString(),
-      }).catch((updateError) => console.error("Unable to record video failure:", updateError));
+      }).catch(async (updateError) => {
+        console.error(
+          "Unable to record video failure:",
+          updateError
+        );
+
+        await recordError({
+          error: updateError,
+          level: "error",
+          category: "video_studio",
+          source: "videoStudioWorker",
+          eventType:
+            "video_failure_state_update_failed",
+          code:
+            "VIDEO_FAILURE_STATE_UPDATE_FAILED",
+          jobId:
+            job?.id || null,
+          userId:
+            job?.user_id || null,
+          productId:
+            job?.product_id || null,
+        });
+      });
     }
   } finally {
     processing = false;
