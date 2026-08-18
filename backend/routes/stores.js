@@ -12,9 +12,16 @@ import {
   startStoreSyncWorker,
 } from "../services/storeSyncService.js";
 
+import {
+  enqueueStoreImportJob,
+  getCatalogImportJob,
+  startCatalogImportWorker,
+} from "../services/catalogImportQueueService.js";
+
 const router = express.Router();
 
 startStoreSyncWorker();
+startCatalogImportWorker();
 
 router.get("/", async (req, res) => {
   try {
@@ -28,6 +35,134 @@ router.get("/", async (req, res) => {
       success: false,
       error: "Stores request failed.",
       details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+
+/*
+ * POST /stores/:storeId/sync-background
+ *
+ * Queues a potentially large catalog import/sync and returns immediately.
+ * The existing /:storeId/sync route remains unchanged for compatibility.
+ */
+router.post("/:storeId/sync-background", async (req, res) => {
+  try {
+    const storeId =
+      String(
+        req.params.storeId ||
+          ""
+      ).trim();
+
+    const userId =
+      String(
+        req.auth?.userId ||
+          req.user?.id ||
+          req.body?.userId ||
+          ""
+      ).trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error:
+          "Authentication is required.",
+      });
+    }
+
+    if (!storeId) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "A storeId is required.",
+      });
+    }
+
+    const queued =
+      await enqueueStoreImportJob({
+        userId,
+        storeId,
+        reason:
+          "manual_background",
+      });
+
+    return res.status(
+      queued.created
+        ? 202
+        : 200
+    ).json({
+      success: true,
+      queued:
+        true,
+      created:
+        queued.created,
+      job:
+        queued.job,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error:
+        "Unable to queue store import.",
+      details:
+        error instanceof Error
+          ? error.message
+          : String(error),
+    });
+  }
+});
+
+/*
+ * GET /stores/import-jobs/:jobId
+ *
+ * Lets the app poll import progress without holding an HTTP request open.
+ */
+router.get("/import-jobs/:jobId", async (req, res) => {
+  try {
+    const userId =
+      String(
+        req.auth?.userId ||
+          req.user?.id ||
+          req.query?.userId ||
+          ""
+      ).trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error:
+          "Authentication is required.",
+      });
+    }
+
+    const job =
+      await getCatalogImportJob({
+        userId,
+        jobId:
+          req.params.jobId,
+      });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error:
+          "Catalog import job not found.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      job,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error:
+        "Unable to load catalog import progress.",
+      details:
+        error instanceof Error
+          ? error.message
+          : String(error),
     });
   }
 });
