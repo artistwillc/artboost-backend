@@ -403,38 +403,57 @@ function extractArtworkLinks(html, pageUrl) {
   return [...links];
 }
 
-function getCandidateStorePages(storeUrl, pageNumber) {
+function getCandidateStorePages(
+  storeUrl,
+  pageNumber
+) {
   const parsed = new URL(storeUrl);
   parsed.hash = "";
 
-  const roots = new Set([
-    parsed.toString(),
+  /*
+   * CRITICAL FAA discovery boundary:
+   *
+   * The connected URL may already end in /shop or /art. The previous
+   * implementation appended both suffixes to that URL, producing paths
+   * such as /profiles/<owner>/shop/art and /profiles/<owner>/shop/shop.
+   * Fine Art America can redirect those malformed paths to broader pages
+   * containing recommendations from other artists. Ownership verification
+   * correctly rejected those products later, but they inflated discovery
+   * counts and caused unnecessary network work.
+   *
+   * Normalize back to the artist profile root first, then scan exactly one
+   * owner storefront surface. Prefer /shop because that is the URL used by
+   * the Universal Scanner and it exposes the artist's current sellable
+   * catalog. Pagination remains dynamic, so this still supports catalogs
+   * much larger than the current one.
+   */
+  const cleanedPath =
+    parsed.pathname
+      .replace(/\/+$/, "")
+      .replace(/\/(?:shop|art)$/i, "");
+
+  const canonicalProfileRoot =
     new URL(
-      `${parsed.pathname.replace(/\/$/, "")}/art`,
+      cleanedPath || "/",
       parsed.origin
-    ).toString(),
-    new URL(
-      `${parsed.pathname.replace(/\/$/, "")}/shop`,
-      parsed.origin
-    ).toString(),
-  ]);
+    );
 
-  const pages = [];
+  const storefront = new URL(
+    `${canonicalProfileRoot.pathname.replace(
+      /\/$/,
+      ""
+    )}/shop`,
+    parsed.origin
+  );
 
-  for (const root of roots) {
-    const pageUrl = new URL(root);
-
-    if (pageNumber > 1) {
-      pageUrl.searchParams.set(
-        "page",
-        String(pageNumber)
-      );
-    }
-
-    pages.push(pageUrl.toString());
+  if (pageNumber > 1) {
+    storefront.searchParams.set(
+      "page",
+      String(pageNumber)
+    );
   }
 
-  return pages;
+  return [storefront.toString()];
 }
 
 async function discoverArtworkLinks({
