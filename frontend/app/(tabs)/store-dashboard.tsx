@@ -372,8 +372,7 @@ const syncButtonLabel = useMemo(() => {
   style={styles.backButton}
   onPress={() =>
   router.replace({
-    pathname:
-      "/(tabs)/connections" as any,
+    pathname: "/connections" as any,
     params: {
       section: "stores",
     },

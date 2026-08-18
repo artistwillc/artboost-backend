@@ -273,7 +273,16 @@ export default function StoreProductsScreen() {
         );
 
         setProducts(
-          mappedProducts.filter(matchesStore)
+          mappedProducts.filter((product) => {
+            if (!matchesStore(product)) {
+              return false;
+            }
+
+            // Hide products that the store sync has marked inactive/deleted.
+            // Keep legacy rows whose status has not been populated yet.
+            const productStatus = normalize(product.status);
+            return !productStatus || productStatus === "active";
+          })
         );
       } catch (error: any) {
         console.log(
@@ -391,7 +400,18 @@ export default function StoreProductsScreen() {
       <View style={styles.header}>
         <Pressable
           style={styles.headerButton}
-          onPress={() => router.back()}
+          onPress={() =>
+            router.replace({
+              pathname: "/store-dashboard" as any,
+              params: {
+                storeId,
+                storeName,
+                storeType,
+                productCount: String(products.length),
+                connected: String(params.connected ?? "true"),
+              },
+            })
+          }
         >
           <Ionicons
             name="arrow-back"
