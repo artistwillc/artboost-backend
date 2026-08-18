@@ -1,5 +1,4 @@
 import dotenv from "dotenv";
-import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { DEFAULT_VIDEO_TEMPLATE, getVideoTemplate } from "../video/templates.js";
