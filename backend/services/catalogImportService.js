@@ -1,4 +1,5 @@
 import supabase from "../lib/supabase.js";
+import { verifyFineArtAmericaProductOwnership } from "./fineArtAmericaService.js";
 
 const MAX_URLS_PER_REQUEST = 25;
 const FETCH_TIMEOUT_MS = 15000;
@@ -601,10 +602,43 @@ export async function importSingleCatalogProduct({
     .trim()
     .toLowerCase();
 
+  let fineArtAmericaOwnership = null;
+
+  if (
+    normalizedStoreType === "fine_art_america" ||
+    normalizedStoreType === "fineartamerica"
+  ) {
+    if (!storeId) {
+      throw new Error(
+        "Fine Art America imports require the connected store ID so ownership can be verified."
+      );
+    }
+
+    fineArtAmericaOwnership =
+      await verifyFineArtAmericaProductOwnership({
+        userId: String(userId),
+        storeId: String(storeId),
+        productUrl: cleanProductUrl,
+      });
+
+    if (!fineArtAmericaOwnership?.verified) {
+      throw new Error(
+        `Fine Art America ownership verification failed: ${
+          fineArtAmericaOwnership?.reason ||
+          "listing does not belong to the connected artist"
+        }.`
+      );
+    }
+  }
+
   const redbubbleArtworkId =
     normalizedStoreType === "redbubble"
       ? extractRedbubbleArtworkId(cleanProductUrl)
       : null;
+
+  const finalProductUrl =
+    fineArtAmericaOwnership?.canonicalUrl ||
+    cleanProductUrl;
 
   const suppliedImageUrl = String(imageUrl || "").trim();
   const suppliedDescription = cleanText(description || "");
@@ -718,7 +752,7 @@ export async function importSingleCatalogProduct({
         "id,product_url,image_url,title,description,price,currency,metadata,external_product_id"
       )
       .eq("user_id", String(userId))
-      .eq("product_url", cleanProductUrl)
+      .eq("product_url", finalProductUrl)
       .maybeSingle();
 
     if (lookupError) {
@@ -786,7 +820,7 @@ export async function importSingleCatalogProduct({
       existingProduct?.description ||
       null,
     image_url: finalImageUrl,
-    product_url: cleanProductUrl,
+    product_url: finalProductUrl,
     price:
       normalizedPrice ?? existingProduct?.price ?? null,
     currency:
@@ -800,6 +834,19 @@ export async function importSingleCatalogProduct({
         : {}),
       imageStatus: finalImageUrl ? "verified" : "pending",
       importer: "catalog_product",
+      ...(fineArtAmericaOwnership?.verified
+        ? {
+            ownershipVerified: true,
+            ownerName:
+              fineArtAmericaOwnership.expectedOwnerName ||
+              null,
+            verificationMethod:
+              fineArtAmericaOwnership.verificationMethod ||
+              "artwork_page",
+            verifiedAt:
+              new Date().toISOString(),
+          }
+        : {}),
     },
     status: "active",
     updated_at: now,

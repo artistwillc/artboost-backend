@@ -110,6 +110,80 @@ function normalizeUrl(value, baseUrl) {
   }
 }
 
+
+function normalizeFineArtAmericaProfileUrl(value) {
+  const normalized = normalizeUrl(value);
+  if (!normalized) return null;
+
+  const parsed = new URL(normalized);
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+
+  return parsed.toString();
+}
+
+function profileOwnerSlug(storeUrl) {
+  try {
+    const parsed = new URL(storeUrl);
+    const match = parsed.pathname.match(/^\/profiles\/([^/?#]+)/i);
+
+    return match?.[1]
+      ? decodeURIComponent(match[1]).trim().toLowerCase()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function canonicalArtworkUrl(value) {
+  const normalized = normalizeUrl(value);
+  if (!normalized) return null;
+
+  const parsed = new URL(normalized);
+
+  if (!isLikelyArtworkUrl(parsed.toString())) {
+    return null;
+  }
+
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.hostname = FAA_HOSTNAME;
+
+  return parsed.toString();
+}
+
+function artworkSlugMatchesOwner(productUrl, expectedOwnerSlug) {
+  if (!expectedOwnerSlug) return false;
+
+  try {
+    const parsed = new URL(productUrl);
+    const hostname = parsed.hostname
+      .replace(/^www\./i, "")
+      .toLowerCase();
+
+    if (
+      hostname !== FAA_HOSTNAME &&
+      !hostname.endsWith(`.${FAA_HOSTNAME}`)
+    ) {
+      return false;
+    }
+
+    const fileName =
+      parsed.pathname.split("/").filter(Boolean).pop() || "";
+
+    const cleanName =
+      fileName.replace(/\.html$/i, "").toLowerCase();
+
+    return (
+      cleanName === expectedOwnerSlug ||
+      cleanName.endsWith(`-${expectedOwnerSlug}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function cleanArtworkTitle(value = "") {
   return decodeHtmlEntities(value)
     .replace(/\s*\|\s*Fine Art America\s*$/i, "")
@@ -294,7 +368,10 @@ function extractArtworkLinks(html, pageUrl) {
         normalized &&
         isLikelyArtworkUrl(normalized)
       ) {
-        links.add(normalized);
+        const canonical = canonicalArtworkUrl(normalized);
+        if (canonical) {
+          links.add(canonical);
+        }
       }
     }
 
@@ -315,7 +392,10 @@ function extractArtworkLinks(html, pageUrl) {
         normalized &&
         isLikelyArtworkUrl(normalized)
       ) {
-        links.add(normalized);
+        const canonical = canonicalArtworkUrl(normalized);
+        if (canonical) {
+          links.add(canonical);
+        }
       }
     }
   }
@@ -460,7 +540,7 @@ function parseArtworkPage({
         imageCandidate?.contentUrl
       : imageCandidate;
 
-  const productUrl =
+  const rawProductUrl =
     normalizeUrl(
       productSchema?.url ||
         getMetaContent(html, "og:url") ||
@@ -470,6 +550,14 @@ function parseArtworkPage({
     ) ||
     responseUrl ||
     originalUrl;
+
+  const productUrl =
+    canonicalArtworkUrl(rawProductUrl) ||
+    canonicalArtworkUrl(originalUrl);
+
+  if (!productUrl) {
+    return null;
+  }
 
   if (!title || !productUrl) {
     return null;
@@ -498,6 +586,8 @@ function parseArtworkPage({
       sourceUrl: originalUrl,
       schemaType:
         productSchema?.["@type"] || null,
+      ownershipVerified: false,
+      ownerName: artistName || null,
     },
   };
 }
@@ -556,7 +646,10 @@ async function resolveStoreConnection({
   storeId,
   storeUrl,
 }) {
-  let query = supabase
+  const {
+    data: rows,
+    error,
+  } = await supabase
     .from("store_connections")
     .select(
       `
@@ -566,22 +659,14 @@ async function resolveStoreConnection({
         store_name,
         store_url,
         connected,
+        sync_enabled,
+        last_synced_at,
+        updated_at,
         metadata
       `
     )
-    .eq("user_id", userId)
+    .eq("user_id", String(userId))
     .eq("platform", "fine_art_america");
-
-  if (storeId) {
-    query = query.eq("id", storeId);
-  } else if (storeUrl) {
-    query = query.eq("store_url", storeUrl);
-  }
-
-  const {
-    data: connection,
-    error,
-  } = await query.maybeSingle();
 
   if (error) {
     throw new Error(
@@ -589,11 +674,51 @@ async function resolveStoreConnection({
     );
   }
 
-  if (!connection) {
+  const connections = Array.isArray(rows) ? rows : [];
+  const requestedUrl =
+    storeUrl ? normalizeFineArtAmericaProfileUrl(storeUrl) : null;
+
+  let candidates = connections;
+
+  if (storeId) {
+    const exactId = connections.filter(
+      (item) => String(item.id) === String(storeId)
+    );
+
+    if (exactId.length > 0) {
+      candidates = exactId;
+    }
+  } else if (requestedUrl) {
+    const exactUrl = connections.filter(
+      (item) =>
+        normalizeFineArtAmericaProfileUrl(item.store_url) ===
+        requestedUrl
+    );
+
+    if (exactUrl.length > 0) {
+      candidates = exactUrl;
+    }
+  }
+
+  if (candidates.length === 0) {
     throw new Error(
       "The Fine Art America store connection was not found."
     );
   }
+
+  const connection =
+    candidates
+      .filter((item) => item.connected)
+      .sort((a, b) => {
+        const aTime = new Date(
+          a.last_synced_at || a.updated_at || 0
+        ).getTime();
+        const bTime = new Date(
+          b.last_synced_at || b.updated_at || 0
+        ).getTime();
+        return bTime - aTime;
+      })[0] ||
+    candidates[0];
 
   if (!connection.connected) {
     throw new Error(
@@ -601,7 +726,189 @@ async function resolveStoreConnection({
     );
   }
 
-  return connection;
+  const canonicalOwner =
+    profileOwnerSlug(connection.store_url || "");
+
+  const duplicateConnections = connections.filter(
+    (item) =>
+      String(item.id) !== String(connection.id) &&
+      Boolean(canonicalOwner) &&
+      profileOwnerSlug(item.store_url || "") === canonicalOwner
+  );
+
+  return {
+    connection,
+    duplicateConnections,
+  };
+}
+
+async function consolidateDuplicateConnections({
+  userId,
+  connection,
+  duplicateConnections,
+}) {
+  const duplicateIds = (duplicateConnections || [])
+    .map((item) => String(item.id))
+    .filter(Boolean);
+
+  if (duplicateIds.length === 0) {
+    return [];
+  }
+
+  const now = new Date().toISOString();
+
+  const {
+    error: productRelinkError,
+  } = await supabase
+    .from("products")
+    .update({
+      store_connection_id: String(connection.id),
+      store_name:
+        connection.store_name || "Fine Art America",
+      updated_at: now,
+    })
+    .eq("user_id", String(userId))
+    .eq("store_type", "fine_art_america")
+    .in("store_connection_id", duplicateIds);
+
+  if (productRelinkError) {
+    throw new Error(
+      `Unable to consolidate duplicate Fine Art America products: ${productRelinkError.message}`
+    );
+  }
+
+  const {
+    error: duplicateUpdateError,
+  } = await supabase
+    .from("store_connections")
+    .update({
+      connected: false,
+      sync_enabled: false,
+      last_sync_status: "duplicate",
+      last_sync_error:
+        "Superseded by the canonical Fine Art America connection.",
+      updated_at: now,
+    })
+    .eq("user_id", String(userId))
+    .eq("platform", "fine_art_america")
+    .in("id", duplicateIds);
+
+  if (duplicateUpdateError) {
+    throw new Error(
+      `Unable to disable duplicate Fine Art America connections: ${duplicateUpdateError.message}`
+    );
+  }
+
+  return duplicateIds;
+}
+
+export async function verifyFineArtAmericaProductOwnership({
+  userId,
+  storeId,
+  productUrl,
+  suppliedArtistName = "",
+}) {
+  if (!userId || !storeId || !productUrl) {
+    return {
+      verified: false,
+      reason: "missing_required_ownership_context",
+    };
+  }
+
+  const {
+    connection,
+  } = await resolveStoreConnection({
+    userId: String(userId),
+    storeId: String(storeId),
+  });
+
+  const canonicalUrl =
+    canonicalArtworkUrl(productUrl);
+
+  if (!canonicalUrl) {
+    return {
+      verified: false,
+      reason: "invalid_fine_art_america_artwork_url",
+    };
+  }
+
+  const expectedOwnerName =
+    ownerNameFromProfileUrl(connection.store_url || "");
+  const expectedOwnerKey =
+    normalizePersonName(expectedOwnerName);
+  const expectedOwnerSlug =
+    profileOwnerSlug(connection.store_url || "");
+
+  if (
+    !expectedOwnerKey ||
+    !artworkSlugMatchesOwner(
+      canonicalUrl,
+      expectedOwnerSlug
+    )
+  ) {
+    return {
+      verified: false,
+      reason: "artwork_url_does_not_match_connected_owner",
+      canonicalUrl,
+    };
+  }
+
+  const suppliedArtistKey =
+    normalizePersonName(suppliedArtistName);
+
+  if (
+    suppliedArtistKey &&
+    suppliedArtistKey !== expectedOwnerKey
+  ) {
+    return {
+      verified: false,
+      reason: "supplied_artist_does_not_match_connected_owner",
+      canonicalUrl,
+    };
+  }
+
+  try {
+    const {
+      html,
+      responseUrl,
+    } = await fetchPage(canonicalUrl);
+
+    const parsed = parseArtworkPage({
+      html,
+      responseUrl,
+      originalUrl: canonicalUrl,
+    });
+
+    const artistKey =
+      normalizePersonName(parsed?.artistName || "");
+
+    if (!artistKey || artistKey !== expectedOwnerKey) {
+      return {
+        verified: false,
+        reason: "artwork_page_owner_mismatch",
+        canonicalUrl,
+      };
+    }
+
+    return {
+      verified: true,
+      verificationMethod: "artwork_page",
+      canonicalUrl,
+      expectedOwnerName,
+      artistName: parsed.artistName,
+      parsedProduct: parsed,
+      connection,
+    };
+  } catch (error) {
+    return {
+      verified: false,
+      reason:
+        error instanceof Error
+          ? error.message
+          : String(error),
+      canonicalUrl,
+    };
+  }
 }
 
 export async function importFineArtAmericaStore({
@@ -615,14 +922,26 @@ export async function importFineArtAmericaStore({
     throw new Error("Missing userId.");
   }
 
-  const connection = await resolveStoreConnection({
+  const {
+    connection,
+    duplicateConnections,
+  } = await resolveStoreConnection({
     userId,
     storeId,
     storeUrl,
   });
 
+  const disabledDuplicateStoreIds =
+    await consolidateDuplicateConnections({
+      userId,
+      connection,
+      duplicateConnections,
+    });
+
   const resolvedStoreUrl =
-    storeUrl || connection.store_url;
+    normalizeFineArtAmericaProfileUrl(
+      storeUrl || connection.store_url
+    );
 
   if (
     !resolvedStoreUrl ||
@@ -656,32 +975,104 @@ export async function importFineArtAmericaStore({
     );
   }
 
+  const expectedOwnerName =
+    ownerNameFromProfileUrl(resolvedStoreUrl);
+  const expectedOwnerKey =
+    normalizePersonName(expectedOwnerName);
+  const expectedOwnerSlug =
+    profileOwnerSlug(resolvedStoreUrl);
+
+  const ownershipRejectedLinks = [];
+  const temporarilyUnavailableLinks = [];
+
+  const ownerCandidateLinks =
+    limitedLinks.filter((artworkUrl) => {
+      const ownedBySlug =
+        artworkSlugMatchesOwner(
+          artworkUrl,
+          expectedOwnerSlug
+        );
+
+      if (!ownedBySlug) {
+        ownershipRejectedLinks.push(artworkUrl);
+      }
+
+      return ownedBySlug;
+    });
+
   const parsedProducts =
     await mapWithConcurrency(
-      limitedLinks,
+      ownerCandidateLinks,
       4,
       async (artworkUrl) => {
-        const { html, responseUrl } =
-          await fetchPage(artworkUrl);
+        try {
+          const { html, responseUrl } =
+            await fetchPage(artworkUrl);
 
-        return parseArtworkPage({
-          html,
-          responseUrl,
-          originalUrl: artworkUrl,
-        });
+          const parsed = parseArtworkPage({
+            html,
+            responseUrl,
+            originalUrl: artworkUrl,
+          });
+
+          if (!parsed) {
+            return null;
+          }
+
+          const artistKey =
+            normalizePersonName(
+              parsed.artistName || ""
+            );
+
+          if (
+            !expectedOwnerKey ||
+            artistKey !== expectedOwnerKey
+          ) {
+            ownershipRejectedLinks.push(artworkUrl);
+            return null;
+          }
+
+          parsed.metadata = {
+            ...(parsed.metadata || {}),
+            ownershipVerified: true,
+            ownerName:
+              parsed.artistName ||
+              expectedOwnerName ||
+              null,
+            ownerKey: expectedOwnerKey,
+            verificationMethod: "artwork_page",
+            verifiedAt:
+              new Date().toISOString(),
+          };
+
+          return parsed;
+        } catch (error) {
+          // FAA has been observed returning 410 to backend requests for
+          // listings that are still exposed by the connected artist profile.
+          // Treat fetch failures as unavailable, not as proof the listing is gone.
+          temporarilyUnavailableLinks.push({
+            productUrl: artworkUrl,
+            error:
+              error instanceof Error
+                ? error.message
+                : String(error),
+          });
+          return null;
+        }
       }
     );
 
-  const expectedOwnerName = ownerNameFromProfileUrl(resolvedStoreUrl);
-  const expectedOwnerKey = normalizePersonName(expectedOwnerName);
-
   // CRITICAL FAA ownership gate:
-  // The public profile/shop HTML contains site-wide recommendations and
-  // famous artwork. Only accept an artwork page when the artwork page itself
-  // identifies its artist as the owner encoded in /profiles/<owner>.
+  // Only products verified by the artwork page itself are persisted/updated.
   const ownerProducts = parsedProducts.filter((product) => {
-    const artistKey = normalizePersonName(product.artistName || "");
-    return Boolean(expectedOwnerKey && artistKey === expectedOwnerKey);
+    const artistKey =
+      normalizePersonName(product?.artistName || "");
+
+    return Boolean(
+      expectedOwnerKey &&
+      artistKey === expectedOwnerKey &&
+      product?.metadata?.ownershipVerified === true
+    );
   });
 
   const uniqueProducts = [
@@ -693,7 +1084,10 @@ export async function importFineArtAmericaStore({
     ).values(),
   ];
 
-  if (uniqueProducts.length === 0) {
+  if (
+    uniqueProducts.length === 0 &&
+    temporarilyUnavailableLinks.length === 0
+  ) {
     throw new Error(
       `Fine Art America listings were found, but none could be verified as artwork by ${expectedOwnerName || "the connected artist"}.`
     );
@@ -703,24 +1097,30 @@ export async function importFineArtAmericaStore({
     (product) => product.externalProductId
   );
 
-  const {
-    data: existingRows,
-    error: existingError,
-  } = await supabase
-    .from("products")
-    .select("external_product_id")
-    .eq("user_id", userId)
-    .eq("store_type", "fine_art_america")
-    .in("external_product_id", externalIds);
+  let existingRows = [];
 
-  if (existingError) {
-    throw new Error(
-      `Unable to check existing Fine Art America products: ${existingError.message}`
-    );
+  if (externalIds.length > 0) {
+    const {
+      data,
+      error: existingError,
+    } = await supabase
+      .from("products")
+      .select("external_product_id")
+      .eq("user_id", String(userId))
+      .eq("store_type", "fine_art_america")
+      .in("external_product_id", externalIds);
+
+    if (existingError) {
+      throw new Error(
+        `Unable to check existing Fine Art America products: ${existingError.message}`
+      );
+    }
+
+    existingRows = data || [];
   }
 
   const existingIds = new Set(
-    (existingRows || []).map(
+    existingRows.map(
       (row) => row.external_product_id
     )
   );
@@ -750,6 +1150,13 @@ export async function importFineArtAmericaStore({
       metadata: {
         ...product.metadata,
         storeUrl: resolvedStoreUrl,
+        ownershipVerified: true,
+        ownerName:
+          product.artistName ||
+          expectedOwnerName ||
+          null,
+        ownerKey: expectedOwnerKey,
+        verifiedAt: syncedAt,
       },
       status: "active",
       last_synced_at: syncedAt,
@@ -757,21 +1164,62 @@ export async function importFineArtAmericaStore({
     })
   );
 
-  const {
-    data: savedProducts,
-    error: upsertError,
-  } = await supabase
-    .from("products")
-    .upsert(productsToSave, {
-      onConflict:
-        "user_id,store_type,external_product_id",
-    })
-    .select();
+  let savedProducts = [];
 
-  if (upsertError) {
-    throw new Error(
-      `Fine Art America listings were found but could not be saved: ${upsertError.message}`
-    );
+  if (productsToSave.length > 0) {
+    const {
+      data,
+      error: upsertError,
+    } = await supabase
+      .from("products")
+      .upsert(productsToSave, {
+        onConflict:
+          "user_id,store_type,external_product_id",
+      })
+      .select();
+
+    if (upsertError) {
+      throw new Error(
+        `Fine Art America listings were found but could not be saved: ${upsertError.message}`
+      );
+    }
+
+    savedProducts = data || [];
+  }
+
+  if (ownershipRejectedLinks.length > 0) {
+    const rejectedExternalIds = [
+      ...new Set(
+        ownershipRejectedLinks
+          .map((url) => canonicalArtworkUrl(url))
+          .filter(Boolean)
+          .map((url) => createExternalProductId(url))
+      ),
+    ];
+
+    if (rejectedExternalIds.length > 0) {
+      const {
+        error: quarantineError,
+      } = await supabase
+        .from("products")
+        .update({
+          status: "excluded",
+          automation_enabled: false,
+          updated_at: syncedAt,
+        })
+        .eq("user_id", String(userId))
+        .eq("store_type", "fine_art_america")
+        .in(
+          "external_product_id",
+          rejectedExternalIds
+        );
+
+      if (quarantineError) {
+        throw new Error(
+          `Unable to quarantine ownership-rejected Fine Art America listings: ${quarantineError.message}`
+        );
+      }
+    }
   }
 
   await supabase
@@ -791,6 +1239,12 @@ export async function importFineArtAmericaStore({
           discoveredLinks.length,
         lastImportedCount:
           uniqueProducts.length,
+        lastTemporarilyUnavailableCount:
+          temporarilyUnavailableLinks.length,
+        lastOwnershipRejectedCount:
+          ownershipRejectedLinks.length,
+        duplicateConnectionsDisabled:
+          disabledDuplicateStoreIds.length,
       },
     })
     .eq("id", connection.id)
@@ -814,6 +1268,12 @@ export async function importFineArtAmericaStore({
     skipped:
       limitedLinks.length -
       uniqueProducts.length,
+    temporarilyUnavailable:
+      temporarilyUnavailableLinks.length,
+    ownershipRejected:
+      ownershipRejectedLinks.length,
+    duplicateConnectionsDisabled:
+      disabledDuplicateStoreIds.length,
     totalCatalogProducts:
       savedProducts?.length ||
       uniqueProducts.length,

@@ -177,6 +177,67 @@ function buildStoreHashtags({
     .join(" ");
 }
 
+
+function fineArtAmericaOwnerSlug(storeUrl) {
+  try {
+    const parsed = new URL(String(storeUrl || ""));
+    const hostname = parsed.hostname
+      .replace(/^www\./i, "")
+      .toLowerCase();
+
+    if (
+      hostname !== "fineartamerica.com" &&
+      !hostname.endsWith(".fineartamerica.com")
+    ) {
+      return "";
+    }
+
+    const match = parsed.pathname.match(
+      /^\/profiles\/([^/?#]+)/i
+    );
+
+    return match?.[1]
+      ? decodeURIComponent(match[1]).trim().toLowerCase()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function fineArtAmericaProductMatchesOwner(
+  productUrl,
+  expectedOwnerSlug
+) {
+  if (!expectedOwnerSlug) return false;
+
+  try {
+    const parsed = new URL(String(productUrl || ""));
+    const hostname = parsed.hostname
+      .replace(/^www\./i, "")
+      .toLowerCase();
+
+    if (
+      hostname !== "fineartamerica.com" &&
+      !hostname.endsWith(".fineartamerica.com")
+    ) {
+      return false;
+    }
+
+    const fileName =
+      parsed.pathname.split("/").filter(Boolean).pop() || "";
+
+    const cleanName =
+      fileName.replace(/\.html$/i, "").toLowerCase();
+
+    return (
+      cleanName === expectedOwnerSlug ||
+      cleanName.endsWith(`-${expectedOwnerSlug}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function buildStoreAvailabilityText(storeType) {
   const normalizedStore = String(storeType || "")
     .trim()
@@ -623,6 +684,88 @@ try {
     product.images?.[0]?.url ??
     product.images?.[0] ??
     null;
+
+  const normalizedProductStoreType =
+    String(
+      product.store_type ??
+      product.storeType ??
+      storeType ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    normalizedProductStoreType === "fine_art_america" ||
+    normalizedProductStoreType === "fineartamerica"
+  ) {
+    const productStoreConnectionId =
+      product.store_connection_id ??
+      product.storeConnectionId ??
+      null;
+
+    const automationStoreId =
+      storeId ? String(storeId) : null;
+
+    let ownershipContextValid = false;
+
+    if (
+      automationStoreId &&
+      productStoreConnectionId &&
+      String(productStoreConnectionId) ===
+        automationStoreId
+    ) {
+      const {
+        data: faaConnection,
+        error: faaConnectionError,
+      } = await supabase
+        .from("store_connections")
+        .select("id,user_id,platform,store_url,connected")
+        .eq("id", automationStoreId)
+        .eq("user_id", String(userId))
+        .eq("platform", "fine_art_america")
+        .eq("connected", true)
+        .maybeSingle();
+
+      if (!faaConnectionError && faaConnection) {
+        const expectedOwnerSlug =
+          fineArtAmericaOwnerSlug(
+            faaConnection.store_url
+          );
+
+        ownershipContextValid =
+          fineArtAmericaProductMatchesOwner(
+            productLink,
+            expectedOwnerSlug
+          ) &&
+          product?.metadata?.ownershipVerified !== false;
+      }
+    }
+
+    if (!ownershipContextValid) {
+      const message =
+        "Fine Art America listing blocked because ownership or store association is not verified.";
+
+      await createAutomationLog({
+        automationId:
+          automation.id,
+        userId,
+        storeId,
+        eventType:
+          "post_blocked",
+        status:
+          "failed",
+        product,
+        platforms,
+        message:
+          "ArtBoost blocked an unverified Fine Art America listing.",
+        errorMessage:
+          message,
+      });
+
+      throw new Error(message);
+    }
+  }
 
   if (!productLink) {
     const message =
