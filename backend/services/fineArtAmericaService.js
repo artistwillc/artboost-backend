@@ -1284,9 +1284,7 @@ export async function importFineArtAmericaStore({
     imported: uniqueProducts.length -
       alreadyExisted,
     updated: alreadyExisted,
-    skipped:
-      limitedLinks.length -
-      uniqueProducts.length,
+    skipped: 0,
     temporarilyUnavailable:
       temporarilyUnavailableLinks.length,
     ownershipRejected:
