@@ -40,6 +40,7 @@ type Product = {
   currency?: string | null;
   storeType?: string | null;
   storeName?: string | null;
+  storeConnectionId?: string | null;
   status?: string | null;
   automationEnabled?: boolean;
   timesPosted?: number;
@@ -112,43 +113,53 @@ export default function StoreProductsScreen() {
       );
       const selectedType = normalize(storeType);
 
+      const productConnectionId = String(
+        product.storeConnectionId || ""
+      );
+      const selectedConnectionId = String(
+        storeId || ""
+      );
+
+      // The connection ID is the authoritative store/product link.
+      // This prevents name differences such as "ArtPal" vs artist/shop
+      // names from making a valid persisted catalog appear empty.
+      if (
+        selectedConnectionId &&
+        productConnectionId
+      ) {
+        return (
+          selectedConnectionId === productConnectionId
+        );
+      }
+
       const productStore = normalize(
         product.storeName
       );
       const selectedStore = normalize(storeName);
 
-      // Etsy products are synced through the connected Etsy account.
-      // The connection row may be named "etsy" while imported products
-      // use the actual Etsy shop name (for example WMDigitalDownloads).
-      // For Etsy, store_type is therefore the authoritative match.
-      if (
-        selectedType === "etsy" &&
-        productType === "etsy"
-      ) {
-        return true;
+      // Legacy rows may not have store_connection_id. Keep a safe
+      // fallback for those rows, scoped to the selected platform.
+      if (productType !== selectedType) {
+        return false;
       }
 
-      // Prefer exact store name + type for other platforms.
-      // Fall back to type only when a stored product has no store name.
       if (
         productStore &&
         selectedStore &&
-        productStore === selectedStore &&
-        productType === selectedType
+        productStore === selectedStore
       ) {
         return true;
       }
 
-      if (
-        productType === selectedType &&
-        (!productStore || !selectedStore)
-      ) {
+      // Etsy historically used the actual Etsy shop name on products
+      // while the connection could simply be named "etsy".
+      if (selectedType === "etsy") {
         return true;
       }
 
-      return false;
+      return !productStore || !selectedStore;
     },
-    [storeName, storeType]
+    [storeId, storeName, storeType]
   );
 
   const loadProducts = useCallback(
@@ -168,65 +179,98 @@ export default function StoreProductsScreen() {
           );
         }
 
-        const response = await fetch(
-          `${API_BASE}/products?userId=${encodeURIComponent(
-            user.id
-          )}`
+        const pageSize = 500;
+        let offset = 0;
+        let total = Number.POSITIVE_INFINITY;
+        const allRows: any[] = [];
+
+        // Fetch only this platform and page through the complete catalog.
+        // The backend caps a page at 500 products, so a single request
+        // would silently hide products for large stores.
+        while (offset < total) {
+          const query = new URLSearchParams({
+            userId: user.id,
+            storeType: normalize(storeType),
+            limit: String(pageSize),
+            offset: String(offset),
+          });
+
+          const response = await fetch(
+            `${API_BASE}/products?${query.toString()}`
+          );
+
+          const responseText =
+            await response.text();
+
+          let data: any;
+
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            throw new Error(
+              `Backend returned ${response.status}: ${responseText.slice(
+                0,
+                160
+              )}`
+            );
+          }
+
+          if (!response.ok || !data.success) {
+            throw new Error(
+              data.details ||
+                data.error ||
+                "Unable to load products."
+            );
+          }
+
+          const rows = Array.isArray(data.products)
+            ? data.products
+            : [];
+
+          allRows.push(...rows);
+
+          total = Number.isFinite(Number(data.total))
+            ? Number(data.total)
+            : allRows.length;
+
+          offset += rows.length;
+
+          if (rows.length === 0) {
+            break;
+          }
+        }
+
+        const mappedProducts: Product[] = allRows.map(
+          (item: any) => ({
+            id: String(item.id),
+            title: String(
+              item.title || "Untitled Product"
+            ),
+            description:
+              item.description || null,
+            imageUrl: item.image_url || null,
+            productUrl: String(
+              item.product_url || ""
+            ),
+            price:
+              item.price === null ||
+              item.price === undefined
+                ? null
+                : Number(item.price),
+            currency: item.currency || "USD",
+            storeType: item.store_type || null,
+            storeName: item.store_name || null,
+            storeConnectionId:
+              item.store_connection_id || null,
+            status: item.status || null,
+            automationEnabled:
+              Boolean(item.automation_enabled),
+            timesPosted:
+              Number(item.times_posted) || 0,
+            lastPostedAt:
+              item.last_posted_at || null,
+          })
         );
-
-        const responseText =
-          await response.text();
-
-        let data: any;
-
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          throw new Error(
-            `Backend returned ${response.status}: ${responseText.slice(
-              0,
-              160
-            )}`
-          );
-        }
-
-        if (!response.ok || !data.success) {
-          throw new Error(
-            data.details ||
-              data.error ||
-              "Unable to load products."
-          );
-        }
-
-        const mappedProducts: Product[] = (
-          data.products || []
-        ).map((item: any) => ({
-          id: String(item.id),
-          title: String(
-            item.title || "Untitled Product"
-          ),
-          description:
-            item.description || null,
-          imageUrl: item.image_url || null,
-          productUrl: String(
-            item.product_url || ""
-          ),
-          price:
-            item.price === null ||
-            item.price === undefined
-              ? null
-              : Number(item.price),
-          currency: item.currency || "USD",
-          storeType: item.store_type || null,
-          storeName: item.store_name || null,
-          status: item.status || null,
-          automationEnabled:
-            Boolean(item.automation_enabled),
-          timesPosted:
-            Number(item.times_posted) || 0,
-          lastPostedAt:
-            item.last_posted_at || null,
-        }));
 
         setProducts(
           mappedProducts.filter(matchesStore)
@@ -247,7 +291,7 @@ export default function StoreProductsScreen() {
         setRefreshing(false);
       }
     },
-    [matchesStore]
+    [matchesStore, storeType]
   );
 
   useFocusEffect(
