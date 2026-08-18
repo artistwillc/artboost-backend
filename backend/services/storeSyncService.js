@@ -1,3 +1,4 @@
+import { recordError } from "./diagnosticsService.js";
 import supabase from "../lib/supabase.js";
 import { importRedbubbleStore } from "./redbubbleService.js";
 import { importFineArtAmericaStore } from "./fineArtAmericaService.js";
@@ -389,6 +390,19 @@ export function startStoreSyncWorker() {
   const run = () => {
     runDueStoreSyncs().catch((error) => {
       console.error("Automatic store sync worker failed:", errorMessage(error));
+
+      void recordError({
+        error,
+        level: "error",
+        category: "store_sync",
+        source: "storeSyncService",
+        eventType: "automatic_store_sync_failed",
+        code: "AUTOMATIC_STORE_SYNC_FAILED",
+        context: {
+          worker:
+            "automatic_store_sync",
+        },
+      });
     });
   };
 

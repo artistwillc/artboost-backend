@@ -1,3 +1,4 @@
+import { recordError, recordWarning } from "./diagnosticsService.js";
 import supabase from "../lib/supabase.js";
 import { randomUUID } from "node:crypto";
 
@@ -350,6 +351,57 @@ async function processOneJob() {
         Number(
           job.attempt_count
         ) || 1;
+
+      if (attempts < 3) {
+        void recordWarning({
+          category: "catalog_import",
+          source: "catalogImportQueueService",
+          eventType: "catalog_import_retry",
+          code: "CATALOG_IMPORT_RETRY",
+          message,
+          userId:
+            job.user_id || null,
+          storeId:
+            job.store_id || null,
+          jobId:
+            job.id || null,
+          context: {
+            attempt:
+              attempts,
+            maxAttempts:
+              3,
+            reason:
+              job.reason ||
+              "background_import",
+          },
+        });
+      } else {
+        void recordError({
+          error,
+          level: "error",
+          category: "catalog_import",
+          source: "catalogImportQueueService",
+          eventType: "catalog_import_failed",
+          code: "CATALOG_IMPORT_FAILED",
+          userId:
+            job.user_id || null,
+          storeId:
+            job.store_id || null,
+          jobId:
+            job.id || null,
+          retryable:
+            false,
+          context: {
+            attempt:
+              attempts,
+            maxAttempts:
+              3,
+            reason:
+              job.reason ||
+              "background_import",
+          },
+        });
+      }
 
       if (attempts < 3) {
         const delaySeconds =
