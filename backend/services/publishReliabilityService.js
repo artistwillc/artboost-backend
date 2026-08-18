@@ -30,10 +30,101 @@ const RETRY_BASE_MS = Math.min(
   30000
 );
 
+const MAX_RETRY_DELAY_MS =
+  15 * 60 * 1000;
+
 function sleep(ms) {
   return new Promise(
     (resolve) =>
       setTimeout(resolve, ms)
+  );
+}
+
+function retryAfterMs(error) {
+  const value =
+    error?.retryAfter ??
+    error?.response?.headers?.["retry-after"] ??
+    error?.response?.headers?.get?.("retry-after");
+
+  if (
+    value == null ||
+    value === ""
+  ) {
+    return 0;
+  }
+
+  // Retry-After may be expressed as a number of seconds.
+  const seconds =
+    Number(value);
+
+  if (
+    Number.isFinite(seconds) &&
+    seconds >= 0
+  ) {
+    return Math.min(
+      seconds * 1000,
+      MAX_RETRY_DELAY_MS
+    );
+  }
+
+  // Retry-After may alternatively be an HTTP date.
+  const timestamp =
+    Date.parse(
+      String(value)
+    );
+
+  if (
+    !Number.isFinite(timestamp)
+  ) {
+    return 0;
+  }
+
+  return Math.min(
+    Math.max(
+      0,
+      timestamp - Date.now()
+    ),
+    MAX_RETRY_DELAY_MS
+  );
+}
+
+function retryDelayMs(
+  error,
+  attempt
+) {
+  const exponential =
+    RETRY_BASE_MS *
+    2 ** (attempt - 1);
+
+  const providerDelay =
+    retryAfterMs(error);
+
+  /*
+   * Never retry sooner than either our exponential
+   * backoff or the provider's Retry-After instruction.
+   */
+  const base =
+    Math.max(
+      exponential,
+      providerDelay
+    );
+
+  /*
+   * Add up to 25% positive jitter so multiple ArtBoost
+   * workers do not all retry at exactly the same time.
+   */
+  const jitter =
+    Math.floor(
+      Math.random() *
+      Math.max(
+        250,
+        base * 0.25
+      )
+    );
+
+  return Math.min(
+    base + jitter,
+    MAX_RETRY_DELAY_MS
   );
 }
 
@@ -345,8 +436,10 @@ export async function publishWithReliability({
         }
 
         const delay =
-          RETRY_BASE_MS *
-          2 ** (attempt - 1);
+          retryDelayMs(
+            error,
+            attempt
+          );
 
         await sleep(delay);
       }
@@ -453,8 +546,10 @@ export async function publishWithReliability({
       });
 
       const delay =
-        RETRY_BASE_MS *
-        2 ** (attempt - 1);
+        retryDelayMs(
+          error,
+          attempt
+        );
 
       await sleep(delay);
 

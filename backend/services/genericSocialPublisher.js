@@ -322,11 +322,17 @@ export async function publishDynamicProvider({
       data?.message ||
       `HTTP ${response.status}`;
 
-    throw new Error(
+    const error = new Error(
       typeof message === "string"
         ? message
         : JSON.stringify(message)
     );
+
+    error.status = response.status;
+    error.retryAfter =
+      response.headers.get("retry-after");
+
+    throw error;
   }
 
   return {

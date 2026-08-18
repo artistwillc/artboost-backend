@@ -445,12 +445,18 @@ async function publishOne({
     await response.text();
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       `${platformName} publishing endpoint returned HTTP ${response.status}: ${responseText.slice(
         0,
         500
       )}`
     );
+
+    error.status = response.status;
+    error.retryAfter =
+      response.headers.get("retry-after");
+
+    throw error;
   }
 
   let responseData =
