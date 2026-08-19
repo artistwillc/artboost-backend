@@ -17,12 +17,26 @@ import { supabase } from "@/lib/supabase";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "https://artboost-ai.onrender.com";
 
-type Product = { id: string; title: string; imageUrl?: string | null; storeName?: string | null; storeType?: string | null };
+type Product = {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  productUrl?: string | null;
+  storeName?: string | null;
+  storeType?: string | null;
+  storeConnectionId?: string | null;
+};
 type Template = { id: string; name: string; description: string };
 type VideoJob = { id: string; status: string; progress: number; video_url?: string | null; error_message?: string | null; template_id: string; source_snapshot?: any };
 
 export default function VideoStudioScreen() {
-  const params = useLocalSearchParams<{ productId?: string }>();
+  const params = useLocalSearchParams<{
+    productId?: string;
+    storeId?: string;
+    storeName?: string;
+    storeType?: string;
+  }>();
   const [userId, setUserId] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -32,9 +46,121 @@ export default function VideoStudioScreen() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  const selectedProduct = useMemo(() => products.find((p) => p.id === selectedProductId) || null, [products, selectedProductId]);
+  const normalize = (value?: string | null) =>
+    String(value || "").trim().toLowerCase();
 
-  useEffect(() => { loadFoundation(); }, []);
+  const requestedStoreId = String(params.storeId || "");
+  const requestedStoreName = String(params.storeName || "");
+  const requestedStoreType = String(params.storeType || "");
+
+  const matchesRequestedStore = (product: Product) => {
+    const productType = normalize(product.storeType);
+    const selectedType = normalize(requestedStoreType);
+
+    const productConnectionId = String(
+      product.storeConnectionId || ""
+    );
+
+    if (
+      requestedStoreId &&
+      productConnectionId
+    ) {
+      return requestedStoreId === productConnectionId;
+    }
+
+    if (!selectedType) {
+      return true;
+    }
+
+    if (productType !== selectedType) {
+      return false;
+    }
+
+    const productStore = normalize(product.storeName);
+    const selectedStore = normalize(requestedStoreName);
+
+    if (
+      productStore &&
+      selectedStore &&
+      productStore === selectedStore
+    ) {
+      return true;
+    }
+
+    // Etsy legacy rows may carry the real Etsy shop name even when the
+    // connection itself is generically named "Etsy".
+    if (selectedType === "etsy") {
+      return true;
+    }
+
+    return !productStore || !selectedStore;
+  };
+
+  const visibleProducts = useMemo(() => {
+    const requestedProductId = String(params.productId || "");
+
+    if (
+      !requestedStoreId &&
+      !requestedStoreType &&
+      !requestedStoreName
+    ) {
+      return products;
+    }
+
+    const scoped = products.filter(matchesRequestedStore);
+
+    // Preserve the exact routed product even if an older legacy row has
+    // incomplete store metadata. This never substitutes another product.
+    if (requestedProductId) {
+      const exact = products.find(
+        (product) => product.id === requestedProductId
+      );
+
+      if (
+        exact &&
+        !scoped.some(
+          (product) => product.id === exact.id
+        )
+      ) {
+        return [exact, ...scoped];
+      }
+    }
+
+    return scoped;
+  }, [
+    products,
+    params.productId,
+    requestedStoreId,
+    requestedStoreName,
+    requestedStoreType,
+  ]);
+
+  const selectedProduct = useMemo(
+    () =>
+      products.find(
+        (product) =>
+          product.id === selectedProductId
+      ) || null,
+    [products, selectedProductId]
+  );
+
+  useEffect(() => {
+    loadFoundation();
+  }, []);
+
+  useEffect(() => {
+    const routedProductId = String(
+      params.productId || ""
+    );
+
+    if (
+      routedProductId &&
+      routedProductId !== selectedProductId
+    ) {
+      setSelectedProductId(routedProductId);
+      setJob(null);
+    }
+  }, [params.productId]);
 
   useEffect(() => {
     if (!job?.id || !userId || !["queued", "processing"].includes(job.status)) return;
@@ -48,24 +174,126 @@ export default function VideoStudioScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Please sign in to use Video Studio.");
       setUserId(user.id);
-      const [productResponse, templateResponse] = await Promise.all([
-        fetch(`${API_BASE}/products?userId=${encodeURIComponent(user.id)}`),
-        fetch(`${API_BASE}/video-studio/templates`),
-      ]);
-      const productData = await productResponse.json();
-      const templateData = await templateResponse.json();
-      if (!productResponse.ok || !productData.success) throw new Error(productData.error || "Unable to load products.");
-      if (!templateResponse.ok || !templateData.success) throw new Error(templateData.error || "Unable to load video styles.");
-      const mapped = (productData.products || []).map((item: any) => ({
-        id: String(item.id),
-        title: String(item.title || "Untitled Product"),
-        imageUrl: item.image_url || null,
-        storeName: item.store_name || null,
-        storeType: item.store_type || null,
-      }));
+      const templateResponse = await fetch(
+        `${API_BASE}/video-studio/templates`
+      );
+      const templateData =
+        await templateResponse.json();
+
+      if (
+        !templateResponse.ok ||
+        !templateData.success
+      ) {
+        throw new Error(
+          templateData.error ||
+            "Unable to load video styles."
+        );
+      }
+
+      const pageSize = 500;
+      let offset = 0;
+      let total = Number.POSITIVE_INFINITY;
+      const rows: any[] = [];
+
+      while (offset < total) {
+        const query = new URLSearchParams({
+          userId: user.id,
+          limit: String(pageSize),
+          offset: String(offset),
+        });
+
+        if (normalize(requestedStoreType)) {
+          query.set(
+            "storeType",
+            normalize(requestedStoreType)
+          );
+        }
+
+        const productResponse = await fetch(
+          `${API_BASE}/products?${query.toString()}`
+        );
+
+        const productData =
+          await productResponse.json();
+
+        if (
+          !productResponse.ok ||
+          !productData.success
+        ) {
+          throw new Error(
+            productData.error ||
+              "Unable to load products."
+          );
+        }
+
+        const pageRows = Array.isArray(
+          productData.products
+        )
+          ? productData.products
+          : [];
+
+        rows.push(...pageRows);
+
+        total = Number.isFinite(
+          Number(productData.total)
+        )
+          ? Number(productData.total)
+          : rows.length;
+
+        offset += pageRows.length;
+
+        if (pageRows.length === 0) {
+          break;
+        }
+      }
+
+      const mapped: Product[] = rows.map(
+        (item: any) => ({
+          id: String(item.id),
+          title: String(
+            item.title || "Untitled Product"
+          ),
+          // ARTBOOST_VIDEO_CAMPAIGN_MAPPING_FIX_V3_1
+          description: item.description || null,
+          imageUrl: item.image_url || null,
+        productUrl: item.product_url || item.productUrl || item.url || null,
+          storeName: item.store_name || null,
+          storeType: item.store_type || null,
+          storeConnectionId: item.store_connection_id || item.storeConnectionId || item.store_id || null,
+        })
+      );
+
       setProducts(mapped);
-      setTemplates(templateData.templates || []);
-      if (!selectedProductId && mapped.length) setSelectedProductId(mapped[0].id);
+      setTemplates(
+        templateData.templates || []
+      );
+
+      const routedProductId = String(
+        params.productId || ""
+      );
+
+      if (
+        routedProductId &&
+        mapped.some(
+          (product) =>
+            product.id === routedProductId
+        )
+      ) {
+        setSelectedProductId(
+          routedProductId
+        );
+      } else if (
+        !selectedProductId &&
+        mapped.length
+      ) {
+        const firstScoped =
+          mapped.find(matchesRequestedStore) ||
+          mapped[0];
+
+        setSelectedProductId(
+          firstScoped.id
+        );
+      }
     } catch (error: any) {
       Alert.alert("Video Studio", error.message || "Unable to open Video Studio.");
     } finally { setLoading(false); }
@@ -129,8 +357,21 @@ export default function VideoStudioScreen() {
           <View style={styles.heroCard}><Text style={styles.heroTitle}>Turn a listing into a polished product video.</Text><Text style={styles.heroText}>Choose a product and a style. ArtBoost handles the 9:16 composition, camera motion, transitions, rendering, and high-quality export.</Text></View>
 
           <Text style={styles.step}>1  Choose Product</Text>
+          {requestedStoreName || requestedStoreType ? (
+            <View style={styles.storeContextBadge}>
+              <Ionicons
+                name="storefront-outline"
+                size={15}
+                color="#c4b5fd"
+              />
+              <Text style={styles.storeContextText}>
+                {requestedStoreName ||
+                  requestedStoreType}
+              </Text>
+            </View>
+          ) : null}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rowScroll}>
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const active = product.id === selectedProductId;
               return <Pressable key={product.id} onPress={() => { setSelectedProductId(product.id); setJob(null); }} style={[styles.productCard, active && styles.activeCard]}>
                 {product.imageUrl ? <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#777" /></View>}
@@ -166,7 +407,27 @@ export default function VideoStudioScreen() {
             {job.status === "failed" ? <Text style={styles.error}>{job.error_message || "Rendering failed."}</Text> : null}
             {job.status === "completed" && job.video_url ? <>
               <View style={styles.preview}><WebView originWhitelist={["*"]} source={{ html: videoHtml }} javaScriptEnabled allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false} style={{ backgroundColor: "#000" }} /></View>
-              <View style={styles.actionRow}><Pressable style={styles.secondaryButton} onPress={regenerate}><Ionicons name="refresh" size={18} color="#fff" /><Text style={styles.secondaryText}>Regenerate</Text></Pressable><Pressable style={styles.publishButton} onPress={() => router.push({ pathname: "/campaign-manager" as any, params: { videoUrl: job.video_url || "", productId: selectedProductId } })}><Ionicons name="paper-plane" size={18} color="#fff" /><Text style={styles.secondaryText}>Use in Campaign</Text></Pressable></View>
+              <View style={styles.actionRow}><Pressable style={styles.secondaryButton} onPress={regenerate}><Ionicons name="refresh" size={18} color="#fff" /><Text style={styles.secondaryText}>Regenerate</Text></Pressable><Pressable style={styles.publishButton} onPress={() => {
+                  if (!selectedProduct) return;
+
+                  // ARTBOOST_VIDEO_CAMPAIGN_EXACT_CONTEXT_V3
+                  router.push({
+                    pathname: "/campaign-manager" as any,
+                    params: {
+                      videoUrl: job.video_url || "",
+                      productId: selectedProduct.id,
+                      productTitle: selectedProduct.title || "",
+                      productDescription: selectedProduct.description || "",
+                      productImageUrl: selectedProduct.imageUrl || "",
+                      productLink: selectedProduct.productUrl || "",
+                      productStoreId: selectedProduct.storeConnectionId || "",
+                      productStoreName: selectedProduct.storeName || "",
+                      productStoreType: selectedProduct.storeType || "",
+                      campaignMediaType: "video",
+                      campaignSource: "video_studio",
+                    },
+                  });
+                }}><Ionicons name="paper-plane" size={18} color="#fff" /><Text style={styles.secondaryText}>Use in Campaign</Text></Pressable></View>
             </> : null}
           </View> : null}
           <View style={{ height: 44 }} />
@@ -182,6 +443,8 @@ const styles = StyleSheet.create({
   proBadge: { flexDirection: "row", gap: 5, alignItems: "center", borderWidth: 1, borderColor: "#665720", backgroundColor: "#272310", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 }, proText: { color: "#f8d66d", fontWeight: "800", fontSize: 9, letterSpacing: .7 },
   content: { padding: 16 }, center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }, muted: { color: "#9ca3af" },
   heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 23 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#bbb8cb", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
+  storeContextBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1c1730", borderWidth: 1, borderColor: "#44347b", marginTop: -4, marginBottom: 11 },
+  storeContextText: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
   rowScroll: { gap: 11, paddingBottom: 22 }, productCard: { width: 142, borderRadius: 17, backgroundColor: "#15161c", borderWidth: 1, borderColor: "#282a33", padding: 8, position: "relative" }, activeCard: { borderColor: "#8b5cf6", backgroundColor: "#191627" }, productImage: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#202127" }, placeholder: { alignItems: "center", justifyContent: "center" }, productTitle: { color: "#fff", fontWeight: "700", fontSize: 13, lineHeight: 17, marginTop: 8 }, storeText: { color: "#7f8493", fontSize: 11, marginTop: 4 }, check: { position: "absolute", top: 13, right: 13, width: 23, height: 23, borderRadius: 12, backgroundColor: "#8b5cf6", alignItems: "center", justifyContent: "center" },
   templateCard: { borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#14151b", borderWidth: 1, borderColor: "#292b34", marginBottom: 10 }, templateIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: "#231e39", alignItems: "center", justifyContent: "center" }, templateName: { color: "#fff", fontSize: 15, fontWeight: "800" }, templateDescription: { color: "#9297a6", fontSize: 12, lineHeight: 17, marginTop: 3 },
   readyCard: { padding: 14, borderRadius: 15, backgroundColor: "#0d201b", borderWidth: 1, borderColor: "#1c4b3b", flexDirection: "row", gap: 11, marginBottom: 14 }, readyTitle: { color: "#d1fae5", fontWeight: "800", fontSize: 14 }, readyText: { color: "#87b5a6", fontSize: 12, lineHeight: 17, marginTop: 2 }, createButton: { height: 56, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center", marginBottom: 18 }, disabled: { opacity: .48 }, createText: { color: "#fff", fontWeight: "800", fontSize: 16 },
