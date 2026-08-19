@@ -1,6 +1,6 @@
 import { recordError } from "../services/diagnosticsService.js";
 import { claimNextVideoJob, updateVideoJob } from "../services/videoStudioService.js";
-import { renderVideoJob } from "../services/videoRenderService.js";
+import { renderVideoJob } from "../services/videoGenerationService.js";
 
 let running = false;
 let timer = null;
