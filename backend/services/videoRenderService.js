@@ -111,49 +111,186 @@ function qualityScore(dimensions) {
   return { score: 58, label: "low" };
 }
 
-function clipFilter(index, template, seconds, { fadeIn = false, fadeOut = false } = {}) {
-  const fgWidth = Math.min(Math.max(template.foregroundWidth || 940, 760), 1020);
-  const brightness = Number(template.backgroundBrightness ?? -0.12).toFixed(2);
-  const blur = Math.min(Math.max(Number(template.backgroundBlur) || 28, 8), 60);
-  // ARTBOOST_RENDER_V3_1_BLUR_ORDER
-  const safeBlur = Math.min(Number(blur) || 0, 18);
-  const zoomStep = Number(template.zoomStep || 0.0005).toFixed(6);
-  const maxZoom = Number(template.maxZoom || 1.07).toFixed(4);
-  const fadeSeconds = Math.min(Math.max(Number(template.transitionSeconds) || 0.35, 0.20), 0.50);
-  const fadeOutStart = Math.max(seconds - fadeSeconds, 0).toFixed(3);
-  const fades = [
-    fadeIn ? `fade=t=in:st=0:d=${fadeSeconds.toFixed(3)}` : null,
-    fadeOut ? `fade=t=out:st=${fadeOutStart}:d=${fadeSeconds.toFixed(3)}` : null,
-  ].filter(Boolean).join(",");
-  const fadeChain = fades ? `,${fades}` : "";
+// ARTBOOST_VIDEO_V4_EFFECTS_ENGINE
+//
+// Five distinct artwork-safe motion identities.
+// Heavy work remains on the V3 540x960 canvas. The original listing image
+// is never regenerated; motion, atmosphere and finishing are composited
+// around the supplied artwork.
+
+function v4StyleId(template) {
+  return String(template?.id || "")
+    .trim()
+    .toLowerCase();
+}
+
+function v4StyleProfile(template) {
+  const id = v4StyleId(template);
+
+  if (id.includes("fast")) {
+    return {
+      duration: 7.0,
+      blur: 12,
+      brightness: -0.08,
+      saturation: 1.18,
+      contrast: 1.11,
+      vignette: "PI/5.8",
+      zoom:
+        "if(lt(mod(on,60),24),1.025+mod(on,24)*0.0022,if(lt(mod(on,60),40),1.078-(mod(on,60)-24)*0.0015,1.054+(mod(on,60)-40)*0.0012))",
+      x: "iw/2-(iw/zoom/2)+sin(on/5)*iw/95",
+      y: "ih/2-(ih/zoom/2)+cos(on/7)*ih/125",
+      sharpen: "5:5:0.55:5:5:0.0",
+    };
+  }
+
+  if (id.includes("artwork")) {
+    return {
+      duration: 9.0,
+      blur: 9,
+      brightness: -0.13,
+      saturation: 1.10,
+      contrast: 1.07,
+      vignette: "PI/6.8",
+      zoom: "min(1.16,1.015+on*0.00095)",
+      x: "iw/2-(iw/zoom/2)+sin(on/24)*iw/130",
+      y: "ih/2-(ih/zoom/2)+cos(on/31)*ih/155",
+      sharpen: "5:5:0.72:5:5:0.0",
+    };
+  }
+
+  if (id.includes("luxury")) {
+    return {
+      duration: 10.0,
+      blur: 16,
+      brightness: -0.18,
+      saturation: 1.04,
+      contrast: 1.14,
+      vignette: "PI/4.9",
+      zoom: "min(1.115,1.018+on*0.00048)",
+      x: "iw/2-(iw/zoom/2)+sin(on/38)*iw/150",
+      y: "ih/2-(ih/zoom/2)+cos(on/44)*ih/190",
+      sharpen: "5:5:0.42:5:5:0.0",
+    };
+  }
+
+  if (id.includes("clean")) {
+    return {
+      duration: 8.0,
+      blur: 8,
+      brightness: -0.04,
+      saturation: 1.02,
+      contrast: 1.04,
+      vignette: "PI/8.5",
+      zoom: "min(1.075,1.012+on*0.00042)",
+      x: "iw/2-(iw/zoom/2)+sin(on/34)*iw/210",
+      y: "ih/2-(ih/zoom/2)+cos(on/43)*ih/240",
+      sharpen: "5:5:0.34:5:5:0.0",
+    };
+  }
+
+  return {
+    duration: 9.0,
+    blur: 15,
+    brightness: -0.14,
+    saturation: 1.12,
+    contrast: 1.10,
+    vignette: "PI/5.6",
+    zoom:
+      "if(lt(on,70),1.015+on*0.0008,if(lt(on,125),1.071-(on-70)*0.00035,min(1.14,1.052+(on-125)*0.00082)))",
+    x: "iw/2-(iw/zoom/2)+sin(on/22)*iw/105",
+    y: "ih/2-(ih/zoom/2)+cos(on/29)*ih/145",
+    sharpen: "5:5:0.50:5:5:0.0",
+  };
+}
+
+function clipFilter(
+  index,
+  template,
+  seconds,
+  { fadeIn = false, fadeOut = false } = {}
+) {
+  const profile = v4StyleProfile(template);
+  const effectiveSeconds = Math.max(
+    Number(seconds) || 0,
+    profile.duration
+  );
+
+  const transition = Math.min(
+    Math.max(
+      Number(template?.transitionSeconds) || 0.40,
+      0.24
+    ),
+    0.65
+  );
+
+  const fadeSeconds = Math.min(
+    transition,
+    Math.max(effectiveSeconds / 5, 0.20)
+  );
+
+  const fadeOutStart = Math.max(
+    effectiveSeconds - fadeSeconds,
+    0
+  ).toFixed(3);
+
+  const fadeChain = [
+    fadeIn
+      ? `,fade=t=in:st=0:d=${fadeSeconds.toFixed(3)}`
+      : "",
+    fadeOut
+      ? `,fade=t=out:st=${fadeOutStart}:d=${fadeSeconds.toFixed(3)}`
+      : "",
+  ].join("");
+
+  const fgMaxW = Math.max(RENDER_WIDTH - 78, 320);
+  const fgMaxH = Math.max(RENDER_HEIGHT - 118, 520);
 
   return [
     `[${index}:v]split=2[bg${index}src][fg${index}src]`,
-    `[bg${index}src]scale=${RENDER_WIDTH}:${RENDER_HEIGHT}:force_original_aspect_ratio=increase,crop=${RENDER_WIDTH}:${RENDER_HEIGHT},gblur=sigma=${safeBlur},eq=brightness=${brightness}[bg${index}]`,
-    `[fg${index}src]scale='min(${RENDER_WIDTH - 80},iw)':'min(${RENDER_HEIGHT - 120},ih)':force_original_aspect_ratio=decrease[fg${index}]`,
+    `[bg${index}src]scale=${RENDER_WIDTH}:${RENDER_HEIGHT}:force_original_aspect_ratio=increase,crop=${RENDER_WIDTH}:${RENDER_HEIGHT},gblur=sigma=${profile.blur},eq=brightness=${profile.brightness}:contrast=${profile.contrast}:saturation=${profile.saturation}[bg${index}]`,
+    `[fg${index}src]scale=${fgMaxW}:${fgMaxH}:force_original_aspect_ratio=decrease,eq=contrast=1.035:saturation=1.02[fg${index}]`,
     `[bg${index}][fg${index}]overlay=(W-w)/2:(H-h)/2:format=auto[comp${index}]`,
-    `[comp${index}]zoompan=z='min(max(zoom,pzoom)+${zoomStep},${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${RENDER_WIDTH}x${RENDER_HEIGHT}:fps=${FPS},trim=duration=${seconds.toFixed(3)},fps=${FPS},setpts=PTS-STARTPTS,setsar=1,format=yuv420p${fadeChain}[v${index}]`,
+    `[comp${index}]zoompan=z='${profile.zoom}':x='${profile.x}':y='${profile.y}':d=1:s=${RENDER_WIDTH}x${RENDER_HEIGHT}:fps=${FPS},trim=duration=${effectiveSeconds.toFixed(3)},fps=${FPS},setpts=PTS-STARTPTS,unsharp=${profile.sharpen},vignette=angle=${profile.vignette},setsar=1,format=yuv420p${fadeChain}[v${index}]`,
   ].join(";");
 }
 
-function buildFilterComplex(imageCount, template) {
-  const clip = template.clipSeconds;
+function buildFilterComplex(template, imageCount) {
+  const profile = v4StyleProfile(template);
+  const count = Math.max(Number(imageCount) || 1, 1);
+  const totalDuration = profile.duration;
+  const clip = totalDuration / count;
   const parts = [];
-  for (let i = 0; i < imageCount; i += 1) {
-    parts.push(clipFilter(i, template, clip, {
-      fadeIn: i > 0,
-      fadeOut: i < imageCount - 1,
-    }));
+
+  for (let i = 0; i < count; i += 1) {
+    parts.push(
+      clipFilter(i, template, clip, {
+        fadeIn: i > 0,
+        fadeOut: i < count - 1,
+      })
+    );
   }
 
-  if (imageCount === 1) return { filter: parts.join(";"), outputLabel: "v0", duration: clip };
+  if (count === 1) {
+    return {
+      filter: parts.join(";"),
+      outputLabel: "v0",
+      duration: totalDuration,
+    };
+  }
 
-  const inputs = Array.from({ length: imageCount }, (_, i) => `[v${i}]`).join("");
-  parts.push(`${inputs}concat=n=${imageCount}:v=1:a=0[video]`);
+  const inputs = Array.from(
+    { length: count },
+    (_, i) => `[v${i}]`
+  ).join("");
+
+  parts.push(
+    `${inputs}concat=n=${count}:v=1:a=0[video]`
+  );
+
   return {
     filter: parts.join(";"),
     outputLabel: "video",
-    duration: clip * imageCount,
+    duration: totalDuration,
   };
 }
 

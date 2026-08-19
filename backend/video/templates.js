@@ -2,7 +2,7 @@ export const VIDEO_TEMPLATES = Object.freeze({
   cinematic: {
     id: "cinematic",
     name: "Cinematic Product",
-    description: "Slow premium camera movement with soft cinematic fades and artwork-safe framing.",
+    description: "Cinematic multi-beat camera movement, dramatic depth, atmospheric glow, and premium artwork-safe reveals.",
     clipSeconds: 4.2,
     transitionSeconds: 0.65,
     transition: "fade",
@@ -15,7 +15,7 @@ export const VIDEO_TEMPLATES = Object.freeze({
   clean_studio: {
     id: "clean_studio",
     name: "Clean Studio",
-    description: "Bright, restrained product presentation with crisp, minimal motion.",
+    description: "Bright commercial presentation with precise studio motion, clean depth, and polished product-focused reveals.",
     clipSeconds: 3.8,
     transitionSeconds: 0.45,
     transition: "smoothleft",
@@ -28,7 +28,7 @@ export const VIDEO_TEMPLATES = Object.freeze({
   fast_social: {
     id: "fast_social",
     name: "Fast Social Ad",
-    description: "Quicker pacing designed to hook short-form viewers while keeping the product readable.",
+    description: "Punchy short-form pacing with energetic camera pulses, faster visual hooks, and product-safe social ad motion.",
     clipSeconds: 2.9,
     transitionSeconds: 0.35,
     transition: "slideleft",
@@ -41,7 +41,7 @@ export const VIDEO_TEMPLATES = Object.freeze({
   artwork_focus: {
     id: "artwork_focus",
     name: "Artwork Focus",
-    description: "Gentle close-up motion that prioritizes design fidelity and fine artwork detail.",
+    description: "Immersive detail-first movement with deeper push-ins, atmospheric framing, and artwork-preserving cinematic focus.",
     clipSeconds: 4.4,
     transitionSeconds: 0.6,
     transition: "fade",
@@ -54,7 +54,7 @@ export const VIDEO_TEMPLATES = Object.freeze({
   luxury: {
     id: "luxury",
     name: "Luxury Showcase",
-    description: "Slow, polished pacing with darker depth and elegant fades.",
+    description: "Elegant premium pacing with dramatic depth, refined camera sweeps, richer contrast, and luxury-style reveals.",
     clipSeconds: 4.7,
     transitionSeconds: 0.8,
     transition: "smoothup",
