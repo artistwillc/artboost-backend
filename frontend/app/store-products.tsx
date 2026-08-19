@@ -59,6 +59,7 @@ function platformLabel(value: string) {
   if (clean === "etsy") return "Etsy";
   if (clean === "ebay") return "eBay";
   if (clean === "gumroad") return "Gumroad";
+  if (clean === "artpal") return "ArtPal";
   if (
     clean === "fine_art_america" ||
     clean === "fineartamerica"
@@ -248,9 +249,18 @@ export default function StoreProductsScreen() {
             ),
             description:
               item.description || null,
-            imageUrl: item.image_url || null,
+            // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
+            imageUrl:
+              item.image_url ||
+              item.imageUrl ||
+              item.thumbnail_url ||
+              item.thumbnailUrl ||
+              null,
             productUrl: String(
-              item.product_url || ""
+              item.product_url ||
+              item.productUrl ||
+              item.url ||
+              ""
             ),
             price:
               item.price === null ||
@@ -258,31 +268,38 @@ export default function StoreProductsScreen() {
                 ? null
                 : Number(item.price),
             currency: item.currency || "USD",
-            storeType: item.store_type || null,
-            storeName: item.store_name || null,
+            storeType:
+              item.store_type ||
+              item.storeType ||
+              null,
+            storeName:
+              item.store_name ||
+              item.storeName ||
+              null,
             storeConnectionId:
-              item.store_connection_id || null,
+              item.store_connection_id ||
+              item.storeConnectionId ||
+              item.store_id ||
+              null,
             status: item.status || null,
-            automationEnabled:
-              Boolean(item.automation_enabled),
+            automationEnabled: Boolean(
+              item.automation_enabled ??
+              item.automationEnabled
+            ),
             timesPosted:
-              Number(item.times_posted) || 0,
+              Number(
+                item.times_posted ??
+                item.timesPosted
+              ) || 0,
             lastPostedAt:
-              item.last_posted_at || null,
+              item.last_posted_at ||
+              item.lastPostedAt ||
+              null,
           })
         );
 
         setProducts(
-          mappedProducts.filter((product) => {
-            if (!matchesStore(product)) {
-              return false;
-            }
-
-            // Hide products that the store sync has marked inactive/deleted.
-            // Keep legacy rows whose status has not been populated yet.
-            const productStatus = normalize(product.status);
-            return !productStatus || productStatus === "active";
-          })
+          mappedProducts.filter(matchesStore)
         );
       } catch (error: any) {
         console.log(
@@ -348,7 +365,15 @@ export default function StoreProductsScreen() {
   function createProductVideo(product: Product) {
     router.push({
       pathname: "/video-studio" as any,
-      params: { productId: product.id },
+      params: {
+        productId: product.id,
+        storeId:
+          product.storeConnectionId || storeId,
+        storeName:
+          product.storeName || storeName,
+        storeType:
+          product.storeType || storeType,
+      },
     });
   }
 
@@ -400,18 +425,7 @@ export default function StoreProductsScreen() {
       <View style={styles.header}>
         <Pressable
           style={styles.headerButton}
-          onPress={() =>
-            router.replace({
-              pathname: "/store-dashboard" as any,
-              params: {
-                storeId,
-                storeName,
-                storeType,
-                productCount: String(products.length),
-                connected: String(params.connected ?? "true"),
-              },
-            })
-          }
+          onPress={() => router.back()}
         >
           <Ionicons
             name="arrow-back"

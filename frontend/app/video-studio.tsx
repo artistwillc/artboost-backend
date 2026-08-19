@@ -255,11 +255,31 @@ export default function VideoStudioScreen() {
           ),
           // ARTBOOST_VIDEO_CAMPAIGN_MAPPING_FIX_V3_1
           description: item.description || null,
-          imageUrl: item.image_url || null,
-        productUrl: item.product_url || item.productUrl || item.url || null,
-          storeName: item.store_name || null,
-          storeType: item.store_type || null,
-          storeConnectionId: item.store_connection_id || item.storeConnectionId || item.store_id || null,
+          // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
+          imageUrl:
+            item.image_url ||
+            item.imageUrl ||
+            item.thumbnail_url ||
+            item.thumbnailUrl ||
+            null,
+          productUrl:
+            item.product_url ||
+            item.productUrl ||
+            item.url ||
+            null,
+          storeName:
+            item.store_name ||
+            item.storeName ||
+            null,
+          storeType:
+            item.store_type ||
+            item.storeType ||
+            null,
+          storeConnectionId:
+            item.store_connection_id ||
+            item.storeConnectionId ||
+            item.store_id ||
+            null,
         })
       );
 
