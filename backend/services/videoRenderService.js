@@ -114,8 +114,9 @@ function qualityScore(dimensions) {
 function clipFilter(index, template, seconds, { fadeIn = false, fadeOut = false } = {}) {
   const fgWidth = Math.min(Math.max(template.foregroundWidth || 940, 760), 1020);
   const brightness = Number(template.backgroundBrightness ?? -0.12).toFixed(2);
-  const safeBlur = Math.min(Number(blur) || 0, 18);
   const blur = Math.min(Math.max(Number(template.backgroundBlur) || 28, 8), 60);
+  // ARTBOOST_RENDER_V3_1_BLUR_ORDER
+  const safeBlur = Math.min(Number(blur) || 0, 18);
   const zoomStep = Number(template.zoomStep || 0.0005).toFixed(6);
   const maxZoom = Number(template.maxZoom || 1.07).toFixed(4);
   const fadeSeconds = Math.min(Math.max(Number(template.transitionSeconds) || 0.35, 0.20), 0.50);
