@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+﻿import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -16,11 +16,11 @@ import {
   TextInput,
   View,
 } from "react-native";
- 
+
 import { supabase } from "@/lib/supabase";
- 
+
 const BACKEND_URL = "https://artboost-ai.onrender.com";
- 
+
 export default function CampaignManagerScreen() {
   // ARTBOOST_PAID_TIER_ACCESS_V1
   const hasPaidPublishingAccess = (tierValue?: string | null) =>
@@ -37,20 +37,30 @@ export default function CampaignManagerScreen() {
     productStoreId?: string;
     productStoreName?: string;
     productStoreType?: string;
+
+    // ARTBOOST_VIDEO_MEDIA_INTEGRITY_V1_1
+    videoUrl?: string;
+    campaignMediaType?: string;
+    campaignSource?: string;
+    videoJobId?: string;
   }>();
 
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
- 
+
   const [boards, setBoards] = useState<any[]>([]);
   const [selectedBoard, setSelectedBoard] = useState("");
   const [boardError, setBoardError] = useState("");
- 
+
   const [title, setTitle] = useState("");
   const [facebookPages, setFacebookPages] = useState<any[]>([]);
   const [selectedFacebookPage, setSelectedFacebookPage] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  // ARTBOOST_VIDEO_MEDIA_STATE_V1_1
+  const [videoUrl, setVideoUrl] = useState("");
+  const [campaignMediaType, setCampaignMediaType] =
+    useState<"image" | "video">("image");
   const [productLink, setProductLink] = useState("");
   const [previewImage, setPreviewImage] = useState("");
   const [hashtags, setHashtags] = useState("");
@@ -84,6 +94,16 @@ export default function CampaignManagerScreen() {
       productParams.productLink || ""
     ).trim();
 
+    // ARTBOOST_VIDEO_INCOMING_MEDIA_V1_1
+    const incomingVideo = String(productParams.videoUrl || "").trim();
+    const incomingMediaType =
+      String(productParams.campaignMediaType || "")
+        .trim()
+        .toLowerCase() === "video" &&
+      /^https:\/\//i.test(incomingVideo)
+        ? "video"
+        : "image";
+
     // Route product data is authoritative when Campaign Manager is opened
     // from a selected artwork. Do not allow a previously saved campaign to
     // replace the current artwork image/link.
@@ -100,6 +120,14 @@ export default function CampaignManagerScreen() {
       setPreviewImage(incomingImage);
     }
 
+    // ARTBOOST_VIDEO_INCOMING_MEDIA_V1_1
+    if (incomingVideo) {
+      setVideoUrl(incomingVideo);
+    } else {
+      setVideoUrl("");
+    }
+    setCampaignMediaType(incomingMediaType);
+
     if (incomingLink) {
       setProductLink(incomingLink);
     }
@@ -109,14 +137,14 @@ export default function CampaignManagerScreen() {
     productParams.productImageUrl,
     productParams.productLink,
   ]);
- 
+
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
   const [repostPreset, setRepostPreset] = useState<
         "daily" | "3days" | "weekly" | "monthly" | null
         >(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
- 
+
   const [scheduledCampaigns, setScheduledCampaigns] = useState<any[]>([]);
   const [queueFilter, setQueueFilter] = useState<
   | "all"
@@ -266,11 +294,11 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
     return value;
   };
 
- 
+
   const syncSubscription = async (userId: string, email: string) => {
     try {
       setSyncingSubscription(true);
- 
+
       const response = await fetch(`${BACKEND_URL}/sync-subscription`, {
         method: "POST",
         headers: {
@@ -281,7 +309,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
           email,
         }),
       });
- 
+
       const data = await response.json();
 
 
@@ -289,7 +317,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
         console.log("Subscription sync error:", data);
         return null;
       }
- 
+
       return data;
     } catch (err) {
       console.log("Subscription sync failed:", err);
@@ -298,44 +326,44 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
       setSyncingSubscription(false);
     }
   };
- 
+
   const loadSession = async () => {
     const { data } = await supabase.auth.getSession();
- 
+
     setSession(data.session);
- 
+
     if (data.session?.user?.id) {
       if (data.session.user.email) {
         await syncSubscription(data.session.user.id, data.session.user.email);
       }
- 
+
       await loadProfile(data.session.user.id);
     } else {
       setProfile(null);
     }
   };
- 
+
   const loadProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single();
- 
+
     if (error) {
   console.log("Profile load error:", error);
   return;
 }
- 
+
     console.log("PROFILE DATA:", data);
     setProfile(data);
   };
- 
+
   const getPublishAtIso = () => {
     if (!scheduledDate) return "";
     return scheduledDate.toISOString();
   };
- 
+
   const getReadableDate = () => {
   if (!scheduledDate) {
     return "Not Selected";
@@ -369,23 +397,23 @@ const applyRepostPreset = (
   preset: "daily" | "3days" | "weekly" | "monthly"
 ) => {
   const nextDate = new Date();
- 
+
   if (preset === "daily") {
     nextDate.setDate(nextDate.getDate() + 1);
   }
- 
+
   if (preset === "3days") {
     nextDate.setDate(nextDate.getDate() + 3);
   }
- 
+
   if (preset === "weekly") {
     nextDate.setDate(nextDate.getDate() + 7);
   }
- 
+
   if (preset === "monthly") {
     nextDate.setMonth(nextDate.getMonth() + 1);
   }
- 
+
   setRepostPreset(preset);
   setScheduledDate(nextDate);
 };
@@ -403,11 +431,11 @@ const applyRepostPreset = (
       !queueSearch ||
       item.title?.toLowerCase().includes(queueSearch.toLowerCase()) ||
       item.platform?.toLowerCase().includes(queueSearch.toLowerCase());
- 
+
     if (!matchesSearch) return false;
- 
+
     if (queueFilter === "all") return true;
- 
+
     if (
       queueFilter === "active" ||
       queueFilter === "paused" ||
@@ -416,16 +444,16 @@ const applyRepostPreset = (
     ) {
       return item.campaignStatus === queueFilter;
     }
- 
+
     return item.status === queueFilter;
   })
   .sort((a, b) => {
     const aTime = new Date(a.publishAt || a.publishDate || 0).getTime();
     const bTime = new Date(b.publishAt || b.publishDate || 0).getTime();
- 
+
     return aTime - bTime;
   });
-   
+
   const startStripeCheckout = async (plan: "monthly" | "yearly") => {
     try {
       if (!session?.user?.email) {
@@ -435,9 +463,9 @@ const applyRepostPreset = (
         );
         return;
       }
- 
+
       setCheckingOut(true);
- 
+
       const response = await fetch(`${BACKEND_URL}/create-checkout-session`, {
         method: "POST",
         headers: {
@@ -449,9 +477,9 @@ const applyRepostPreset = (
           userId: session.user.id,
         }),
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
   Alert.alert(
     "Checkout Error",
@@ -486,7 +514,7 @@ await Linking.openURL(data.url);
       setCheckingOut(false);
     }
   };
- 
+
   const openBillingPortal = async () => {
   try {
     if (!session?.user?.email || !session?.user?.id) {
@@ -538,7 +566,7 @@ await Linking.openURL(data.url);
     setOpeningBilling(false);
   }
 };
- 
+
   const loadCurrentCampaign = async () => {
   try {
     const saved =
@@ -696,19 +724,19 @@ await Linking.openURL(data.url);
     console.log("Failed loading campaign:", err);
   }
 };
- 
+
   const loadScheduledCampaigns = async () => {
     try {
       setLoadingQueue(true);
- 
+
       const userId = session?.user?.id;
       const url = userId
         ? `${BACKEND_URL}/scheduled-campaigns?userId=${userId}`
         : `${BACKEND_URL}/scheduled-campaigns`;
- 
+
       const response = await fetch(url);
       const data = await response.json();
- 
+
       if (data.campaigns) {
         setScheduledCampaigns(data.campaigns);
       }
@@ -718,14 +746,14 @@ await Linking.openURL(data.url);
       setLoadingQueue(false);
     }
   };
- 
+
   const saveScheduledCampaign = async () => {
     try {
       if (!title || !description) {
         Alert.alert("Missing Content", "Generate or enter campaign content first.");
         return;
       }
- 
+
       if (!imageUrl) {
         Alert.alert(
           "Missing Image URL",
@@ -733,17 +761,17 @@ await Linking.openURL(data.url);
         );
         return;
       }
- 
+
       if (selectedPlatform?.toLowerCase() === "pinterest" && !selectedBoard) {
   Alert.alert("Missing Board", "Please select a Pinterest board.");
   return;
 }
- 
+
       if (!scheduledDate) {
         Alert.alert("Missing Schedule Time", "Choose a date and time first.");
         return;
       }
- 
+
       const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
         method: "POST",
         headers: {
@@ -761,32 +789,44 @@ await Linking.openURL(data.url);
   pageId: selectedPlatform === "Facebook" ? selectedFacebookPage : null,
   publishAt: getPublishAtIso(),
   platform: selectedPlatform,
- 
+
   repeatType: repostPreset || "one_time",
- 
+
   nextRunAt:
     repostPreset && scheduledDate
       ? scheduledDate.toISOString()
       : null,
 }),
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         Alert.alert("Scheduling Error", data.error || "Failed to schedule campaign.");
         return;
       }
- 
+
       await loadScheduledCampaigns();
       setScheduledDate(null);
- 
+
       Alert.alert("Scheduled", "Campaign added to backend automation queue.");
     } catch (err: any) {
       console.log(err);
       Alert.alert("Scheduling Error", err.message || "Failed to schedule campaign.");
     }
   };
+  // ARTBOOST_VIDEO_CAMPAIGN_HELPERS_V1_1
+  const isVideoCampaign =
+    campaignMediaType === "video" && /^https:\/\//i.test(videoUrl);
+
+  const videoUnsupportedAlert = (platform: string) => {
+    Alert.alert(
+      "Video Publishing Adapter Required",
+      `${platform} requires its own video-upload workflow. ArtBoost will not silently replace this Video Studio MP4 with the product image.`
+    );
+  };
+
+
 
   const scheduleEverywhere = async () => {
   try {
@@ -893,25 +933,25 @@ for (const platform of platforms) {
     );
   }
 };
- 
+
   const deleteScheduledCampaign = async (id: string) => {
     try {
       const userId = session?.user?.id;
       const url = userId
         ? `${BACKEND_URL}/scheduled-campaigns/${id}?userId=${userId}`
         : `${BACKEND_URL}/scheduled-campaigns/${id}`;
- 
+
       const response = await fetch(url, {
         method: "DELETE",
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         Alert.alert("Delete Error", data.error || "Failed to delete campaign.");
         return;
       }
- 
+
       setScheduledCampaigns(data.campaigns || []);
       Alert.alert("Deleted", "Scheduled campaign removed.");
     } catch (err: any) {
@@ -919,7 +959,7 @@ for (const platform of platforms) {
       Alert.alert("Delete Error", err.message || "Failed to delete campaign.");
     }
   };
- 
+
   const updateCampaignLifecycle = async (
     id: string,
     campaignStatus: "active" | "paused" | "ended" | "saved"
@@ -938,9 +978,9 @@ for (const platform of platforms) {
           }),
         }
       );
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         Alert.alert(
           "Lifecycle Error",
@@ -948,31 +988,31 @@ for (const platform of platforms) {
         );
         return;
       }
- 
+
       await loadScheduledCampaigns();
- 
+
       Alert.alert("Campaign Updated", `Campaign marked as ${campaignStatus}.`);
     } catch (err: any) {
       console.log(err);
- 
+
       Alert.alert(
         "Lifecycle Error",
         err.message || "Failed to update campaign."
       );
     }
   };
- 
+
   const postScheduledNow = async (item: any) => {
     try {
       setTitle(item.title || "");
       setDescription(item.description || "");
       setImageUrl(item.imageUrl || "");
       setProductLink(cleanUrl(item.productLink || ""));
- 
+
       if (item.boardId) {
         setSelectedBoard(item.boardId);
       }
- 
+
       Alert.alert(
         "Loaded",
         "Campaign loaded into publishing fields. Tap Post To Pinterest to publish now."
@@ -1013,7 +1053,7 @@ const loadFacebookStatus = async () => {
   }
 
 };
- 
+
 const loadFacebookPages = async () => {
   try {
     const response = await fetch(`${BACKEND_URL}/facebook/pages`);
@@ -1041,21 +1081,21 @@ console.log("Facebook Pages Response:", data);
     try {
       setLoadingBoards(true);
       setBoardError("");
- 
+
       const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
       const data = await response.json();
- 
+
       if (!response.ok) {
         setBoards([]);
         setBoardError(data.error || "Pinterest boards could not be loaded.");
         return;
       }
- 
+
       if (data.items && Array.isArray(data.items)) {
         setBoards(data.items);
- 
+
         const redbubbleBoard = data.items.find((b: any) => b.name === "Redbubble");
- 
+
         if (redbubbleBoard) {
           setSelectedBoard(redbubbleBoard.id);
         } else if (data.items.length > 0) {
@@ -1072,27 +1112,32 @@ console.log("Facebook Pages Response:", data);
       setLoadingBoards(false);
     }
   };
- 
+
   const createPinterestPin = async () => {
     try {
+      // ARTBOOST_PINTEREST_VIDEO_GUARD_V1_1
+      if (isVideoCampaign) {
+        videoUnsupportedAlert("Pinterest");
+        return;
+      }
       if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
         Alert.alert("Paid Plan Required", "Pinterest publishing requires a Pro or Business plan.");
         return;
       }
- 
+
       if (selectedPlatform?.toLowerCase() === "pinterest" && !selectedBoard) {
   Alert.alert("Missing Board", "Please select a Pinterest board.");
   return;
 }
- 
+
       if (!imageUrl) {
         Alert.alert("Missing Image URL", "This platform requires a public image URL.");
         return;
       }
- 
+
       const finalProductLink = cleanUrl(productLink);
-      
- 
+
+
       if (finalProductLink && !finalProductLink.startsWith("http")) {
         Alert.alert(
           "Invalid Product Link",
@@ -1100,9 +1145,9 @@ console.log("Facebook Pages Response:", data);
         );
         return;
       }
- 
+
       setPublishing(true);
- 
+
       const response = await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
         method: "POST",
         headers: {
@@ -1116,9 +1161,9 @@ console.log("Facebook Pages Response:", data);
           imageUrl,
         }),
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
   console.log("Pinterest publish error:", data);
 
@@ -1139,12 +1184,12 @@ console.log("Facebook Pages Response:", data);
 
   return;
 }
- 
+
       Alert.alert(
         "Pinterest Pin Published",
         "Your artwork was successfully posted to Pinterest."
       );
- 
+
       await loadScheduledCampaigns();
     } catch (err: any) {
       console.log(err);
@@ -1164,10 +1209,10 @@ const createFacebookPost = async () => {
       return;
     }
 
-    if (!imageUrl) {
+    if (!imageUrl && !isVideoCampaign) {
       Alert.alert(
-        "Missing Image URL",
-        "Facebook requires a public image URL."
+        "Missing Media",
+        "Facebook requires an artwork image or Video Studio video."
       );
       return;
     }
@@ -1205,8 +1250,7 @@ const createFacebookPost = async () => {
 
     setPublishing(true);
 
-    const response = await fetch(
-      `${BACKEND_URL}/facebook/post`,
+    const response = await fetch(isVideoCampaign ? `${BACKEND_URL}/facebook/video-post` : `${BACKEND_URL}/facebook/post`,
       {
         method: "POST",
         headers: {
@@ -1215,6 +1259,9 @@ const createFacebookPost = async () => {
         body: JSON.stringify({
           message: facebookMessage,
           imageUrl,
+          videoUrl: isVideoCampaign ? videoUrl : null,
+          mediaType: isVideoCampaign ? "video" : "image",
+          userId: session?.user?.id || null,
           pageId: selectedFacebookPage,
           productLink: finalProductLink,
         }),
@@ -1261,18 +1308,17 @@ const createInstagramPost = async () => {
       return;
     }
 
-    if (!imageUrl) {
+    if (!imageUrl && !isVideoCampaign) {
       Alert.alert(
-        "Missing Image URL",
-        "Instagram requires a public image URL."
+        "Missing Media",
+        "Instagram requires an artwork image or Video Studio video."
       );
       return;
     }
 
     setPublishing(true);
 
-    const response = await fetch(
-      `${BACKEND_URL}/instagram/post`,
+    const response = await fetch(isVideoCampaign ? `${BACKEND_URL}/instagram/video-post` : `${BACKEND_URL}/instagram/post`,
       {
         method: "POST",
         headers: {
@@ -1287,6 +1333,9 @@ ${cta}
 
 ${hashtags}`,
           imageUrl,
+          videoUrl: isVideoCampaign ? videoUrl : null,
+          mediaType: isVideoCampaign ? "video" : "image",
+          userId: session?.user?.id || null,
         }),
       }
     );
@@ -1319,6 +1368,11 @@ ${hashtags}`,
 
 const createXPost = async () => {
   try {
+      // ARTBOOST_X_VIDEO_GUARD_V1_1
+      if (isVideoCampaign) {
+        videoUnsupportedAlert("X");
+        return;
+      }
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1457,7 +1511,7 @@ const createThreadsPost = async () => {
 
     setPublishing(true);
 
-    const response = await fetch(`${BACKEND_URL}/threads/post`, {
+    const response = await fetch(isVideoCampaign ? `${BACKEND_URL}/threads/video-post` : `${BACKEND_URL}/threads/post`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1499,6 +1553,11 @@ const createThreadsPost = async () => {
 
 const createLinkedInPost = async () => {
   try {
+      // ARTBOOST_LINKEDIN_VIDEO_GUARD_V1_1
+      if (isVideoCampaign) {
+        videoUnsupportedAlert("LinkedIn");
+        return;
+      }
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1607,10 +1666,10 @@ const createTikTokPost = async () => {
       return;
     }
 
-    if (!imageUrl) {
+    if (!imageUrl && !isVideoCampaign) {
       Alert.alert(
-        "Missing Image URL",
-        "TikTok photo publishing requires an artwork image."
+        "Missing Media",
+        "TikTok requires an artwork image or Video Studio video."
       );
       return;
     }
@@ -1658,7 +1717,7 @@ const createTikTokPost = async () => {
     setPublishing(true);
 
     const response = await fetch(
-      `${BACKEND_URL}/tiktok/photo-post`,
+      isVideoCampaign ? `${BACKEND_URL}/tiktok/video-post` : `${BACKEND_URL}/tiktok/photo-post`,
       {
         method: "POST",
         headers: {
@@ -1669,6 +1728,8 @@ const createTikTokPost = async () => {
           title: removeLinks(title),
           description: caption,
           imageUrl,
+          videoUrl: isVideoCampaign ? videoUrl : null,
+          mediaType: isVideoCampaign ? "video" : "image",
           productLink:
             cleanUrl(productLink) || null,
           privacyLevel: tiktokPrivacy,
@@ -1715,6 +1776,14 @@ const createTikTokPost = async () => {
 
 const postEverywhere = async () => {
   try {
+      // ARTBOOST_VIDEO_POST_EVERYWHERE_GUARD_V1_1
+      if (isVideoCampaign) {
+        Alert.alert(
+          "Video Campaign",
+          "Use the individual Facebook, Instagram, Threads, and TikTok buttons for this Video Studio campaign. ArtBoost will not substitute the artwork image on platforms whose video upload adapter is not installed yet."
+        );
+        return;
+      }
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert("Paid Plan Required", "Post Everywhere requires a Pro or Business plan.");
       return;
@@ -1822,7 +1891,7 @@ const postEverywhere = async () => {
       }),
     });
 
-    await fetch(`${BACKEND_URL}/facebook/post`, {
+    await fetch(isVideoCampaign ? `${BACKEND_URL}/facebook/video-post` : `${BACKEND_URL}/facebook/post`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1833,7 +1902,7 @@ const postEverywhere = async () => {
       }),
     });
 
-    await fetch(`${BACKEND_URL}/instagram/post`, {
+    await fetch(isVideoCampaign ? `${BACKEND_URL}/instagram/video-post` : `${BACKEND_URL}/instagram/post`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1852,7 +1921,7 @@ const postEverywhere = async () => {
       }),
     });
 
-    await fetch(`${BACKEND_URL}/threads/post`, {
+    await fetch(isVideoCampaign ? `${BACKEND_URL}/threads/video-post` : `${BACKEND_URL}/threads/post`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1898,9 +1967,9 @@ const generateVariations = async () => {
         Alert.alert("Paid Plan Required", "AI variations are a Pro feature.");
         return;
       }
- 
+
       setLoadingVariations(true);
- 
+
       const response = await fetch(`${BACKEND_URL}/generate-variations`, {
         method: "POST",
         headers: {
@@ -1913,22 +1982,22 @@ const generateVariations = async () => {
           productLink,
         }),
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         console.log(data);
         Alert.alert("Variation Error", data.error || "Failed to generate AI variations.");
         return;
       }
- 
+
       if (!data.variations || !Array.isArray(data.variations)) {
         Alert.alert("Variation Error", "Invalid AI response.");
         return;
       }
- 
+
       setVariations(data.variations);
- 
+
       Alert.alert(
         "AI Variations Ready",
         "Fresh AI campaign variations generated successfully."
@@ -1940,58 +2009,58 @@ const generateVariations = async () => {
       setLoadingVariations(false);
     }
   };
- 
+
   const copyVariation = async (variationTitle: string, variationText: string) => {
     await Clipboard.setStringAsync(`${variationTitle}\n\n${variationText}`);
     Alert.alert("Copied", "Variation copied to clipboard.");
   };
- 
+
   const useVariation = (variationTitle: string, variationText: string) => {
     setTitle(variationTitle);
     setDescription(variationText);
     Alert.alert("Loaded", "Variation loaded into the publishing fields.");
   };
- 
+
   const simulateProFeature = (feature: string) => {
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert("Paid Plan Required", `${feature} requires a Pro or Business plan.`);
       return;
     }
- 
+
     Alert.alert(
       feature,
       `${feature} automation workflow will be activated as platform APIs are connected.`
     );
   };
- 
+
   const handleDateChange = (event: any, selected: Date | undefined) => {
     setShowDatePicker(false);
- 
+
     if (!selected) return;
- 
+
     const current = scheduledDate || new Date();
     const updated = new Date(current);
- 
+
     updated.setFullYear(selected.getFullYear());
     updated.setMonth(selected.getMonth());
     updated.setDate(selected.getDate());
- 
+
     setScheduledDate(updated);
   };
- 
+
   const handleTimeChange = (event: any, selected: Date | undefined) => {
     setShowTimePicker(false);
- 
+
     if (!selected) return;
- 
+
     const current = scheduledDate || new Date();
     const updated = new Date(current);
- 
+
     updated.setHours(selected.getHours());
     updated.setMinutes(selected.getMinutes());
     updated.setSeconds(0);
     updated.setMilliseconds(0);
- 
+
     setScheduledDate(updated);
   };
 
@@ -2053,7 +2122,7 @@ useFocusEffect(
     loadCurrentCampaign();
   }, [])
 );
- 
+
   useEffect(() => {
 
   loadSession();
@@ -2065,36 +2134,36 @@ useFocusEffect(
   loadFacebookPages();
 
   loadCurrentCampaign();
- 
+
     const authSubscription = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
- 
+
       if (newSession?.user?.id) {
         loadProfile(newSession.user.id);
       } else {
         setProfile(null);
       }
     });
- 
+
     return () => {
       authSubscription.data.subscription.unsubscribe();
     };
   }, []);
- 
+
   useEffect(() => {
     loadScheduledCampaigns();
- 
+
     const interval = setInterval(() => {
       loadScheduledCampaigns();
- 
+
       if (session?.user?.id) {
         loadProfile(session.user.id);
       }
     }, 30000);
- 
+
     return () => clearInterval(interval);
   }, [session?.user?.id]);
- 
+
   return (
     <ScrollView
       contentContainerStyle={styles.container}
@@ -2689,12 +2758,12 @@ useFocusEffect(
             <Text style={styles.sectionHeader}>
 {selectedPlatform} Publishing
 </Text>
- 
+
             <Pressable
               style={styles.smallRefreshButton}
               onPress={loadScheduledCampaigns}
             >
- 
+
               <Text style={styles.smallRefreshText}>Refresh</Text>
             </Pressable>
           </View>
@@ -2705,34 +2774,34 @@ useFocusEffect(
   value={queueSearch}
   onChangeText={setQueueSearch}
 />
- 
+
 <View style={styles.analyticsRow}>
   <View style={styles.analyticsCard}>
     <Text style={styles.analyticsNumber}>{scheduledCampaigns.length}</Text>
     <Text style={styles.analyticsLabel}>Total</Text>
   </View>
- 
+
   <View style={styles.analyticsCard}>
     <Text style={styles.analyticsNumber}>
       {scheduledCampaigns.filter((x) => x.campaignStatus === "active").length}
     </Text>
     <Text style={styles.analyticsLabel}>Active</Text>
   </View>
- 
+
   <View style={styles.analyticsCard}>
     <Text style={styles.analyticsNumber}>
       {scheduledCampaigns.filter((x) => x.campaignStatus === "paused").length}
     </Text>
     <Text style={styles.analyticsLabel}>Paused</Text>
   </View>
- 
+
   <View style={styles.analyticsCard}>
     <Text style={styles.analyticsNumber}>
       {scheduledCampaigns.filter((x) => x.campaignStatus === "saved").length}
     </Text>
     <Text style={styles.analyticsLabel}>Saved</Text>
   </View>
- 
+
   <View style={styles.analyticsCard}>
     <Text style={styles.analyticsNumber}>
       {scheduledCampaigns.filter((x) => x.status === "published").length}
@@ -2740,7 +2809,7 @@ useFocusEffect(
     <Text style={styles.analyticsLabel}>Posted</Text>
   </View>
 </View>
- 
+
 <View style={styles.filterRow}>
   {["all", "active", "paused", "saved", "ended", "published", "failed"].map(
     (filter) => (
@@ -2765,7 +2834,7 @@ useFocusEffect(
                 ) {
                   return item.campaignStatus === filter;
                 }
- 
+
                 return item.status === filter;
               }).length}
           )
@@ -2785,7 +2854,7 @@ useFocusEffect(
             <View key={item.id} style={styles.queueCard}>
               <View style={styles.statusRow}>
                 <Text style={styles.queueTitle}>{item.title}</Text>
- 
+
                 <View style={styles.statusBadgeContainer}>
                   {item.status !== item.campaignStatus && (
   <Text
@@ -2797,20 +2866,20 @@ useFocusEffect(
     {item.status || "scheduled"}
   </Text>
 )}
- 
+
 <Text
   style={[
     styles.lifecycleBadge,
- 
+
     item.campaignStatus === "active" &&
       styles.lifecycleActive,
- 
+
     item.campaignStatus === "paused" &&
       styles.lifecyclePaused,
- 
+
     item.campaignStatus === "saved" &&
       styles.lifecycleSaved,
- 
+
     item.campaignStatus === "ended" &&
       styles.lifecycleEnded,
   ]}
@@ -2819,9 +2888,9 @@ useFocusEffect(
 </Text>
                 </View>
               </View>
- 
+
               <Text style={styles.queueText}>{item.platform}</Text>
- 
+
               <Text style={styles.queueText}>
   Scheduled:{" "}
   {new Date(
@@ -2840,40 +2909,40 @@ useFocusEffect(
     <Text style={styles.metricNumber}>
       {item.views || 0}
     </Text>
- 
+
     <Text style={styles.metricLabel}>
       Views
     </Text>
   </View>
- 
+
   <View style={styles.metricBox}>
     <Text style={styles.metricNumber}>
       {item.clicks || 0}
     </Text>
- 
+
     <Text style={styles.metricLabel}>
       Clicks
     </Text>
   </View>
- 
+
   <View style={styles.metricBox}>
     <Text style={styles.metricNumber}>
       {item.posts || 0}
     </Text>
- 
+
     <Text style={styles.metricLabel}>
       Posts
     </Text>
   </View>
 </View>
- 
+
 {item.publishedAt ? (
   <Text style={styles.queueText}>
     Last Published:{" "}
     {new Date(item.publishedAt).toLocaleString()}
   </Text>
 ) : null}
- 
+
               {item.error ? (
                 <Text style={styles.errorText}>Error: {item.error}</Text>
               ) : null}
@@ -2884,7 +2953,7 @@ useFocusEffect(
   >
     <Text style={styles.queueButtonText}>Load</Text>
   </Pressable>
- 
+
   {item.campaignStatus === "active" && (
     <>
       <Pressable
@@ -2895,7 +2964,7 @@ useFocusEffect(
       >
         <Text style={styles.queueButtonText}>Pause</Text>
       </Pressable>
- 
+
       <Pressable
         style={styles.queueEndButton}
         onPress={() =>
@@ -2904,7 +2973,7 @@ useFocusEffect(
       >
         <Text style={styles.queueButtonText}>End</Text>
       </Pressable>
- 
+
       <Pressable
         style={styles.queueSaveButton}
         onPress={() =>
@@ -2915,7 +2984,7 @@ useFocusEffect(
       </Pressable>
     </>
   )}
- 
+
   {item.campaignStatus === "paused" && (
     <>
       <Pressable
@@ -2926,7 +2995,7 @@ useFocusEffect(
       >
         <Text style={styles.queueButtonText}>Resume</Text>
       </Pressable>
- 
+
       <Pressable
         style={styles.queueEndButton}
         onPress={() =>
@@ -2935,7 +3004,7 @@ useFocusEffect(
       >
         <Text style={styles.queueButtonText}>End</Text>
       </Pressable>
- 
+
       <Pressable
         style={styles.queueSaveButton}
         onPress={() =>
@@ -2946,7 +3015,7 @@ useFocusEffect(
       </Pressable>
     </>
   )}
- 
+
   {item.campaignStatus === "saved" && (
     <>
       <Pressable
@@ -2959,7 +3028,7 @@ useFocusEffect(
           Reactivate
         </Text>
       </Pressable>
- 
+
       <Pressable
         style={styles.queueEndButton}
         onPress={() =>
@@ -2970,7 +3039,7 @@ useFocusEffect(
       </Pressable>
     </>
   )}
- 
+
   {item.campaignStatus === "ended" && (
     <Pressable
       style={styles.queueReactivateButton}
@@ -2983,7 +3052,7 @@ useFocusEffect(
       </Text>
     </Pressable>
   )}
- 
+
   <Pressable
     style={styles.queueDeleteButton}
     onPress={() =>
@@ -2998,7 +3067,7 @@ useFocusEffect(
 )}
         </View>
       )}
- 
+
       <Pressable
   disabled={publishing}
   style={[
@@ -3062,14 +3131,14 @@ else {
     </ScrollView>
   );
 }
- 
+
 const styles = StyleSheet.create({
   container: {
     padding: 20,
     backgroundColor: "#101010",
     minHeight: "100%",
   },
- 
+
   titleCopy: {
     flex: 1,
   },
@@ -3322,7 +3391,7 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: "900",
   },
- 
+
   subheader: {
     color: "#aaa",
     marginLeft: 52,
@@ -3330,7 +3399,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
   },
- 
+
   heroBox: {
     backgroundColor: "#1b1b1b",
     borderRadius: 20,
@@ -3339,20 +3408,20 @@ const styles = StyleSheet.create({
     borderColor: "#8b5cf6",
     marginBottom: 20,
   },
- 
+
   heroTitle: {
     color: "#fff",
     fontSize: 24,
     fontWeight: "900",
     marginBottom: 10,
   },
- 
+
   heroText: {
     color: "#d0d0d0",
     lineHeight: 24,
     fontSize: 15,
   },
- 
+
   proActiveBadge: {
     backgroundColor: "#12a86b",
     paddingVertical: 12,
@@ -3361,7 +3430,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 14,
   },
- 
+
   freeBadge: {
     backgroundColor: "#555",
     paddingVertical: 12,
@@ -3370,13 +3439,13 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 14,
   },
- 
+
   badgeText: {
     color: "#fff",
     fontWeight: "900",
     fontSize: 14,
   },
- 
+
   billingButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 14,
@@ -3384,13 +3453,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 6,
   },
- 
+
   billingButtonText: {
     color: "#fff",
     fontWeight: "900",
     fontSize: 14,
   },
- 
+
   upgradeButton: {
     backgroundColor: "#8b5cf6",
     paddingVertical: 16,
@@ -3398,7 +3467,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 18,
   },
- 
+
   yearlyButton: {
     backgroundColor: "#12a86b",
     paddingVertical: 16,
@@ -3406,59 +3475,59 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
- 
+
   automationGrid: {
     marginBottom: 20,
   },
- 
+
   automationCard: {
     backgroundColor: "#1b1b1b",
     borderRadius: 18,
     padding: 18,
     marginBottom: 14,
   },
- 
+
   automationTitle: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 8,
   },
- 
+
   automationText: {
     color: "#aaa",
     lineHeight: 22,
     fontSize: 14,
   },
- 
+
   variationCard: {
     backgroundColor: "#2b2b2b",
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
   },
- 
+
   variationStyle: {
     color: "#8b5cf6",
     fontSize: 13,
     fontWeight: "900",
     marginBottom: 8,
   },
- 
+
   variationTitle: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 10,
   },
- 
+
   variationDescription: {
     color: "#d0d0d0",
     lineHeight: 22,
     fontSize: 14,
     marginBottom: 14,
   },
- 
+
   copyButton: {
     backgroundColor: "#8b5cf6",
     paddingVertical: 12,
@@ -3466,19 +3535,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
- 
+
   useButton: {
     backgroundColor: "#2d6cdf",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
   },
- 
+
   copyButtonText: {
     color: "#fff",
     fontWeight: "800",
   },
- 
+
   preview: {
     width: "100%",
     height: 260,
@@ -3487,25 +3556,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a1a",
     marginBottom: 20,
   },
- 
+
   card: {
     backgroundColor: "#1a1a1a",
     borderRadius: 18,
     padding: 18,
     marginBottom: 20,
   },
- 
+
   sectionHeader: {
     color: "#fff",
     fontSize: 20,
     fontWeight: "900",
     marginBottom: 18,
   },
- 
+
   boardHeaderRow: {
     marginBottom: 10,
   },
- 
+
   label: {
     color: "#fff",
     fontSize: 15,
@@ -3513,7 +3582,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 10,
   },
- 
+
   input: {
     backgroundColor: "#2b2b2b",
     color: "#fff",
@@ -3521,46 +3590,46 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 14,
   },
- 
+
   textarea: {
     minHeight: 120,
     textAlignVertical: "top",
   },
- 
+
   helperText: {
     color: "#777",
     fontSize: 12,
     marginTop: 8,
     lineHeight: 18,
   },
- 
+
   boardButton: {
     backgroundColor: "#2b2b2b",
     padding: 14,
     borderRadius: 12,
     marginBottom: 10,
   },
- 
+
   boardSelected: {
     backgroundColor: "#bd081c",
   },
- 
+
   boardText: {
     color: "#fff",
     fontWeight: "700",
   },
- 
+
   boardError: {
     color: "#ff6b6b",
     fontSize: 14,
     lineHeight: 20,
     marginTop: 8,
   },
- 
+
   loading: {
     color: "#aaa",
   },
- 
+
   scheduleBox: {
     backgroundColor: "#2b2b2b",
     borderRadius: 14,
@@ -3574,18 +3643,18 @@ const styles = StyleSheet.create({
   marginTop: 12,
   marginBottom: 4,
 },
- 
+
   scheduleText: {
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 14,
   },
- 
+
   scheduleButtons: {
     flexDirection: "row",
   },
- 
+
   scheduleButton: {
     flex: 1,
     backgroundColor: "#2d6cdf",
@@ -3594,12 +3663,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 8,
   },
- 
+
   scheduleButtonText: {
     color: "#fff",
     fontWeight: "800",
   },
- 
+
   pickerBox: {
     backgroundColor: "#1b1b1b",
     borderRadius: 16,
@@ -3608,7 +3677,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333",
   },
- 
+
   donePickerButton: {
     backgroundColor: "#8b5cf6",
     paddingVertical: 12,
@@ -3616,18 +3685,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
   },
- 
+
   donePickerText: {
     color: "#fff",
     fontWeight: "900",
   },
- 
+
   queueHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
- 
+
   smallRefreshButton: {
     backgroundColor: "#2d6cdf",
     paddingVertical: 8,
@@ -3635,7 +3704,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 18,
   },
- 
+
   smallRefreshText: {
     color: "#fff",
     fontWeight: "800",
@@ -3656,26 +3725,26 @@ readyText: {
   fontWeight: "700",
   marginBottom: 8,
 },
- 
+
   queueCard: {
     backgroundColor: "#2b2b2b",
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
   },
- 
+
   statusRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     marginBottom: 6,
   },
- 
+
   statusBadgeContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
- 
+
   lifecycleBadge: {
   color: "#fff",
   fontSize: 11,
@@ -3686,23 +3755,23 @@ readyText: {
   marginLeft: 6,
   overflow: "hidden",
 },
- 
+
 lifecycleActive: {
   backgroundColor: "#12a86b",
 },
- 
+
 lifecyclePaused: {
   backgroundColor: "#555",
 },
- 
+
 lifecycleSaved: {
   backgroundColor: "#8b5cf6",
 },
- 
+
 lifecycleEnded: {
   backgroundColor: "#a62828",
 },
- 
+
   queueTitle: {
     color: "#fff",
     fontWeight: "800",
@@ -3711,7 +3780,7 @@ lifecycleEnded: {
     flex: 1,
     paddingRight: 8,
   },
- 
+
   statusBadge: {
     color: "#fff",
     fontSize: 11,
@@ -3722,47 +3791,47 @@ lifecycleEnded: {
     overflow: "hidden",
     textTransform: "uppercase",
   },
- 
+
   statusScheduled: {
     backgroundColor: "#8b5cf6",
   },
- 
+
   statusPublishing: {
     backgroundColor: "#f59e0b",
   },
- 
+
   statusPublished: {
     backgroundColor: "#12a86b",
   },
- 
+
   statusFailed: {
     backgroundColor: "#a62828",
   },
- 
+
   statusSaved: {
     backgroundColor: "#444",
   },
- 
+
   queueText: {
     color: "#aaa",
     fontSize: 13,
     lineHeight: 20,
   },
- 
+
   errorText: {
     color: "#ff6b6b",
     fontSize: 13,
     lineHeight: 20,
     marginTop: 6,
   },
- 
+
   queueButtons: {
   flexDirection: "row",
   flexWrap: "wrap",
   marginTop: 12,
   gap: 6,
 },
- 
+
   queuePostButton: {
     flexGrow: 1,
     backgroundColor: "#2d6cdf",
@@ -3781,7 +3850,7 @@ queuePauseButton: {
   marginRight: 6,
   marginBottom: 6,
 },
- 
+
   queueEndButton: {
     flexGrow: 1,
     backgroundColor: "#f59e0b",
@@ -3791,7 +3860,7 @@ queuePauseButton: {
     marginRight: 8,
     marginBottom: 8,
   },
- 
+
   queueSaveButton: {
     flexGrow: 1,
     backgroundColor: "#8b5cf6",
@@ -3801,7 +3870,7 @@ queuePauseButton: {
     marginRight: 8,
     marginBottom: 8,
   },
- 
+
   queueReactivateButton: {
     flexGrow: 1,
     backgroundColor: "#12a86b",
@@ -3811,7 +3880,7 @@ queuePauseButton: {
     marginRight: 8,
     marginBottom: 8,
   },
- 
+
   queueDeleteButton: {
     flexGrow: 1,
     backgroundColor: "#a62828",
@@ -3820,12 +3889,12 @@ queuePauseButton: {
     alignItems: "center",
     marginBottom: 8,
   },
- 
+
   queueButtonText: {
     color: "#fff",
     fontWeight: "800",
   },
- 
+
   publishButton: {
   paddingVertical: 18,
   borderRadius: 18,
@@ -3840,7 +3909,7 @@ pinterestButton: {
 facebookButton: {
   backgroundColor: "#1877f2",
 },
- 
+
   publishText: {
   color: "#fff",
   fontSize: 18,
@@ -3853,7 +3922,7 @@ presetRow: {
   marginTop: 14,
   marginBottom: 6,
 },
- 
+
 presetButton: {
   backgroundColor: "#2b2b2b",
   paddingVertical: 10,
@@ -3862,23 +3931,23 @@ presetButton: {
   marginRight: 8,
   marginBottom: 8,
 },
- 
+
 presetButtonActive: {
   backgroundColor: "#8b5cf6",
 },
- 
+
 presetButtonText: {
   color: "#fff",
   fontWeight: "800",
   fontSize: 12,
 },
- 
+
 filterRow: {
   flexDirection: "row",
   flexWrap: "wrap",
   marginBottom: 14,
 },
- 
+
 filterButton: {
   backgroundColor: "#2b2b2b",
   paddingVertical: 8,
@@ -3887,17 +3956,17 @@ filterButton: {
   marginRight: 8,
   marginBottom: 8,
 },
- 
+
 filterButtonActive: {
   backgroundColor: "#8b5cf6",
 },
- 
+
 filterButtonText: {
   color: "#fff",
   fontSize: 11,
   fontWeight: "800",
 },
- 
+
 emptyStateBox: {
   backgroundColor: "#2b2b2b",
   borderRadius: 14,
@@ -3905,7 +3974,7 @@ emptyStateBox: {
   alignItems: "center",
   marginBottom: 10,
 },
- 
+
 emptyStateText: {
   color: "#aaa",
   fontSize: 14,
@@ -3917,7 +3986,7 @@ analyticsRow: {
   justifyContent: "space-between",
   marginBottom: 14,
 },
- 
+
 analyticsCard: {
   backgroundColor: "#2b2b2b",
   borderRadius: 10,
@@ -3927,13 +3996,13 @@ analyticsCard: {
   alignItems: "center",
   marginBottom: 8,
 },
- 
+
 analyticsNumber: {
   color: "#8b5cf6",
   fontSize: 15,
   fontWeight: "900",
 },
- 
+
 analyticsLabel: {
   color: "#aaa",
   fontSize: 11,
@@ -3945,7 +4014,7 @@ metricsRow: {
   marginTop: 12,
   marginBottom: 10,
 },
- 
+
 metricBox: {
   backgroundColor: "#222",
   borderRadius: 10,
@@ -3954,13 +4023,13 @@ metricBox: {
   alignItems: "center",
   minWidth: 70,
 },
- 
+
 metricNumber: {
   color: "#8b5cf6",
   fontSize: 16,
   fontWeight: "900",
 },
- 
+
 metricLabel: {
   color: "#888",
   fontSize: 11,

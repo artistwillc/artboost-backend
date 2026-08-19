@@ -11035,6 +11035,512 @@ app.delete("/api/v2/store-connections/:id", async (req, res) => {
 
 startVideoStudioWorker();
 
+
+// ============================================================
+// ARTBOOST_VIDEO_PUBLISH_ROUTES_V1_1
+// Video Studio authoritative media routes.
+// ============================================================
+
+function artboostVideoHttps(value) {
+  const text = String(value || "").trim();
+  return /^https:\/\//i.test(text) ? text : "";
+}
+
+async function artboostVideoSocialConnection(userId, platform) {
+  if (!userId) {
+    throw new Error(`${platform} video publishing requires an ArtBoost userId.`);
+  }
+
+  const { data, error } = await supabase
+    .from("social_connections")
+    .select("*")
+    .eq("user_id", String(userId))
+    .eq("platform", String(platform).toLowerCase())
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to load ${platform} connection: ${error.message}`);
+  }
+
+  if (!data?.connected || !data?.access_token) {
+    throw new Error(`${platform} is not connected. Reconnect it in ArtBoost.`);
+  }
+
+  if (
+    data.expires_at &&
+    new Date(data.expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error(`${platform} connection expired. Reconnect it in ArtBoost.`);
+  }
+
+  return data;
+}
+
+app.post("/facebook/video-post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      message = "",
+      videoUrl = "",
+      pageId = "",
+      productLink = "",
+    } = req.body || {};
+
+    const cleanVideo = artboostVideoHttps(videoUrl);
+    if (!cleanVideo) {
+      return res.status(400).json({
+        error: "Facebook video publishing requires a public HTTPS video URL.",
+      });
+    }
+
+    if (!pageId) {
+      return res.status(400).json({
+        error: "Facebook video publishing requires a Page.",
+      });
+    }
+
+    let token = facebookConnection?.token || null;
+
+    if (!token && userId) {
+      const connection =
+        await artboostVideoSocialConnection(userId, "facebook");
+
+      token =
+        connection.page_access_token ||
+        connection.access_token ||
+        null;
+    }
+
+    if (!token) {
+      throw new Error("Facebook is not connected.");
+    }
+
+    const finalMessage = [
+      String(message || "").trim(),
+      String(productLink || "").trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const response = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(pageId)}/videos`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_url: cleanVideo,
+          description: finalMessage,
+          access_token: token,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data?.error) {
+      throw new Error(
+        data?.error?.message ||
+          "Facebook video publishing failed."
+      );
+    }
+
+    console.log("ArtBoost Facebook video published:", {
+      userId,
+      pageId,
+      videoId: data?.id || null,
+    });
+
+    return res.json({
+      success: true,
+      mediaType: "video",
+      ...data,
+    });
+  } catch (error) {
+    console.error("Facebook Video Post Error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Facebook video publishing failed.",
+    });
+  }
+});
+
+app.post("/instagram/video-post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      message = "",
+      videoUrl = "",
+    } = req.body || {};
+
+    const cleanVideo = artboostVideoHttps(videoUrl);
+
+    if (!cleanVideo) {
+      return res.status(400).json({
+        error: "Instagram video publishing requires a public HTTPS video URL.",
+      });
+    }
+
+    const connection =
+      await artboostVideoSocialConnection(userId, "instagram");
+
+    const instagramUserId =
+      connection.instagram_user_id;
+
+    if (!instagramUserId) {
+      throw new Error(
+        "Instagram Business account ID is missing. Reconnect Instagram."
+      );
+    }
+
+    const createResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(instagramUserId)}/media`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          media_type: "REELS",
+          video_url: cleanVideo,
+          caption: String(message || "").trim(),
+          share_to_feed: true,
+          access_token: connection.access_token,
+        }),
+      }
+    );
+
+    const created = await createResponse.json();
+
+    if (!createResponse.ok || created?.error || !created?.id) {
+      throw new Error(
+        created?.error?.message ||
+          "Instagram Reel container creation failed."
+      );
+    }
+
+    const creationId = created.id;
+    let finished = false;
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+
+      const statusResponse = await fetch(
+        `https://graph.facebook.com/v23.0/${encodeURIComponent(creationId)}?fields=status_code,status&access_token=${encodeURIComponent(connection.access_token)}`
+      );
+
+      const statusData = await statusResponse.json();
+
+      const status = String(
+        statusData?.status_code ||
+        statusData?.status ||
+        ""
+      ).toUpperCase();
+
+      if (status === "FINISHED") {
+        finished = true;
+        break;
+      }
+
+      if (status === "ERROR" || status === "EXPIRED") {
+        throw new Error(
+          statusData?.error?.message ||
+            `Instagram Reel processing failed: ${status}`
+        );
+      }
+    }
+
+    if (!finished) {
+      throw new Error(
+        "Instagram Reel did not finish processing before the publish timeout."
+      );
+    }
+
+    const publishResponse = await fetch(
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(instagramUserId)}/media_publish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creation_id: creationId,
+          access_token: connection.access_token,
+        }),
+      }
+    );
+
+    const published = await publishResponse.json();
+
+    if (!publishResponse.ok || published?.error) {
+      throw new Error(
+        published?.error?.message ||
+          "Instagram Reel publishing failed."
+      );
+    }
+
+    return res.json({
+      success: true,
+      mediaType: "video",
+      creationId,
+      mediaId: published?.id || null,
+    });
+  } catch (error) {
+    console.error("Instagram Video Post Error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Instagram video publishing failed.",
+    });
+  }
+});
+
+app.post("/threads/video-post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      message = "",
+      text = "",
+      videoUrl = "",
+      productLink = "",
+    } = req.body || {};
+
+    const cleanVideo = artboostVideoHttps(videoUrl);
+
+    if (!cleanVideo) {
+      return res.status(400).json({
+        error: "Threads video publishing requires a public HTTPS video URL.",
+      });
+    }
+
+    const connection =
+      await artboostVideoSocialConnection(userId, "threads");
+
+    const caption = [
+      String(message || text || "").trim(),
+      String(productLink || "").trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const createUrl =
+      new URL(`${THREADS_API_BASE}/me/threads`);
+
+    createUrl.searchParams.set("media_type", "VIDEO");
+    createUrl.searchParams.set("video_url", cleanVideo);
+
+    if (caption) {
+      createUrl.searchParams.set("text", caption);
+    }
+
+    createUrl.searchParams.set(
+      "access_token",
+      connection.access_token
+    );
+
+    const createResponse =
+      await fetch(createUrl, { method: "POST" });
+
+    const created =
+      await createResponse.json();
+
+    if (!createResponse.ok || created?.error || !created?.id) {
+      throw new Error(
+        created?.error?.message ||
+          "Threads video container creation failed."
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+
+    const publishUrl =
+      new URL(`${THREADS_API_BASE}/me/threads_publish`);
+
+    publishUrl.searchParams.set(
+      "creation_id",
+      created.id
+    );
+
+    publishUrl.searchParams.set(
+      "access_token",
+      connection.access_token
+    );
+
+    const publishResponse =
+      await fetch(publishUrl, { method: "POST" });
+
+    const published =
+      await publishResponse.json();
+
+    if (!publishResponse.ok || published?.error) {
+      throw new Error(
+        published?.error?.message ||
+          "Threads video publishing failed."
+      );
+    }
+
+    return res.json({
+      success: true,
+      mediaType: "video",
+      creationId: created.id,
+      postId: published?.id || null,
+    });
+  } catch (error) {
+    console.error("Threads Video Post Error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Threads video publishing failed.",
+    });
+  }
+});
+
+app.post("/tiktok/video-post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      title = "",
+      description = "",
+      videoUrl = "",
+      privacyLevel = "",
+      disableComment = false,
+      brandOrganicToggle = true,
+      brandContentToggle = false,
+      consent = false,
+    } = req.body || {};
+
+    if (!consent) {
+      return res.status(400).json({
+        error:
+          "TikTok video publishing requires explicit user confirmation.",
+      });
+    }
+
+    const cleanVideo = artboostVideoHttps(videoUrl);
+
+    if (!cleanVideo) {
+      return res.status(400).json({
+        error: "TikTok video publishing requires a public HTTPS video URL.",
+      });
+    }
+
+    const connection =
+      await artboostVideoSocialConnection(userId, "tiktok");
+
+    const sourceResponse = await fetch(cleanVideo);
+
+    if (!sourceResponse.ok) {
+      throw new Error(
+        "Unable to download the generated Video Studio MP4 for TikTok."
+      );
+    }
+
+    const bytes =
+      Buffer.from(await sourceResponse.arrayBuffer());
+
+    if (!bytes.length) {
+      throw new Error(
+        "Generated Video Studio MP4 was empty."
+      );
+    }
+
+    const caption =
+      String(description || title || "")
+        .trim()
+        .slice(0, 2200);
+
+    const initResponse = await fetch(
+      "https://open.tiktokapis.com/v2/post/publish/video/init/",
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            `Bearer ${connection.access_token}`,
+          "Content-Type":
+            "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({
+          post_info: {
+            title: caption,
+            privacy_level:
+              String(privacyLevel || "SELF_ONLY"),
+            disable_comment:
+              Boolean(disableComment),
+            disable_duet: false,
+            disable_stitch: false,
+            brand_organic_toggle:
+              Boolean(brandOrganicToggle),
+            brand_content_toggle:
+              Boolean(brandContentToggle),
+            is_aigc: true,
+          },
+          source_info: {
+            source: "FILE_UPLOAD",
+            video_size: bytes.length,
+            chunk_size: bytes.length,
+            total_chunk_count: 1,
+          },
+        }),
+      }
+    );
+
+    const initData =
+      await initResponse.json();
+
+    if (
+      !initResponse.ok ||
+      initData?.error?.code !== "ok" ||
+      !initData?.data?.upload_url
+    ) {
+      throw new Error(
+        initData?.error?.message ||
+          initData?.error?.code ||
+          "TikTok video initialization failed."
+      );
+    }
+
+    const uploadResponse = await fetch(
+      initData.data.upload_url,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "video/mp4",
+          "Content-Length": String(bytes.length),
+          "Content-Range":
+            `bytes 0-${bytes.length - 1}/${bytes.length}`,
+        },
+        body: bytes,
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const text = await uploadResponse.text();
+
+      throw new Error(
+        text ||
+          "TikTok video upload failed."
+      );
+    }
+
+    return res.json({
+      success: true,
+      mediaType: "video",
+      publishId:
+        initData.data.publish_id ||
+        null,
+    });
+  } catch (error) {
+    console.error("TikTok Video Post Error:", error);
+
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "TikTok video publishing failed.",
+    });
+  }
+});
+
+
 app.listen(PORT, async () => {
 
   console.log(`Server running on port ${PORT}`);
