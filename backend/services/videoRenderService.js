@@ -18,7 +18,14 @@ const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
 const FFPROBE = process.env.FFPROBE_PATH || ffprobeStatic?.path || "ffprobe";
 const WIDTH = 1080;
 const HEIGHT = 1920;
-const FPS = 30;
+
+// ARTBOOST_RENDER_MEMORY_V2
+// Keep the delivered MP4 at WIDTH x HEIGHT, but perform expensive
+// zoom/camera-motion processing at a lower working resolution.
+const RENDER_WIDTH = Math.min(WIDTH, 720);
+const RENDER_HEIGHT = Math.min(HEIGHT, 1280);
+
+const FPS = 24;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
@@ -120,7 +127,7 @@ function clipFilter(index, template, seconds, { fadeIn = false, fadeOut = false 
     `[bg${index}src]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},gblur=sigma=${blur},eq=brightness=${brightness}[bg${index}]`,
     `[fg${index}src]scale=${fgWidth}:${HEIGHT - 180}:force_original_aspect_ratio=decrease[fg${index}]`,
     `[bg${index}][fg${index}]overlay=(W-w)/2:(H-h)/2:format=auto[comp${index}]`,
-    `[comp${index}]zoompan=z='min(max(zoom,pzoom)+${zoomStep},${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${WIDTH}x${HEIGHT}:fps=${FPS},trim=duration=${seconds.toFixed(3)},fps=${FPS},setpts=PTS-STARTPTS,setsar=1,format=yuv420p${fadeChain}[v${index}]`,
+    `[comp${index}]zoompan=z='min(max(zoom,pzoom)+${zoomStep},${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${RENDER_WIDTH}x${RENDER_HEIGHT}:fps=${FPS},trim=duration=${seconds.toFixed(3)},fps=${FPS},setpts=PTS-STARTPTS,setsar=1,format=yuv420p${fadeChain}[v${index}]`,
   ].join(";");
 }
 
@@ -190,6 +197,8 @@ export async function renderVideoJob(job, onProgress = async () => {}) {
     const args = [];
     for (const file of imageFiles) args.push("-loop", "1", "-framerate", String(FPS), "-i", file);
     args.push(
+      "-filter_threads", "1",
+      "-filter_complex_threads", "1",
       "-filter_complex", filter,
       "-map", `[${outputLabel}]`,
       "-an",
@@ -200,6 +209,9 @@ export async function renderVideoJob(job, onProgress = async () => {}) {
       "-level", "4.1",
       "-pix_fmt", "yuv420p",
       "-r", String(FPS),
+      // ARTBOOST_FINAL_OUTPUT_SCALE_V2
+      "-s:v", `${WIDTH}x${HEIGHT}`,
+      "-threads", "1",
       "-movflags", "+faststart",
       "-maxrate", "12M",
       "-bufsize", "24M",
