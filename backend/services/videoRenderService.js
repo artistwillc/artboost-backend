@@ -212,7 +212,7 @@ function clipFilter(
   const profile = v4StyleProfile(template);
   const effectiveSeconds = Math.max(
     Number(seconds) || 0,
-    profile.duration
+    0.75
   );
 
   const transition = Math.min(
@@ -254,7 +254,8 @@ function clipFilter(
   ].join(";");
 }
 
-function buildFilterComplex(template, imageCount) {
+// ARTBOOST_VIDEO_V4_2_CALL_FIX
+function buildFilterComplex(imageCount, template) {
   const profile = v4StyleProfile(template);
   const count = Math.max(Number(imageCount) || 1, 1);
   const totalDuration = profile.duration;
@@ -336,7 +337,16 @@ export async function renderVideoJob(job, onProgress = async () => {}) {
 
     const template = getVideoTemplate(job.template_id);
     const { filter, outputLabel, duration } = buildFilterComplex(imageFiles.length, template);
-    const args = [];
+
+    // ARTBOOST_VIDEO_V4_2_RENDER_DIAGNOSTIC
+    console.log("Video Studio V4 render plan:", {
+      jobId: job.id,
+      templateId: template?.id || null,
+      imageCount: imageFiles.length,
+      duration,
+      workingSize: `${RENDER_WIDTH}x${RENDER_HEIGHT}`,
+      fps: FPS,
+    });    const args = [];
     for (const file of imageFiles) args.push("-loop", "1", "-framerate", String(FPS), "-i", file);
     args.push(
       "-filter_threads", "1",
