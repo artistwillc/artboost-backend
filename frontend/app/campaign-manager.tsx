@@ -825,6 +825,32 @@ await Linking.openURL(data.url);
       `${platform} requires its own video-upload workflow. ArtBoost will not silently replace this Video Studio MP4 with the product image.`
     );
   };
+  // ARTBOOST_HASHTAG_INTELLIGENCE_CLIENT_V1
+  const getSmartHashtags = async (platform: string) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/hashtag-intelligence/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform,
+          title,
+          description,
+          imageUrl,
+          storeType: String(productParams.productStoreType || ""),
+          storeName: String(productParams.productStoreName || ""),
+          existingHashtags: hashtags,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.hashtagText) return hashtags;
+      return String(data.hashtagText).trim() || hashtags;
+    } catch (error) {
+      console.log("Hashtag intelligence fallback:", error);
+      return hashtags;
+    }
+  };
+
+
 
 
 
@@ -873,6 +899,8 @@ const failedPlatforms: string[] = [];
 
 for (const platform of platforms) {
   try {
+    // ARTBOOST_SCHEDULE_SMART_TAGS_V1
+    const smartHashtags = await getSmartHashtags(platform);
     const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
       method: "POST",
       headers: {
@@ -1115,6 +1143,8 @@ console.log("Facebook Pages Response:", data);
 
   const createPinterestPin = async () => {
     try {
+      // ARTBOOST_SMART_TAGS_PINTEREST_V1
+      const smartHashtags = await getSmartHashtags("Pinterest");
       // ARTBOOST_PINTEREST_VIDEO_GUARD_V1_1
       if (isVideoCampaign) {
         videoUnsupportedAlert("Pinterest");
@@ -1201,6 +1231,8 @@ console.log("Facebook Pages Response:", data);
 
 const createFacebookPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_FACEBOOK_V1
+      const smartHashtags = await getSmartHashtags("Facebook");
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1242,7 +1274,7 @@ const createFacebookPost = async () => {
       removeLinks(title),
       removeLinks(description),
       removeLinks(cta),
-      removeLinks(hashtags),
+      removeLinks(smartHashtags),
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -1300,6 +1332,8 @@ const createFacebookPost = async () => {
 
 const createInstagramPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_INSTAGRAM_V1
+      const smartHashtags = await getSmartHashtags("Instagram");
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1331,7 +1365,7 @@ ${description}
 
 ${cta}
 
-${hashtags}`,
+${smartHashtags}`,
           imageUrl,
           videoUrl: isVideoCampaign ? videoUrl : null,
           mediaType: isVideoCampaign ? "video" : "image",
@@ -1368,6 +1402,8 @@ ${hashtags}`,
 
 const createXPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_X_V1
+      const smartHashtags = await getSmartHashtags("X");
       // ARTBOOST_X_VIDEO_GUARD_V1_1
       if (isVideoCampaign) {
         videoUnsupportedAlert("X");
@@ -1411,7 +1447,7 @@ const createXPost = async () => {
             .replace(/\s+\S*$/, "")}...`
         : cleanDescription;
 
-    const shortTags = removeLinks(hashtags)
+    const shortTags = removeLinks(smartHashtags)
       .split(/\s+/)
       .filter((tag) => tag.startsWith("#"))
       .slice(0, 3)
@@ -1469,6 +1505,8 @@ const createXPost = async () => {
 
 const createThreadsPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_THREADS_V1
+      const smartHashtags = await getSmartHashtags("Threads");
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1494,7 +1532,7 @@ const createThreadsPost = async () => {
       removeLinks(title),
       removeLinks(description),
       removeLinks(cta),
-      removeLinks(hashtags),
+      removeLinks(smartHashtags),
       finalProductLink,
     ]
       .filter(Boolean)
@@ -1553,6 +1591,8 @@ const createThreadsPost = async () => {
 
 const createLinkedInPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_LINKEDIN_V1
+      const smartHashtags = await getSmartHashtags("LinkedIn");
       // ARTBOOST_LINKEDIN_VIDEO_GUARD_V1_1
       if (isVideoCampaign) {
         videoUnsupportedAlert("LinkedIn");
@@ -1591,7 +1631,7 @@ const createLinkedInPost = async () => {
     const linkedInDescription = [
       removeLinks(description),
       removeLinks(cta),
-      removeLinks(hashtags),
+      removeLinks(smartHashtags),
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -1650,6 +1690,8 @@ const createLinkedInPost = async () => {
 
 const createTikTokPost = async () => {
   try {
+      // ARTBOOST_SMART_TAGS_TIKTOK_V1
+      const smartHashtags = await getSmartHashtags("TikTok");
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1708,7 +1750,7 @@ const createTikTokPost = async () => {
       finalTikTokProductLink
         ? `Shop / view artwork: ${finalTikTokProductLink}`
         : "",
-      removeLinks(hashtags),
+      removeLinks(smartHashtags),
     ]
       .filter(Boolean)
       .join("\n\n")
@@ -1819,6 +1861,10 @@ const postEverywhere = async () => {
         hashtags,
         cta,
         productLink: finalProductLink,
+        // ARTBOOST_POST_EVERYWHERE_HASHTAG_CONTEXT_V1
+        imageUrl,
+        storeType: String(productParams.productStoreType || ""),
+        storeName: String(productParams.productStoreName || ""),
       }),
     });
 

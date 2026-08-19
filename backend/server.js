@@ -12,6 +12,8 @@ import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import catalogCsvRouter from "./routes/catalogCsv.js";
 import automationRoutes from "./routes/automations.js";
+// ARTBOOST_HASHTAG_INTELLIGENCE_ROUTE_V1
+import hashtagIntelligenceRoutes from "./routes/hashtagIntelligence.js";
 import {
   calculateNextRun,
   getAutomationsReadyToRun,
@@ -2923,6 +2925,8 @@ app.use(stripeSandboxRoutes);
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
+// ARTBOOST_HASHTAG_INTELLIGENCE_ROUTE_V1
+app.use("/api/hashtag-intelligence", hashtagIntelligenceRoutes);
 app.use("/stores", storeRoutes);
 app.use("/catalog", catalogCsvRouter);
 app.use("/automations", automationRoutes);
@@ -9044,6 +9048,7 @@ When platform = Instagram:
 - DESCRIPTION should be approximately 50 to 100 words.
 - DESCRIPTION should tell a story or create excitement around the artwork rather than simply describing it.
 - HASHTAGS must contain 12 to 15 hashtags.
+- ARTBOOST_HASHTAG_INTELLIGENCE_PROMPT_V1: Hashtags must be derived from the actual artwork subject, niche, audience, occupation/hobby/community, buyer intent, and product context. Prefer specific discovery terms over generic filler. Never add unrelated #Streetwear, #HustleHard, #FYP, #Viral, #Trending, or similar reach-bait tags. The first 5 hashtag concepts should be the strongest discovery keywords for this specific design.
 - CTA must be one complete sentence using link-in-bio wording.
  
 The DESCRIPTION must contain zero links.
@@ -9393,6 +9398,9 @@ app.post("/generate-platform-content", async (req, res) => {
 You are ArtBoost AI, a platform-specific marketing assistant for artists and print-on-demand sellers.
  
 Create unique publishing content for Pinterest, Facebook, Instagram, and X from this artwork campaign.
+
+ARTBOOST_PLATFORM_HASHTAG_INTELLIGENCE_V1:
+For every platform, rebuild the hashtag/keyword choices from the ACTUAL artwork/product subject rather than blindly reusing generic Base Hashtags. Use precise niche discovery terms. Do not add unrelated reach-bait tags. Treat the strongest 5 concepts as primary discovery keywords, then apply platform-appropriate hashtag counts.
  
 Base Title:
 ${title}
