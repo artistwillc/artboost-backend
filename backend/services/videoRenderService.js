@@ -20,12 +20,15 @@ const WIDTH = 1080;
 const HEIGHT = 1920;
 
 // ARTBOOST_RENDER_MEMORY_V2
+// ARTBOOST_RENDER_MEMORY_V3
+// V3 moves the entire composition pipeline to the low-memory canvas,
+// not only the final zoompan stage.
 // Keep the delivered MP4 at WIDTH x HEIGHT, but perform expensive
 // zoom/camera-motion processing at a lower working resolution.
-const RENDER_WIDTH = Math.min(WIDTH, 720);
-const RENDER_HEIGHT = Math.min(HEIGHT, 1280);
+const RENDER_WIDTH = Math.min(WIDTH, 540);
+const RENDER_HEIGHT = Math.min(HEIGHT, 960);
 
-const FPS = 24;
+const FPS = 20;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
@@ -111,6 +114,7 @@ function qualityScore(dimensions) {
 function clipFilter(index, template, seconds, { fadeIn = false, fadeOut = false } = {}) {
   const fgWidth = Math.min(Math.max(template.foregroundWidth || 940, 760), 1020);
   const brightness = Number(template.backgroundBrightness ?? -0.12).toFixed(2);
+  const safeBlur = Math.min(Number(blur) || 0, 18);
   const blur = Math.min(Math.max(Number(template.backgroundBlur) || 28, 8), 60);
   const zoomStep = Number(template.zoomStep || 0.0005).toFixed(6);
   const maxZoom = Number(template.maxZoom || 1.07).toFixed(4);
@@ -124,8 +128,8 @@ function clipFilter(index, template, seconds, { fadeIn = false, fadeOut = false 
 
   return [
     `[${index}:v]split=2[bg${index}src][fg${index}src]`,
-    `[bg${index}src]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},gblur=sigma=${blur},eq=brightness=${brightness}[bg${index}]`,
-    `[fg${index}src]scale=${fgWidth}:${HEIGHT - 180}:force_original_aspect_ratio=decrease[fg${index}]`,
+    `[bg${index}src]scale=${RENDER_WIDTH}:${RENDER_HEIGHT}:force_original_aspect_ratio=increase,crop=${RENDER_WIDTH}:${RENDER_HEIGHT},gblur=sigma=${safeBlur},eq=brightness=${brightness}[bg${index}]`,
+    `[fg${index}src]scale='min(${RENDER_WIDTH - 80},iw)':'min(${RENDER_HEIGHT - 120},ih)':force_original_aspect_ratio=decrease[fg${index}]`,
     `[bg${index}][fg${index}]overlay=(W-w)/2:(H-h)/2:format=auto[comp${index}]`,
     `[comp${index}]zoompan=z='min(max(zoom,pzoom)+${zoomStep},${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${RENDER_WIDTH}x${RENDER_HEIGHT}:fps=${FPS},trim=duration=${seconds.toFixed(3)},fps=${FPS},setpts=PTS-STARTPTS,setsar=1,format=yuv420p${fadeChain}[v${index}]`,
   ].join(";");
