@@ -1219,8 +1219,10 @@ const createFacebookPost = async () => {
                 <Text
                   style={styles.accountBadgeText}
                 >
-                  {profile?.subscription_tier ===
-                  "pro"
+                  {/* ARTBOOST_BUSINESS_BADGE_V1 */}
+                  {String(profile?.subscription_tier || "free").toLowerCase() === "business"
+                    ? "BUSINESS"
+                    : String(profile?.subscription_tier || "free").toLowerCase() === "pro"
                     ? "PRO"
                     : "FREE"}
                 </Text>

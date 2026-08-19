@@ -22,6 +22,12 @@ import { supabase } from "@/lib/supabase";
 const BACKEND_URL = "https://artboost-ai.onrender.com";
  
 export default function CampaignManagerScreen() {
+  // ARTBOOST_PAID_TIER_ACCESS_V1
+  const hasPaidPublishingAccess = (tierValue?: string | null) =>
+    ["pro", "business"].includes(
+      String(tierValue || "").trim().toLowerCase()
+    );
+
   const productParams = useLocalSearchParams<{
     productId?: string;
     productTitle?: string;
@@ -784,8 +790,8 @@ await Linking.openURL(data.url);
 
   const scheduleEverywhere = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "Schedule Everywhere is a Pro feature.");
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+      Alert.alert("Paid Plan Required", "Schedule Everywhere requires a Pro or Business plan.");
       return;
     }
 
@@ -1069,8 +1075,8 @@ console.log("Facebook Pages Response:", data);
  
   const createPinterestPin = async () => {
     try {
-      if (profile?.subscription_tier !== "pro") {
-        Alert.alert("Pro Required", "Pinterest publishing is a Pro feature.");
+      if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+        Alert.alert("Paid Plan Required", "Pinterest publishing requires a Pro or Business plan.");
         return;
       }
  
@@ -1150,10 +1156,10 @@ console.log("Facebook Pages Response:", data);
 
 const createFacebookPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "Facebook publishing is a Pro feature."
+        "Paid Plan Required",
+        "Facebook publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1247,10 +1253,10 @@ const createFacebookPost = async () => {
 
 const createInstagramPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "Instagram publishing is a Pro feature."
+        "Paid Plan Required",
+        "Instagram publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1313,10 +1319,10 @@ ${hashtags}`,
 
 const createXPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "X publishing is a Pro feature."
+        "Paid Plan Required",
+        "X publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1409,10 +1415,10 @@ const createXPost = async () => {
 
 const createThreadsPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "Threads publishing is a Pro feature."
+        "Paid Plan Required",
+        "Threads publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1493,10 +1499,10 @@ const createThreadsPost = async () => {
 
 const createLinkedInPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "LinkedIn publishing is a Pro feature."
+        "Paid Plan Required",
+        "LinkedIn publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1585,10 +1591,10 @@ const createLinkedInPost = async () => {
 
 const createTikTokPost = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
-        "Pro Required",
-        "TikTok publishing is a Pro feature."
+        "Paid Plan Required",
+        "TikTok publishing requires a Pro or Business plan."
       );
       return;
     }
@@ -1709,8 +1715,8 @@ const createTikTokPost = async () => {
 
 const postEverywhere = async () => {
   try {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", "Post Everywhere is a Pro feature.");
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+      Alert.alert("Paid Plan Required", "Post Everywhere requires a Pro or Business plan.");
       return;
     }
 
@@ -1888,8 +1894,8 @@ const postEverywhere = async () => {
 
 const generateVariations = async () => {
     try {
-      if (profile?.subscription_tier !== "pro") {
-        Alert.alert("Pro Required", "AI variations are a Pro feature.");
+      if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+        Alert.alert("Paid Plan Required", "AI variations are a Pro feature.");
         return;
       }
  
@@ -1947,8 +1953,8 @@ const generateVariations = async () => {
   };
  
   const simulateProFeature = (feature: string) => {
-    if (profile?.subscription_tier !== "pro") {
-      Alert.alert("Pro Required", `${feature} is a Pro feature.`);
+    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+      Alert.alert("Paid Plan Required", `${feature} requires a Pro or Business plan.`);
       return;
     }
  
