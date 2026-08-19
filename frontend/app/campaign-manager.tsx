@@ -850,6 +850,62 @@ await Linking.openURL(data.url);
     }
   };
 
+  // ARTBOOST_HASHTAG_VISIBLE_HYDRATION_V1_1
+  // Keep the editable Hashtags field synchronized with the actual product/design
+  // and currently selected publishing platform. Publish-time smart-tag generation
+  // remains in place as a second integrity check.
+  useEffect(() => {
+    let active = true;
+
+    const productTitle = String(title || "").trim();
+
+    if (!productTitle) {
+      return () => {
+        active = false;
+      };
+    }
+
+    const refreshVisibleHashtags = async () => {
+      const platformForTags =
+        String(selectedPlatform || "TikTok").trim() ||
+        "TikTok";
+
+      const smart = await getSmartHashtags(
+        platformForTags
+      );
+
+      if (!active || !smart) return;
+
+      setHashtags((current) => {
+        const next = String(smart || "").trim();
+        return next && next !== current.trim()
+          ? next
+          : current;
+      });
+    };
+
+    // Small debounce lets routed Video Studio product context and generated
+    // campaign copy settle before replacing generic starter hashtags.
+    const timer = setTimeout(
+      refreshVisibleHashtags,
+      250
+    );
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [
+    title,
+    description,
+    imageUrl,
+    selectedPlatform,
+    productParams.productId,
+    productParams.productStoreType,
+    productParams.productStoreName,
+  ]);
+
+
 
 
 
