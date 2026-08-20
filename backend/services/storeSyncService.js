@@ -7,6 +7,10 @@ import { importUniversalStore } from "./universalStoreImporter.js";
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2026-07";
 const SHOPIFY_SYNC_MINUTES = Number(process.env.STORE_SYNC_SHOPIFY_MINUTES || 15);
 const MARKETPLACE_SYNC_MINUTES = Number(process.env.STORE_SYNC_MARKETPLACE_MINUTES || 360);
+const MARKETPLACE_FAILURE_COOLDOWN_MINUTES = Math.max(
+  30,
+  Number(process.env.STORE_SYNC_MARKETPLACE_FAILURE_COOLDOWN_MINUTES || 360)
+); // ARTBOOST_MARKETPLACE_SYNC_FAILURE_COOLDOWN_V1
 const SYNC_BATCH_SIZE = Math.max(1, Number(process.env.STORE_SYNC_BATCH_SIZE || 8));
 
 function normalizePlatform(value) {
@@ -309,11 +313,65 @@ export async function syncStoreConnection({ userId, storeId, reason = "manual" }
 }
 
 function isDue(connection, nowMs) {
+  // ARTBOOST_MARKETPLACE_SYNC_FAILURE_COOLDOWN_V1
+  // Success uses last_synced_at. A failed/attempted sync uses updated_at so a
+  // blocked marketplace is not retried on every 10-minute worker tick.
   const platform = normalizePlatform(connection.platform);
-  const minutes = platform === "shopify" ? SHOPIFY_SYNC_MINUTES : MARKETPLACE_SYNC_MINUTES;
-  if (!connection.last_synced_at) return true;
-  const last = new Date(connection.last_synced_at).getTime();
-  return !Number.isFinite(last) || nowMs - last >= minutes * 60 * 1000;
+  const normalMinutes =
+    platform === "shopify"
+      ? SHOPIFY_SYNC_MINUTES
+      : MARKETPLACE_SYNC_MINUTES;
+
+  const status = String(connection.last_sync_status || "")
+    .trim()
+    .toLowerCase();
+
+  const successfulMs = connection.last_synced_at
+    ? new Date(connection.last_synced_at).getTime()
+    : Number.NaN;
+
+  const attemptedMs = connection.updated_at
+    ? new Date(connection.updated_at).getTime()
+    : Number.NaN;
+
+  const latestAttemptFailed =
+    status === "error" ||
+    status === "failed" ||
+    status === "blocked" ||
+    status === "syncing";
+
+  let referenceMs = Number.isFinite(successfulMs)
+    ? successfulMs
+    : Number.NaN;
+
+  let cadenceMinutes = normalMinutes;
+
+  if (latestAttemptFailed && Number.isFinite(attemptedMs)) {
+    referenceMs = attemptedMs;
+
+    // Marketplace storefronts can respond with 403/404/410 or bot protection.
+    // Give those sources a long cooldown while keeping manual Sync Now usable.
+    if (platform !== "shopify") {
+      cadenceMinutes = MARKETPLACE_FAILURE_COOLDOWN_MINUTES;
+    }
+  }
+
+  // Never allow an older success timestamp to make a newer failed attempt
+  // immediately due again.
+  if (
+    latestAttemptFailed &&
+    Number.isFinite(attemptedMs) &&
+    (!Number.isFinite(referenceMs) || attemptedMs > referenceMs)
+  ) {
+    referenceMs = attemptedMs;
+  }
+
+  if (!Number.isFinite(referenceMs)) return true;
+
+  return (
+    nowMs - referenceMs >=
+    Math.max(1, Number(cadenceMinutes) || 1) * 60 * 1000
+  );
 }
 
 let workerRunning = false;
@@ -325,7 +383,7 @@ export async function runDueStoreSyncs() {
   try {
     const { data, error } = await supabase
       .from("store_connections")
-      .select("id,user_id,platform,last_synced_at,connected,sync_enabled")
+      .select("id,user_id,platform,last_synced_at,updated_at,last_sync_status,last_sync_error,connected,sync_enabled")
       .eq("connected", true)
       .eq("sync_enabled", true)
       .limit(100);
