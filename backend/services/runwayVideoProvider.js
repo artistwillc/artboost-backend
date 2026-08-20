@@ -75,8 +75,9 @@ function cleanPrompt(value) {
 }
 
 function getDuration() {
-  const raw = Number(process.env.ARTBOOST_AI_VIDEO_DURATION || 8);
-  const value = Math.round(Number.isFinite(raw) ? raw : 8);
+  // ARTBOOST_VIDEO_PRIMARY_BOOKENDS_V1
+  const raw = Number(process.env.ARTBOOST_AI_VIDEO_DURATION || 10);
+  const value = Math.round(Number.isFinite(raw) ? raw : 10);
   return Math.min(Math.max(value, 2), 10);
 }
 

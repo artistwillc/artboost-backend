@@ -3,6 +3,7 @@ import supabase from "../lib/supabase.js";
 import { renderVideoJob as renderLegacyVideoJob } from "./videoRenderService.js";
 import { createArtworkMotionPlan } from "./artworkMotionPlanner.js";
 import { createRunwayImageToVideo, persistGeneratedVideo } from "./runwayVideoProvider.js";
+import { finalizeVideoWithPrimaryImage } from "./videoPrimaryFrameFinalizer.js"; // ARTBOOST_VIDEO_PRIMARY_BOOKENDS_V1
 
 const enabled = () =>
   String(process.env.ARTBOOST_GENERATIVE_VIDEO || "true").toLowerCase() !== "false" &&
@@ -46,13 +47,11 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
   });
 
   await onProgress(92);
-  const stored = await persistGeneratedVideo({
+  const stored = await finalizeVideoWithPrimaryImage({
     job,
-    temporaryVideoUrl:generated.temporaryVideoUrl,
-    providerTaskId:generated.taskId,
-    prompt:motionPlan.prompt,
-    model:generated.model,
-    duration:generated.duration
+    primaryImageUrl: product.image_url,
+    generatedVideoUrl: generated.temporaryVideoUrl,
+    onProgress,
   });
   await onProgress(98);
 
