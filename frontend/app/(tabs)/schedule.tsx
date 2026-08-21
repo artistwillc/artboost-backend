@@ -530,10 +530,12 @@ function toggleSelected(
         );
       }
 
-      if (
-        !response.ok ||
-        !data.success
-      ) {
+      // ARTBOOST_LAUNCH_FIXES_V1_20260821_PARTIAL_SUCCESS
+      const runSucceeded =
+        response.ok &&
+        (data.success || data.partialSuccess);
+
+      if (!runSucceeded) {
         throw new Error(
           data.details ||
             data.error ||
@@ -541,10 +543,31 @@ function toggleSelected(
         );
       }
 
-      Alert.alert(
-        "Post Successful",
-        "ArtBoost posted the next eligible product."
-      );
+      if (data.partialSuccess) {
+        const publishResult = data.publishResult || {};
+        const results = Array.isArray(publishResult.results)
+          ? publishResult.results
+          : [];
+        const failedPlatforms = results
+          .filter((item: any) => !item?.success)
+          .map((item: any) => String(item?.platform || "platform"))
+          .filter(Boolean);
+        const successfulCount = Number(publishResult.successful) ||
+          results.filter((item: any) => item?.success).length;
+        const totalCount = Number(publishResult.total) || results.length;
+
+        Alert.alert(
+          "Posted with a Warning",
+          failedPlatforms.length > 0
+            ? `ArtBoost posted to ${successfulCount} of ${totalCount || successfulCount + failedPlatforms.length} platforms. Failed: ${failedPlatforms.join(", ")}.`
+            : "ArtBoost posted successfully to at least one platform, but another selected platform did not complete."
+        );
+      } else {
+        Alert.alert(
+          "Post Successful",
+          "ArtBoost posted the next eligible product."
+        );
+      }
 
       await loadAutomations(
         true

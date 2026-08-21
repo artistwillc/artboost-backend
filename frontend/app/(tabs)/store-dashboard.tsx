@@ -439,20 +439,15 @@ const syncButtonLabel = useMemo(() => {
       <View style={styles.header}>
         <Pressable
   style={styles.backButton}
-  onPress={() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace({
-        pathname: "/connections" as any,
-        params: {
-          section: "stores",
-        },
-      });
-    }
-  }}
->
-  <Ionicons
+          // ARTBOOST_LAUNCH_FIXES_V1_20260821_STORE_BACK
+  onPress={() =>
+            router.replace({
+              pathname: "/(tabs)/connections" as any,
+              params: { section: "stores" },
+            })
+          }
+        >
+          <Ionicons
     name="arrow-back"
     size={24}
     color="#ffffff"

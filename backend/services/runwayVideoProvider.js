@@ -328,11 +328,32 @@ async function submitGeneration({
   }
 }
 
+// ARTBOOST_LAUNCH_FIXES_V1_20260821_RUNWAY
+function isRunwayPromptModerationFailure(value) {
+  const text = String(value || "").toLowerCase();
+  return (
+    text.includes("text prompt did not pass moderation") ||
+    (text.includes("prompt") && text.includes("moderation")) ||
+    text.includes("prompt was flagged")
+  );
+}
+
+function buildRunwayModerationSafePrompt() {
+  return [
+    "Preserve the source artwork exactly as shown.",
+    "Create subtle polished motion with gentle camera movement, depth parallax, soft lighting changes, and restrained atmosphere.",
+    "Keep all visible subjects, products, logos, lettering, colors, proportions, and composition unchanged.",
+    "Do not add, remove, rewrite, distort, morph, or replace visible elements.",
+    "Use a clean professional vertical product-video presentation."
+  ].join(" " );
+}
+
 export async function createRunwayImageToVideo({
   job,
   imageUrl,
   prompt,
   onProgress = async () => {},
+  _moderationRetry = false,
 }) {
   if (!process.env.RUNWAYML_API_SECRET) {
     throw new Error("RUNWAYML_API_SECRET is not configured.");
@@ -453,11 +474,34 @@ export async function createRunwayImageToVideo({
     }
 
     if (status === "FAILED") {
+      const failureMessage = errorText(
+        task?.failure || task,
+        "generation failed"
+      );
+
+      if (
+        !_moderationRetry &&
+        isRunwayPromptModerationFailure(failureMessage)
+      ) {
+        console.warn("ArtBoost Runway prompt moderation retry:", {
+          jobId: job?.id || null,
+          firstPromptLength: usePrompt.length,
+          reason: failureMessage,
+        });
+
+        await onProgress(15);
+
+        return createRunwayImageToVideo({
+          job,
+          imageUrl,
+          prompt: buildRunwayModerationSafePrompt(),
+          onProgress,
+          _moderationRetry: true,
+        });
+      }
+
       throw new Error(
-        `Runway generation failed: ${errorText(
-          task?.failure || task,
-          "generation failed"
-        )}`
+        `Runway generation failed: ${failureMessage}`
       );
     }
 
