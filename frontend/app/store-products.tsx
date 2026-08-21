@@ -1,4 +1,5 @@
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons   TextInput,
+} from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Linking from "expo-linking";
 import {
@@ -98,6 +99,13 @@ export default function StoreProductsScreen() {
   const [products, setProducts] = useState<
     Product[]
   >([]);
+  // ARTBOOST_STORE_PRODUCT_SEARCH_V1_1_20260821
+  const [productSearch, setProductSearch] = useState("");
+  const visibleProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase();
+    if (!query) return products;
+    return products.filter((product) => String(product.title || "").toLowerCase().includes(query));
+  }, [products, productSearch]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] =
     useState(false);
@@ -546,6 +554,15 @@ export default function StoreProductsScreen() {
           </View>
         ) : null}
 
+        {/* ARTBOOST_STORE_PRODUCT_SEARCH_V1_1_20260821 */}
+        {!loading && products.length > 0 ? (
+          <View style={styles.productSearchWrap}>
+            <Ionicons name="search-outline" size={19} color="#8b5cf6" />
+            <TextInput value={productSearch} onChangeText={setProductSearch} placeholder="Search products" placeholderTextColor="#777" autoCapitalize="none" autoCorrect={false} style={styles.productSearchInput} />
+            {productSearch ? <Pressable onPress={() => setProductSearch("")} hitSlop={8}><Ionicons name="close-circle" size={20} color="#777" /></Pressable> : null}
+          </View>
+        ) : null}
+
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator
@@ -556,7 +573,7 @@ export default function StoreProductsScreen() {
               Loading store products...
             </Text>
           </View>
-        ) : products.length === 0 ? (
+        ) : visibleProducts.length === 0 ? (
           <View style={styles.emptyCard}>
             <Ionicons
               name="cube-outline"
@@ -589,7 +606,7 @@ export default function StoreProductsScreen() {
             </Pressable>
           </View>
         ) : (
-          products.map((product) => (
+          visibleProducts.map((product) => (
             <View key={product.id} style={styles.productCard}>
               <Pressable
                 style={styles.productMainRow}
@@ -844,6 +861,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
+  productSearchWrap: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 18, marginBottom: 14, paddingHorizontal: 14, height: 46, borderRadius: 14, borderWidth: 1, borderColor: "#2b2b2f", backgroundColor: "#151518" },
+  productSearchInput: { flex: 1, color: "#ffffff", fontSize: 15, paddingVertical: 0 },
   productCard: {
     borderRadius: 20,
     backgroundColor: "#171717",
