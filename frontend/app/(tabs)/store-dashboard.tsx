@@ -123,59 +123,55 @@ export default function StoreDashboardScreen() {
     async function loadAuthoritativeStoreProductCount() {
       try {
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
 
-        if (!user?.id) {
-          return;
-        }
+        const user = session?.user || null;
+        if (!user?.id) return;
+
+        const query = new URLSearchParams({
+          userId: user.id,
+          limit: "1",
+          offset: "0",
+        });
 
         if (storeId) {
-          const {
-            count: linkedCount,
-            error: linkedError,
-          } = await supabase
-            .from("products")
-            .select("id", {
-              count: "exact",
-              head: true,
-            })
-            .eq("user_id", user.id)
-            .eq("store_connection_id", String(storeId));
-
-          if (!linkedError && Number.isFinite(Number(linkedCount))) {
-            if (!cancelled) {
-              setProductCount(Number(linkedCount || 0));
-            }
-            return;
+          query.set("storeId", String(storeId));
+        } else if (storeType) {
+          query.set(
+            "storeType",
+            String(storeType).trim().toLowerCase()
+          );
+          if (storeName) {
+            query.set("storeName", String(storeName));
           }
         }
 
-        const normalizedStoreType = String(storeType || "")
-          .trim()
-          .toLowerCase();
+        const response = await fetch(
+          `${API_BASE}/products?${query.toString()}`,
+          {
+            headers: session?.access_token
+              ? {
+                  Authorization: `Bearer ${session.access_token}`,
+                }
+              : {},
+          }
+        );
+        const data = await response.json();
 
-        if (!normalizedStoreType) {
-          return;
-        }
-
-        const {
-          count: platformCount,
-          error: platformError,
-        } = await supabase
-          .from("products")
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("user_id", user.id)
-          .eq("store_type", normalizedStoreType);
-
-        if (!platformError && Number.isFinite(Number(platformCount)) && !cancelled) {
-          setProductCount(Number(platformCount || 0));
+        if (
+          response.ok &&
+          data?.success &&
+          Number.isFinite(Number(data.total)) &&
+          !cancelled
+        ) {
+          setProductCount(Number(data.total || 0));
         }
       } catch (error) {
-        console.log("Store dashboard product count refresh failed:", error);
+        console.log(
+          "Store dashboard product count refresh failed:",
+          error
+        );
       }
     }
 
@@ -184,7 +180,7 @@ export default function StoreDashboardScreen() {
     return () => {
       cancelled = true;
     };
-  }, [storeId, storeType]);
+  }, [storeId, storeName, storeType]);
 
   const [lastSyncedAt, setLastSyncedAt] =
     useState(params.lastSyncedAt || "");

@@ -22,6 +22,7 @@ export async function getProductById({
 
 export async function getProducts({
   userId,
+  storeId,
   storeType,
   storeName,
   status,
@@ -38,6 +39,77 @@ export async function getProducts({
     0
   );
 
+  let resolvedStoreType = storeType
+    ? String(storeType).toLowerCase()
+    : "";
+  let resolvedStoreName = storeName
+    ? String(storeName)
+    : "";
+  let resolvedStoreId = storeId
+    ? String(storeId).trim()
+    : "";
+
+  // ARTBOOST_59_TEST_LAUNCH_FIX_V1:
+  // A store connection ID is the authoritative store boundary. Resolve it
+  // server-side and verify that it belongs to the authenticated user before
+  // using it to scope product queries.
+  if (resolvedStoreId) {
+    const {
+      data: v2Connection,
+      error: v2ConnectionError,
+    } = await supabase
+      .from("store_connections")
+      .select("id,platform,store_name,store_url")
+      .eq("id", resolvedStoreId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (v2ConnectionError) {
+      throw new Error(
+        `Unable to resolve store connection: ${v2ConnectionError.message}`
+      );
+    }
+
+    if (v2Connection) {
+      resolvedStoreType = String(
+        v2Connection.platform || resolvedStoreType || ""
+      ).toLowerCase();
+      resolvedStoreName =
+        v2Connection.store_name ||
+        v2Connection.store_url ||
+        resolvedStoreName;
+    } else {
+      const {
+        data: legacyConnection,
+        error: legacyConnectionError,
+      } = await supabase
+        .from("social_connections")
+        .select("id,platform,shop_domain")
+        .eq("id", resolvedStoreId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (legacyConnectionError) {
+        throw new Error(
+          `Unable to resolve legacy store connection: ${legacyConnectionError.message}`
+        );
+      }
+
+      if (!legacyConnection) {
+        throw new Error(
+          "The selected store connection was not found for this ArtBoost account."
+        );
+      }
+
+      resolvedStoreType = String(
+        legacyConnection.platform || resolvedStoreType || ""
+      ).toLowerCase();
+      resolvedStoreName =
+        legacyConnection.shop_domain ||
+        resolvedStoreName;
+    }
+  }
+
   let query = supabase
     .from("products")
     .select("*", { count: "exact" })
@@ -48,18 +120,29 @@ export async function getProducts({
       parsedOffset + parsedLimit - 1
     );
 
-  if (storeType) {
+  if (resolvedStoreId) {
+    // The persisted store connection is the authoritative boundary.
+    // Do not broaden a store-scoped request to every product on the same
+    // marketplace. Rows without store_connection_id must be repaired by the
+    // import/sync pipeline rather than guessed into a store at read time.
     query = query.eq(
-      "store_type",
-      String(storeType).toLowerCase()
+      "store_connection_id",
+      resolvedStoreId
     );
-  }
+  } else {
+    if (resolvedStoreType) {
+      query = query.eq(
+        "store_type",
+        resolvedStoreType
+      );
+    }
 
-  if (storeName) {
-    query = query.eq(
-      "store_name",
-      String(storeName)
-    );
+    if (resolvedStoreName) {
+      query = query.eq(
+        "store_name",
+        resolvedStoreName
+      );
+    }
   }
 
   if (status) {

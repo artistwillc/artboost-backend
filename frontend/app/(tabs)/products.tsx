@@ -16,7 +16,10 @@ import {
   View,
 } from "react-native";
 
-const API_BASE = "https://artboost-ai.onrender.com";
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 type Product = {
   id: string;
@@ -28,6 +31,7 @@ type Product = {
   currency?: string | null;
   storeType?: string | null;
   storeName?: string | null;
+  storeConnectionId?: string | null;
   status?: string | null;
   automationEnabled?: boolean;
   timesPosted?: number;
@@ -61,27 +65,61 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
       setLoading(true);
     }
 
-    const [productsResponse, storesResponse] = await Promise.all([
-      fetch(
-        `${API_BASE}/products?userId=${encodeURIComponent(currentUserId)}`
-      ),
-      fetch(
-        `${API_BASE}/stores?userId=${encodeURIComponent(currentUserId)}`
-      ),
-    ]);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    const [productsData, storesData] = await Promise.all([
-      productsResponse.json(),
-      storesResponse.json(),
-    ]);
+    const accessToken = session?.access_token || "";
+    const authHeaders = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {};
 
-    if (!productsResponse.ok || !productsData.success) {
-      throw new Error(
-        productsData.details ||
-          productsData.error ||
-          "Unable to load products."
+    // ARTBOOST_59_TEST_LAUNCH_FIX_V1:
+    // Load the complete catalog instead of only the backend's first page.
+    const pageSize = 500;
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+    const allProducts: any[] = [];
+
+    while (offset < total) {
+      const query = new URLSearchParams({
+        userId: currentUserId,
+        limit: String(pageSize),
+        offset: String(offset),
+      });
+
+      const response = await fetch(
+        `${API_BASE}/products?${query.toString()}`,
+        { headers: authHeaders }
       );
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.details ||
+            data.error ||
+            "Unable to load products."
+        );
+      }
+
+      const rows = Array.isArray(data.products)
+        ? data.products
+        : [];
+
+      allProducts.push(...rows);
+      total = Number.isFinite(Number(data.total))
+        ? Number(data.total)
+        : allProducts.length;
+      offset += rows.length;
+
+      if (rows.length === 0) break;
     }
+
+    const storesResponse = await fetch(
+      `${API_BASE}/stores?userId=${encodeURIComponent(currentUserId)}`,
+      { headers: authHeaders }
+    );
+    const storesData = await storesResponse.json();
 
     if (!storesResponse.ok || !storesData.success) {
       throw new Error(
@@ -92,28 +130,56 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
     }
 
     setProducts(
-      (productsData.products || []).map((item: any) => ({
+      allProducts.map((item: any) => ({
         id: item.id,
         title: item.title,
         description: item.description,
-        imageUrl: item.image_url,
-        productUrl: item.product_url,
+        imageUrl:
+          item.image_url ||
+          item.imageUrl ||
+          item.thumbnail_url ||
+          item.thumbnailUrl ||
+          null,
+        productUrl:
+          item.product_url ||
+          item.productUrl ||
+          item.url ||
+          "",
         price: item.price,
         currency: item.currency,
-        storeType: item.store_type,
-        storeName: item.store_name,
+        storeType:
+          item.store_type ||
+          item.storeType ||
+          null,
+        storeName:
+          item.store_name ||
+          item.storeName ||
+          null,
+        storeConnectionId:
+          item.store_connection_id ||
+          item.storeConnectionId ||
+          item.store_id ||
+          null,
         status: item.status,
-        automationEnabled: item.automation_enabled || false,
-        timesPosted: item.times_posted || 0,
-        lastPostedAt: item.last_posted_at,
+        automationEnabled:
+          item.automation_enabled ||
+          item.automationEnabled ||
+          false,
+        timesPosted:
+          item.times_posted ||
+          item.timesPosted ||
+          0,
+        lastPostedAt:
+          item.last_posted_at ||
+          item.lastPostedAt,
       }))
     );
 
     setSources(storesData.stores || []);
 
-    // ARTBOOST_LIBRARY_AUTOMATION_STATUS_FIX_V1_20260821: automation status comes from store_automations via the same API used by Scheduled Posts.
     const automationsResponse = await fetch(
-      `${API_BASE}/automations?userId=${encodeURIComponent(currentUserId)}`
+      `${API_BASE}/automations?userId=${encodeURIComponent(currentUserId)}`,
+      { headers: authHeaders }
     );
     const automationsData = await automationsResponse.json();
     const counts: Record<string, number> = {};
@@ -216,14 +282,37 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
   );
 
   function getStoreProductCount(store: Store) {
+    const storeId = String(store.id || "");
+    const type = String(store.storeType || "")
+      .trim()
+      .toLowerCase();
+    const name = String(store.storeName || "")
+      .trim()
+      .toLowerCase();
+
     const matchingProducts = products.filter(
-      (product) =>
-        product.storeName === store.storeName ||
-        product.storeType === store.storeType
+      (product) => {
+        const productConnectionId = String(
+          product.storeConnectionId || ""
+        );
+
+        if (storeId && productConnectionId) {
+          return storeId === productConnectionId;
+        }
+
+        return (
+          String(product.storeType || "")
+            .trim()
+            .toLowerCase() === type &&
+          String(product.storeName || "")
+            .trim()
+            .toLowerCase() === name
+        );
+      }
     );
 
     return Math.max(
-      store.productCount || 0,
+      Number(store.productCount || 0),
       matchingProducts.length
     );
   }

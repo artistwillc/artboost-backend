@@ -253,8 +253,14 @@ export default function VideoStudioScreen() {
   async function loadFoundation() {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user || null;
       if (!user) throw new Error("Please sign in to use Video Studio.");
+      const authHeaders = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
       setUserId(user.id);
       const templateResponse = await fetch(
         `${API_BASE}/video-studio/templates`
@@ -284,6 +290,10 @@ export default function VideoStudioScreen() {
           offset: String(offset),
         });
 
+        if (requestedStoreId) {
+          query.set("storeId", requestedStoreId);
+        }
+
         if (normalize(requestedStoreType)) {
           query.set(
             "storeType",
@@ -292,7 +302,8 @@ export default function VideoStudioScreen() {
         }
 
         const productResponse = await fetch(
-          `${API_BASE}/products?${query.toString()}`
+          `${API_BASE}/products?${query.toString()}`,
+          { headers: authHeaders }
         );
 
         const productData =
@@ -402,7 +413,16 @@ export default function VideoStudioScreen() {
 
   async function refreshJob(jobId: string, uid = userId) {
     try {
-      const response = await fetch(`${API_BASE}/video-studio/jobs/${encodeURIComponent(jobId)}?userId=${encodeURIComponent(uid)}`);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const authHeaders = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+      const response = await fetch(
+        `${API_BASE}/video-studio/jobs/${encodeURIComponent(jobId)}?userId=${encodeURIComponent(uid)}`,
+        { headers: authHeaders }
+      );
       const data = await response.json();
       if (response.ok && data.success) setJob(data.job);
     } catch (error) { console.log("Video job refresh failed:", error); }
@@ -413,9 +433,17 @@ export default function VideoStudioScreen() {
     try {
       setCreating(true);
       setJob(null);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const response = await fetch(`${API_BASE}/video-studio/jobs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
         body: JSON.stringify({
           userId,
           productId: selectedProductId,
@@ -435,9 +463,17 @@ export default function VideoStudioScreen() {
     if (!job?.id) return createVideo();
     try {
       setCreating(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const response = await fetch(`${API_BASE}/video-studio/jobs/${encodeURIComponent(job.id)}/regenerate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
         body: JSON.stringify({
           userId,
           templateId: selectedTemplateId,

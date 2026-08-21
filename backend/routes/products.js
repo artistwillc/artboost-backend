@@ -14,6 +14,7 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const {
+      storeId,
       storeType,
       storeName,
       status,
@@ -28,6 +29,7 @@ router.get("/", async (req, res) => {
 
     const result = await getProducts({
       userId: String(userId),
+      storeId,
       storeType,
       storeName,
       status,

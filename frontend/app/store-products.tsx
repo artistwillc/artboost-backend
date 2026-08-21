@@ -160,12 +160,9 @@ export default function StoreProductsScreen() {
         return true;
       }
 
-      // Etsy historically used the actual Etsy shop name on products
-      // while the connection could simply be named "etsy".
-      if (selectedType === "etsy") {
-        return true;
-      }
-
+      // Never accept every product from the same platform as a fallback.
+      // If legacy metadata is incomplete, only rows with missing store names
+      // may fall back after the backend has already scoped by storeId.
       return !productStore || !selectedStore;
     },
     [storeId, storeName, storeType]
@@ -179,14 +176,20 @@ export default function StoreProductsScreen() {
         }
 
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const user = session?.user || null;
 
         if (!user) {
           throw new Error(
             "Please sign in to view products."
           );
         }
+
+        const authHeaders = session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {};
 
         const pageSize = 500;
         let offset = 0;
@@ -204,8 +207,13 @@ export default function StoreProductsScreen() {
             offset: String(offset),
           });
 
+          if (storeId) {
+            query.set("storeId", storeId);
+          }
+
           const response = await fetch(
-            `${API_BASE}/products?${query.toString()}`
+            `${API_BASE}/products?${query.toString()}`,
+            { headers: authHeaders }
           );
 
           const responseText =
@@ -325,7 +333,7 @@ export default function StoreProductsScreen() {
         setRefreshing(false);
       }
     },
-    [matchesStore, storeType]
+    [matchesStore, storeId, storeType]
   );
 
   useFocusEffect(
