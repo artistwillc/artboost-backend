@@ -46,6 +46,8 @@ export default function ProductsScreen() {
 };
 
 const [stores, setSources] = useState<Store[]>([]);
+// ARTBOOST_LIBRARY_AUTOMATION_STATUS_FIX_V1_20260821
+const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -108,6 +110,24 @@ const [stores, setSources] = useState<Store[]>([]);
     );
 
     setSources(storesData.stores || []);
+
+    // ARTBOOST_LIBRARY_AUTOMATION_STATUS_FIX_V1_20260821: automation status comes from store_automations via the same API used by Scheduled Posts.
+    const automationsResponse = await fetch(
+      `${API_BASE}/automations?userId=${encodeURIComponent(currentUserId)}`
+    );
+    const automationsData = await automationsResponse.json();
+    const counts: Record<string, number> = {};
+    if (automationsResponse.ok && automationsData?.success && Array.isArray(automationsData.automations)) {
+      for (const automation of automationsData.automations) {
+        if (!automation?.enabled) continue;
+        const automationStoreId = String(automation.store_id || automation.storeId || "");
+        if (!automationStoreId) continue;
+        counts[automationStoreId] = (counts[automationStoreId] || 0) + 1;
+      }
+    } else {
+      console.warn("Library automation status unavailable; showing Automation Off until refresh.");
+    }
+    setActiveAutomationCounts(counts);
   } catch (error: any) {
     console.log("Products or stores load failed:", error);
 
@@ -209,12 +229,7 @@ const [stores, setSources] = useState<Store[]>([]);
   }
 
   function getStoreAutomationCount(store: Store) {
-    return products.filter(
-      (product) =>
-        (product.storeName === store.storeName ||
-          product.storeType === store.storeType) &&
-        product.automationEnabled
-    ).length;
+    return activeAutomationCounts[String(store.id)] || 0;
   }
 
   function openStore(store: Store) {
