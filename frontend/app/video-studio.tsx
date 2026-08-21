@@ -336,7 +336,11 @@ export default function VideoStudioScreen() {
             item.title || "Untitled Product"
           ),
           // ARTBOOST_VIDEO_CAMPAIGN_MAPPING_FIX_V3_1
-          description: item.description || null,
+          description:
+            item.description || item.product_description || item.productDescription ||
+            item.metadata?.description || item.metadata?.product_description || item.metadata?.productDescription ||
+            item.metadata?.artwork_description || item.metadata?.artworkDescription ||
+            item.metadata?.listing_description || item.metadata?.listingDescription || null,
           // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
           imageUrl: resolveProductArtwork(item),
           productUrl:

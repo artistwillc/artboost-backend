@@ -54,7 +54,9 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
   await onProgress(92);
   const stored = await finalizeVideoWithPrimaryImage({
     job,
-    primaryImageUrl: product.image_url,
+    primaryImageUrl:
+      product.image_url || product.imageUrl || product.thumbnail_url || product.thumbnailUrl ||
+      product.metadata?.image_url || product.metadata?.imageUrl || product.metadata?.thumbnail_url || null,
     generatedVideoUrl: generated.temporaryVideoUrl,
     onProgress,
   });
