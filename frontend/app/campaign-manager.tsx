@@ -306,7 +306,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
 
   useEffect(() => {
     if (
-      selectedPlatform === "TikTok" &&
+      (selectedPlatforms.includes("TikTok") || selectedPlatform === "TikTok") &&
       session?.user?.id
     ) {
       loadTikTokCreatorInfo();
@@ -3484,7 +3484,13 @@ useFocusEffect(
     ? styles.facebookButton
     : styles.pinterestButton,
 ]}
-  onPress={() => {
+  onPress={async () => {
+  // ARTBOOST_VIDEO_LAST_RUN_COMPLETE_FIX_V1_4
+  if (isVideoCampaign) {
+    await publishSelectedVideoPlatforms();
+    return;
+  }
+
 
   if (selectedPlatform === "Facebook") {
 
@@ -3531,9 +3537,7 @@ else {
 }}
 >
         <Text style={styles.publishText}>
-          {publishing
-  ? "Publishing..."
-  : `Publish to ${selectedPlatform}`}
+          {publishing ? "Posting..." : "Post Now"}
         </Text>
       </Pressable>
     </ScrollView>

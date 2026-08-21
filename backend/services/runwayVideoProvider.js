@@ -76,9 +76,11 @@ function cleanPrompt(value) {
 
 function getDuration() {
   // ARTBOOST_VIDEO_PRIMARY_BOOKENDS_V1
-  const raw = Number(process.env.ARTBOOST_AI_VIDEO_DURATION || 10);
-  const value = Math.round(Number.isFinite(raw) ? raw : 10);
-  return Math.min(Math.max(value, 2), 10);
+  // ARTBOOST_VIDEO_LAST_RUN_COMPLETE_FIX_V1_4
+  const raw = Number(process.env.ARTBOOST_AI_VIDEO_DURATION || 7);
+  const value = Math.round(Number.isFinite(raw) ? raw : 7);
+  // The primary-image finalizer uses exactly 7 seconds of generated motion.
+  return Math.min(Math.max(value, 2), 7);
 }
 
 function getModel() {

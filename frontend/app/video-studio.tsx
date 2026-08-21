@@ -54,6 +54,72 @@ export default function VideoStudioScreen() {
   const normalize = (value?: string | null) =>
     String(value || "").trim().toLowerCase();
 
+  // ARTBOOST_VIDEO_LAST_RUN_COMPLETE_FIX_V1_4
+  const resolveProductArtwork = (item: any): string | null => {
+    const metadata =
+      item?.metadata && typeof item.metadata === "object"
+        ? item.metadata
+        : {};
+
+    const candidates: any[] = [
+      item?.image_url,
+      item?.imageUrl,
+      item?.thumbnail_url,
+      item?.thumbnailUrl,
+      item?.primary_image_url,
+      item?.primaryImageUrl,
+      item?.preview_image_url,
+      item?.previewImageUrl,
+      item?.featured_image,
+      item?.featuredImage,
+      item?.artwork_url,
+      item?.artworkUrl,
+      metadata?.image_url,
+      metadata?.imageUrl,
+      metadata?.thumbnail_url,
+      metadata?.thumbnailUrl,
+      metadata?.primary_image_url,
+      metadata?.primaryImageUrl,
+      metadata?.preview_image_url,
+      metadata?.previewImageUrl,
+      metadata?.featured_image,
+      metadata?.featuredImage,
+      metadata?.artwork_url,
+      metadata?.artworkUrl,
+    ];
+
+    const imageArrays = [
+      item?.images,
+      metadata?.images,
+      item?.media,
+      metadata?.media,
+    ];
+
+    for (const imageArray of imageArrays) {
+      if (!Array.isArray(imageArray)) continue;
+
+      for (const image of imageArray) {
+        candidates.push(
+          image?.secure_url,
+          image?.secureUrl,
+          image?.src,
+          image?.url,
+          image
+        );
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const clean = candidate.trim();
+
+      if (/^https?:\/\//i.test(clean)) return clean;
+      if (/^\/\//.test(clean)) return "https:" + clean;
+    }
+
+    return null;
+  };
+
   const requestedStoreId = String(params.storeId || "");
   const requestedStoreName = String(params.storeName || "");
   const requestedStoreType = String(params.storeType || "");
@@ -272,12 +338,7 @@ export default function VideoStudioScreen() {
           // ARTBOOST_VIDEO_CAMPAIGN_MAPPING_FIX_V3_1
           description: item.description || null,
           // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
-          imageUrl:
-            item.image_url ||
-            item.imageUrl ||
-            item.thumbnail_url ||
-            item.thumbnailUrl ||
-            null,
+          imageUrl: resolveProductArtwork(item),
           productUrl:
             item.product_url ||
             item.productUrl ||
