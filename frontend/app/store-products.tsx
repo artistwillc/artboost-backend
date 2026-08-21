@@ -1,5 +1,4 @@
-import { Ionicons   TextInput,
-} from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Linking from "expo-linking";
 import {
@@ -23,6 +22,7 @@ import {
   StyleSheet,
   Text,
   View,
+  TextInput,
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
