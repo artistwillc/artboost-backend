@@ -16,35 +16,62 @@ const SITE_URL =
   "https://artboostai.com";
 
 /*
- * New ArtBoost monthly plan prices.
+ * Current ArtBoost monthly Stripe prices (Aug. 21, 2026).
  *
- * The environment variable is preferred so a future Stripe price
- * change does not require a code deployment. The known live price
- * IDs are included as fallbacks so this update works immediately.
+ * Stripe Price objects are immutable, so each pricing revision gets a new
+ * Price ID. If Render still contains one of the immediately-retired IDs,
+ * treat it as stale configuration and use the current live ID below. A
+ * genuinely new environment value still overrides the built-in current ID.
  */
+const CURRENT_PRICE_IDS = {
+  starter: "price_1U70FpFJ3py30aWTdqIb2jEc", // $19.99/month
+  pro: "price_1U70GKFJ3py30aWT0YfBUifw", // $39.99/month
+  business: "price_1U70GgFJ3py30aWTlQMeJi6m", // $79.99/month
+};
+
+const RETIRED_TIER_PRICE_IDS = {
+  starter: "price_1U344bFJ3py30aWTa9jfgUmh", // $12.99/month
+  pro: "price_1U3480FJ3py30aWTKZZxwr3K", // $24.99/month
+  business: "price_1U349TFJ3py30aWTMAq9LVYk", // $49.99/month
+};
+
+function configuredPriceId(tier, envValue) {
+  const cleanEnv = String(envValue || "").trim();
+
+  if (cleanEnv && cleanEnv !== RETIRED_TIER_PRICE_IDS[tier]) {
+    return cleanEnv;
+  }
+
+  return CURRENT_PRICE_IDS[tier];
+}
+
 const PRICE_IDS = {
-  starter:
-    process.env.STRIPE_STARTER_PRICE_ID ||
-    "price_1U344bFJ3py30aWTa9jfgUmh",
-
-  pro:
-    process.env.STRIPE_PRO_PRICE_ID ||
-    "price_1U3480FJ3py30aWTKZZxwr3K",
-
-  business:
-    process.env.STRIPE_BUSINESS_PRICE_ID ||
-    "price_1U349TFJ3py30aWTMAq9LVYk",
+  starter: configuredPriceId(
+    "starter",
+    process.env.STRIPE_STARTER_PRICE_ID
+  ),
+  pro: configuredPriceId(
+    "pro",
+    process.env.STRIPE_PRO_PRICE_ID
+  ),
+  business: configuredPriceId(
+    "business",
+    process.env.STRIPE_BUSINESS_PRICE_ID
+  ),
 };
 
 /*
- * Preserve compatibility with the two legacy Pro prices while
- * existing subscriptions are migrated.
+ * Preserve compatibility with retired prices so existing subscribers keep
+ * resolving to the correct entitlement until they are migrated naturally.
  */
-const LEGACY_PRICE_IDS = new Set(
+const LEGACY_TIER_PRICE_IDS = new Map(
   [
-    process.env.STRIPE_MONTHLY_PRICE_ID,
-    process.env.STRIPE_YEARLY_PRICE_ID,
-  ].filter(Boolean)
+    [RETIRED_TIER_PRICE_IDS.starter, "starter"],
+    [RETIRED_TIER_PRICE_IDS.pro, "pro"],
+    [RETIRED_TIER_PRICE_IDS.business, "business"],
+    [process.env.STRIPE_MONTHLY_PRICE_ID, "pro"],
+    [process.env.STRIPE_YEARLY_PRICE_ID, "pro"],
+  ].filter(([priceId]) => Boolean(priceId))
 );
 
 const ACTIVE_STATUSES = new Set([
@@ -93,8 +120,8 @@ function tierFromPriceId(priceId) {
     }
   }
 
-  if (LEGACY_PRICE_IDS.has(cleanId)) {
-    return "pro";
+  if (LEGACY_TIER_PRICE_IDS.has(cleanId)) {
+    return LEGACY_TIER_PRICE_IDS.get(cleanId);
   }
 
   return null;
@@ -1586,7 +1613,7 @@ router.get(
       business:
         PRICE_IDS.business,
       legacyProPriceCount:
-        LEGACY_PRICE_IDS.size,
+        LEGACY_TIER_PRICE_IDS.size,
     });
   }
 );

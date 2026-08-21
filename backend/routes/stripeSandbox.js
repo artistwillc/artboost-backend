@@ -896,7 +896,7 @@ router.get(
             <div class="plans">
               <section class="plan">
                 <h2>Starter</h2>
-                <div class="price">$12.99/mo</div>
+                <div class="price">$19.99/mo</div>
                 <a href="/stripe-test/checkout/starter?token=${token}&email=${encodedEmail}">
                   Test Starter
                 </a>
@@ -904,7 +904,7 @@ router.get(
 
               <section class="plan">
                 <h2>Pro</h2>
-                <div class="price">$24.99/mo</div>
+                <div class="price">$39.99/mo</div>
                 <a href="/stripe-test/checkout/pro?token=${token}&email=${encodedEmail}">
                   Test Pro
                 </a>
@@ -912,7 +912,7 @@ router.get(
 
               <section class="plan">
                 <h2>Business</h2>
-                <div class="price">$49.99/mo</div>
+                <div class="price">$79.99/mo</div>
                 <a href="/stripe-test/checkout/business?token=${token}&email=${encodedEmail}">
                   Test Business
                 </a>
