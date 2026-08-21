@@ -2,3 +2,20 @@ node_modules
 .envJava/
 npx
 Java/
+# ArtBoost local update / diagnostic artifacts
+backups/
+ARTBOOST_59_TEST_AUDIT_OUTPUT/
+FAA-review/
+UI-review/
+payload/
+*.bak
+BROWSERSTACK_READINESS_REPORT.txt
+VALIDATION*.txt
+VIDEO_*_VALIDATION.txt
+FAA-diff.txt
+review-diff.txt
+auth-review.txt
+business-entitlement-diagnostic.txt
+thumbnail-regression-diagnostic.txt
+video-publishing-pipeline-diagnostic.txt
+ARTBOOST_NPM_AUDIT_*.json

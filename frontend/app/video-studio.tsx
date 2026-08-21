@@ -1,3 +1,4 @@
+// ARTBOOST_VIDEO_PLAN_LIMITS_V1
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -30,7 +31,8 @@ type Product = {
   storeConnectionId?: string | null;
 };
 type Template = { id: string; name: string; description: string };
-type VideoJob = { id: string; status: string; progress: number; video_url?: string | null; error_message?: string | null; template_id: string; source_snapshot?: any };
+type VideoJob = { id: string; status: string; progress: number; video_url?: string | null; error_message?: string | null; template_id: string; source_snapshot?: any; updated_at?: string | null };
+type VideoUsage = { tier: string; limit: number; used: number; remaining: number; failedToday?: number; periodStart?: string; periodEnd?: string };
 
 export default function VideoStudioScreen() {
   const params = useLocalSearchParams<{
@@ -47,6 +49,8 @@ export default function VideoStudioScreen() {
   const [job, setJob] = useState<VideoJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [jobRefreshFailures, setJobRefreshFailures] = useState(0);
+  const [videoUsage, setVideoUsage] = useState<VideoUsage | null>(null);
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   const [listingSearch, setListingSearch] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
@@ -262,6 +266,20 @@ export default function VideoStudioScreen() {
         ? { Authorization: `Bearer ${session.access_token}` }
         : {};
       setUserId(user.id);
+
+      try {
+        const usageResponse = await fetch(
+          `${API_BASE}/video-studio/usage?userId=${encodeURIComponent(user.id)}`,
+          { headers: authHeaders }
+        );
+        const usageData = await usageResponse.json();
+        if (usageResponse.ok && usageData.success && usageData.usage) {
+          setVideoUsage(usageData.usage);
+        }
+      } catch (usageError) {
+        console.log("Video usage refresh failed:", usageError);
+      }
+
       const templateResponse = await fetch(
         `${API_BASE}/video-studio/templates`
       );
@@ -424,8 +442,16 @@ export default function VideoStudioScreen() {
         { headers: authHeaders }
       );
       const data = await response.json();
-      if (response.ok && data.success) setJob(data.job);
-    } catch (error) { console.log("Video job refresh failed:", error); }
+      if (response.ok && data.success) {
+        setJob(data.job);
+        setJobRefreshFailures(0);
+      } else {
+        setJobRefreshFailures((value) => value + 1);
+      }
+    } catch (error) {
+      setJobRefreshFailures((value) => value + 1);
+      console.log("Video job refresh failed:", error);
+    }
   }
 
   async function createVideo() {
@@ -433,6 +459,7 @@ export default function VideoStudioScreen() {
     try {
       setCreating(true);
       setJob(null);
+      setJobRefreshFailures(0);
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -452,8 +479,12 @@ export default function VideoStudioScreen() {
         }),
       });
       const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || "Unable to create video.");
+      if (!response.ok || !data.success) {
+        if (data.usage) setVideoUsage(data.usage);
+        throw new Error(data.error || "Unable to create video.");
+      }
       setJob(data.job);
+      if (data.usage) setVideoUsage(data.usage);
     } catch (error: any) {
       Alert.alert("Video Creation Failed", error.message || "ArtBoost could not create this video.");
     } finally { setCreating(false); }
@@ -481,11 +512,20 @@ export default function VideoStudioScreen() {
         }),
       });
       const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || "Unable to regenerate video.");
+      if (!response.ok || !data.success) {
+        if (data.usage) setVideoUsage(data.usage);
+        throw new Error(data.error || "Unable to regenerate video.");
+      }
       setJob(data.job);
+      if (data.usage) setVideoUsage(data.usage);
     } catch (error: any) { Alert.alert("Regenerate Failed", error.message || "Unable to regenerate video."); }
     finally { setCreating(false); }
   }
+
+  const videoLimitReached = Boolean(videoUsage && videoUsage.remaining <= 0);
+  const videoPlanLabel = videoUsage?.tier
+    ? videoUsage.tier.charAt(0).toUpperCase() + videoUsage.tier.slice(1)
+    : "Plan";
 
   const videoHtml = job?.video_url ? `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>html,body{margin:0;background:#000;height:100%;overflow:hidden}video{width:100%;height:100%;object-fit:contain;background:#000}</style></head><body><video src="${String(job.video_url).replace(/"/g, "&quot;")}" controls playsinline autoplay muted></video></body></html>` : "";
 
@@ -501,6 +541,20 @@ export default function VideoStudioScreen() {
       {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#8b5cf6" /><Text style={styles.muted}>Loading your products…</Text></View> : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCard}><Text style={styles.heroTitle}>Turn a listing into a polished product video.</Text><Text style={styles.heroText}>Choose a product and a style. ArtBoost handles the 9:16 composition, camera motion, transitions, rendering, and high-quality export.</Text></View>
+
+          {videoUsage ? (
+            <View style={styles.usageCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.usageTitle}>{videoPlanLabel} AI video allowance</Text>
+                <Text style={styles.usageText}>
+                  {videoUsage.limit > 0
+                    ? `${videoUsage.remaining} of ${videoUsage.limit} generations remaining this month`
+                    : "Upgrade to a paid plan to create AI product videos"}
+                </Text>
+              </View>
+              <Text style={styles.usageCount}>{videoUsage.used}/{videoUsage.limit}</Text>
+            </View>
+          ) : null}
 
           <Text style={styles.step}>1  Choose Product</Text>
           {requestedStoreName || requestedStoreType ? (
@@ -590,19 +644,25 @@ export default function VideoStudioScreen() {
 
           <Text style={styles.step}>4  Create</Text>
           {/* ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3 */}
-          <Pressable disabled={creating || !selectedProductId || job?.status === "processing" || job?.status === "queued"} onPress={createVideo} style={[styles.createButton, (creating || !selectedProductId || job?.status === "processing" || job?.status === "queued") && styles.disabled]}>
+          <Pressable disabled={creating || videoLimitReached || !selectedProductId || job?.status === "processing" || job?.status === "queued"} onPress={createVideo} style={[styles.createButton, (creating || videoLimitReached || !selectedProductId || job?.status === "processing" || job?.status === "queued") && styles.disabled]}>
             {creating ? <ActivityIndicator color="#fff" /> : <Ionicons name="sparkles" size={20} color="#fff" />}
-            <Text style={styles.createText}>{creating ? "Starting…" : "Create Product Video"}</Text>
+            <Text style={styles.createText}>{creating ? "Starting…" : videoLimitReached ? "Monthly Video Limit Reached" : "Create Product Video"}</Text>
           </Pressable>
 
           {job ? <View style={styles.jobCard}>
             <View style={styles.jobTop}><Text style={styles.jobTitle}>{job.status === "completed" ? "Your video is ready" : job.status === "failed" ? "Video needs attention" : "Creating your video"}</Text><Text style={styles.percent}>{job.progress || 0}%</Text></View>
             <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(Math.max(job.progress || 0, 0), 100)}%` }]} /></View>
-            {job.status === "processing" || job.status === "queued" ? <Text style={styles.jobText}>ArtBoost is rendering the final 1080 × 1920 MP4. You can leave this screen and return later.</Text> : null}
+            {job.status === "processing" || job.status === "queued" ? (
+              <Text style={styles.jobText}>
+                {jobRefreshFailures >= 3
+                  ? "The server connection was interrupted. ArtBoost will automatically recover this video job after the worker restarts; you do not need to start another video."
+                  : "ArtBoost is rendering the final 1080 × 1920 MP4. You can leave this screen and return later."}
+              </Text>
+            ) : null}
             {job.status === "failed" ? <Text style={styles.error}>{job.error_message || "Rendering failed."}</Text> : null}
             {job.status === "completed" && job.video_url ? <>
               <View style={styles.preview}><WebView originWhitelist={["*"]} source={{ html: videoHtml }} javaScriptEnabled allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false} style={{ backgroundColor: "#000" }} /></View>
-              <View style={styles.actionRow}><Pressable style={styles.secondaryButton} onPress={regenerate}><Ionicons name="refresh" size={18} color="#fff" /><Text style={styles.secondaryText}>Regenerate</Text></Pressable><Pressable style={styles.publishButton} onPress={() => {
+              <View style={styles.actionRow}><Pressable disabled={videoLimitReached} style={[styles.secondaryButton, videoLimitReached && styles.disabled]} onPress={regenerate}><Ionicons name="refresh" size={18} color="#fff" /><Text style={styles.secondaryText}>Regenerate</Text></Pressable><Pressable style={styles.publishButton} onPress={() => {
                   if (!selectedProduct) return;
 
                   // ARTBOOST_VIDEO_CAMPAIGN_EXACT_CONTEXT_V3
@@ -637,7 +697,8 @@ const styles = StyleSheet.create({
   backButton: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#171820", alignItems: "center", justifyContent: "center" }, eyebrow: { color: "#a78bfa", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }, title: { color: "#fff", fontSize: 26, fontWeight: "800", marginTop: 1 },
   proBadge: { flexDirection: "row", gap: 5, alignItems: "center", borderWidth: 1, borderColor: "#665720", backgroundColor: "#272310", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 }, proText: { color: "#f8d66d", fontWeight: "800", fontSize: 9, letterSpacing: .7 },
   content: { padding: 16 }, center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }, muted: { color: "#9ca3af" },
-  heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 23 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#bbb8cb", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
+  heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 14 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#bbb8cb", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
+  usageCard: { borderRadius: 16, padding: 14, backgroundColor: "#111827", borderWidth: 1, borderColor: "#31415f", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 23 }, usageTitle: { color: "#fff", fontSize: 14, fontWeight: "800" }, usageText: { color: "#9ca3af", fontSize: 12, lineHeight: 17, marginTop: 3 }, usageCount: { color: "#c4b5fd", fontSize: 15, fontWeight: "900" },
   storeContextBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1c1730", borderWidth: 1, borderColor: "#44347b", marginTop: -4, marginBottom: 11 },
   storeContextText: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
   rowScroll: { gap: 11, paddingBottom: 22 }, productCard: { width: 142, borderRadius: 17, backgroundColor: "#15161c", borderWidth: 1, borderColor: "#282a33", padding: 8, position: "relative" }, activeCard: { borderColor: "#8b5cf6", backgroundColor: "#191627" }, productImage: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#202127" }, placeholder: { alignItems: "center", justifyContent: "center" }, productTitle: { color: "#fff", fontWeight: "700", fontSize: 13, lineHeight: 17, marginTop: 8 }, storeText: { color: "#7f8493", fontSize: 11, marginTop: 4 }, check: { position: "absolute", top: 13, right: 13, width: 23, height: 23, borderRadius: 12, backgroundColor: "#8b5cf6", alignItems: "center", justifyContent: "center" },

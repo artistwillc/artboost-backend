@@ -1,9 +1,11 @@
+// ARTBOOST_VIDEO_PLAN_LIMITS_V1
 import express from "express";
 import { resolveRequestUserId } from "../middleware/auth.js";
 import { listVideoTemplates } from "../video/templates.js";
 import {
   createVideoJob,
   getVideoJob,
+  getVideoUsage,
   listVideoJobs,
   regenerateVideoJob,
 } from "../services/videoStudioService.js";
@@ -25,6 +27,18 @@ function cleanVideoGuidance(value) {
 
 router.get("/templates", (_req, res) => {
   res.json({ success: true, templates: listVideoTemplates() });
+});
+
+router.get("/usage", async (req, res) => {
+  try {
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
+    const usage = await getVideoUsage({ userId });
+    return res.json({ success: true, usage });
+  } catch (error) {
+    console.error("Video Studio usage error:", error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Unable to load video allowance." });
+  }
 });
 
 router.get("/jobs", async (req, res) => {
@@ -60,10 +74,17 @@ router.post("/jobs", async (req, res) => {
     if (!userId) return;
     if (!productId) return res.status(400).json({ success: false, error: "productId is required." });
     const job = await createVideoJob({ userId, productId, templateId, userPrompt });
-    return res.status(202).json({ success: true, job });
+    const usage = await getVideoUsage({ userId });
+    return res.status(202).json({ success: true, job, usage });
   } catch (error) {
     console.error("Video Studio create error:", error);
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Unable to create video." });
+    const status = error?.code === "VIDEO_LIMIT_REACHED" || error?.code === "VIDEO_FAILURE_THROTTLE" ? 429 : 400;
+    return res.status(status).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to create video.",
+      code: error?.code || null,
+      usage: error?.videoUsage || null,
+    });
   }
 });
 
@@ -73,9 +94,16 @@ router.post("/jobs/:jobId/regenerate", async (req, res) => {
     const userPrompt = cleanVideoGuidance(req.body?.userPrompt); // ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3
     if (!userId) return;
     const job = await regenerateVideoJob({ userId, jobId: req.params.jobId, templateId: req.body?.templateId, userPrompt });
-    return res.status(202).json({ success: true, job });
+    const usage = await getVideoUsage({ userId });
+    return res.status(202).json({ success: true, job, usage });
   } catch (error) {
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Unable to regenerate video." });
+    const status = error?.code === "VIDEO_LIMIT_REACHED" || error?.code === "VIDEO_FAILURE_THROTTLE" ? 429 : 400;
+    return res.status(status).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to regenerate video.",
+      code: error?.code || null,
+      usage: error?.videoUsage || null,
+    });
   }
 });
 
