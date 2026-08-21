@@ -6,6 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import ffmpegStatic from "ffmpeg-static";
 import { v2 as cloudinary } from "cloudinary";
 
@@ -35,12 +37,32 @@ function configCloudinary() {
   cloudinary.config({ cloud_name, api_key, api_secret, secure: true });
 }
 
-async function download(url, file) {
+async function download(url, file, maxBytes = 350 * 1024 * 1024) {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Unable to download Video Studio media (${response.status}).`);
   }
-  await fs.promises.writeFile(file, Buffer.from(await response.arrayBuffer()));
+  if (!response.body) {
+    throw new Error("Video Studio media download returned an empty body.");
+  }
+
+  let received = 0;
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      received += chunk.length;
+      if (received > maxBytes) {
+        callback(new Error(`Video Studio media exceeded the ${Math.round(maxBytes / 1024 / 1024)} MB safety limit.`));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  await pipeline(
+    Readable.fromWeb(response.body),
+    limiter,
+    fs.createWriteStream(file),
+  );
 }
 
 function ffmpeg(args) {
@@ -86,8 +108,8 @@ export async function finalizeVideoWithPrimaryImage({
   try {
     await onProgress(93);
     await Promise.all([
-      download(primaryImageUrl, image),
-      download(generatedVideoUrl, motion),
+      download(primaryImageUrl, image, 40 * 1024 * 1024),
+      download(generatedVideoUrl, motion, 350 * 1024 * 1024),
     ]);
 
     const fit = [
@@ -116,6 +138,9 @@ export async function finalizeVideoWithPrimaryImage({
 
     await ffmpeg([
       "-y",
+      "-threads", "1",
+      "-filter_threads", "1",
+      "-filter_complex_threads", "1",
       "-loop", "1",
       "-framerate", String(FPS),
       "-i", image,

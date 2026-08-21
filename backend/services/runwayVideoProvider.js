@@ -354,6 +354,7 @@ export async function createRunwayImageToVideo({
   prompt,
   onProgress = async () => {},
   _moderationRetry = false,
+  onTaskCreated = async () => {},
 }) {
   if (!process.env.RUNWAYML_API_SECRET) {
     throw new Error("RUNWAYML_API_SECRET is not configured.");
@@ -364,44 +365,60 @@ export async function createRunwayImageToVideo({
   const useDuration = getDuration();
   const usePrompt = cleanPrompt(prompt);
 
-  await onProgress(11);
+  const resumeTaskId = _moderationRetry
+    ? ""
+    : String(job?.source_snapshot?.runway_task_id || "").trim();
+  const progressFloor = resumeTaskId ? Math.min(Math.max(Number(job?.progress) || 20, 20), 93) : 0;
+  let prepared = null;
+  let taskId = resumeTaskId;
 
-  const prepared = await preparePromptImage({
-    job,
-    imageUrl,
-  });
+  if (taskId) {
+    console.log("ArtBoost V5.2 resuming Runway task:", {
+      jobId: job.id,
+      taskId,
+    });
+    await onProgress(Math.max(Number(job?.progress) || 20, 20));
+  } else {
+    await onProgress(11);
 
-  await onProgress(14);
+    prepared = await preparePromptImage({
+      job,
+      imageUrl,
+    });
 
-  console.log("ArtBoost V5.1 generative request:", {
-    jobId: job.id,
-    provider: "runway",
-    model: useModel,
-    ratio: useRatio,
-    duration: useDuration,
-    promptLength: usePrompt.length,
-    preparedImage: {
-      host: new URL(prepared.imageUrl).host,
-      width: prepared.width,
-      height: prepared.height,
-      urlLength: prepared.imageUrl.length,
-    },
-  });
+    await onProgress(14);
 
-  const created = await submitGeneration({
-    model: useModel,
-    promptImageUrl: prepared.imageUrl,
-    promptText: usePrompt,
-    ratio: useRatio,
-    duration: useDuration,
-  });
+    console.log("ArtBoost V5.2 generative request:", {
+      jobId: job.id,
+      provider: "runway",
+      model: useModel,
+      ratio: useRatio,
+      duration: useDuration,
+      promptLength: usePrompt.length,
+      preparedImage: {
+        host: new URL(prepared.imageUrl).host,
+        width: prepared.width,
+        height: prepared.height,
+        urlLength: prepared.imageUrl.length,
+      },
+    });
 
-  if (!created?.id) {
-    throw new Error("Runway did not return a generation task id.");
+    const created = await submitGeneration({
+      model: useModel,
+      promptImageUrl: prepared.imageUrl,
+      promptText: usePrompt,
+      ratio: useRatio,
+      duration: useDuration,
+    });
+
+    if (!created?.id) {
+      throw new Error("Runway did not return a generation task id.");
+    }
+
+    taskId = String(created.id);
+    await onTaskCreated(taskId);
+    await onProgress(20);
   }
-
-  const taskId = created.id;
-  await onProgress(20);
 
   const started = Date.now();
   const timeout = Math.min(
@@ -444,7 +461,10 @@ export async function createRunwayImageToVideo({
 
     polls += 1;
     await onProgress(
-      steps[Math.min(polls - 1, steps.length - 1)]
+      Math.max(
+        progressFloor,
+        steps[Math.min(polls - 1, steps.length - 1)]
+      )
     );
 
     const status = String(task?.status || "").toUpperCase();
@@ -469,7 +489,7 @@ export async function createRunwayImageToVideo({
         duration: useDuration,
         ratio: useRatio,
         model: useModel,
-        sourceImagePublicId: prepared.publicId,
+        sourceImagePublicId: prepared?.publicId || null,
       };
     }
 
@@ -497,6 +517,7 @@ export async function createRunwayImageToVideo({
           prompt: buildRunwayModerationSafePrompt(),
           onProgress,
           _moderationRetry: true,
+          onTaskCreated,
         });
       }
 

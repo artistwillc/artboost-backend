@@ -14,139 +14,6 @@ const supabase = createClient(
 const MAX_SOURCE_IMAGES = 6;
 const MIN_SOURCE_IMAGES = 1;
 
-// ARTBOOST_VIDEO_PLAN_LIMITS_V1
-// Monthly AI video allowances are intentionally conservative because Runway
-// generation is a variable per-use cost. Failed jobs do not consume the
-// monthly allowance, but repeated failures are throttled to protect the account.
-export const VIDEO_PLAN_LIMITS = Object.freeze({
-  free: 0,
-  starter: 5,
-  pro: 15,
-  business: 30,
-});
-
-const MAX_FAILED_VIDEO_ATTEMPTS_PER_DAY = 5;
-const videoQuotaLocks = new Map();
-
-function normalizeVideoTier(profile = {}) {
-  const tier = String(profile.subscription_tier || "").trim().toLowerCase();
-  const plan = String(profile.plan || "").trim().toLowerCase();
-
-  if (tier === "business" || plan.includes("business")) return "business";
-  if (tier === "pro" || plan === "pro" || profile.is_pro === true) return "pro";
-  if (tier === "starter" || plan === "starter") return "starter";
-  return "free";
-}
-
-function monthBoundsUtc(now = new Date()) {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-function dayStartUtc(now = new Date()) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-}
-
-async function withVideoQuotaLock(userId, action) {
-  const key = String(userId || "");
-  const previous = videoQuotaLocks.get(key) || Promise.resolve();
-  let release;
-  const current = new Promise((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
-  videoQuotaLocks.set(key, queued);
-
-  await previous;
-  try {
-    return await action();
-  } finally {
-    release();
-    if (videoQuotaLocks.get(key) === queued) videoQuotaLocks.delete(key);
-  }
-}
-
-async function getVideoPlanProfile(userId) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("subscription_tier,subscription_status,plan,is_pro")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) throw new Error(`Unable to verify Video Studio plan: ${error.message}`);
-  return data || {};
-}
-
-export async function getVideoUsage({ userId }) {
-  if (!userId) throw new Error("userId is required.");
-
-  const profile = await getVideoPlanProfile(userId);
-  const tier = normalizeVideoTier(profile);
-  const limit = VIDEO_PLAN_LIMITS[tier] ?? 0;
-  const { start, end } = monthBoundsUtc();
-
-  const { count: used, error: usageError } = await supabase
-    .from("video_jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", start)
-    .lt("created_at", end)
-    .neq("status", "failed")
-    .neq("status", "canceled")
-    .neq("status", "cancelled");
-
-  if (usageError) throw new Error(`Unable to verify AI video usage: ${usageError.message}`);
-
-  const { count: failedToday, error: failedError } = await supabase
-    .from("video_jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("status", "failed")
-    .gte("created_at", dayStartUtc());
-
-  if (failedError) throw new Error(`Unable to verify recent video failures: ${failedError.message}`);
-
-  const safeUsed = Number(used || 0);
-  const safeFailedToday = Number(failedToday || 0);
-  return {
-    tier,
-    limit,
-    used: safeUsed,
-    remaining: Math.max(limit - safeUsed, 0),
-    failedToday: safeFailedToday,
-    periodStart: start,
-    periodEnd: end,
-  };
-}
-
-async function assertVideoGenerationAvailable(userId) {
-  const usage = await getVideoUsage({ userId });
-
-  if (usage.failedToday >= MAX_FAILED_VIDEO_ATTEMPTS_PER_DAY) {
-    const error = new Error(
-      "Video generation is temporarily paused after repeated failed attempts today. Please try again tomorrow or contact ArtBoost support."
-    );
-    error.code = "VIDEO_FAILURE_THROTTLE";
-    error.videoUsage = usage;
-    throw error;
-  }
-
-  if (usage.remaining <= 0) {
-    const planLabel = usage.tier === "free"
-      ? "Free"
-      : usage.tier.charAt(0).toUpperCase() + usage.tier.slice(1);
-    const error = new Error(
-      usage.limit > 0
-        ? `You've used all ${usage.limit} AI video generations included with ${planLabel} this month. Your allowance resets next month.`
-        : "AI Video Studio requires a paid ArtBoost plan. Upgrade to Starter, Pro, or Business to create product videos."
-    );
-    error.code = "VIDEO_LIMIT_REACHED";
-    error.videoUsage = usage;
-    throw error;
-  }
-
-  return usage;
-}
-
 
 const VIDEO_STUDIO_WORKER_ID =
   String(
@@ -236,45 +103,41 @@ export async function getOwnedProduct(userId, productId) {
 }
 
 export async function createVideoJob({ userId, productId, templateId = DEFAULT_VIDEO_TEMPLATE, userPrompt = "" }) {
-  return withVideoQuotaLock(userId, async () => {
-    await assertVideoGenerationAvailable(userId);
+  const product = await getOwnedProduct(userId, productId);
+  const template = getVideoTemplate(templateId);
+  const imageUrls = flattenImageCandidates(product);
 
-    const product = await getOwnedProduct(userId, productId);
-    const template = getVideoTemplate(templateId);
-    const imageUrls = flattenImageCandidates(product);
+  if (imageUrls.length < MIN_SOURCE_IMAGES) {
+    throw new Error("This listing does not have a usable public product image yet.");
+  }
 
-    if (imageUrls.length < MIN_SOURCE_IMAGES) {
-      throw new Error("This listing does not have a usable public product image yet.");
-    }
-
-    const id = randomUUID();
-    const row = {
-      id,
-      user_id: userId,
-      product_id: String(product.id),
-      template_id: template.id,
-      status: "queued",
-      progress: 0,
-      source_images: imageUrls,
-      source_snapshot: {
+  const id = randomUUID();
+  const row = {
+    id,
+    user_id: userId,
+    product_id: String(product.id),
+    template_id: template.id,
+    status: "queued",
+    progress: 0,
+    source_images: imageUrls,
+    source_snapshot: {
         user_prompt: cleanVideoGuidance(userPrompt),
-        title: product.title || "Untitled Product",
-        description: product.description || "",
-        product_url: product.product_url || "",
-        price: product.price ?? null,
-        currency: product.currency || "USD",
-        store_type: product.store_type || null,
-        store_name: product.store_name || null,
-      },
-      output_width: 1080,
-      output_height: 1920,
-      output_fps: 30,
-    };
+      title: product.title || "Untitled Product",
+      description: product.description || "",
+      product_url: product.product_url || "",
+      price: product.price ?? null,
+      currency: product.currency || "USD",
+      store_type: product.store_type || null,
+      store_name: product.store_name || null,
+    },
+    output_width: 1080,
+    output_height: 1920,
+    output_fps: 30,
+  };
 
-    const { data, error } = await supabase.from("video_jobs").insert(row).select("*").single();
-    if (error) throw new Error(`Unable to queue video: ${error.message}`);
-    return data;
-  });
+  const { data, error } = await supabase.from("video_jobs").insert(row).select("*").single();
+  if (error) throw new Error(`Unable to queue video: ${error.message}`);
+  return data;
 }
 
 export async function listVideoJobs({ userId, limit = 20 }) {

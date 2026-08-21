@@ -1,6 +1,7 @@
 import { recordError } from "../services/diagnosticsService.js";
-import { claimNextVideoJob, updateVideoJob } from "../services/videoStudioService.js";
+import { claimNextVideoJob, heartbeatVideoJob, updateVideoJob } from "../services/videoStudioService.js";
 import { renderVideoJob } from "../services/videoGenerationService.js";
+import { videoMemorySnapshot } from "../services/videoMemoryService.js";
 
 let running = false;
 let timer = null;
@@ -10,9 +11,17 @@ async function processOne() {
   if (processing) return;
   processing = true;
   let job = null;
+  let heartbeatTimer = null;
   try {
     job = await claimNextVideoJob();
     if (!job) return;
+    videoMemorySnapshot("job_claimed", { jobId: job.id });
+    heartbeatTimer = setInterval(() => {
+      heartbeatVideoJob({ jobId: job.id }).catch((error) =>
+        console.warn("Video Studio heartbeat failed:", job.id, error?.message || error)
+      );
+    }, 30000);
+    heartbeatTimer.unref?.();
     const result = await renderVideoJob(job, async (progress) => {
       await updateVideoJob(job.id, { progress: Math.min(Math.max(Number(progress) || 0, 0), 99) });
     });
@@ -30,6 +39,7 @@ async function processOne() {
       source_quality: result.sourceQuality,
       completed_at: new Date().toISOString(),
     });
+    videoMemorySnapshot("job_completed", { jobId: job.id });
     console.log("ArtBoost Video Studio render completed:", job.id);
   } catch (error) {
     console.error("ArtBoost Video Studio worker error:", error);
@@ -87,6 +97,9 @@ async function processOne() {
       });
     }
   } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+    if (job?.id) videoMemorySnapshot("job_released", { jobId: job.id });
     processing = false;
   }
 }

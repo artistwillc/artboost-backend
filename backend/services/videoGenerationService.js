@@ -4,6 +4,8 @@ import { renderVideoJob as renderLegacyVideoJob } from "./videoRenderService.js"
 import { createArtworkMotionPlan } from "./artworkMotionPlanner.js";
 import { createRunwayImageToVideo, persistGeneratedVideo } from "./runwayVideoProvider.js";
 import { finalizeVideoWithPrimaryImage } from "./videoPrimaryFrameFinalizer.js"; // ARTBOOST_VIDEO_PRIMARY_BOOKENDS_V1
+import { persistVideoProviderTask } from "./videoStudioService.js";
+import { videoMemorySnapshot } from "./videoMemoryService.js";
 
 const enabled = () =>
   String(process.env.ARTBOOST_GENERATIVE_VIDEO || "true").toLowerCase() !== "false" &&
@@ -29,6 +31,7 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
     return renderLegacyVideoJob(job,onProgress);
   }
 
+  videoMemorySnapshot("render_start", { jobId: job.id });
   await onProgress(6);
   const product = await loadProduct(job);
   await onProgress(8);
@@ -48,9 +51,16 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
 
   await onProgress(10);
   const generated = await createRunwayImageToVideo({
-    job, imageUrl:product.image_url, prompt:motionPlan.prompt, onProgress
+    job,
+    imageUrl: product.image_url,
+    prompt: motionPlan.prompt,
+    onProgress,
+    onTaskCreated: async (taskId) => {
+      await persistVideoProviderTask({ job, taskId, provider: "runway" });
+    },
   });
 
+  videoMemorySnapshot("runway_succeeded", { jobId: job.id, providerTaskId: generated.taskId });
   await onProgress(92);
   const stored = await finalizeVideoWithPrimaryImage({
     job,
@@ -61,6 +71,7 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
     onProgress,
   });
   await onProgress(98);
+  videoMemorySnapshot("finalizer_complete", { jobId: job.id });
 
   console.log("ArtBoost V5 generative video ready:", {
     jobId:job.id, providerTaskId:generated.taskId,
