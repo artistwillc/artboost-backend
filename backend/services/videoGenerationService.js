@@ -34,7 +34,12 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
   await onProgress(8);
 
   const templateId = job.template_id || job.templateId || "cinematic";
-  const motionPlan = await createArtworkMotionPlan({ product, templateId });
+  const motionPlan = await createArtworkMotionPlan({
+    product,
+    templateId,
+    // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+    userPrompt: job?.source_snapshot?.user_prompt || job?.source_snapshot?.userPrompt || "",
+  });
 
   console.log("ArtBoost V5 motion plan:", {
     jobId:job.id, productId:product.id, templateId,

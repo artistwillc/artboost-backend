@@ -36,6 +36,15 @@ const VIDEO_STUDIO_LOCK_SECONDS = Math.min(
   7200
 );
 
+function cleanVideoGuidance(value) {
+  // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
 function uniq(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -93,7 +102,7 @@ export async function getOwnedProduct(userId, productId) {
   return data;
 }
 
-export async function createVideoJob({ userId, productId, templateId = DEFAULT_VIDEO_TEMPLATE }) {
+export async function createVideoJob({ userId, productId, templateId = DEFAULT_VIDEO_TEMPLATE, userPrompt = "" }) {
   const product = await getOwnedProduct(userId, productId);
   const template = getVideoTemplate(templateId);
   const imageUrls = flattenImageCandidates(product);
@@ -112,6 +121,7 @@ export async function createVideoJob({ userId, productId, templateId = DEFAULT_V
     progress: 0,
     source_images: imageUrls,
     source_snapshot: {
+        user_prompt: cleanVideoGuidance(userPrompt),
       title: product.title || "Untitled Product",
       description: product.description || "",
       product_url: product.product_url || "",
@@ -221,11 +231,15 @@ export async function updateVideoJob(jobId, patch) {
   return data;
 }
 
-export async function regenerateVideoJob({ userId, jobId, templateId }) {
+export async function regenerateVideoJob({ userId, jobId, templateId, userPrompt = "" }) {
   const previous = await getVideoJob({ userId, jobId });
   return createVideoJob({
     userId,
     productId: previous.product_id,
     templateId: templateId || previous.template_id,
+
+    userPrompt:
+      cleanVideoGuidance(userPrompt) ||
+      String(previous?.source_snapshot?.user_prompt || ""), // ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3
   });
 }

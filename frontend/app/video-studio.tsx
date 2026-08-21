@@ -11,6 +11,8 @@ import {
   StyleSheet,
   Text,
   View,
+
+  TextInput,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { supabase } from "@/lib/supabase";
@@ -45,6 +47,9 @@ export default function VideoStudioScreen() {
   const [job, setJob] = useState<VideoJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+  const [listingSearch, setListingSearch] = useState("");
+  const [userPrompt, setUserPrompt] = useState("");
 
   const normalize = (value?: string | null) =>
     String(value || "").trim().toLowerCase();
@@ -134,6 +139,17 @@ export default function VideoStudioScreen() {
     requestedStoreName,
     requestedStoreType,
   ]);
+
+  // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+  const filteredProducts = useMemo(() => {
+    const query = normalize(listingSearch);
+    if (!query) return visibleProducts;
+    return visibleProducts.filter((product) =>
+      [product.title, product.description, product.storeName, product.storeType]
+        .map(normalize)
+        .some((value) => value.includes(query))
+    );
+  }, [visibleProducts, listingSearch]);
 
   const selectedProduct = useMemo(
     () =>
@@ -335,7 +351,12 @@ export default function VideoStudioScreen() {
       const response = await fetch(`${API_BASE}/video-studio/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, productId: selectedProductId, templateId: selectedTemplateId }),
+        body: JSON.stringify({
+          userId,
+          productId: selectedProductId,
+          templateId: selectedTemplateId,
+          userPrompt: userPrompt.trim(),
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to create video.");
@@ -352,7 +373,11 @@ export default function VideoStudioScreen() {
       const response = await fetch(`${API_BASE}/video-studio/jobs/${encodeURIComponent(job.id)}/regenerate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, templateId: selectedTemplateId }),
+        body: JSON.stringify({
+          userId,
+          templateId: selectedTemplateId,
+          userPrompt: userPrompt.trim(),
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to regenerate video.");
@@ -390,8 +415,33 @@ export default function VideoStudioScreen() {
               </Text>
             </View>
           ) : null}
+          {/* ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2 */}
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={19} color="#9ca3af" />
+            <TextInput
+              value={listingSearch}
+              onChangeText={setListingSearch}
+              placeholder="Search listings by title, store, or keyword"
+              placeholderTextColor="#6b7280"
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {listingSearch ? (
+              <Pressable onPress={() => setListingSearch("")} hitSlop={8}>
+                <Ionicons name="close-circle" size={20} color="#777" />
+              </Pressable>
+            ) : null}
+          </View>
+          {filteredProducts.length === 0 ? (
+            <View style={styles.noResults}>
+              <Ionicons name="search-outline" size={21} color="#8b5cf6" />
+              <Text style={styles.noResultsText}>No listings match “{listingSearch}”.</Text>
+            </View>
+          ) : null}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rowScroll}>
-            {visibleProducts.map((product) => {
+            {filteredProducts.map((product) => {
               const active = product.id === selectedProductId;
               return <Pressable key={product.id} onPress={() => { setSelectedProductId(product.id); setJob(null); }} style={[styles.productCard, active && styles.activeCard]}>
                 {product.imageUrl ? <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#777" /></View>}
@@ -412,9 +462,33 @@ export default function VideoStudioScreen() {
             </Pressable>;
           })}
 
-          <Text style={styles.step}>3  Create</Text>
-          {selectedProduct ? <View style={styles.readyCard}><Ionicons name="shield-checkmark" size={23} color="#6ee7b7" /><View style={{ flex: 1 }}><Text style={styles.readyTitle}>Artwork-safe rendering</Text><Text style={styles.readyText}>The original listing image stays intact. ArtBoost adds motion around it instead of redrawing your product.</Text></View></View> : null}
+          {/* ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2 */}
+          <Text style={styles.step}>3  Guide the AI</Text>
+          <View style={styles.promptCard}>
+            <View style={styles.promptHeader}>
+              <Ionicons name="sparkles" size={19} color="#c4b5fd" />
+              <Text style={styles.promptTitle}>Creative direction</Text>
+              <Text style={styles.promptCount}>{userPrompt.length}/500</Text>
+            </View>
+            <TextInput
+              value={userPrompt}
+              onChangeText={(value) => setUserPrompt(value.slice(0, 500))}
+              placeholder="Example: Make the fish swim slowly through moving water with bubbles and light rays. Keep the original fish design unchanged."
+              placeholderTextColor="#6f7480"
+              multiline
+              textAlignVertical="top"
+              style={styles.promptInput}
+              maxLength={500}
+            />
+            <Text style={styles.promptHelp}>
+              Guide movement, atmosphere, camera, lighting, or effects. Artwork integrity always takes priority.
+            </Text>
+          </View>
 
+          {selectedProduct ? <View style={styles.readyCard}><Ionicons name="shield-checkmark" size={23} color="#6ee7b7" /><View style={{ flex: 1 }}><Text style={styles.readyTitle}>Artwork-safe rendering</Text><Text style={styles.readyText}>Artwork integrity is the priority. ArtBoost preserves the subject, proportions, composition, colors, logos, and important lettering while adding controlled motion, atmosphere, lighting, depth, and camera movement.</Text></View></View> : null}
+
+          <Text style={styles.step}>4  Create</Text>
+          {/* ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3 */}
           <Pressable disabled={creating || !selectedProductId || job?.status === "processing" || job?.status === "queued"} onPress={createVideo} style={[styles.createButton, (creating || !selectedProductId || job?.status === "processing" || job?.status === "queued") && styles.disabled]}>
             {creating ? <ActivityIndicator color="#fff" /> : <Ionicons name="sparkles" size={20} color="#fff" />}
             <Text style={styles.createText}>{creating ? "Starting…" : "Create Product Video"}</Text>
@@ -469,4 +543,16 @@ const styles = StyleSheet.create({
   templateCard: { borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#14151b", borderWidth: 1, borderColor: "#292b34", marginBottom: 10 }, templateIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: "#231e39", alignItems: "center", justifyContent: "center" }, templateName: { color: "#fff", fontSize: 15, fontWeight: "800" }, templateDescription: { color: "#9297a6", fontSize: 12, lineHeight: 17, marginTop: 3 },
   readyCard: { padding: 14, borderRadius: 15, backgroundColor: "#0d201b", borderWidth: 1, borderColor: "#1c4b3b", flexDirection: "row", gap: 11, marginBottom: 14 }, readyTitle: { color: "#d1fae5", fontWeight: "800", fontSize: 14 }, readyText: { color: "#87b5a6", fontSize: 12, lineHeight: 17, marginTop: 2 }, createButton: { height: 56, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center", marginBottom: 18 }, disabled: { opacity: .48 }, createText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   jobCard: { borderRadius: 20, padding: 16, backgroundColor: "#121319", borderWidth: 1, borderColor: "#2b2d36" }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, jobTitle: { color: "#fff", fontWeight: "800", fontSize: 17 }, percent: { color: "#a78bfa", fontWeight: "800" }, progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#252631", overflow: "hidden", marginTop: 13 }, progressFill: { height: 8, backgroundColor: "#8b5cf6", borderRadius: 999 }, jobText: { color: "#9398a7", fontSize: 13, lineHeight: 19, marginTop: 11 }, error: { color: "#fca5a5", fontSize: 13, marginTop: 11 }, preview: { marginTop: 15, alignSelf: "center", width: 240, height: 427, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" }, actionRow: { flexDirection: "row", gap: 10, marginTop: 14 }, secondaryButton: { flex: 1, height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, publishButton: { flex: 1.2, height: 48, borderRadius: 13, backgroundColor: "#7c3aed", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+,
+  // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+  searchWrap:{minHeight:48,borderRadius:14,borderWidth:1,borderColor:"#30323b",backgroundColor:"#14151b",flexDirection:"row",alignItems:"center",paddingHorizontal:13,gap:9,marginBottom:12},
+  searchInput:{flex:1,color:"#fff",fontSize:14,paddingVertical:11},
+  noResults:{minHeight:74,borderRadius:14,borderWidth:1,borderColor:"#312e45",backgroundColor:"#151421",alignItems:"center",justifyContent:"center",padding:14,marginBottom:12,gap:6},
+  noResultsText:{color:"#b8b9c4",fontSize:13,textAlign:"center"},
+  promptCard:{borderRadius:16,borderWidth:1,borderColor:"#343044",backgroundColor:"#14131b",padding:13,marginBottom:14},
+  promptHeader:{flexDirection:"row",alignItems:"center",gap:8,marginBottom:10},
+  promptTitle:{flex:1,color:"#fff",fontSize:14,fontWeight:"800"},
+  promptCount:{color:"#777d8b",fontSize:11,fontWeight:"700"},
+  promptInput:{minHeight:108,borderRadius:13,borderWidth:1,borderColor:"#2b2d35",backgroundColor:"#0d0e12",color:"#fff",fontSize:14,lineHeight:20,paddingHorizontal:12,paddingVertical:11},
+  promptHelp:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:9}
 });

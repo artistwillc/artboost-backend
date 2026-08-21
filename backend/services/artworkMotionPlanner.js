@@ -42,8 +42,37 @@ function heuristic(product, templateId) {
   ].join(" ").slice(0,1000);
 }
 
-export async function createArtworkMotionPlan({ product, templateId }) {
-  const fallback = heuristic(product, templateId);
+// ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
+function cleanUserDirection(value, max = 500) {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+const ARTWORK_INTEGRITY_RULES = [
+  "Treat the source artwork as locked visual truth: animate it, do not redesign it.",
+  "Preserve main-subject identity, silhouette, proportions, anatomy, facial features, pose, object count, composition, crop, palette, logos, signatures, and important lettering as closely as possible.",
+  "Never replace, duplicate, melt, stretch, reshape, mutate, or substantially redraw the main subject.",
+  "Do not add limbs, fingers, eyes, faces, characters, products, logos, or objects not clearly present in the source.",
+  "Do not rewrite, scramble, or invent visible text.",
+  "Prefer low-deformation motion: subtle natural subject movement, atmosphere, particles, water, smoke, light, shadows, reflections, depth/parallax, and restrained camera motion.",
+  "If user direction conflicts with artwork preservation, preserve the artwork and interpret the request through camera, lighting, atmosphere, background, or subtle motion instead."
+].join(" ");
+
+function enforceArtworkIntegrity(prompt, userPrompt = "") {
+  const direction = cleanUserDirection(userPrompt);
+  return [
+    ARTWORK_INTEGRITY_RULES,
+    direction ? ("Creative direction from the user: " + direction) : "",
+    clean(prompt, 700),
+    "Keep motion polished, believable, and suitable for a vertical product video."
+  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 1000);
+}
+
+export async function createArtworkMotionPlan({ product, templateId, userPrompt = "" }) {
+  const fallback = enforceArtworkIntegrity(heuristic(product, templateId), userPrompt);
   if (!process.env.OPENAI_API_KEY) return { prompt: fallback, planner: "heuristic" };
 
   try {
@@ -56,6 +85,7 @@ export async function createArtworkMotionPlan({ product, templateId }) {
           { type: "input_text", text: [
             "You are ArtBoost AI's artwork motion director.",
             "Study the listing artwork and write ONE image-to-video prompt.",
+              "The source image is authoritative. Preserve artwork identity over dramatic motion or user direction.",
             "Make the visible subject itself come alive; do not rely on a Ken Burns zoom.",
             `Title: ${clean(product?.title,180)}`,
             `Description: ${clean(product?.description,420)}`,
@@ -70,7 +100,7 @@ export async function createArtworkMotionPlan({ product, templateId }) {
       }]
     });
     const prompt = clean(response.output_text, 950);
-    if (prompt.length >= 40) return { prompt, planner: "openai_vision" };
+    if (prompt.length >= 40) return { prompt: enforceArtworkIntegrity(prompt, userPrompt), planner: "openai_vision" };
   } catch (error) {
     console.warn("ArtBoost V5 motion planner fallback:", error instanceof Error ? error.message : String(error));
   }

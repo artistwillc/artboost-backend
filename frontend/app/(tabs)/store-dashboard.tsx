@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   ActivityIndicator,
@@ -116,6 +116,75 @@ export default function StoreDashboardScreen() {
 
   const [productCount, setProductCount] =
     useState(initialProductCount);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuthoritativeStoreProductCount() {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user?.id) {
+          return;
+        }
+
+        if (storeId) {
+          const {
+            count: linkedCount,
+            error: linkedError,
+          } = await supabase
+            .from("products")
+            .select("id", {
+              count: "exact",
+              head: true,
+            })
+            .eq("user_id", user.id)
+            .eq("store_connection_id", String(storeId));
+
+          if (!linkedError && Number.isFinite(Number(linkedCount))) {
+            if (!cancelled) {
+              setProductCount(Number(linkedCount || 0));
+            }
+            return;
+          }
+        }
+
+        const normalizedStoreType = String(storeType || "")
+          .trim()
+          .toLowerCase();
+
+        if (!normalizedStoreType) {
+          return;
+        }
+
+        const {
+          count: platformCount,
+          error: platformError,
+        } = await supabase
+          .from("products")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq("user_id", user.id)
+          .eq("store_type", normalizedStoreType);
+
+        if (!platformError && Number.isFinite(Number(platformCount)) && !cancelled) {
+          setProductCount(Number(platformCount || 0));
+        }
+      } catch (error) {
+        console.log("Store dashboard product count refresh failed:", error);
+      }
+    }
+
+    loadAuthoritativeStoreProductCount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storeId, storeType]);
 
   const [lastSyncedAt, setLastSyncedAt] =
     useState(params.lastSyncedAt || "");
