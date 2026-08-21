@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -173,6 +173,48 @@ export default function CampaignManagerScreen() {
 useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" | "TikTok">(
 "Pinterest"
 );
+  // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+  type MultiPublishPlatform =
+    | "Pinterest"
+    | "Facebook"
+    | "Instagram"
+    | "X"
+    | "Threads"
+    | "LinkedIn"
+    | "TikTok";
+
+  const ALL_PUBLISH_PLATFORMS: MultiPublishPlatform[] = [
+    "Pinterest",
+    "Facebook",
+    "Instagram",
+    "X",
+    "Threads",
+    "LinkedIn",
+    "TikTok",
+  ];
+
+  const [selectedPlatforms, setSelectedPlatforms] =
+    useState<MultiPublishPlatform[]>([]);
+
+  const togglePublishPlatform = (platform: MultiPublishPlatform) => {
+    // Last tapped platform remains active for its settings/hashtags.
+    setSelectedPlatform(platform as any);
+
+    setSelectedPlatforms((current) =>
+      current.includes(platform)
+        ? current.filter((item) => item !== platform)
+        : [...current, platform]
+    );
+  };
+
+  const selectAllPublishPlatforms = () => {
+    setSelectedPlatforms([...ALL_PUBLISH_PLATFORMS]);
+  };
+
+  const clearPublishPlatforms = () => {
+    setSelectedPlatforms([]);
+  };
+
 
   const [tiktokCreator, setTikTokCreator] =
     useState<any>(null);
@@ -1872,16 +1914,260 @@ const createTikTokPost = async () => {
   }
 };
 
+
+// ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+const publishSelectedVideoPlatforms = async () => {
+  if (!isVideoCampaign) {
+    return false;
+  }
+
+  if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
+    Alert.alert(
+      "Paid Plan Required",
+      "Multi-platform video publishing requires a Pro or Business plan."
+    );
+    return true;
+  }
+
+  if (!session?.user?.id) {
+    Alert.alert("Login Required", "Please log in before publishing.");
+    return true;
+  }
+
+  if (!videoUrl) {
+    Alert.alert(
+      "Missing Video",
+      "This Video Studio campaign does not have a video URL."
+    );
+    return true;
+  }
+
+  if (selectedPlatforms.length === 0) {
+    Alert.alert(
+      "Choose Platforms",
+      "Select at least one platform before publishing."
+    );
+    return true;
+  }
+
+  if (
+    selectedPlatforms.includes("Facebook") &&
+    !selectedFacebookPage
+  ) {
+    Alert.alert(
+      "Missing Facebook Page",
+      "Choose the Facebook Page before publishing."
+    );
+    return true;
+  }
+
+  if (selectedPlatforms.includes("TikTok")) {
+    if (!tiktokCreator) {
+      Alert.alert(
+        "TikTok Settings Required",
+        "Refresh TikTok posting settings before publishing."
+      );
+      return true;
+    }
+
+    if (!tiktokPrivacy) {
+      Alert.alert(
+        "Choose Privacy",
+        "Select who can view this TikTok post."
+      );
+      return true;
+    }
+
+    if (!tiktokConsent) {
+      Alert.alert(
+        "Confirmation Required",
+        "Confirm the TikTok posting settings before publishing."
+      );
+      return true;
+    }
+  }
+
+  const unsupportedForVideo = selectedPlatforms.filter((platform) =>
+    ["Pinterest", "X", "LinkedIn"].includes(platform)
+  );
+
+  const videoPlatforms = selectedPlatforms.filter((platform) =>
+    ["Facebook", "Instagram", "Threads", "TikTok"].includes(platform)
+  );
+
+  if (videoPlatforms.length === 0) {
+    Alert.alert(
+      "No Supported Video Destinations",
+      "For Video Studio campaigns, select Facebook, Instagram, Threads, or TikTok. Pinterest, X, and LinkedIn video adapters are not enabled yet."
+    );
+    return true;
+  }
+
+  const finalProductLink = cleanUrl(productLink);
+  const baseCaption = [
+    removeLinks(title),
+    removeLinks(description),
+    removeLinks(cta),
+    removeLinks(hashtags),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  const results: Array<{
+    platform: string;
+    success: boolean;
+    message?: string;
+  }> = [];
+
+  setPublishing(true);
+
+  try {
+    for (const platform of videoPlatforms) {
+      try {
+        let endpoint = "";
+
+        let payload: any = {
+          userId: session.user.id,
+          title: removeLinks(title),
+          description: baseCaption,
+          videoUrl,
+          mediaType: "video",
+          productLink: finalProductLink || null,
+        };
+
+        if (platform === "Facebook") {
+          endpoint = `${BACKEND_URL}/facebook/video-post`;
+          payload = {
+            ...payload,
+            pageId: selectedFacebookPage,
+          };
+        } else if (platform === "Instagram") {
+          endpoint = `${BACKEND_URL}/instagram/video-post`;
+        } else if (platform === "Threads") {
+          endpoint = `${BACKEND_URL}/threads/video-post`;
+        } else if (platform === "TikTok") {
+          endpoint = `${BACKEND_URL}/tiktok/video-post`;
+          payload = {
+            ...payload,
+            privacyLevel: tiktokPrivacy,
+            disableComment: tiktokDisableComment,
+            autoAddMusic: tiktokAutoAddMusic,
+            brandOrganicToggle: tiktokOwnBusiness,
+            brandContentToggle: tiktokPaidPartnership,
+            consent: true,
+          };
+        }
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        let data: any = {};
+
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
+
+        if (!response.ok || data?.error) {
+          const message =
+            data?.error?.message ||
+            data?.error ||
+            data?.message ||
+            `${platform} publish failed with HTTP ${response.status}.`;
+
+          results.push({
+            platform,
+            success: false,
+            message: String(message),
+          });
+
+          continue;
+        }
+
+        results.push({
+          platform,
+          success: true,
+        });
+      } catch (error: any) {
+        results.push({
+          platform,
+          success: false,
+          message:
+            error?.message ||
+            "Publishing failed.",
+        });
+      }
+    }
+  } finally {
+    setPublishing(false);
+  }
+
+  const successful = results
+    .filter((item) => item.success)
+    .map((item) => item.platform);
+
+  const failed = results.filter(
+    (item) => !item.success
+  );
+
+  const lines: string[] = [];
+
+  if (successful.length) {
+    lines.push(
+      `Published/submitted: ${successful.join(", ")}`
+    );
+  }
+
+  if (failed.length) {
+    lines.push(
+      `Failed: ${failed
+        .map(
+          (item) =>
+            `${item.platform} (${item.message || "unknown error"})`
+        )
+        .join("; ")}`
+    );
+  }
+
+  if (unsupportedForVideo.length) {
+    lines.push(
+      `Not attempted: ${unsupportedForVideo.join(
+        ", "
+      )} — video publishing adapter not enabled yet.`
+    );
+  }
+
+  Alert.alert(
+    failed.length
+      ? "Multi-Platform Publish Results"
+      : "Publishing Submitted",
+    lines.join("\n\n") ||
+      "Publishing finished."
+  );
+
+  if (successful.includes("TikTok")) {
+    setTikTokConsent(false);
+  }
+
+  return true;
+};
+
 const postEverywhere = async () => {
   try {
-      // ARTBOOST_VIDEO_POST_EVERYWHERE_GUARD_V1_1
-      if (isVideoCampaign) {
-        Alert.alert(
-          "Video Campaign",
-          "Use the individual Facebook, Instagram, Threads, and TikTok buttons for this Video Studio campaign. ArtBoost will not substitute the artwork image on platforms whose video upload adapter is not installed yet."
-        );
-        return;
-      }
+    // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+    if (isVideoCampaign) {
+      await publishSelectedVideoPlatforms();
+      return;
+    }
+
+      // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3 Old Video Studio post-everywhere guard replaced by multi-platform publisher.
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert("Paid Plan Required", "Post Everywhere requires a Pro or Business plan.");
       return;
@@ -2342,19 +2628,40 @@ useFocusEffect(
       <View style={styles.card}>
         <Text style={styles.sectionHeader}>Publish to</Text>
         <Text style={styles.sectionHint}>
-          Select the platform for this campaign.
+          Select one or more platforms for this campaign.
         </Text>
 
-        <View style={styles.platformGrid}>
+
+          {/* ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3 */}
+          <View style={styles.multiSelectActions}>
+            <Pressable
+              style={styles.multiSelectAction}
+              onPress={selectAllPublishPlatforms}
+            >
+              <Text style={styles.multiSelectActionText}>Select All</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.multiSelectAction}
+              onPress={clearPublishPlatforms}
+            >
+              <Text style={styles.multiSelectActionText}>Clear All</Text>
+            </Pressable>
+
+            <Text style={styles.multiSelectCount}>
+              {selectedPlatforms.length} selected
+            </Text>
+          </View>
+<View style={styles.platformGrid}>
           {(["Pinterest", "Facebook", "Instagram", "X", "Threads", "LinkedIn", "TikTok"] as const).map(
             (platform) => (
               <Pressable
                 key={platform}
                 style={[
                   styles.platformButton,
-                  selectedPlatform === platform && styles.platformButtonActive,
+                  selectedPlatforms.includes(platform as MultiPublishPlatform) && styles.platformButtonActive,
                 ]}
-                onPress={() => setSelectedPlatform(platform)}
+                onPress={() => togglePublishPlatform(platform as MultiPublishPlatform)}
               >
                 <Ionicons
                   name={
@@ -2373,13 +2680,12 @@ useFocusEffect(
                       : "logo-twitter"
                   }
                   size={18}
-                  color={selectedPlatform === platform ? "#ffffff" : "#b7b7b7"}
+                  color={selectedPlatforms.includes(platform as MultiPublishPlatform) ? "#ffffff" : "#b7b7b7"}
                 />
                 <Text
                   style={[
                     styles.platformButtonText,
-                    selectedPlatform === platform &&
-                      styles.platformButtonTextActive,
+                    selectedPlatforms.includes(platform as MultiPublishPlatform) && styles.platformButtonTextActive,
                   ]}
                 >
                   {platform}
@@ -2390,7 +2696,7 @@ useFocusEffect(
         </View>
       </View>
 
-      {selectedPlatform === "Pinterest" && (
+      {(selectedPlatforms.includes("Pinterest" as MultiPublishPlatform) || selectedPlatform === "Pinterest") && (
         <View style={styles.card}>
           <View style={styles.sectionRow}>
             <View style={styles.sectionRowText}>
@@ -2427,7 +2733,7 @@ useFocusEffect(
         </View>
       )}
 
-      {selectedPlatform === "Facebook" && (
+      {(selectedPlatforms.includes("Facebook" as MultiPublishPlatform) || selectedPlatform === "Facebook") && (
         <View style={styles.card}>
           <Text style={styles.sectionHeader}>Facebook page</Text>
           <Text style={styles.sectionHint}>
@@ -2456,7 +2762,7 @@ useFocusEffect(
         </View>
       )}
 
-      {selectedPlatform === "TikTok" && (
+      {(selectedPlatforms.includes("TikTok" as MultiPublishPlatform) || selectedPlatform === "TikTok") && (
         <View style={styles.card}>
           <View style={styles.sectionRow}>
             <View style={styles.sectionRowText}>
@@ -4205,5 +4511,31 @@ metricLabel: {
     fontSize: 11,
     lineHeight: 17,
   },
-
+  // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+  multiSelectActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  multiSelectAction: {
+    borderWidth: 1,
+    borderColor: "#3a3c47",
+    backgroundColor: "#202127",
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  multiSelectActionText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  multiSelectCount: {
+    color: "#a7a9b4",
+    fontSize: 12,
+    marginLeft: "auto",
+  }
 });
