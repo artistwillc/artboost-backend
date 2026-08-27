@@ -6,6 +6,7 @@ import stripeSandboxRoutes from "./routes/stripeSandbox.js";
 import tiktokRoutes from "./routes/tiktok.js";
 import videoStudioRoutes from "./routes/videoStudio.js";
 import { startVideoStudioWorker } from "./workers/videoStudioWorker.js";
+import { startGeneratedVideoCleanupWorker } from "./workers/generatedVideoCleanupWorker.js";
 import universalSocialRoutes from "./routes/universalSocial.js";
 import socialConnectRoutes from "./routes/socialConnect.js";
 import productRoutes from "./routes/products.js";
@@ -11042,6 +11043,7 @@ app.delete("/api/v2/store-connections/:id", async (req, res) => {
 });
 
 startVideoStudioWorker();
+startGeneratedVideoCleanupWorker();
 
 
 // ============================================================
