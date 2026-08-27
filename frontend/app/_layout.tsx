@@ -60,6 +60,9 @@ export default function RootLayout() {
           <Stack.Screen name="faq" />
 
           <Stack.Screen name="analytics" />
+          <Stack.Screen name="store-collections" />
+          <Stack.Screen name="store-seo" />
+          <Stack.Screen name="store-inventory" />
 
           <Stack.Screen name="history" />
 

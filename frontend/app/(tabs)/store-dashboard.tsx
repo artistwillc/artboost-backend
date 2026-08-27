@@ -116,6 +116,65 @@ export default function StoreDashboardScreen() {
 
   const [productCount, setProductCount] =
     useState(initialProductCount);
+  const [subscriptionTier, setSubscriptionTier] =
+    useState("starter");
+
+  const hasBusinessAccess =
+    String(subscriptionTier).trim().toLowerCase() === "business";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSubscriptionTier() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const userId = session?.user?.id;
+      if (!userId) return;
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("subscription_tier")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!cancelled) {
+        setSubscriptionTier(
+          String(data?.subscription_tier || "starter")
+        );
+      }
+    }
+
+    loadSubscriptionTier();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function openBusinessTool(
+    pathname: "/analytics" | "/store-collections" | "/store-seo" | "/store-inventory"
+  ) {
+    if (!hasBusinessAccess) {
+      Alert.alert(
+        "Business Feature",
+        "This store tool is included with the ArtBoost AI Business plan.",
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "View Plans",
+            onPress: () => router.push("/(tabs)/pro" as any),
+          },
+        ]
+      );
+      return;
+    }
+
+    router.push({
+      pathname: pathname as any,
+      params: { storeId, storeName, storeType },
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -682,33 +741,45 @@ const syncButtonLabel = useMemo(() => {
         <DashboardAction
           icon="analytics-outline"
           title="Analytics"
-          description="Track product views, clicks, and social performance."
-          onPress={() => {}}
-          disabled
+          description={
+            hasBusinessAccess
+              ? "Open performance analytics and drill-down reporting."
+              : "Business: performance analytics and drill-down reporting."
+          }
+          onPress={() => openBusinessTool("/analytics")}
         />
 
         <DashboardAction
           icon="folder-open-outline"
           title="Collections"
-          description="Organize products into categories and campaigns."
-          onPress={() => {}}
-          disabled
+          description={
+            hasBusinessAccess
+              ? "Organize products for campaigns and promotion workflows."
+              : "Business: organize products for campaign workflows."
+          }
+          onPress={() => openBusinessTool("/store-collections")}
         />
 
         <DashboardAction
           icon="search-outline"
           title="SEO Tools"
-          description="Improve titles, descriptions, keywords, and tags."
-          onPress={() => {}}
-          disabled
+          description={
+            hasBusinessAccess
+              ? "Review listing SEO and open products for optimization."
+              : "Business: listing SEO and product optimization."
+          }
+          onPress={() => openBusinessTool("/store-seo")}
         />
 
         <DashboardAction
           icon="layers-outline"
           title="Inventory"
-          description="Review product availability and listing status."
-          onPress={() => {}}
-          disabled
+          description={
+            hasBusinessAccess
+              ? "Review imported catalog availability and listing status."
+              : "Business: catalog availability and listing status."
+          }
+          onPress={() => openBusinessTool("/store-inventory")}
         />
 
         <DashboardAction
@@ -733,9 +804,9 @@ const syncButtonLabel = useMemo(() => {
             </Text>
 
             <Text style={styles.futureText}>
-              ArtBoost will eventually manage product
-              synchronization, promotion history, analytics,
-              collections, inventory, and SEO from this dashboard.
+              Business tools are now available from this dashboard.
+              Analytics, collections, inventory, and SEO stay tied
+              to the selected store and its imported catalog.
             </Text>
           </View>
         </View>
