@@ -15,6 +15,8 @@ import {
   TextInput,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { supabase } from "@/lib/supabase";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "https://artboost-ai.onrender.com";
@@ -47,6 +49,7 @@ export default function VideoStudioScreen() {
   const [job, setJob] = useState<VideoJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [jobRefreshFailures, setJobRefreshFailures] = useState(0);
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   const [listingSearch, setListingSearch] = useState("");
@@ -504,6 +507,53 @@ export default function VideoStudioScreen() {
     finally { setCreating(false); }
   }
 
+  // ARTBOOST_VIDEO_USER_DOWNLOAD_V1
+  async function downloadVideo() {
+    if (!job?.video_url || downloading) return;
+
+    try {
+      setDownloading(true);
+      const safeJobId = String(job.id || "video").replace(/[^a-zA-Z0-9_-]/g, "");
+      const filename = `ArtBoost-${safeJobId || "video"}.mp4`;
+      const baseDirectory = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+      if (!baseDirectory) throw new Error("A writable download location is not available on this device.");
+
+      const localUri = `${baseDirectory}${filename}`;
+      const result = await FileSystem.downloadAsync(job.video_url, localUri);
+
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Video download failed (${result.status}).`);
+      }
+
+      const info = await FileSystem.getInfoAsync(result.uri);
+      if (!info.exists || !("size" in info) || Number(info.size || 0) <= 0) {
+        throw new Error("The downloaded video file was empty.");
+      }
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(result.uri, {
+          mimeType: "video/mp4",
+          dialogTitle: "Save or share your ArtBoost video",
+          UTI: "public.mpeg-4",
+        });
+        return;
+      }
+
+      Alert.alert(
+        "Video downloaded",
+        "Your ArtBoost video was downloaded to this device's app storage."
+      );
+    } catch (error) {
+      console.error("Video Studio download error:", error);
+      Alert.alert(
+        "Download failed",
+        error instanceof Error ? error.message : "Unable to download this video right now."
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const videoHtml = job?.video_url ? `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>html,body{margin:0;background:#000;height:100%;overflow:hidden}video{width:100%;height:100%;object-fit:contain;background:#000}</style></head><body><video src="${String(job.video_url).replace(/"/g, "&quot;")}" controls playsinline autoplay muted></video></body></html>` : "";
 
   return (
@@ -641,7 +691,16 @@ export default function VideoStudioScreen() {
             {job.status === "failed" ? <Text style={styles.error}>{job.error_message || "Rendering failed."}</Text> : null}
             {job.status === "completed" && job.video_url ? <>
               <View style={styles.preview}><WebView originWhitelist={["*"]} source={{ html: videoHtml }} javaScriptEnabled allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false} style={{ backgroundColor: "#000" }} /></View>
-              <View style={styles.actionRow}><Pressable style={styles.secondaryButton} onPress={regenerate}><Ionicons name="refresh" size={18} color="#fff" /><Text style={styles.secondaryText}>Regenerate</Text></Pressable><Pressable style={styles.publishButton} onPress={() => {
+              <View style={styles.actionRow}>
+                <Pressable style={styles.secondaryButton} onPress={regenerate}>
+                  <Ionicons name="refresh" size={18} color="#fff" />
+                  <Text style={styles.secondaryText}>Regenerate</Text>
+                </Pressable>
+                <Pressable disabled={downloading} style={[styles.downloadButton, downloading && styles.disabled]} onPress={downloadVideo}>
+                  {downloading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="download-outline" size={18} color="#fff" />}
+                  <Text style={styles.secondaryText}>{downloading ? "Downloading…" : "Download Video"}</Text>
+                </Pressable>
+                <Pressable style={styles.publishButton} onPress={() => {
                   if (!selectedProduct) return;
 
                   // ARTBOOST_VIDEO_CAMPAIGN_EXACT_CONTEXT_V3
@@ -682,7 +741,7 @@ const styles = StyleSheet.create({
   rowScroll: { gap: 11, paddingBottom: 22 }, productCard: { width: 142, borderRadius: 17, backgroundColor: "#15161c", borderWidth: 1, borderColor: "#282a33", padding: 8, position: "relative" }, activeCard: { borderColor: "#8b5cf6", backgroundColor: "#191627" }, productImage: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#202127" }, placeholder: { alignItems: "center", justifyContent: "center" }, productTitle: { color: "#fff", fontWeight: "700", fontSize: 13, lineHeight: 17, marginTop: 8 }, storeText: { color: "#7f8493", fontSize: 11, marginTop: 4 }, check: { position: "absolute", top: 13, right: 13, width: 23, height: 23, borderRadius: 12, backgroundColor: "#8b5cf6", alignItems: "center", justifyContent: "center" },
   templateCard: { borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#14151b", borderWidth: 1, borderColor: "#292b34", marginBottom: 10 }, templateIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: "#231e39", alignItems: "center", justifyContent: "center" }, templateName: { color: "#fff", fontSize: 15, fontWeight: "800" }, templateDescription: { color: "#9297a6", fontSize: 12, lineHeight: 17, marginTop: 3 },
   readyCard: { padding: 14, borderRadius: 15, backgroundColor: "#0d201b", borderWidth: 1, borderColor: "#1c4b3b", flexDirection: "row", gap: 11, marginBottom: 14 }, readyTitle: { color: "#d1fae5", fontWeight: "800", fontSize: 14 }, readyText: { color: "#87b5a6", fontSize: 12, lineHeight: 17, marginTop: 2 }, createButton: { height: 56, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center", marginBottom: 18 }, disabled: { opacity: .48 }, createText: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  jobCard: { borderRadius: 20, padding: 16, backgroundColor: "#121319", borderWidth: 1, borderColor: "#2b2d36" }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, jobTitle: { color: "#fff", fontWeight: "800", fontSize: 17 }, percent: { color: "#a78bfa", fontWeight: "800" }, progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#252631", overflow: "hidden", marginTop: 13 }, progressFill: { height: 8, backgroundColor: "#8b5cf6", borderRadius: 999 }, jobText: { color: "#9398a7", fontSize: 13, lineHeight: 19, marginTop: 11 }, error: { color: "#fca5a5", fontSize: 13, marginTop: 11 }, preview: { marginTop: 15, alignSelf: "center", width: 240, height: 427, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" }, actionRow: { flexDirection: "row", gap: 10, marginTop: 14 }, secondaryButton: { flex: 1, height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, publishButton: { flex: 1.2, height: 48, borderRadius: 13, backgroundColor: "#7c3aed", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  jobCard: { borderRadius: 20, padding: 16, backgroundColor: "#121319", borderWidth: 1, borderColor: "#2b2d36" }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, jobTitle: { color: "#fff", fontWeight: "800", fontSize: 17 }, percent: { color: "#a78bfa", fontWeight: "800" }, progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#252631", overflow: "hidden", marginTop: 13 }, progressFill: { height: 8, backgroundColor: "#8b5cf6", borderRadius: 999 }, jobText: { color: "#9398a7", fontSize: 13, lineHeight: 19, marginTop: 11 }, error: { color: "#fca5a5", fontSize: 13, marginTop: 11 }, preview: { marginTop: 15, alignSelf: "center", width: 240, height: 427, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" }, actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }, secondaryButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, downloadButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, backgroundColor: "#2563eb", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, publishButton: { flexGrow: 1, flexBasis: "100%", height: 48, borderRadius: 13, backgroundColor: "#7c3aed", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   searchWrap:{minHeight:48,borderRadius:14,borderWidth:1,borderColor:"#30323b",backgroundColor:"#14151b",flexDirection:"row",alignItems:"center",paddingHorizontal:13,gap:9,marginBottom:12},
   searchInput:{flex:1,color:"#fff",fontSize:14,paddingVertical:11},
