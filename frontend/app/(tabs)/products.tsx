@@ -71,8 +71,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
 
     const accessToken = session?.access_token || "";
     const authHeaders = accessToken
-      ? { Authorization: `Bearer ${accessToken}` }
-      : {};
+      ? { Authorization: `Bearer ${accessToken}` } : ({} as Record<string, string>);
 
     // ARTBOOST_59_TEST_LAUNCH_FIX_V1:
     // Load the complete catalog instead of only the backend's first page.

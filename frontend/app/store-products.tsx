@@ -188,8 +188,7 @@ export default function StoreProductsScreen() {
         }
 
         const authHeaders = session?.access_token
-          ? { Authorization: `Bearer ${session.access_token}` }
-          : {};
+          ? { Authorization: `Bearer ${session.access_token}` } : ({} as Record<string, string>);
 
         const pageSize = 500;
         let offset = 0;

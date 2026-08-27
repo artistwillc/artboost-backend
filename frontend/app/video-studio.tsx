@@ -268,8 +268,7 @@ export default function VideoStudioScreen() {
       const user = session?.user || null;
       if (!user) throw new Error("Please sign in to use Video Studio.");
       const authHeaders = session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {};
+        ? { Authorization: `Bearer ${session.access_token}` } : ({} as Record<string, string>);
       setUserId(user.id);
       const usageResponse = await fetch(`${API_BASE}/video-studio/usage`, { headers: authHeaders });
       const usageData = await usageResponse.json();
@@ -429,8 +428,7 @@ export default function VideoStudioScreen() {
         data: { session },
       } = await supabase.auth.getSession();
       const authHeaders = session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {};
+        ? { Authorization: `Bearer ${session.access_token}` } : ({} as Record<string, string>);
       const response = await fetch(
         `${API_BASE}/video-studio/jobs/${encodeURIComponent(jobId)}?userId=${encodeURIComponent(uid)}`,
         { headers: authHeaders }
@@ -462,8 +460,7 @@ export default function VideoStudioScreen() {
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
+            ? { Authorization: `Bearer ${session.access_token}` } : ({} as Record<string, string>)),
         },
         body: JSON.stringify({
           userId,
@@ -495,8 +492,7 @@ export default function VideoStudioScreen() {
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
+            ? { Authorization: `Bearer ${session.access_token}` } : ({} as Record<string, string>)),
         },
         body: JSON.stringify({
           userId,
