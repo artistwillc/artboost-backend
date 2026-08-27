@@ -441,7 +441,7 @@ export default function StoreProductsScreen() {
       <View style={styles.header}>
         <Pressable
           style={styles.headerButton}
-          onPress={() => router.back()}
+          onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/store-dashboard" as any); }}
         >
           <Ionicons
             name="arrow-back"

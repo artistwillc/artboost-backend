@@ -122,7 +122,7 @@ export default function AnalyticsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.replace({ pathname: "/(tabs)/pro" as any })}>
+          <Pressable style={styles.backButton} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/pro" as any); }}>
             <Ionicons name="arrow-back" size={23} color="#ffffff" />
           </Pressable>
           <View style={styles.headerTextWrap}><Text style={styles.eyebrow}>BUSINESS PERFORMANCE</Text><Text style={styles.headerTitle}>Analytics</Text></View>

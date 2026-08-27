@@ -21,7 +21,7 @@ export default function Screen() {
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
-        <Pressable style={styles.back} onPress={() => router.back()}>
+        <Pressable style={styles.back} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/store-dashboard" as any); }}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <View style={styles.headerText}>

@@ -560,7 +560,7 @@ export default function VideoStudioScreen() {
     <SafeAreaView style={styles.safe}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color="#fff" /></Pressable>
+        <Pressable style={styles.backButton} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)" as any); }}><Ionicons name="arrow-back" size={23} color="#fff" /></Pressable>
         <View style={{ flex: 1 }}><Text style={styles.eyebrow}>ARTBOOST AI</Text><Text style={styles.title}>Video Studio</Text></View>
         <View style={styles.proBadge}><Ionicons name="sparkles" size={14} color="#f8d66d" /><Text style={styles.proText}>PREMIUM</Text></View>
       </View>

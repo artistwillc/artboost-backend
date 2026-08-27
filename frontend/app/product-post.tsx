@@ -124,7 +124,7 @@ export default function ProductPostScreen() {
     <SafeAreaView style={styles.safe}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <Pressable style={styles.backButton} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)" as any); }}>
           <Ionicons name="arrow-back" size={23} color="#fff" />
         </Pressable>
         <View style={{ flex: 1 }}>

@@ -32,6 +32,8 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
+            gestureEnabled: true,
+            fullScreenGestureEnabled: true,
             contentStyle: {
               backgroundColor: "#101010",
             },
@@ -60,6 +62,11 @@ export default function RootLayout() {
           <Stack.Screen name="faq" />
 
           <Stack.Screen name="analytics" />
+          <Stack.Screen name="store-products" />
+          <Stack.Screen name="store-automation" />
+          <Stack.Screen name="product-post" />
+          <Stack.Screen name="video-studio" />
+          <Stack.Screen name="schedule" />
           <Stack.Screen name="store-collections" />
           <Stack.Screen name="store-seo" />
           <Stack.Screen name="store-inventory" />
