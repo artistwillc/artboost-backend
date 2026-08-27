@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
@@ -19,6 +20,7 @@ import {
 } from "react-native";
  
 import { supabase } from "@/lib/supabase";
+import AIConsultantAvatar from "@/components/AIConsultantAvatar";
  
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
@@ -98,6 +100,26 @@ export default function HomeScreen() {
   const [homeMode, setHomeMode] = useState<
     "home" | "upload"
   >("home");
+
+  const [homeAnalytics, setHomeAnalytics] = useState<any>(null);
+  const [homeAnalyticsLoading, setHomeAnalyticsLoading] = useState(false);
+
+  const loadHomeAnalytics = async () => {
+    try {
+      const { data: { session: activeSession } } = await supabase.auth.getSession();
+      if (!activeSession?.access_token) return;
+      setHomeAnalyticsLoading(true);
+      const response = await fetch(`${BACKEND_URL}/analytics`, {
+        headers: { Authorization: `Bearer ${activeSession.access_token}` },
+      });
+      const data = await response.json();
+      if (response.ok) setHomeAnalytics(data);
+    } catch (error) {
+      console.log("Home overview analytics unavailable:", error);
+    } finally {
+      setHomeAnalyticsLoading(false);
+    }
+  };
  
   useEffect(() => {
     loadSession();
@@ -118,6 +140,10 @@ export default function HomeScreen() {
     };
   }, []);
  
+  useEffect(() => {
+    if (session?.user?.id) loadHomeAnalytics();
+  }, [session?.user?.id]);
+
   const getTikTokPrivacyLabel = (value: string) => {
     if (value === "PUBLIC_TO_EVERYONE") {
       return "Everyone";
@@ -1173,32 +1199,51 @@ const createFacebookPost = async () => {
     >
       {homeMode === "home" ? (
         <>
-          <Text style={styles.eyebrow}>
-            ARTBOOST AI
-          </Text>
-
-          <Text style={styles.logo}>
-            Your AI Marketing Manager
-          </Text>
-
-          <Text style={styles.subtitle}>
-            Built for artists and creative
-            businesses.
-          </Text>
-
-          <View style={styles.promiseCard}>
-            <Text style={styles.promiseText}>
-              Connect it.
+          <View style={styles.cosmicHero}>
+            <Text style={styles.eyebrow}>ARTBOOST AI</Text>
+            <Text style={styles.logo}>
+              {profile?.full_name || profile?.display_name
+                ? `Welcome, ${String(profile.full_name || profile.display_name).split(" ")[0]}`
+                : "Welcome back"}
             </Text>
+            <Text style={styles.subtitle}>Your AI marketing assistant is working for you.</Text>
 
-            <Text style={styles.promiseText}>
-              Schedule it.
-            </Text>
-
-            <Text style={styles.promiseText}>
-              Forget it.
-            </Text>
+            <View style={styles.consultantCard}>
+              <AIConsultantAvatar
+                size={82}
+                label="Ask what to market next"
+                onPress={() => router.push("/(tabs)/consultant" as any)}
+              />
+            </View>
           </View>
+
+          {session?.user ? (
+            <>
+              <View style={styles.overviewHeader}>
+                <Text style={styles.sectionHeading}>Today’s Overview</Text>
+                <Pressable onPress={loadHomeAnalytics}><Text style={styles.refreshText}>{homeAnalyticsLoading ? "Refreshing…" : "Refresh"}</Text></Pressable>
+              </View>
+              <View style={styles.overviewGrid}>
+                <Pressable style={styles.overviewCard} onPress={() => router.push("/analytics" as any)}>
+                  <Text style={styles.overviewValue}>{homeAnalytics?.postsPublished ?? "—"}</Text>
+                  <Text style={styles.overviewLabel}>Posts Published</Text>
+                </Pressable>
+                <Pressable style={styles.overviewCard} onPress={() => router.push("/schedule" as any)}>
+                  <Text style={styles.overviewValue}>{homeAnalytics?.activeAutomations ?? "—"}</Text>
+                  <Text style={styles.overviewLabel}>Active Automations</Text>
+                </Pressable>
+              </View>
+              <Pressable style={styles.insightCard} onPress={() => router.push("/analytics" as any)}>
+                <Text style={styles.insightKicker}>AI MARKETING SIGNAL</Text>
+                <Text style={styles.insightTitle}>{homeAnalytics?.topArtwork?.title || "Build performance history"}</Text>
+                <Text style={styles.insightText}>{homeAnalytics?.insight || "Keep publishing and ArtBoost will surface your strongest product and platform signals here."}</Text>
+              </Pressable>
+              <View style={styles.quickRow}>
+                <Pressable style={styles.quickButton} onPress={() => setHomeMode("upload")}><Text style={styles.quickButtonText}>＋ Create Post</Text></Pressable>
+                <Pressable style={styles.quickButtonSecondary} onPress={() => router.push("/video-studio" as any)}><Text style={styles.quickButtonText}>▶ Create Video</Text></Pressable>
+              </View>
+            </>
+          ) : null}
 
           {session?.user ? (
             <View style={styles.accountStrip}>
@@ -2074,6 +2119,22 @@ const createFacebookPost = async () => {
 }
  
 const styles = StyleSheet.create({
+  cosmicHero: { width: "100%", backgroundColor: "#100d22", borderWidth: 1, borderColor: "#342b66", borderRadius: 24, padding: 20, overflow: "hidden", marginBottom: 14, shadowColor: "#8b5cf6", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 5 } },
+  consultantCard: { marginTop: 18, backgroundColor: "#0b0a16cc", borderWidth: 1, borderColor: "#443877", borderRadius: 18, padding: 14 },
+  overviewHeader: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+  refreshText: { color: "#a99aff", fontWeight: "800", fontSize: 12 },
+  overviewGrid: { width: "100%", flexDirection: "row", gap: 10, marginBottom: 12 },
+  overviewCard: { flex: 1, backgroundColor: "#151326", borderWidth: 1, borderColor: "#2d2850", borderRadius: 16, padding: 15 },
+  overviewValue: { color: "#fff", fontSize: 26, fontWeight: "900" },
+  overviewLabel: { color: "#aaa9bb", fontSize: 11, fontWeight: "700", marginTop: 4 },
+  insightCard: { width: "100%", backgroundColor: "#19122b", borderWidth: 1, borderColor: "#4a3376", borderRadius: 18, padding: 16, marginBottom: 12 },
+  insightKicker: { color: "#c4b5fd", fontSize: 10, fontWeight: "900", letterSpacing: 1.4 },
+  insightTitle: { color: "#fff", fontSize: 17, fontWeight: "900", marginTop: 6 },
+  insightText: { color: "#c6c2d8", fontSize: 12, lineHeight: 18, marginTop: 5 },
+  quickRow: { width: "100%", flexDirection: "row", gap: 10, marginBottom: 8 },
+  quickButton: { flex: 1, backgroundColor: "#7c4dff", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  quickButtonSecondary: { flex: 1, backgroundColor: "#251b46", borderWidth: 1, borderColor: "#58428f", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  quickButtonText: { color: "#fff", fontWeight: "900", fontSize: 13 },
   container: {
     padding: 24,
     paddingBottom: 60,

@@ -223,9 +223,9 @@ function CustomTabBar({
         icon: "link",
       },
       {
-        name: "pro",
-        title: "Studio",
-        icon: "diamond",
+        name: "consultant",
+        title: "AI",
+        icon: "sparkles",
       },
     ],
     [tierLabel]
@@ -335,7 +335,7 @@ function CustomTabBar({
                 size={22}
                 color={
                   active
-                    ? "#8b5cf6"
+                    ? "#a78bfa"
                     : "#888"
                 }
               />
@@ -542,6 +542,7 @@ export default function TabLayout() {
       <Tabs.Screen name="schedule" />
       <Tabs.Screen name="products" />
       <Tabs.Screen name="connections" />
+      <Tabs.Screen name="consultant" />
       <Tabs.Screen name="brand" />
       <Tabs.Screen name="pro" />
     </Tabs>
@@ -551,9 +552,9 @@ export default function TabLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     height: 74,
-    backgroundColor: "#101010",
+    backgroundColor: "#0b0a16",
     borderTopWidth: 1,
-    borderTopColor: "#222",
+    borderTopColor: "#2d2850",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",

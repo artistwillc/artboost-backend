@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import AIHelpAvatar from "@/components/AIHelpAvatar";
 import React, { useMemo, useState } from "react";
 import {
   LayoutAnimation,
@@ -1161,13 +1162,7 @@ export default function FAQScreen() {
           </Text>
         </View>
 
-        <View style={styles.headerIcon}>
-          <Ionicons
-            name="help-circle"
-            size={25}
-            color="#ffffff"
-          />
-        </View>
+        <AIHelpAvatar size={44} />
       </View>
 
       <ScrollView

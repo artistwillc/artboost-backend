@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";

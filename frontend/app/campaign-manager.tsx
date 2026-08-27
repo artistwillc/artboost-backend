@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -2403,7 +2404,7 @@ const generateVariations = async () => {
     Alert.alert("Copied", "Variation copied to clipboard.");
   };
 
-  const useVariation = (variationTitle: string, variationText: string) => {
+  const applyVariation = (variationTitle: string, variationText: string) => {
     setTitle(variationTitle);
     setDescription(variationText);
     Alert.alert("Loaded", "Variation loaded into the publishing fields.");
@@ -3049,7 +3050,7 @@ useFocusEffect(
                 </Pressable>
                 <Pressable
                   style={styles.primaryAction}
-                  onPress={() => useVariation(item.title, item.description)}
+                  onPress={() => applyVariation(item.title, item.description)}
                 >
                   <Text style={styles.primaryActionText}>Use version</Text>
                 </Pressable>
