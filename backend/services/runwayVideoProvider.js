@@ -6,6 +6,11 @@ const BASE = "https://api.dev.runwayml.com/v1";
 const VERSION = "2024-11-06";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const SEEDANCE25_RATIOS = new Set([
+  "1280:720", "720:1280", "960:960",
+  "1920:1080", "1080:1920", "1440:1440",
+]);
+
 const GEN45_RATIOS = new Set([
   "1280:720",
   "720:1280",
@@ -83,20 +88,30 @@ function getDuration() {
   return Math.min(Math.max(value, 2), 7);
 }
 
-function getModel() {
-  return String(process.env.ARTBOOST_AI_VIDEO_MODEL || "gen4.5").trim() || "gen4.5";
-}
+function getGenerationOptions(job) {
+  const snapshot = job?.source_snapshot && typeof job.source_snapshot === "object"
+    ? job.source_snapshot
+    : {};
+  const requestedMode = String(snapshot.video_model_mode || "standard").trim().toLowerCase();
+  const requestedQuality = String(snapshot.video_output_quality || "720p").trim().toLowerCase();
 
-function getRatio(model) {
-  const requested = String(
-    process.env.ARTBOOST_AI_VIDEO_RATIO || "720:1280"
-  ).trim();
+  // Cost-controlled default: preserve the existing Gen-4.5 path unless the user
+  // explicitly chooses Seedance 2.5.
+  const model = requestedMode === "seedance2_5"
+    ? "seedance2_5"
+    : (String(process.env.ARTBOOST_AI_VIDEO_MODEL || "gen4.5").trim() || "gen4.5");
 
-  if (model === "gen4.5") {
-    return GEN45_RATIOS.has(requested) ? requested : "720:1280";
+  if (model === "seedance2_5") {
+    const ratio = requestedQuality === "1080p" ? "1080:1920" : "720:1280";
+    return { model, ratio, quality: requestedQuality === "1080p" ? "1080p" : "720p" };
   }
 
-  return requested || "720:1280";
+  const requested = String(process.env.ARTBOOST_AI_VIDEO_RATIO || "720:1280").trim();
+  return {
+    model,
+    ratio: model === "gen4.5" ? (GEN45_RATIOS.has(requested) ? requested : "720:1280") : (requested || "720:1280"),
+    quality: "standard",
+  };
 }
 
 function headers() {
@@ -219,12 +234,14 @@ function buildBody({
     duration,
   };
 
-  if (
-    !Number.isInteger(body.duration) ||
-    body.duration < 2 ||
-    body.duration > 10
-  ) {
-    throw new Error(`Runway duration validation failed: ${body.duration}`);
+  const minDuration = model === "seedance2_5" ? 4 : 2;
+  const maxDuration = model === "seedance2_5" ? 30 : 10;
+  if (!Number.isInteger(body.duration) || body.duration < minDuration || body.duration > maxDuration) {
+    throw new Error(`Runway duration validation failed for ${model}: ${body.duration}`);
+  }
+
+  if (model === "seedance2_5" && !SEEDANCE25_RATIOS.has(body.ratio)) {
+    throw new Error(`Runway ratio validation failed for Seedance 2.5: ${body.ratio}`);
   }
 
   if (model === "gen4.5" && !GEN45_RATIOS.has(body.ratio)) {
@@ -360,8 +377,11 @@ export async function createRunwayImageToVideo({
     throw new Error("RUNWAYML_API_SECRET is not configured.");
   }
 
-  const useModel = getModel();
-  const useRatio = getRatio(useModel);
+  const generationOptions = getGenerationOptions(job);
+  const useModel = generationOptions.model;
+  const useRatio = generationOptions.ratio;
+  // Keep the proven 7-second generated-motion contract so the existing
+  // artwork-bookend finalizer remains unchanged in this install.
   const useDuration = getDuration();
   const usePrompt = cleanPrompt(prompt);
 

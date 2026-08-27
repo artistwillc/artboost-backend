@@ -51,6 +51,9 @@ export default function VideoStudioScreen() {
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   const [listingSearch, setListingSearch] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
+  // ARTBOOST_SEEDANCE25_V1
+  const [generationMode, setGenerationMode] = useState<"standard" | "seedance2_5">("standard");
+  const [outputQuality, setOutputQuality] = useState<"720p" | "1080p">("720p");
 
   const normalize = (value?: string | null) =>
     String(value || "").trim().toLowerCase();
@@ -459,6 +462,8 @@ export default function VideoStudioScreen() {
           productId: selectedProductId,
           templateId: selectedTemplateId,
           userPrompt: userPrompt.trim(),
+          generationMode,
+          outputQuality: generationMode === "seedance2_5" ? outputQuality : "720p",
         }),
       });
       const data = await response.json();
@@ -488,6 +493,8 @@ export default function VideoStudioScreen() {
           userId,
           templateId: selectedTemplateId,
           userPrompt: userPrompt.trim(),
+          generationMode,
+          outputQuality: generationMode === "seedance2_5" ? outputQuality : "720p",
         }),
       });
       const data = await response.json();
@@ -598,7 +605,23 @@ export default function VideoStudioScreen() {
 
           {selectedProduct ? <View style={styles.readyCard}><Ionicons name="shield-checkmark" size={23} color="#6ee7b7" /><View style={{ flex: 1 }}><Text style={styles.readyTitle}>Artwork-safe rendering</Text><Text style={styles.readyText}>Artwork integrity is the priority. ArtBoost preserves the subject, proportions, composition, colors, logos, and important lettering while adding controlled motion, atmosphere, lighting, depth, and camera movement.</Text></View></View> : null}
 
-          <Text style={styles.step}>4  Create</Text>
+          <Text style={styles.step}>4  Video Engine</Text>
+          <View style={styles.engineCard}>
+            <Pressable style={[styles.engineOption, generationMode === "standard" && styles.engineOptionActive]} onPress={() => { setGenerationMode("standard"); setOutputQuality("720p"); }}>
+              <View style={{flex:1}}><Text style={styles.engineTitle}>Standard</Text><Text style={styles.engineText}>Current proven ArtBoost engine. Lowest generation cost.</Text></View>
+              {generationMode === "standard" ? <Ionicons name="checkmark-circle" size={22} color="#a78bfa" /> : null}
+            </Pressable>
+            <Pressable style={[styles.engineOption, generationMode === "seedance2_5" && styles.engineOptionActive]} onPress={() => setGenerationMode("seedance2_5")}>
+              <View style={{flex:1}}><Text style={styles.engineTitle}>Seedance 2.5</Text><Text style={styles.engineText}>Advanced reference-aware generation through Runway.</Text></View>
+              {generationMode === "seedance2_5" ? <Ionicons name="checkmark-circle" size={22} color="#a78bfa" /> : null}
+            </Pressable>
+            {generationMode === "seedance2_5" ? <View style={styles.qualityRow}>
+              <Pressable style={[styles.qualityButton, outputQuality === "720p" && styles.qualityActive]} onPress={() => setOutputQuality("720p")}><Text style={styles.qualityText}>720p</Text><Text style={styles.qualitySub}>Recommended</Text></Pressable>
+              <Pressable style={[styles.qualityButton, outputQuality === "1080p" && styles.qualityActive]} onPress={() => setOutputQuality("1080p")}><Text style={styles.qualityText}>1080p</Text><Text style={styles.qualitySub}>Higher credit use</Text></Pressable>
+            </View> : null}
+          </View>
+
+          <Text style={styles.step}>5  Create</Text>
           {/* ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3 */}
           <Pressable disabled={creating || !selectedProductId || job?.status === "processing" || job?.status === "queued"} onPress={createVideo} style={[styles.createButton, (creating || !selectedProductId || job?.status === "processing" || job?.status === "queued") && styles.disabled]}>
             {creating ? <ActivityIndicator color="#fff" /> : <Ionicons name="sparkles" size={20} color="#fff" />}
@@ -670,5 +693,15 @@ const styles = StyleSheet.create({
   promptTitle:{flex:1,color:"#fff",fontSize:14,fontWeight:"800"},
   promptCount:{color:"#777d8b",fontSize:11,fontWeight:"700"},
   promptInput:{minHeight:108,borderRadius:13,borderWidth:1,borderColor:"#2b2d35",backgroundColor:"#0d0e12",color:"#fff",fontSize:14,lineHeight:20,paddingHorizontal:12,paddingVertical:11},
-  promptHelp:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:9}
+  promptHelp:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:9},
+  engineCard:{borderRadius:16,borderWidth:1,borderColor:"#302b43",backgroundColor:"#111018",padding:10,marginBottom:16,gap:8},
+  engineOption:{minHeight:64,borderRadius:13,borderWidth:1,borderColor:"#292b34",backgroundColor:"#15161c",padding:12,flexDirection:"row",alignItems:"center",gap:10},
+  engineOptionActive:{borderColor:"#7c3aed",backgroundColor:"#1d1730"},
+  engineTitle:{color:"#fff",fontSize:14,fontWeight:"800"},
+  engineText:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:3},
+  qualityRow:{flexDirection:"row",gap:8,marginTop:2},
+  qualityButton:{flex:1,borderRadius:12,borderWidth:1,borderColor:"#30323b",backgroundColor:"#15161c",paddingVertical:10,alignItems:"center"},
+  qualityActive:{borderColor:"#8b5cf6",backgroundColor:"#241b3d"},
+  qualityText:{color:"#fff",fontSize:13,fontWeight:"800"},
+  qualitySub:{color:"#8d92a0",fontSize:9,marginTop:2}
 });

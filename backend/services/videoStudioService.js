@@ -255,6 +255,8 @@ export async function createVideoJob({
   productId,
   templateId = DEFAULT_VIDEO_TEMPLATE,
   userPrompt = "",
+  generationMode = "standard",
+  outputQuality = "720p",
 }) {
   return withVideoQuotaLock(userId, async () => {
     await assertVideoGenerationAvailable(userId);
@@ -278,6 +280,8 @@ export async function createVideoJob({
       source_images: imageUrls,
       source_snapshot: {
         user_prompt: cleanVideoGuidance(userPrompt),
+        video_model_mode: String(generationMode || "standard").trim().toLowerCase() === "seedance2_5" ? "seedance2_5" : "standard",
+        video_output_quality: String(outputQuality || "720p").trim().toLowerCase() === "1080p" ? "1080p" : "720p",
         title: product.title || "Untitled Product",
         description: product.description || "",
         product_url: product.product_url || "",
@@ -406,7 +410,7 @@ export async function persistVideoProviderTask({ job, taskId, provider = "runway
   return updateVideoJob(job.id, { source_snapshot: sourceSnapshot });
 }
 
-export async function regenerateVideoJob({ userId, jobId, templateId, userPrompt = "" }) {
+export async function regenerateVideoJob({ userId, jobId, templateId, userPrompt = "", generationMode = "", outputQuality = "" }) {
   const previous = await getVideoJob({ userId, jobId });
   return createVideoJob({
     userId,
@@ -416,5 +420,7 @@ export async function regenerateVideoJob({ userId, jobId, templateId, userPrompt
     userPrompt:
       cleanVideoGuidance(userPrompt) ||
       String(previous?.source_snapshot?.user_prompt || ""), // ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3
+    generationMode: generationMode || previous?.source_snapshot?.video_model_mode || "standard",
+    outputQuality: outputQuality || previous?.source_snapshot?.video_output_quality || "720p",
   });
 }
