@@ -1,5 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
 import { v2 as cloudinary } from "cloudinary";
-import { supabase } from "../lib/supabase.js";
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_BATCH_SIZE = 25;
@@ -13,6 +13,15 @@ const RETENTION_DAYS = Object.freeze({
 let running = false;
 let timer = null;
 let processing = false;
+let supabaseClient = null;
+let cloudinaryReady = false;
+
+function backendConfigured() {
+  return Boolean(
+    process.env.SUPABASE_URL &&
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
 
 function cloudinaryConfigured() {
   return Boolean(
@@ -22,6 +31,41 @@ function cloudinaryConfigured() {
   );
 }
 
+function getSupabase() {
+  if (supabaseClient) return supabaseClient;
+
+  if (!backendConfigured()) {
+    throw new Error(
+      "Generated video cleanup is waiting for SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+    );
+  }
+
+  supabaseClient = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  return supabaseClient;
+}
+
+function ensureCloudinaryConfigured() {
+  if (cloudinaryReady) return;
+
+  if (!cloudinaryConfigured()) {
+    throw new Error(
+      "Generated video cleanup is waiting for Cloudinary environment variables."
+    );
+  }
+
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+
+  cloudinaryReady = true;
+}
+
 function normalizeTier(profile) {
   const raw = String(
     profile?.subscription_tier ||
@@ -29,6 +73,7 @@ function normalizeTier(profile) {
     profile?.subscription_plan ||
     "free"
   ).toLowerCase();
+
   if (raw.includes("business")) return "business";
   if (raw.includes("pro")) return "pro";
   if (raw.includes("starter")) return "starter";
@@ -40,7 +85,9 @@ function cutoffIso(days) {
 }
 
 async function loadExpiredCandidates() {
+  const supabase = getSupabase();
   const oldestCutoff = cutoffIso(30);
+
   const { data, error } = await supabase
     .from("video_jobs")
     .select("id,user_id,video_url,cloudinary_public_id,completed_at,created_at,status")
@@ -51,17 +98,28 @@ async function loadExpiredCandidates() {
     .order("completed_at", { ascending: true })
     .limit(DEFAULT_BATCH_SIZE);
 
-  if (error) throw new Error(`Unable to load generated-video cleanup candidates: ${error.message}`);
+  if (error) {
+    throw new Error(
+      `Unable to load generated-video cleanup candidates: ${error.message}`
+    );
+  }
+
   return Array.isArray(data) ? data : [];
 }
 
 async function loadProfile(userId) {
+  const supabase = getSupabase();
+
   const { data, error } = await supabase
     .from("profiles")
     .select("subscription_tier,plan,subscription_plan")
     .eq("id", userId)
     .maybeSingle();
-  if (error) throw new Error(`Unable to verify video owner plan: ${error.message}`);
+
+  if (error) {
+    throw new Error(`Unable to verify video owner plan: ${error.message}`);
+  }
+
   return data || {};
 }
 
@@ -71,23 +129,35 @@ async function deleteOne(job) {
   const profile = await loadProfile(job.user_id);
   const tier = normalizeTier(profile);
   const retentionDays = RETENTION_DAYS[tier];
+
   if (!retentionDays) return false;
 
-  const completedAt = new Date(job.completed_at || job.created_at || 0).getTime();
+  const completedAt = new Date(
+    job.completed_at || job.created_at || 0
+  ).getTime();
+
   if (!Number.isFinite(completedAt) || completedAt <= 0) return false;
   if (completedAt > Date.now() - retentionDays * 86400000) return false;
 
-  // Safety rule: only delete the exact Cloudinary public_id persisted on this
-  // completed job. Never derive an id from a URL and never delete by folder.
-  const result = await cloudinary.uploader.destroy(job.cloudinary_public_id, {
-    resource_type: "video",
-    invalidate: true,
-  });
+  ensureCloudinaryConfigured();
+
+  const result = await cloudinary.uploader.destroy(
+    job.cloudinary_public_id,
+    {
+      resource_type: "video",
+      invalidate: true,
+    }
+  );
 
   const accepted = new Set(["ok", "not found"]);
+
   if (!accepted.has(String(result?.result || "").toLowerCase())) {
-    throw new Error(`Cloudinary refused generated-video deletion: ${result?.result || "unknown result"}`);
+    throw new Error(
+      `Cloudinary refused generated-video deletion: ${result?.result || "unknown result"}`
+    );
   }
+
+  const supabase = getSupabase();
 
   const { error } = await supabase
     .from("video_jobs")
@@ -102,38 +172,88 @@ async function deleteOne(job) {
     .eq("user_id", job.user_id)
     .eq("cloudinary_public_id", job.cloudinary_public_id);
 
-  if (error) throw new Error(`Unable to record generated-video cleanup: ${error.message}`);
-  console.log("Generated video retention cleanup completed:", job.id, `${retentionDays}d`);
+  if (error) {
+    throw new Error(
+      `Unable to record generated-video cleanup: ${error.message}`
+    );
+  }
+
+  console.log(
+    "Generated video retention cleanup completed:",
+    job.id,
+    `${retentionDays}d`
+  );
+
   return true;
 }
 
 async function processCleanup() {
-  if (processing || !cloudinaryConfigured()) return;
+  if (processing) return;
+
+  if (!backendConfigured() || !cloudinaryConfigured()) {
+    console.log(
+      "Generated video retention worker idle: required production environment variables are not loaded."
+    );
+    return;
+  }
+
   processing = true;
+
   try {
     const jobs = await loadExpiredCandidates();
+
     for (const job of jobs) {
       try {
         await deleteOne(job);
       } catch (error) {
-        console.error("Generated video cleanup item failed:", job?.id, error?.message || error);
+        console.error(
+          "Generated video cleanup item failed:",
+          job?.id,
+          error?.message || error
+        );
       }
     }
   } catch (error) {
-    console.error("Generated video cleanup worker failed:", error?.message || error);
+    console.error(
+      "Generated video cleanup worker failed:",
+      error?.message || error
+    );
   } finally {
     processing = false;
   }
 }
 
-export function startGeneratedVideoCleanupWorker({ intervalMs = DEFAULT_INTERVAL_MS } = {}) {
-  if (running || process.env.GENERATED_VIDEO_CLEANUP_ENABLED === "false") return;
+export function startGeneratedVideoCleanupWorker({
+  intervalMs = DEFAULT_INTERVAL_MS,
+} = {}) {
+  if (
+    running ||
+    process.env.GENERATED_VIDEO_CLEANUP_ENABLED === "false"
+  ) {
+    return;
+  }
+
   running = true;
-  const safeInterval = Math.max(Number(intervalMs) || DEFAULT_INTERVAL_MS, 60 * 60 * 1000);
-  timer = setInterval(() => processCleanup().catch(console.error), safeInterval);
+
+  const safeInterval = Math.max(
+    Number(intervalMs) || DEFAULT_INTERVAL_MS,
+    60 * 60 * 1000
+  );
+
+  timer = setInterval(
+    () => processCleanup().catch(console.error),
+    safeInterval
+  );
   timer.unref?.();
-  setTimeout(() => processCleanup().catch(console.error), 60000).unref?.();
-  console.log("Generated video retention worker started: Starter 30d / Pro 60d / Business 90d.");
+
+  setTimeout(
+    () => processCleanup().catch(console.error),
+    60000
+  ).unref?.();
+
+  console.log(
+    "Generated video retention worker started: Starter 30d / Pro 60d / Business 90d."
+  );
 }
 
 export function stopGeneratedVideoCleanupWorker() {
