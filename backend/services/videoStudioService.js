@@ -26,6 +26,19 @@ export const VIDEO_PLAN_LIMITS = Object.freeze({
   business: 30,
 });
 
+// ARTBOOST_VIDEO_COST_GUARD_V1
+export const VIDEO_CREDIT_COSTS = Object.freeze({
+  standard_720p: 1,
+  seedance2_5_720p: 1,
+  seedance2_5_1080p: 2,
+});
+
+export const GENERATED_VIDEO_RETENTION_DAYS = Object.freeze({
+  starter: 30,
+  pro: 60,
+  business: 90,
+});
+
 const MAX_FAILED_VIDEO_ATTEMPTS_PER_DAY = 5;
 const videoQuotaLocks = new Map();
 
@@ -91,9 +104,9 @@ export async function getVideoUsage({ userId }) {
   const limit = VIDEO_PLAN_LIMITS[tier] ?? 0;
   const { start, end } = monthBoundsUtc();
 
-  const { count: used, error: usageError } = await supabase
+  const { data: jobs, error: usageError } = await supabase
     .from("video_jobs")
-    .select("id", { count: "exact", head: true })
+    .select("id,status,source_snapshot,created_at")
     .eq("user_id", userId)
     .gte("created_at", start)
     .lt("created_at", end)
@@ -101,9 +114,7 @@ export async function getVideoUsage({ userId }) {
     .neq("status", "canceled")
     .neq("status", "cancelled");
 
-  if (usageError) {
-    throw new Error(`Unable to verify AI video usage: ${usageError.message}`);
-  }
+  if (usageError) throw new Error(`Unable to verify AI video usage: ${usageError.message}`);
 
   const { count: failedToday, error: failedError } = await supabase
     .from("video_jobs")
@@ -112,25 +123,28 @@ export async function getVideoUsage({ userId }) {
     .eq("status", "failed")
     .gte("created_at", dayStartUtc());
 
-  if (failedError) {
-    throw new Error(`Unable to verify recent video failures: ${failedError.message}`);
-  }
+  if (failedError) throw new Error(`Unable to verify recent video failures: ${failedError.message}`);
 
-  const safeUsed = Number(used || 0);
-  const safeFailedToday = Number(failedToday || 0);
+  const used = (Array.isArray(jobs) ? jobs : []).reduce((total, row) => {
+    const snapshot = row?.source_snapshot || {};
+    const mode = String(snapshot.video_model_mode || "standard").toLowerCase();
+    const quality = String(snapshot.video_output_quality || "720p").toLowerCase();
+    return total + (mode === "seedance2_5" && quality === "1080p" ? 2 : 1);
+  }, 0);
 
   return {
-    tier,
-    limit,
-    used: safeUsed,
-    remaining: Math.max(limit - safeUsed, 0),
-    failedToday: safeFailedToday,
+    tier, limit, used,
+    remaining: Math.max(limit - used, 0),
+    failedToday: Number(failedToday || 0),
     periodStart: start,
     periodEnd: end,
+    unit: "video_credits",
+    retentionDays: GENERATED_VIDEO_RETENTION_DAYS[tier] || 0,
+    costs: VIDEO_CREDIT_COSTS,
   };
 }
 
-async function assertVideoGenerationAvailable(userId) {
+async function assertVideoGenerationAvailable(userId, requestedCredits = 1) {
   const usage = await getVideoUsage({ userId });
 
   if (usage.failedToday >= MAX_FAILED_VIDEO_ATTEMPTS_PER_DAY) {
@@ -142,7 +156,7 @@ async function assertVideoGenerationAvailable(userId) {
     throw error;
   }
 
-  if (usage.remaining <= 0) {
+  if (usage.remaining < Math.max(1, Number(requestedCredits) || 1)) {
     const planLabel =
       usage.tier === "free"
         ? "Free"
@@ -259,7 +273,10 @@ export async function createVideoJob({
   outputQuality = "720p",
 }) {
   return withVideoQuotaLock(userId, async () => {
-    await assertVideoGenerationAvailable(userId);
+    const normalizedMode = String(generationMode || "standard").trim().toLowerCase() === "seedance2_5" ? "seedance2_5" : "standard";
+    const normalizedQuality = normalizedMode === "seedance2_5" && String(outputQuality || "720p").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
+    const requestedCredits = normalizedMode === "seedance2_5" && normalizedQuality === "1080p" ? 2 : 1;
+    await assertVideoGenerationAvailable(userId, requestedCredits);
 
     const product = await getOwnedProduct(userId, productId);
     const template = getVideoTemplate(templateId);
@@ -280,8 +297,9 @@ export async function createVideoJob({
       source_images: imageUrls,
       source_snapshot: {
         user_prompt: cleanVideoGuidance(userPrompt),
-        video_model_mode: String(generationMode || "standard").trim().toLowerCase() === "seedance2_5" ? "seedance2_5" : "standard",
-        video_output_quality: String(outputQuality || "720p").trim().toLowerCase() === "1080p" ? "1080p" : "720p",
+        video_model_mode: normalizedMode,
+        video_output_quality: normalizedQuality,
+        video_credit_cost: requestedCredits,
         title: product.title || "Untitled Product",
         description: product.description || "",
         product_url: product.product_url || "",

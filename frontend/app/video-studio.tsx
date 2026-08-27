@@ -33,6 +33,7 @@ type Product = {
 };
 type Template = { id: string; name: string; description: string };
 type VideoJob = { id: string; status: string; progress: number; video_url?: string | null; error_message?: string | null; template_id: string; source_snapshot?: any; updated_at?: string | null };
+type VideoUsage = { tier: string; limit: number; used: number; remaining: number; periodEnd?: string; retentionDays?: number };
 
 export default function VideoStudioScreen() {
   const params = useLocalSearchParams<{
@@ -50,6 +51,7 @@ export default function VideoStudioScreen() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [videoUsage, setVideoUsage] = useState<VideoUsage | null>(null);
   const [jobRefreshFailures, setJobRefreshFailures] = useState(0);
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   const [listingSearch, setListingSearch] = useState("");
@@ -269,6 +271,9 @@ export default function VideoStudioScreen() {
         ? { Authorization: `Bearer ${session.access_token}` }
         : {};
       setUserId(user.id);
+      const usageResponse = await fetch(`${API_BASE}/video-studio/usage`, { headers: authHeaders });
+      const usageData = await usageResponse.json();
+      if (usageResponse.ok && usageData.success) setVideoUsage(usageData.usage);
       const templateResponse = await fetch(
         `${API_BASE}/video-studio/templates`
       );
@@ -472,6 +477,7 @@ export default function VideoStudioScreen() {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to create video.");
       setJob(data.job);
+      if (data.usage) setVideoUsage(data.usage);
     } catch (error: any) {
       Alert.alert("Video Creation Failed", error.message || "ArtBoost could not create this video.");
     } finally { setCreating(false); }
@@ -503,6 +509,7 @@ export default function VideoStudioScreen() {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to regenerate video.");
       setJob(data.job);
+      if (data.usage) setVideoUsage(data.usage);
     } catch (error: any) { Alert.alert("Regenerate Failed", error.message || "Unable to regenerate video."); }
     finally { setCreating(false); }
   }
@@ -655,6 +662,8 @@ export default function VideoStudioScreen() {
 
           {selectedProduct ? <View style={styles.readyCard}><Ionicons name="shield-checkmark" size={23} color="#6ee7b7" /><View style={{ flex: 1 }}><Text style={styles.readyTitle}>Artwork-safe rendering</Text><Text style={styles.readyText}>Artwork integrity is the priority. ArtBoost preserves the subject, proportions, composition, colors, logos, and important lettering while adding controlled motion, atmosphere, lighting, depth, and camera movement.</Text></View></View> : null}
 
+          {videoUsage ? <View style={styles.usageCard}><View style={{ flex: 1 }}><Text style={styles.usageTitle}>Monthly AI video credits</Text><Text style={styles.usageText}>{videoUsage.remaining} of {videoUsage.limit} remaining • {videoUsage.tier.charAt(0).toUpperCase() + videoUsage.tier.slice(1)} plan</Text>{videoUsage.retentionDays ? <Text style={styles.usageSub}>Generated videos retained for up to {videoUsage.retentionDays} days. Download finished videos you want to keep.</Text> : null}</View><Text style={styles.usageNumber}>{videoUsage.used}/{videoUsage.limit}</Text></View> : null}
+
           <Text style={styles.step}>4  Video Engine</Text>
           <View style={styles.engineCard}>
             <Pressable style={[styles.engineOption, generationMode === "standard" && styles.engineOptionActive]} onPress={() => { setGenerationMode("standard"); setOutputQuality("720p"); }}>
@@ -667,7 +676,7 @@ export default function VideoStudioScreen() {
             </Pressable>
             {generationMode === "seedance2_5" ? <View style={styles.qualityRow}>
               <Pressable style={[styles.qualityButton, outputQuality === "720p" && styles.qualityActive]} onPress={() => setOutputQuality("720p")}><Text style={styles.qualityText}>720p</Text><Text style={styles.qualitySub}>Recommended</Text></Pressable>
-              <Pressable style={[styles.qualityButton, outputQuality === "1080p" && styles.qualityActive]} onPress={() => setOutputQuality("1080p")}><Text style={styles.qualityText}>1080p</Text><Text style={styles.qualitySub}>Higher credit use</Text></Pressable>
+              <Pressable style={[styles.qualityButton, outputQuality === "1080p" && styles.qualityActive]} onPress={() => setOutputQuality("1080p")}><Text style={styles.qualityText}>1080p</Text><Text style={styles.qualitySub}>Uses 2 credits</Text></Pressable>
             </View> : null}
           </View>
 
@@ -733,6 +742,11 @@ export default function VideoStudioScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#08090d" }, header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#292a32" },
   backButton: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#171820", alignItems: "center", justifyContent: "center" }, eyebrow: { color: "#a78bfa", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }, title: { color: "#fff", fontSize: 26, fontWeight: "800", marginTop: 1 },
+  usageCard: { flexDirection: "row", gap: 12, alignItems: "center", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#3b2d58", backgroundColor: "#171321", marginBottom: 14 },
+  usageTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  usageText: { color: "#c4b5fd", fontSize: 12, fontWeight: "700", marginTop: 3 },
+  usageSub: { color: "#8d8d98", fontSize: 11, lineHeight: 16, marginTop: 5 },
+  usageNumber: { color: "#fff", fontSize: 17, fontWeight: "900" },
   proBadge: { flexDirection: "row", gap: 5, alignItems: "center", borderWidth: 1, borderColor: "#665720", backgroundColor: "#272310", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 }, proText: { color: "#f8d66d", fontWeight: "800", fontSize: 9, letterSpacing: .7 },
   content: { padding: 16 }, center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }, muted: { color: "#9ca3af" },
   heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 23 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#bbb8cb", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
