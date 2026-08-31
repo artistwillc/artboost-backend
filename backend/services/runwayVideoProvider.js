@@ -1,5 +1,7 @@
 // ARTBOOST_VIDEO_V5_GENERATIVE
 // ARTBOOST_RUNWAY_V5_1_VALIDATION_FIX
+// ARTBOOST_RUNWAY_ULTIMATE_INPUT_GATE_V3141
+// ARTBOOST_RUNWAY_DATA_URI_FIRST_FRAME_V3145
 import { v2 as cloudinary } from "cloudinary";
 
 const BASE = "https://api.dev.runwayml.com/v1";
@@ -48,6 +50,83 @@ function errorText(payload, fallback = "request failed") {
   }
 }
 
+
+function runwayIssueText(payload) {
+  const issues = Array.isArray(payload?.issues) ? payload.issues : [];
+  return issues
+    .map((issue) => {
+      const pathText = Array.isArray(issue?.path) ? issue.path.join(".") : "";
+      const message = scalarMessage(issue?.message);
+      return [pathText, message].filter(Boolean).join(": ");
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+function taskFailureCode(task) {
+  return String(
+    task?.failureCode ||
+    task?.failure_code ||
+    task?.errorCode ||
+    task?.error_code ||
+    task?.failure?.code ||
+    task?.failure?.failureCode ||
+    ""
+  ).trim().toUpperCase();
+}
+
+function taskFailureMessage(task) {
+  const code = taskFailureCode(task);
+  const detail = errorText(task?.failure || task, "generation failed");
+  return [code, detail].filter(Boolean).join(" — ");
+}
+
+function isRetryableHttpStatus(status) {
+  return [429, 502, 503, 504].includes(Number(status));
+}
+
+function retryDelayMs(attempt) {
+  const base = Math.min(12000, 1200 * (2 ** attempt));
+  return base + Math.floor(Math.random() * Math.max(1, Math.round(base * 0.5)));
+}
+
+async function validatePreparedRunwayImage(imageUrl, expectedWidth, expectedHeight) {
+  let response;
+  try {
+    response = await fetch(imageUrl, { method: "HEAD", redirect: "follow" });
+    if (!response.ok || !response.headers.get("content-type")) {
+      response = await fetch(imageUrl, {
+        method: "GET",
+        headers: { Range: "bytes=0-1024" },
+        redirect: "follow",
+      });
+    }
+  } catch (error) {
+    throw new Error(
+      `Runway source-image preflight failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  if (!response.ok && response.status !== 206) {
+    throw new Error(`Runway source-image preflight HTTP ${response.status}.`);
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.startsWith("image/")) {
+    throw new Error(
+      `Runway source-image preflight rejected Content-Type "${contentType || "missing"}".`
+    );
+  }
+
+  if (expectedWidth < 640 || expectedHeight < 640) {
+    throw new Error(
+      `Runway source-image preflight rejected ${expectedWidth}x${expectedHeight}; both dimensions must be at least 640px.`
+    );
+  }
+
+  return { contentType };
+}
+
 function configureCloudinary() {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
   const apiKey = process.env.CLOUDINARY_API_KEY;
@@ -93,7 +172,7 @@ function getGenerationOptions(job) {
     ? job.source_snapshot
     : {};
   const requestedMode = String(snapshot.video_model_mode || "standard").trim().toLowerCase();
-  const requestedQuality = String(snapshot.video_output_quality || "720p").trim().toLowerCase();
+  const requestedQuality = String(snapshot.video_output_quality || "1080p").trim().toLowerCase();
 
   // Cost-controlled default: preserve the existing Gen-4.5 path unless the user
   // explicitly chooses Seedance 2.5.
@@ -123,37 +202,115 @@ function headers() {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...headers(),
-      ...(options.headers || {}),
-    },
-  });
+  let lastError = null;
 
-  const text = await response.text();
-  let payload = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...headers(),
+        ...(options.headers || {}),
+      },
+    });
 
-  try {
-    payload = text ? JSON.parse(text) : null;
-  } catch {
-    payload = text;
-  }
+    const text = await response.text();
+    let payload = null;
 
-  if (!response.ok) {
-    const details = errorText(
-      payload,
-      response.statusText || "request failed"
-    );
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = text;
+    }
+
+    if (response.ok) return payload;
+
+    const issueDetails = runwayIssueText(payload);
+    const details = [
+      errorText(payload, response.statusText || "request failed"),
+      issueDetails,
+    ].filter(Boolean).join(" — ");
 
     const error = new Error(`Runway API ${response.status}: ${details}`);
     error.status = response.status;
     error.payload = payload;
     error.responseText = text;
-    throw error;
+    lastError = error;
+
+    if (!isRetryableHttpStatus(response.status) || attempt >= 2) {
+      throw error;
+    }
+
+    await sleep(retryDelayMs(attempt));
   }
 
-  return payload;
+  throw lastError || new Error("Runway request failed.");
+}
+
+
+const RUNWAY_IMAGE_DATA_URI_MAX_BYTES = 5 * 1024 * 1024;
+const RUNWAY_IMAGE_BINARY_SAFE_MAX_BYTES = 3_650_000;
+
+async function preparedImageDataUri(imageUrl) {
+  const response = await fetch(imageUrl, {
+    method: "GET",
+    redirect: "follow",
+    headers: {
+      Accept: "image/jpeg,image/png,image/webp",
+      "User-Agent": "ArtBoostAI-Runway-Input/3.14.5",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Runway source-image download failed before provider submission: HTTP ${response.status}.`
+    );
+  }
+
+  const contentType = String(
+    response.headers.get("content-type") || ""
+  )
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(contentType)) {
+    throw new Error(
+      `Runway source-image download returned unsupported Content-Type "${contentType || "missing"}".`
+    );
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+
+  if (!bytes.length) {
+    throw new Error("Runway source-image download returned an empty file.");
+  }
+
+  if (bytes.length > RUNWAY_IMAGE_BINARY_SAFE_MAX_BYTES) {
+    throw new Error(
+      `Prepared Runway image is ${bytes.length} bytes. ArtBoost requires <= ${RUNWAY_IMAGE_BINARY_SAFE_MAX_BYTES} bytes before base64 encoding.`
+    );
+  }
+
+  const mime =
+    contentType === "image/jpg"
+      ? "image/jpeg"
+      : contentType;
+
+  const dataUri =
+    `data:${mime};base64,${bytes.toString("base64")}`;
+
+  if (Buffer.byteLength(dataUri, "utf8") > RUNWAY_IMAGE_DATA_URI_MAX_BYTES) {
+    throw new Error(
+      "Prepared Runway data URI exceeds the provider 5MB image-input limit."
+    );
+  }
+
+  return {
+    dataUri,
+    mime,
+    binaryBytes: bytes.length,
+    encodedBytes: Buffer.byteLength(dataUri, "utf8"),
+  };
 }
 
 function validHttpsUrl(value) {
@@ -165,7 +322,7 @@ function validHttpsUrl(value) {
   }
 }
 
-async function preparePromptImage({ job, imageUrl }) {
+async function preparePromptImage({ job, imageUrl, ratio }) {
   if (!validHttpsUrl(imageUrl)) {
     throw new Error("The selected listing image is not a valid HTTPS image URL.");
   }
@@ -185,15 +342,34 @@ async function preparePromptImage({ job, imageUrl }) {
     })(),
   });
 
+  const [ratioWidth, ratioHeight] = String(ratio || "1080:1920")
+    .split(":")
+    .map((value) => Number(value));
+
+  const targetWidth = Number.isFinite(ratioWidth) ? ratioWidth : 1080;
+  const targetHeight = Number.isFinite(ratioHeight) ? ratioHeight : 1920;
+
   const uploaded = await cloudinary.uploader.upload(imageUrl, {
     resource_type: "image",
     public_id: publicId,
     overwrite: true,
     invalidate: true,
-    tags: ["artboost", "video-studio", "runway-source"],
+    format: "jpg",
+    quality: 88,
+    transformation: [
+      {
+        width: targetWidth,
+        height: targetHeight,
+        crop: "pad",
+        gravity: "center",
+        background: "black",
+      },
+    ],
+    tags: ["artboost", "video-studio", "runway-source", "runway-normalized"],
     context: {
       artboost_job_id: String(job.id),
       artboost_user_id: String(job.user_id),
+      artboost_target_ratio: String(ratio || ""),
     },
   });
 
@@ -211,11 +387,34 @@ async function preparePromptImage({ job, imageUrl }) {
     );
   }
 
+  const preparedWidth = Number(uploaded.width) || targetWidth;
+  const preparedHeight = Number(uploaded.height) || targetHeight;
+
+  if (preparedWidth !== targetWidth || preparedHeight !== targetHeight) {
+    throw new Error(
+      `Runway source normalization failed: expected ${targetWidth}x${targetHeight}, got ${preparedWidth}x${preparedHeight}.`
+    );
+  }
+
+  const preflight = await validatePreparedRunwayImage(
+    cleanUrl,
+    preparedWidth,
+    preparedHeight
+  );
+
+  const providerImage =
+    await preparedImageDataUri(cleanUrl);
+
   return {
     imageUrl: cleanUrl,
+    providerImage: providerImage.dataUri,
+    providerImageMime: providerImage.mime,
+    providerImageBinaryBytes: providerImage.binaryBytes,
+    providerImageEncodedBytes: providerImage.encodedBytes,
     publicId: uploaded.public_id || publicId,
-    width: Number(uploaded.width) || null,
-    height: Number(uploaded.height) || null,
+    width: preparedWidth,
+    height: preparedHeight,
+    contentType: preflight.contentType,
   };
 }
 
@@ -280,69 +479,42 @@ function isBodyValidation400(error) {
 
 async function submitGeneration({
   model,
-  promptImageUrl,
+  promptImage,
   promptText,
   ratio,
   duration,
 }) {
-  const plainBody = buildBody({
+  const providerPromptImage =
+    model === "seedance2_5"
+      ? [{ uri: promptImage, position: "first" }]
+      : promptImage;
+
+  const body = buildBody({
     model,
-    promptImage: promptImageUrl,
+    promptImage: providerPromptImage,
     promptText,
     ratio,
     duration,
   });
 
-  console.log("ArtBoost V5.1 Runway body:", {
-    model: plainBody.model,
-    promptImageType: "https_url",
-    promptImageLength: String(promptImageUrl).length,
-    promptTextLength: plainBody.promptText.length,
-    ratio: plainBody.ratio,
-    duration: plainBody.duration,
+  console.log("ArtBoost V3.14 Runway body:", {
+    model: body.model,
+    promptImageType: Array.isArray(body.promptImage)
+      ? "first_keyframe"
+      : "https_url",
+    promptImageLength: String(promptImage).length,
+    promptImageTransport: String(promptImage).startsWith("data:")
+      ? "data_uri"
+      : "https_url",
+    promptTextLength: body.promptText.length,
+    ratio: body.ratio,
+    duration: body.duration,
   });
 
-  try {
-    return await request(`${BASE}/image_to_video`, {
-      method: "POST",
-      body: JSON.stringify(plainBody),
-    });
-  } catch (error) {
-    if (!isBodyValidation400(error)) throw error;
-
-    console.warn("ArtBoost V5.1 Runway body validation retry:", {
-      firstError: error instanceof Error ? error.message : String(error),
-      retryImageShape: "array_uri_position_first",
-    });
-
-    const positionedBody = buildBody({
-      model,
-      promptImage: [{ uri: promptImageUrl, position: "first" }],
-      promptText,
-      ratio,
-      duration,
-    });
-
-    try {
-      return await request(`${BASE}/image_to_video`, {
-        method: "POST",
-        body: JSON.stringify(positionedBody),
-      });
-    } catch (retryError) {
-      console.error(
-        "ArtBoost V5.1 Runway validation failed after retry:",
-        {
-          status: retryError?.status || null,
-          error:
-            retryError instanceof Error
-              ? retryError.message
-              : String(retryError),
-          payload: retryError?.payload || null,
-        }
-      );
-      throw retryError;
-    }
-  }
+  return request(`${BASE}/image_to_video`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 // ARTBOOST_LAUNCH_FIXES_V1_20260821_RUNWAY
@@ -404,6 +576,7 @@ export async function createRunwayImageToVideo({
     prepared = await preparePromptImage({
       job,
       imageUrl,
+      ratio: useRatio,
     });
 
     await onProgress(14);
@@ -420,12 +593,17 @@ export async function createRunwayImageToVideo({
         width: prepared.width,
         height: prepared.height,
         urlLength: prepared.imageUrl.length,
+        providerTransport: "data_uri",
+        providerMime: prepared.providerImageMime,
+        providerBinaryBytes: prepared.providerImageBinaryBytes,
+        providerEncodedBytes: prepared.providerImageEncodedBytes,
+        providerRevision: "v3145-data-uri-first-frame",
       },
     });
 
     const created = await submitGeneration({
       model: useModel,
-      promptImageUrl: prepared.imageUrl,
+      promptImage: prepared.providerImage,
       promptText: usePrompt,
       ratio: useRatio,
       duration: useDuration,
@@ -510,14 +688,13 @@ export async function createRunwayImageToVideo({
         ratio: useRatio,
         model: useModel,
         sourceImagePublicId: prepared?.publicId || null,
+        providerRevision: "v3145-data-uri-first-frame",
       };
     }
 
     if (status === "FAILED") {
-      const failureMessage = errorText(
-        task?.failure || task,
-        "generation failed"
-      );
+      const failureCode = taskFailureCode(task);
+      const failureMessage = taskFailureMessage(task);
 
       if (
         !_moderationRetry &&
@@ -541,8 +718,17 @@ export async function createRunwayImageToVideo({
         });
       }
 
+      if (
+        failureCode === "ASSET.INVALID" ||
+        /invalid input/i.test(failureMessage)
+      ) {
+        throw new Error(
+          `Runway rejected the prepared listing image/input: ${failureMessage}. ArtBoost did not retry the same invalid input.`
+        );
+      }
+
       throw new Error(
-        `Runway generation failed: ${failureMessage}`
+        `Runway generation failed [v3145-data-uri-first-frame]: ${failureMessage}`
       );
     }
 
