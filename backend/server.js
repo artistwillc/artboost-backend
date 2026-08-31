@@ -42,10 +42,30 @@ import OAuth from "oauth-1.0a";
 import CryptoJS from "crypto-js";
 import crypto from "crypto";
 import catalogRoutes from "./routes/catalog.js";
+import {
+  applySecurityHeaders,
+  createRateLimiter,
+} from "./middleware/security.js";
+import { securityAuthMode } from "./middleware/auth.js";
 
 dotenv.config({ override: true });
 
 const app = express();
+
+app.set("trust proxy", 1);
+app.use(applySecurityHeaders);
+
+const generationLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 30,
+  keyPrefix: "generation",
+});
+
+const importLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 20,
+  keyPrefix: "import",
+});
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3000;
 
@@ -2927,22 +2947,22 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 // ARTBOOST_HASHTAG_INTELLIGENCE_ROUTE_V1
-app.use("/api/hashtag-intelligence", hashtagIntelligenceRoutes);
+app.use("/api/hashtag-intelligence", generationLimiter, hashtagIntelligenceRoutes);
 app.use("/stores", storeRoutes);
-app.use("/catalog", catalogCsvRouter);
+app.use("/catalog", importLimiter, catalogCsvRouter);
 app.use("/automations", automationRoutes);
 
-app.use("/ai", aiRouter);
-app.use("/ai", assistantRoutes);
+app.use("/ai", generationLimiter, aiRouter);
+app.use("/ai", generationLimiter, assistantRoutes);
 
-app.use("/creator-tools", creatorToolsRoutes);
+app.use("/creator-tools", generationLimiter, creatorToolsRoutes);
 app.use(etsyRoutes);
 app.use(redbubbleRoutes);
 app.use(tiktokRoutes);
-app.use("/video-studio", videoStudioRoutes);
+app.use("/video-studio", generationLimiter, videoStudioRoutes);
 app.use(universalSocialRoutes);
 app.use(socialConnectRoutes);
-app.use("/catalog", catalogRoutes);
+app.use("/catalog", importLimiter, catalogRoutes);
 
 
 // ============================================
@@ -3728,14 +3748,59 @@ app.get("/analytics", async (req, res) => {
       );
     }
 
-    const campaigns =
-      campaignsResult.data || [];
+    // ARTBOOST_ANALYTICS_RANGE_ATTENTION_V390
+    // ARTBOOST_ANALYTICS_ACTION_ROUTING_V391
+    const requestedAnalyticsRange = String(req.query.range || "30d").toLowerCase();
+    const analyticsRange = ["7d", "30d", "90d", "all"].includes(requestedAnalyticsRange)
+      ? requestedAnalyticsRange
+      : "30d";
+    const analyticsRangeDays =
+      analyticsRange === "7d" ? 7 :
+      analyticsRange === "30d" ? 30 :
+      analyticsRange === "90d" ? 90 : null;
+    const analyticsRangeStart = analyticsRangeDays
+      ? new Date(Date.now() - analyticsRangeDays * 24 * 60 * 60 * 1000)
+      : null;
 
-    const automations =
-      automationsResult.data || [];
+    const analyticsRecordDate = (record, fields) => {
+      for (const field of fields) {
+        const raw = record?.[field];
+        if (!raw) continue;
+        const date = new Date(raw);
+        if (!Number.isNaN(date.getTime())) return date;
+      }
+      return null;
+    };
 
-    const automationLogs =
-      logsResult.data || [];
+    const analyticsInRange = (record, fields) => {
+      if (!analyticsRangeStart) return true;
+      const date = analyticsRecordDate(record, fields);
+      return Boolean(date && date >= analyticsRangeStart);
+    };
+
+    const allCampaigns = campaignsResult.data || [];
+    const allAutomations = automationsResult.data || [];
+    const allAutomationLogs = logsResult.data || [];
+
+    const campaigns = allCampaigns.filter((record) =>
+      analyticsInRange(record, [
+        "published_at",
+        "publish_at",
+        "completed_at",
+        "updated_at",
+        "created_at",
+      ])
+    );
+
+    const automations = allAutomations;
+    const automationLogs = allAutomationLogs.filter((record) =>
+      analyticsInRange(record, [
+        "created_at",
+        "ran_at",
+        "completed_at",
+        "updated_at",
+      ])
+    );
 
     const normalizedPlatform = (value) => {
       const platform =
@@ -4218,6 +4283,269 @@ app.get("/analytics", async (req, res) => {
           )
       );
 
+    const analyticsIssueDate = (record) => {
+      const date = analyticsRecordDate(record, [
+        "updated_at",
+        "created_at",
+        "published_at",
+        "publish_at",
+        "last_run_at",
+        "ran_at",
+      ]);
+      return date ? date.toISOString() : null;
+    };
+
+    const analyticsAttentionItems = [];
+    const analyticsIssueKeys = new Set();
+
+    const pushAnalyticsIssue = (item) => {
+      const key = `${item.type}:${item.id || item.title || analyticsAttentionItems.length}`;
+      if (analyticsIssueKeys.has(key)) return;
+      analyticsIssueKeys.add(key);
+      analyticsAttentionItems.push(item);
+    };
+
+    for (const campaign of campaigns) {
+      const status = String(campaign?.status || campaign?.campaign_status || "")
+        .trim().toLowerCase();
+      const failed = ["failed", "error"].includes(status);
+      const paused = String(campaign?.campaign_status || "").trim().toLowerCase() === "paused";
+      if (!failed && !paused) continue;
+
+      pushAnalyticsIssue({
+        type: "campaign",
+        id: campaign?.id || null,
+        title: campaign?.title || campaign?.campaign_name || "Campaign issue",
+        status: failed ? "failed" : "paused",
+        platform: campaign?.platform || null,
+        storeName: campaign?.store_name || campaign?.storeName || null,
+        timestamp: analyticsIssueDate(campaign),
+        reason:
+          campaign?.last_error ||
+          campaign?.error ||
+          campaign?.error_message ||
+          (paused ? "Campaign is paused." : "Campaign failed."),
+      });
+    }
+
+    for (const automation of automations) {
+      const status = String(
+        automation?.status ||
+        automation?.automation_status ||
+        (automation?.enabled === false ? "paused" : "active")
+      ).trim().toLowerCase();
+      const lastError = String(automation?.last_error || "").trim();
+      const paused = ["paused", "disabled", "inactive"].includes(status);
+      if (!paused && !lastError) continue;
+
+      pushAnalyticsIssue({
+        type: "automation",
+        id: automation?.id || null,
+        title:
+          automation?.name ||
+          automation?.title ||
+          automation?.store_name ||
+          "Automation issue",
+        status: paused ? "paused" : "error",
+        platform: automation?.platform || automation?.social_platform || null,
+        storeId:
+          automation?.store_id ||
+          automation?.store_connection_id ||
+          automation?.storeConnectionId ||
+          null,
+        storeName: automation?.store_name || automation?.storeName || null,
+        storeType:
+          automation?.store_type ||
+          automation?.storeType ||
+          automation?.platform ||
+          null,
+        timestamp: analyticsIssueDate(automation),
+        reason: lastError || "Automation is paused.",
+      });
+    }
+
+    for (const log of automationLogs) {
+      const status = String(log?.status || log?.result || "").trim().toLowerCase();
+      if (!["failed", "error"].includes(status)) continue;
+
+      pushAnalyticsIssue({
+        type: "automation_run",
+        id: log?.id || null,
+        automationId: log?.automation_id || log?.store_automation_id || null,
+        title: log?.title || log?.automation_name || "Failed automation run",
+        status: "failed",
+        platform: log?.platform || null,
+        storeId:
+          log?.store_id ||
+          log?.store_connection_id ||
+          log?.storeConnectionId ||
+          null,
+        storeName: log?.store_name || log?.storeName || null,
+        storeType:
+          log?.store_type ||
+          log?.storeType ||
+          log?.platform ||
+          null,
+        timestamp: analyticsIssueDate(log),
+        reason:
+          log?.error ||
+          log?.error_message ||
+          log?.message ||
+          "Automation run failed.",
+      });
+    }
+
+    // ARTBOOST_ANALYTICS_RECORD_DRILLDOWNS_V393
+    const analyticsRecordItems = [];
+
+    const analyticsPushRecord = (item) => {
+      analyticsRecordItems.push({
+        id: item?.id ? String(item.id) : null,
+        source: item?.source || "unknown",
+        title: item?.title || "Analytics record",
+        status: String(item?.status || "unknown").toLowerCase(),
+        platform: item?.platform ? normalizedPlatform(item.platform) : null,
+        storeId: item?.storeId || null,
+        storeName: item?.storeName || null,
+        storeType: item?.storeType || null,
+        timestamp: item?.timestamp || null,
+        reason: item?.reason || null,
+      });
+    };
+
+    for (const campaign of campaigns) {
+      analyticsPushRecord({
+        id: campaign?.id,
+        source: "campaign",
+        title:
+          campaign?.title ||
+          campaign?.campaign_name ||
+          campaign?.name ||
+          "Campaign",
+        status:
+          campaign?.status ||
+          campaign?.campaign_status ||
+          "unknown",
+        platform: campaign?.platform || null,
+        storeId:
+          campaign?.store_id ||
+          campaign?.store_connection_id ||
+          campaign?.storeConnectionId ||
+          null,
+        storeName:
+          campaign?.store_name ||
+          campaign?.storeName ||
+          null,
+        storeType:
+          campaign?.store_type ||
+          campaign?.storeType ||
+          null,
+        timestamp: analyticsRecordDate(campaign, [
+          "published_at",
+          "publish_at",
+          "completed_at",
+          "updated_at",
+          "created_at",
+        ])?.toISOString() || null,
+        reason:
+          campaign?.last_error ||
+          campaign?.error ||
+          campaign?.error_message ||
+          null,
+      });
+    }
+
+    for (const log of automationLogs) {
+      const baseStatus =
+        log?.status ||
+        log?.result ||
+        log?.event_type ||
+        "unknown";
+      const baseTitle =
+        log?.title ||
+        log?.automation_name ||
+        log?.product_title ||
+        "Automation run";
+      const baseTimestamp =
+        analyticsRecordDate(log, [
+          "created_at",
+          "ran_at",
+          "completed_at",
+          "updated_at",
+        ])?.toISOString() || null;
+      const baseStoreId =
+        log?.store_id ||
+        log?.store_connection_id ||
+        log?.storeConnectionId ||
+        null;
+      const baseStoreName =
+        log?.store_name ||
+        log?.storeName ||
+        null;
+      const baseStoreType =
+        log?.store_type ||
+        log?.storeType ||
+        null;
+      const baseReason =
+        log?.error ||
+        log?.error_message ||
+        log?.message ||
+        null;
+
+      const publishResults =
+        Array.isArray(log?.publish_result?.results)
+          ? log.publish_result.results
+          : [];
+
+      if (publishResults.length) {
+        for (const result of publishResults) {
+          analyticsPushRecord({
+            id: log?.id,
+            source: "automation_run",
+            title: baseTitle,
+            status:
+              result?.status ||
+              (result?.success === true ? "published" :
+               result?.success === false ? "failed" : baseStatus),
+            platform:
+              result?.platform ||
+              result?.provider ||
+              log?.platform ||
+              null,
+            storeId: baseStoreId,
+            storeName: baseStoreName,
+            storeType: baseStoreType,
+            timestamp: baseTimestamp,
+            reason:
+              result?.error ||
+              result?.message ||
+              baseReason,
+          });
+        }
+      } else {
+        analyticsPushRecord({
+          id: log?.id,
+          source: "automation_run",
+          title: baseTitle,
+          status: baseStatus,
+          platform: log?.platform || null,
+          storeId: baseStoreId,
+          storeName: baseStoreName,
+          storeType: baseStoreType,
+          timestamp: baseTimestamp,
+          reason: baseReason,
+        });
+      }
+    }
+
+    analyticsRecordItems.sort((left, right) => {
+      const leftTime = left?.timestamp ? new Date(left.timestamp).getTime() : 0;
+      const rightTime = right?.timestamp ? new Date(right.timestamp).getTime() : 0;
+      return rightTime - leftTime;
+    });
+
+
+
     let insight =
       "Your publishing data is ready. Keep automations active to build a stronger performance history.";
 
@@ -4332,6 +4660,15 @@ app.get("/analytics", async (req, res) => {
       },
 
       insight,
+
+      range: analyticsRange,
+      rangeStart: analyticsRangeStart
+        ? analyticsRangeStart.toISOString()
+        : null,
+      attentionCount: analyticsAttentionItems.length,
+      attentionItems: analyticsAttentionItems,
+      recordItems: analyticsRecordItems,
+
       generatedAt:
         new Date().toISOString(),
 
@@ -11047,6 +11384,7 @@ startGeneratedVideoCleanupWorker();
 
 // ============================================================
 // ARTBOOST_VIDEO_PUBLISH_ROUTES_V1_1
+// ARTBOOST_VIDEO_PUBLISH_HARDENING_V3147
 // Video Studio authoritative media routes.
 // ============================================================
 
@@ -11085,11 +11423,130 @@ async function artboostVideoSocialConnection(userId, platform) {
   return data;
 }
 
+async function resolveFacebookVideoPage({
+  userId,
+  pageId,
+}) {
+  const userConnection =
+    await loadUserSocialConnection({
+      userId,
+      platform: "facebook",
+    });
+
+  const userToken =
+    userConnection?.connected &&
+    userConnection?.access_token
+      ? userConnection.access_token
+      : facebookConnection?.token || null;
+
+  if (!userToken) {
+    throw new Error(
+      "Facebook is not connected. Reconnect Facebook in ArtBoost."
+    );
+  }
+
+  const permissionsResponse = await fetch(
+    `https://graph.facebook.com/v23.0/me/permissions?access_token=${encodeURIComponent(userToken)}`
+  );
+  const permissionsData =
+    await permissionsResponse.json();
+
+  if (!permissionsResponse.ok || permissionsData?.error) {
+    throw new Error(
+      permissionsData?.error?.message ||
+        "Unable to verify Facebook publishing permissions."
+    );
+  }
+
+  const granted = new Set(
+    (Array.isArray(permissionsData?.data)
+      ? permissionsData.data
+      : [])
+      .filter(
+        (item) =>
+          String(item?.status || "").toLowerCase() ===
+          "granted"
+      )
+      .map((item) => String(item?.permission || ""))
+  );
+
+  const required = [
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_manage_posts",
+  ];
+
+  const missing = required.filter(
+    (permission) => !granted.has(permission)
+  );
+
+  if (missing.length) {
+    throw new Error(
+      `Facebook connection is missing required Page permission(s): ${missing.join(", ")}. Reconnect Facebook and approve Page publishing.`
+    );
+  }
+
+  const pagesResponse = await fetch(
+    `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(userToken)}`
+  );
+  const pagesData = await pagesResponse.json();
+
+  if (!pagesResponse.ok || pagesData?.error) {
+    throw new Error(
+      pagesData?.error?.message ||
+        "Unable to load Facebook Pages."
+    );
+  }
+
+  const pages = Array.isArray(pagesData?.data)
+    ? pagesData.data
+    : [];
+
+  if (!pages.length) {
+    throw new Error(
+      "No Facebook Pages are available for this connection."
+    );
+  }
+
+  const selected = pageId
+    ? pages.find(
+        (page) =>
+          String(page?.id || "") === String(pageId)
+      )
+    : pages.length === 1
+      ? pages[0]
+      : null;
+
+  if (!selected) {
+    throw new Error(
+      pageId
+        ? "The selected Facebook Page is not available to the connected account."
+        : "Multiple Facebook Pages were found. Select a Page before publishing."
+    );
+  }
+
+  if (!selected.access_token) {
+    throw new Error(
+      "Facebook did not return a Page access token for the selected Page. Reconnect Facebook."
+    );
+  }
+
+  return {
+    id: String(selected.id),
+    name: selected.name || null,
+    pageAccessToken: selected.access_token,
+    tasks: Array.isArray(selected.tasks)
+      ? selected.tasks
+      : [],
+  };
+}
+
 app.post("/facebook/video-post", async (req, res) => {
   try {
     const {
       userId = null,
       message = "",
+      description = "",
       videoUrl = "",
       pageId = "",
       productLink = "",
@@ -11098,48 +11555,34 @@ app.post("/facebook/video-post", async (req, res) => {
     const cleanVideo = artboostVideoHttps(videoUrl);
     if (!cleanVideo) {
       return res.status(400).json({
-        error: "Facebook video publishing requires a public HTTPS video URL.",
+        error:
+          "Facebook video publishing requires a public HTTPS video URL.",
       });
     }
 
-    if (!pageId) {
-      return res.status(400).json({
-        error: "Facebook video publishing requires a Page.",
-      });
-    }
-
-    let token = facebookConnection?.token || null;
-
-    if (!token && userId) {
-      const connection =
-        await artboostVideoSocialConnection(userId, "facebook");
-
-      token =
-        connection.page_access_token ||
-        connection.access_token ||
-        null;
-    }
-
-    if (!token) {
-      throw new Error("Facebook is not connected.");
-    }
+    const page = await resolveFacebookVideoPage({
+      userId,
+      pageId,
+    });
 
     const finalMessage = [
-      String(message || "").trim(),
+      String(message || description || "").trim(),
       String(productLink || "").trim(),
     ]
       .filter(Boolean)
       .join("\n\n");
 
     const response = await fetch(
-      `https://graph.facebook.com/v23.0/${encodeURIComponent(pageId)}/videos`,
+      `https://graph.facebook.com/v23.0/${encodeURIComponent(page.id)}/videos`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           file_url: cleanVideo,
           description: finalMessage,
-          access_token: token,
+          access_token: page.pageAccessToken,
         }),
       }
     );
@@ -11147,26 +11590,45 @@ app.post("/facebook/video-post", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok || data?.error) {
+      const apiError = data?.error || {};
+      const detail = [
+        apiError?.message,
+        apiError?.code
+          ? `code ${apiError.code}`
+          : "",
+        apiError?.error_subcode
+          ? `subcode ${apiError.error_subcode}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
       throw new Error(
-        data?.error?.message ||
-          "Facebook video publishing failed."
+        detail ||
+          "Facebook Page video publishing failed."
       );
     }
 
-    console.log("ArtBoost Facebook video published:", {
+    console.log("ArtBoost Facebook Page video published:", {
       userId,
-      pageId,
+      pageId: page.id,
+      pageName: page.name,
       videoId: data?.id || null,
+      usedPageAccessToken: true,
     });
 
     return res.json({
       success: true,
       mediaType: "video",
+      pageId: page.id,
+      videoId: data?.id || null,
       ...data,
     });
   } catch (error) {
     console.error("Facebook Video Post Error:", error);
-    return res.status(500).json({
+    return res.status(400).json({
+      success: false,
+      platform: "Facebook",
       error:
         error instanceof Error
           ? error.message
@@ -11302,11 +11764,74 @@ app.post("/instagram/video-post", async (req, res) => {
   }
 });
 
+async function waitForThreadsVideoContainer({
+  creationId,
+  accessToken,
+}) {
+  const maxAttempts = 30;
+
+  for (
+    let attempt = 1;
+    attempt <= maxAttempts;
+    attempt += 1
+  ) {
+    const statusUrl = new URL(
+      `${THREADS_API_BASE}/${encodeURIComponent(creationId)}`
+    );
+    statusUrl.searchParams.set(
+      "fields",
+      "status,error_message"
+    );
+    statusUrl.searchParams.set(
+      "access_token",
+      accessToken
+    );
+
+    const response = await fetch(statusUrl);
+    const data = await response.json();
+
+    if (!response.ok || data?.error) {
+      throw new Error(
+        data?.error?.message ||
+          "Threads could not read the video container status."
+      );
+    }
+
+    const status = String(
+      data?.status ||
+      data?.status_code ||
+      ""
+    ).toUpperCase();
+
+    if (status === "FINISHED" || status === "PUBLISHED") {
+      return status;
+    }
+
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new Error(
+        data?.error_message ||
+          `Threads video container failed with status ${status}.`
+      );
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 4000)
+      );
+    }
+  }
+
+  throw new Error(
+    "Threads video container did not finish processing before the publish timeout."
+  );
+}
+
 app.post("/threads/video-post", async (req, res) => {
   try {
     const {
       userId = null,
       message = "",
+      description = "",
       text = "",
       videoUrl = "",
       productLink = "",
@@ -11316,19 +11841,29 @@ app.post("/threads/video-post", async (req, res) => {
 
     if (!cleanVideo) {
       return res.status(400).json({
-        error: "Threads video publishing requires a public HTTPS video URL.",
+        error:
+          "Threads video publishing requires a public HTTPS video URL.",
       });
     }
 
     const connection =
-      await artboostVideoSocialConnection(userId, "threads");
+      await artboostVideoSocialConnection(
+        userId,
+        "threads"
+      );
 
     const caption = [
-      String(message || text || "").trim(),
+      String(
+        message ||
+        description ||
+        text ||
+        ""
+      ).trim(),
       String(productLink || "").trim(),
     ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n\n")
+      .slice(0, 500);
 
     const createUrl =
       new URL(`${THREADS_API_BASE}/me/threads`);
@@ -11347,58 +11882,551 @@ app.post("/threads/video-post", async (req, res) => {
 
     const createResponse =
       await fetch(createUrl, { method: "POST" });
-
     const created =
       await createResponse.json();
 
-    if (!createResponse.ok || created?.error || !created?.id) {
+    if (
+      !createResponse.ok ||
+      created?.error ||
+      !created?.id
+    ) {
       throw new Error(
         created?.error?.message ||
           "Threads video container creation failed."
       );
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 8000));
+    const containerStatus =
+      await waitForThreadsVideoContainer({
+        creationId: created.id,
+        accessToken: connection.access_token,
+      });
+
+    if (containerStatus === "PUBLISHED") {
+      return res.json({
+        success: true,
+        mediaType: "video",
+        creationId: created.id,
+        postId: created.id,
+        alreadyPublished: true,
+      });
+    }
 
     const publishUrl =
-      new URL(`${THREADS_API_BASE}/me/threads_publish`);
-
+      new URL(
+        `${THREADS_API_BASE}/me/threads_publish`
+      );
     publishUrl.searchParams.set(
       "creation_id",
       created.id
     );
-
     publishUrl.searchParams.set(
       "access_token",
       connection.access_token
     );
 
-    const publishResponse =
-      await fetch(publishUrl, { method: "POST" });
+    let published = null;
+    let publishResponse = null;
 
-    const published =
-      await publishResponse.json();
+    for (
+      let attempt = 1;
+      attempt <= 4;
+      attempt += 1
+    ) {
+      publishResponse =
+        await fetch(publishUrl, {
+          method: "POST",
+        });
+      published =
+        await publishResponse.json();
 
-    if (!publishResponse.ok || published?.error) {
+      if (
+        publishResponse.ok &&
+        !published?.error &&
+        published?.id
+      ) {
+        break;
+      }
+
+      const apiError =
+        published?.error || {};
+
+      const transient =
+        Number(apiError?.code || 0) === 24 ||
+        Number(apiError?.error_subcode || 0) === 4279009 ||
+        /media not found|requested resource does not exist/i.test(
+          String(apiError?.message || "")
+        );
+
+      if (!transient || attempt >= 4) {
+        break;
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, 4000)
+      );
+    }
+
+    if (
+      !publishResponse?.ok ||
+      published?.error ||
+      !published?.id
+    ) {
+      const apiError =
+        published?.error || {};
+
+      const detail = [
+        apiError?.message,
+        apiError?.code
+          ? `code ${apiError.code}`
+          : "",
+        apiError?.error_subcode
+          ? `subcode ${apiError.error_subcode}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
       throw new Error(
-        published?.error?.message ||
+        detail ||
           "Threads video publishing failed."
       );
     }
+
+    console.log("ArtBoost Threads video published:", {
+      userId,
+      creationId: created.id,
+      postId: published.id,
+    });
 
     return res.json({
       success: true,
       mediaType: "video",
       creationId: created.id,
-      postId: published?.id || null,
+      postId: published.id,
     });
   } catch (error) {
     console.error("Threads Video Post Error:", error);
-    return res.status(500).json({
+    return res.status(400).json({
+      success: false,
+      platform: "Threads",
       error:
         error instanceof Error
           ? error.message
           : "Threads video publishing failed.",
+    });
+  }
+});
+
+function xVideoMessage({
+  title,
+  description,
+  productLink,
+}) {
+  const base = String(
+    title ||
+    description ||
+    "Check out this video"
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const link =
+    String(productLink || "").trim();
+
+  const separator =
+    link ? "\n\n" : "";
+
+  const available =
+    Math.max(
+      280 -
+      separator.length -
+      link.length,
+      1
+    );
+
+  const safeBase =
+    base.length > available
+      ? `${base
+          .slice(
+            0,
+            Math.max(available - 3, 1)
+          )
+          .trim()}...`
+      : base;
+
+  return [safeBase, link]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+async function xVideoApiJson(
+  response,
+  stage
+) {
+  const text =
+    await response.text();
+
+  let data = {};
+
+  try {
+    data =
+      text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      `X ${stage} returned a non-JSON response (HTTP ${response.status}).`
+    );
+  }
+
+  if (!response.ok) {
+    const detail =
+      data?.detail ||
+      data?.title ||
+      data?.errors?.[0]?.detail ||
+      data?.errors?.[0]?.message ||
+      data?.error ||
+      `HTTP ${response.status}`;
+
+    throw new Error(
+      `X ${stage} failed: ${detail}`
+    );
+  }
+
+  return data;
+}
+
+async function uploadXVideo({
+  accessToken,
+  videoUrl,
+}) {
+  const response =
+    await fetch(videoUrl);
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to download finished ArtBoost video for X: HTTP ${response.status}.`
+    );
+  }
+
+  const contentType = String(
+    response.headers.get("content-type") ||
+    "video/mp4"
+  )
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  if (
+    contentType !== "video/mp4" &&
+    contentType !== "application/octet-stream"
+  ) {
+    throw new Error(
+      `X video publishing expected MP4 but received ${contentType}.`
+    );
+  }
+
+  const bytes =
+    Buffer.from(
+      await response.arrayBuffer()
+    );
+
+  if (!bytes.length) {
+    throw new Error(
+      "Finished ArtBoost video download for X was empty."
+    );
+  }
+
+  const MAX_X_VIDEO_BYTES =
+    64 * 1024 * 1024;
+
+  if (bytes.length > MAX_X_VIDEO_BYTES) {
+    throw new Error(
+      `Finished video is ${(bytes.length / 1024 / 1024).toFixed(1)}MB. ArtBoost's X video adapter currently allows up to 64MB.`
+    );
+  }
+
+  const init = new FormData();
+  init.append("command", "INIT");
+  init.append("media_type", "video/mp4");
+  init.append("media_category", "tweet_video");
+  init.append("total_bytes", String(bytes.length));
+
+  const initResponse = await fetch(
+    "https://api.x.com/2/media/upload",
+    {
+      method: "POST",
+      headers: {
+        Authorization:
+          `Bearer ${accessToken}`,
+      },
+      body: init,
+    }
+  );
+
+  const initData =
+    await xVideoApiJson(
+      initResponse,
+      "video INIT"
+    );
+
+  const mediaId =
+    initData?.data?.id ||
+    initData?.media_id_string ||
+    initData?.media_id ||
+    null;
+
+  if (!mediaId) {
+    throw new Error(
+      "X video INIT did not return a media ID."
+    );
+  }
+
+  const CHUNK =
+    4 * 1024 * 1024;
+
+  for (
+    let offset = 0, segment = 0;
+    offset < bytes.length;
+    offset += CHUNK, segment += 1
+  ) {
+    const chunk =
+      bytes.subarray(
+        offset,
+        Math.min(
+          offset + CHUNK,
+          bytes.length
+        )
+      );
+
+    const append = new FormData();
+    append.append("command", "APPEND");
+    append.append("media_id", String(mediaId));
+    append.append("segment_index", String(segment));
+    append.append(
+      "media",
+      new Blob(
+        [chunk],
+        { type: "video/mp4" }
+      ),
+      `segment-${segment}.mp4`
+    );
+
+    const appendResponse =
+      await fetch(
+        "https://api.x.com/2/media/upload",
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${accessToken}`,
+          },
+          body: append,
+        }
+      );
+
+    if (!appendResponse.ok) {
+      await xVideoApiJson(
+        appendResponse,
+        `video APPEND segment ${segment}`
+      );
+    }
+  }
+
+  const finalize = new FormData();
+  finalize.append("command", "FINALIZE");
+  finalize.append("media_id", String(mediaId));
+
+  const finalizeResponse =
+    await fetch(
+      "https://api.x.com/2/media/upload",
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            `Bearer ${accessToken}`,
+        },
+        body: finalize,
+      }
+    );
+
+  const finalized =
+    await xVideoApiJson(
+      finalizeResponse,
+      "video FINALIZE"
+    );
+
+  let processing =
+    finalized?.data?.processing_info ||
+    finalized?.processing_info ||
+    null;
+
+  for (
+    let attempt = 0;
+    processing &&
+    !["succeeded", "failed"].includes(
+      String(processing?.state || "")
+        .toLowerCase()
+    ) &&
+    attempt < 30;
+    attempt += 1
+  ) {
+    const waitSeconds =
+      Math.max(
+        Number(
+          processing?.check_after_secs ||
+          2
+        ),
+        1
+      );
+
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(waitSeconds, 10) *
+          1000
+      )
+    );
+
+    const statusUrl = new URL(
+      "https://api.x.com/2/media/upload"
+    );
+    statusUrl.searchParams.set(
+      "command",
+      "STATUS"
+    );
+    statusUrl.searchParams.set(
+      "media_id",
+      String(mediaId)
+    );
+
+    const statusResponse =
+      await fetch(statusUrl, {
+        headers: {
+          Authorization:
+            `Bearer ${accessToken}`,
+        },
+      });
+
+    const statusData =
+      await xVideoApiJson(
+        statusResponse,
+        "video STATUS"
+      );
+
+    processing =
+      statusData?.data?.processing_info ||
+      statusData?.processing_info ||
+      null;
+  }
+
+  const state =
+    String(
+      processing?.state || "succeeded"
+    ).toLowerCase();
+
+  if (processing && state !== "succeeded") {
+    throw new Error(
+      processing?.error?.message ||
+        `X video processing failed with state ${state}.`
+    );
+  }
+
+  return String(mediaId);
+}
+
+app.post("/x/video-post", async (req, res) => {
+  try {
+    const {
+      userId = null,
+      title = "",
+      description = "",
+      message = "",
+      productLink = "",
+      videoUrl = "",
+    } = req.body || {};
+
+    const cleanVideo =
+      artboostVideoHttps(videoUrl);
+
+    if (!cleanVideo) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "X video publishing requires a public HTTPS video URL.",
+      });
+    }
+
+    const connection =
+      await getValidXConnection(userId);
+
+    const postText =
+      xVideoMessage({
+        title:
+          title ||
+          message ||
+          description,
+        description,
+        productLink,
+      });
+
+    const mediaId =
+      await uploadXVideo({
+        accessToken:
+          connection.access_token,
+        videoUrl: cleanVideo,
+      });
+
+    const postResponse =
+      await fetch(
+        "https://api.x.com/2/tweets",
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${connection.access_token}`,
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            text: postText,
+            media: {
+              media_ids: [mediaId],
+            },
+          }),
+        }
+      );
+
+    const posted =
+      await xVideoApiJson(
+        postResponse,
+        "post creation"
+      );
+
+    console.log("ArtBoost X video published:", {
+      userId,
+      mediaId,
+      postId:
+        posted?.data?.id || null,
+    });
+
+    return res.json({
+      success: true,
+      mediaType: "video",
+      mediaId,
+      postId:
+        posted?.data?.id || null,
+    });
+  } catch (error) {
+    console.error("X Video Post Error:", error);
+
+    return res.status(400).json({
+      success: false,
+      platform: "X",
+      error:
+        error instanceof Error
+          ? error.message
+          : "X video publishing failed.",
     });
   }
 });
@@ -11553,6 +12581,19 @@ app.post("/tiktok/video-post", async (req, res) => {
 app.listen(PORT, async () => {
 
   console.log(`Server running on port ${PORT}`);
+console.log(
+  `ArtBoost request auth mode: ${securityAuthMode()}`
+);
+if (
+  String(process.env.NODE_ENV || "")
+    .trim()
+    .toLowerCase() === "production" &&
+  securityAuthMode() !== "strict"
+) {
+  console.warn(
+    "SECURITY NOTICE: ARTBOOST_REQUIRE_AUTH is not true; legacy userId-only compatibility remains enabled."
+  );
+}
   console.log(`Pinterest API base: ${PINTEREST_API_BASE}`);
 
   await loadFacebookConnection();
