@@ -2312,33 +2312,33 @@ app.get("/", (req, res) => {
   res.send("ArtBoost AI backend is running.");
 });
 
-app.get("/privacy", (req, res) => {
-  res.send(`
-    <html>
-      <body style="font-family:Arial;max-width:900px;margin:40px auto;padding:20px;">
-        <h1>ArtBoost AI Privacy Policy</h1>
-        <p>Last Updated: June 2026</p>
-        <p>ArtBoost AI collects account information necessary to provide social media automation and scheduling services.</p>
-        <p>We do not sell personal information.</p>
-        <p>Payment processing is handled securely through Stripe.</p>
-<p>Questions may be directed to support@artboostai.com.</p>
-</body>
-</html>
-`);
+/* ARTBOOST_TIKTOK_LIVE_LEGAL_ROUTES_V1 */
+app.get("/privacy", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/privacy.html`);
 });
 
-app.get("/terms", (req, res) => {
-  res.send(`
-    <html>
-      <body style="font-family:Arial;max-width:900px;margin:40px auto;padding:20px;">
-        <h1>ArtBoost AI Terms of Service</h1>
-        <p>Last Updated: June 2026</p>
-        <p>Users are responsible for content they create and publish.</p>
-        <p>ArtBoost AI may suspend accounts that abuse the platform.</p>
-        <p>Subscriptions may be canceled through the billing portal.</p>
-      </body>
-    </html>
-  `);
+app.get("/terms", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/terms.html`);
+});
+
+app.get("/faq", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/faq.html`);
+});
+
+app.get("/app-icon.png", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/app-icon.png`);
+});
+
+app.get("/favicon.png", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/favicon.png`);
+});
+
+app.get("/apple-touch-icon.png", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/apple-touch-icon.png`);
+});
+
+app.get("/favicon.ico", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/backend/website/favicon.png`);
 });
 
 app.get("/support", (req, res) => {
