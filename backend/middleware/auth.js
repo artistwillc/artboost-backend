@@ -28,7 +28,7 @@ function bearerToken(req) {
   return match ? clean(match[1]) : "";
 }
 
-function strictAuthEnabled() {
+export function strictAuthEnabled() {
   return String(
     process.env.ARTBOOST_REQUIRE_AUTH || ""
   )
@@ -120,4 +120,11 @@ export async function resolveRequestUserId(req, res, options = {}) {
  */
 export function getLegacyRequestUserId(req) {
   return suppliedUserId(req);
+}
+
+
+export function securityAuthMode() {
+  return strictAuthEnabled()
+    ? "strict"
+    : "legacy-compatible";
 }
