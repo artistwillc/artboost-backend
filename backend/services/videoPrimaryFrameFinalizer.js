@@ -1,7 +1,7 @@
-// ARTBOOST_VIDEO_BOOKENDS_15S_V1
+// ARTBOOST_VIDEO_SOLID_10S_1080_BOOKEND_GATE_V3134
+// ARTBOOST_LOW_MEMORY_SEGMENT_FINALIZER_V3146
 // Mandatory listing-artwork bookends for every finalized Video Studio video.
-// Final composition: 1.5s original primary artwork + 12s AI motion +
-// 1.5s original primary artwork = exactly 15 seconds.
+// Final composition: 1.5s original listing image + 7s motion + 1.5s original listing image = exactly 10.00 seconds. V3.14.6 uses segmented low-memory H.264 encoding.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,16 +12,19 @@ import ffmpegStatic from "ffmpeg-static";
 import { v2 as cloudinary } from "cloudinary";
 
 const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
-const WIDTH = 720;
-const HEIGHT = 1280;
+const WIDTH = 1080;
+const HEIGHT = 1920;
 const FPS = 30;
 
 // Keep these explicit so the final export contract is deterministic.
 const OPEN = 1.5;
 const CLOSE = 1.5;
-const TOTAL = 15;
-const MOTION = TOTAL - OPEN - CLOSE; // 12 seconds
-const DURATION_TOLERANCE = 0.08;
+const TOTAL = 10;
+const MOTION = TOTAL - OPEN - CLOSE; // 7 seconds
+const DURATION_TOLERANCE = 0.05;
+const BOOKEND_SSIM_MIN = 0.90;
+const FIRST_FRAME_SAMPLE = 0.25;
+const LAST_FRAME_SAMPLE = TOTAL - 0.25;
 
 function configCloudinary() {
   const {
@@ -67,7 +70,13 @@ async function download(url, file, maxBytes = 350 * 1024 * 1024) {
 
 function ffmpeg(args) {
   return new Promise((resolve, reject) => {
-    const processHandle = spawn(FFMPEG, args, { windowsHide: true });
+    const processHandle = spawn(FFMPEG, args, {
+      windowsHide: true,
+      env: {
+        ...process.env,
+        MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX || "2",
+      },
+    });
     let stderr = "";
 
     processHandle.stderr.on("data", (data) => {
@@ -81,6 +90,142 @@ function ffmpeg(args) {
       reject(new Error(`ffmpeg ${code}: ${stderr.slice(-3000)}`));
     });
   });
+}
+
+
+function ffmpegCapture(args) {
+  return new Promise((resolve, reject) => {
+    const processHandle = spawn(FFMPEG, args, {
+      windowsHide: true,
+      env: {
+        ...process.env,
+        MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX || "2",
+      },
+    });
+    let stderr = "";
+
+    processHandle.stderr.on("data", (data) => {
+      stderr += String(data);
+      if (stderr.length > 40000) stderr = stderr.slice(-40000);
+    });
+
+    processHandle.on("error", reject);
+    processHandle.on("close", (code) => {
+      if (code === 0) return resolve(stderr);
+      reject(new Error(`ffmpeg validation ${code}: ${stderr.slice(-5000)}`));
+    });
+  });
+}
+
+function parseDurationSeconds(stderr) {
+  const match = String(stderr || "").match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function parseVideoDimensions(stderr) {
+  const matches = [...String(stderr || "").matchAll(/Video:[^\n]*?(\d{2,5})x(\d{2,5})/gi)];
+  if (!matches.length) return null;
+  const [, width, height] = matches[0];
+  return { width: Number(width), height: Number(height) };
+}
+
+function parseSsim(stderr) {
+  const matches = [...String(stderr || "").matchAll(/All:([0-9.]+)/g)];
+  if (!matches.length) return null;
+  return Number(matches[matches.length - 1][1]);
+}
+
+async function validateFinalVideo({ output, image, dir, fit }) {
+  const inspect = await ffmpegCapture([
+    "-hide_banner",
+    "-v", "info",
+    "-i", output,
+    "-map", "0:v:0",
+    "-c", "copy",
+    "-f", "null",
+    "-"
+  ]);
+
+  const duration = parseDurationSeconds(inspect);
+  if (!Number.isFinite(duration) || Math.abs(duration - TOTAL) > DURATION_TOLERANCE) {
+    throw new Error(
+      `Video quality gate failed: local duration ${duration}s is not ${TOTAL.toFixed(2)}s.`
+    );
+  }
+
+  const dimensions = parseVideoDimensions(inspect);
+  if (!dimensions || dimensions.width !== WIDTH || dimensions.height !== HEIGHT) {
+    throw new Error(
+      `Video quality gate failed: expected ${WIDTH}x${HEIGHT}, got ${dimensions?.width || "?"}x${dimensions?.height || "?"}.`
+    );
+  }
+
+  const reference = path.join(dir, "bookend-reference.png");
+  const firstFrame = path.join(dir, "first-frame.png");
+  const lastFrame = path.join(dir, "last-frame.png");
+
+  await ffmpeg([
+    "-y",
+    "-loop", "1",
+    "-i", image,
+    "-vf", fit,
+    "-frames:v", "1",
+    reference,
+  ]);
+
+  await ffmpeg([
+    "-y",
+    "-ss", String(FIRST_FRAME_SAMPLE),
+    "-i", output,
+    "-frames:v", "1",
+    firstFrame,
+  ]);
+
+  await ffmpeg([
+    "-y",
+    "-ss", String(LAST_FRAME_SAMPLE),
+    "-i", output,
+    "-frames:v", "1",
+    lastFrame,
+  ]);
+
+  const firstSsim = parseSsim(await ffmpegCapture([
+    "-i", reference,
+    "-i", firstFrame,
+    "-lavfi", "ssim",
+    "-f", "null",
+    "-"
+  ]));
+
+  const lastSsim = parseSsim(await ffmpegCapture([
+    "-i", reference,
+    "-i", lastFrame,
+    "-lavfi", "ssim",
+    "-f", "null",
+    "-"
+  ]));
+
+  if (!Number.isFinite(firstSsim) || firstSsim < BOOKEND_SSIM_MIN) {
+    throw new Error(
+      `Video quality gate failed: opening listing-image match ${firstSsim} is below ${BOOKEND_SSIM_MIN}.`
+    );
+  }
+
+  if (!Number.isFinite(lastSsim) || lastSsim < BOOKEND_SSIM_MIN) {
+    throw new Error(
+      `Video quality gate failed: closing listing-image match ${lastSsim} is below ${BOOKEND_SSIM_MIN}.`
+    );
+  }
+
+  return {
+    duration,
+    width: dimensions.width,
+    height: dimensions.height,
+    firstFrameSsim: firstSsim,
+    lastFrameSsim: lastSsim,
+    passed: true,
+  };
 }
 
 export async function finalizeVideoWithPrimaryImage({
@@ -120,46 +265,99 @@ export async function finalizeVideoWithPrimaryImage({
       "format=yuv420p",
     ].join(",");
 
-    const filter = [
-      // The same downloaded listing-primary-artwork source is split and used
-      // for BOTH bookends. This guarantees the final video visibly starts and
-      // ends on the real listing artwork rather than on an AI-generated frame.
-      `[0:v]${fit},split=2[primary_open][primary_close]`,
-      `[primary_open]trim=duration=${OPEN},setpts=PTS-STARTPTS[o]`,
+    // V3.14.6 low-memory finalizer:
+    // Encode the still bookend once, encode the motion window separately,
+    // then concatenate identical H.264 segments with stream copy. This avoids
+    // one large 1080x1920 filter_complex plus a second full-frame encode.
+    const bookend = path.join(dir, "bookend.mp4");
+    const middle = path.join(dir, "middle.mp4");
+    const concatList = path.join(dir, "concat.txt");
 
-      // Provider clips are normalized to the 12s middle window. If the AI clip
-      // is shorter, hold its last frame; if longer, trim it. The bookend frames
-      // are never taken from this generated clip.
-      `[1:v]${fit},tpad=stop_mode=clone:stop_duration=${MOTION},trim=duration=${MOTION},setpts=PTS-STARTPTS[m]`,
-
-      `[primary_close]trim=duration=${CLOSE},setpts=PTS-STARTPTS[c]`,
-      `[o][m][c]concat=n=3:v=1:a=0[outv]`,
-    ].join(";");
+    const encoder = [
+      "-threads", "1",
+      "-filter_threads", "1",
+      "-an",
+      "-r", String(FPS),
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "17",
+      "-profile:v", "high",
+      "-level:v", "4.1",
+      "-g", String(FPS),
+      "-keyint_min", String(FPS),
+      "-sc_threshold", "0",
+      "-x264-params", "threads=1:lookahead_threads=1",
+      "-pix_fmt", "yuv420p",
+    ];
 
     await ffmpeg([
       "-y",
-      "-threads", "1",
-      "-filter_threads", "1",
-      "-filter_complex_threads", "1",
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel", "error",
       "-loop", "1",
       "-framerate", String(FPS),
       "-i", image,
+      "-vf", fit,
+      "-t", String(OPEN),
+      ...encoder,
+      bookend,
+    ]);
+
+    await onProgress(94);
+
+    await ffmpeg([
+      "-y",
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel", "error",
       "-i", motion,
-      "-filter_complex", filter,
-      "-map", "[outv]",
+      "-vf",
+      `${fit},tpad=stop_mode=clone:stop_duration=${MOTION},trim=duration=${MOTION},setpts=PTS-STARTPTS`,
+      "-t", String(MOTION),
+      ...encoder,
+      middle,
+    ]);
+
+    await onProgress(95);
+
+    const quoteForConcat = (value) =>
+      String(value).replace(/'/g, "'\\''");
+
+    await fs.promises.writeFile(
+      concatList,
+      [
+        `file '${quoteForConcat(bookend)}'`,
+        `file '${quoteForConcat(middle)}'`,
+        `file '${quoteForConcat(bookend)}'`,
+      ].join("\n") + "\n",
+      "utf8"
+    );
+
+    await ffmpeg([
+      "-y",
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel", "error",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", concatList,
+      "-map", "0:v:0",
+      "-c", "copy",
       "-an",
-      "-r", String(FPS),
-      "-t", String(TOTAL),
-      "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", "20",
-      "-pix_fmt", "yuv420p",
       "-movflags", "+faststart",
       output,
     ]);
 
     const stat = await fs.promises.stat(output);
     if (!stat.size) throw new Error("Finalized Video Studio file is empty.");
+
+    const qualityGate = await validateFinalVideo({
+      output,
+      image,
+      dir,
+      fit,
+    });
 
     await onProgress(97);
 
@@ -172,8 +370,11 @@ export async function finalizeVideoWithPrimaryImage({
       tags: [
         "artboost",
         "video-studio",
-        "exact-15-seconds",
+        "exact-10-seconds",
         "mandatory-primary-artwork-bookends",
+        "1080x1920",
+        "bookends-validated",
+        "quality-gated",
         "duration-normalized",
       ],
     });
@@ -182,13 +383,27 @@ export async function finalizeVideoWithPrimaryImage({
       throw new Error("Cloudinary did not return a finalized video URL.");
     }
 
+    if (Number(uploaded.width) !== WIDTH || Number(uploaded.height) !== HEIGHT) {
+      await cloudinary.uploader.destroy(uploaded.public_id || publicId, {
+        resource_type: "video",
+        invalidate: true,
+      }).catch(() => {});
+      throw new Error(
+        `Cloudinary output dimensions failed: ${uploaded.width}x${uploaded.height}, expected ${WIDTH}x${HEIGHT}.`
+      );
+    }
+
     const uploadedDuration = Number(uploaded.duration);
     if (
       Number.isFinite(uploadedDuration) &&
       Math.abs(uploadedDuration - TOTAL) > DURATION_TOLERANCE
     ) {
+      await cloudinary.uploader.destroy(uploaded.public_id || publicId, {
+        resource_type: "video",
+        invalidate: true,
+      }).catch(() => {});
       throw new Error(
-        `Final video normalization failed: ${uploadedDuration}s instead of ${TOTAL}s.`,
+        `Final video normalization failed: ${uploadedDuration}s instead of ${TOTAL}s.`
       );
     }
 
@@ -199,6 +414,7 @@ export async function finalizeVideoWithPrimaryImage({
       height: uploaded.height || HEIGHT,
       duration: TOTAL,
       bytes: uploaded.bytes || stat.size,
+      qualityGate,
     };
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
