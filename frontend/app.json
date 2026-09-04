@@ -45,7 +45,8 @@
           "cameraPermission": "Allow ArtBoost AI to use the camera for Consultant image analysis.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "platforms": [
       "ios",

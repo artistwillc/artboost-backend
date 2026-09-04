@@ -1,6 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
+﻿import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useFocusEffect } from "expo-router";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -86,9 +86,9 @@ export default function CreatedVideosScreen() {
         {jobs.map(job => {
           const snapshot = job.source_snapshot || {};
           const name = snapshot?.product_title || snapshot?.title || "ArtBoost Video";
-          const quality = job.output_width && job.output_height ? `${job.output_width}×${job.output_height}` : String(snapshot?.video_output_quality || "").toUpperCase();
+          const quality = job.output_width && job.output_height ? `${job.output_width}Ã—${job.output_height}` : String(snapshot?.video_output_quality || "").toUpperCase();
           return <View key={job.id} style={styles.card}>
-            <View style={styles.cardTop}><View style={{flex:1}}><Text style={styles.cardTitle}>{name}</Text><Text style={styles.meta}>{[job.status, quality, job.duration_seconds ? `${job.duration_seconds}s` : "", job.completed_at ? new Date(job.completed_at).toLocaleString() : job.created_at ? new Date(job.created_at).toLocaleString() : ""].filter(Boolean).join(" • ")}</Text></View><Ionicons name={job.status === "completed" ? "checkmark-circle-outline" : job.status === "failed" ? "warning-outline" : "time-outline"} size={24} color={job.status === "completed" ? "#86efac" : "#fbbf24"} /></View>
+            <View style={styles.cardTop}><View style={{flex:1}}><Text style={styles.cardTitle}>{name}</Text><Text style={styles.meta}>{[job.status, quality, job.duration_seconds ? `${job.duration_seconds}s` : "", job.completed_at ? new Date(job.completed_at).toLocaleString() : job.created_at ? new Date(job.created_at).toLocaleString() : ""].filter(Boolean).join(" â€¢ ")}</Text></View><Ionicons name={job.status === "completed" ? "checkmark-circle-outline" : job.status === "failed" ? "warning-outline" : "time-outline"} size={24} color={job.status === "completed" ? "#86efac" : "#fbbf24"} /></View>
             {job.error_message ? <Text style={styles.error}>{job.error_message}</Text> : null}
             <View style={styles.actions}>
               {job.video_url ? <Pressable style={styles.button} onPress={() => router.push({ pathname:"/video-studio" as any, params:{ jobId:job.id }})}><Ionicons name="play-outline" size={17} color="#fff" /><Text style={styles.buttonText}>Open</Text></Pressable> : null}
@@ -108,3 +108,4 @@ const styles=StyleSheet.create({
   eyebrow:{color:"#9b5cff",fontSize:10,fontWeight:"900",letterSpacing:1.2}, title:{color:"#fff",fontSize:24,fontWeight:"900",marginTop:3}, subtitle:{color:"#bcb7cd",fontSize:12,marginTop:3}, center:{flex:1,alignItems:"center",justifyContent:"center",gap:12}, content:{padding:16,paddingBottom:48,gap:12},
   muted:{color:"#bcb7cd",textAlign:"center",lineHeight:19}, empty:{padding:28,borderRadius:18,backgroundColor:"#12101d",alignItems:"center",gap:10}, emptyTitle:{color:"#fff",fontSize:18,fontWeight:"900"}, card:{padding:15,borderRadius:17,backgroundColor:"#12101d",borderWidth:1,borderColor:"#332b4b"}, cardTop:{flexDirection:"row",alignItems:"flex-start",gap:10}, cardTitle:{color:"#fff",fontSize:15,fontWeight:"900"}, meta:{color:"#a78bfa",fontSize:11,lineHeight:16,marginTop:5,textTransform:"capitalize"}, error:{color:"#fca5a5",marginTop:8,fontSize:12}, actions:{flexDirection:"row",flexWrap:"wrap",gap:8,marginTop:13}, button:{minHeight:40,paddingHorizontal:12,borderRadius:11,backgroundColor:"#242033",borderWidth:1,borderColor:"#43395c",flexDirection:"row",alignItems:"center",gap:6}, campaign:{backgroundColor:"#5b36bd",borderColor:"#815df0"}, delete:{backgroundColor:"#35151c",borderColor:"#7f1d1d"}, buttonText:{color:"#fff",fontSize:11,fontWeight:"800"}
 });
+
