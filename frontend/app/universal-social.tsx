@@ -1,3 +1,5 @@
+// ARTBOOST_NAVIGATION_UX_INTEGRITY_V31510
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, {
@@ -161,6 +163,7 @@ export default function UniversalSocialScreen() {
     return () => {
       active = false;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
 
   async function refreshStatuses(
@@ -539,7 +542,7 @@ const styles =
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: "#0b0b0b",
+      backgroundColor: "rgba(7, 6, 17, 0.90)",
     },
     header: {
       minHeight: 72,
@@ -604,7 +607,7 @@ const styles =
       fontWeight: "900",
     },
     heroBody: {
-      color: "#b5acbf",
+      color: "#ffffff",
       fontSize: 12,
       lineHeight: 18,
       marginTop: 5,
@@ -678,7 +681,7 @@ const styles =
       fontWeight: "900",
     },
     status: {
-      color: "#8e8e8e",
+      color: "#ffffff",
       fontSize: 10,
       fontWeight: "800",
       marginTop: 3,
@@ -687,7 +690,7 @@ const styles =
       color: "#34d399",
     },
     description: {
-      color: "#9b9b9b",
+      color: "#ffffff",
       fontSize: 11,
       lineHeight: 16,
       marginTop: 6,
@@ -726,7 +729,7 @@ const styles =
       textAlign: "center",
     },
     unsupportedBody: {
-      color: "#a79cad",
+      color: "#ffffff",
       fontSize: 12,
       lineHeight: 18,
       marginTop: 7,

@@ -31,7 +31,21 @@
         }
       ],
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow ArtBoost AI to use your microphone for Consultant voice input."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ArtBoost AI to access photos you choose for Consultant analysis.",
+          "cameraPermission": "Allow ArtBoost AI to use the camera for Consultant image analysis.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "platforms": [
       "ios",
@@ -46,7 +60,7 @@
       }
     },
     "android": {
-      "package": "com.artistwill.artboostai",
+      "package": "com.artboostai.app",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {

@@ -1924,7 +1924,7 @@ const styles = StyleSheet.create({
   },
 
   headerBarSubtitle: {
-    color: "#8f8f96",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 2,
   },
@@ -1992,7 +1992,7 @@ const styles = StyleSheet.create({
   },
 
   heroDescription: {
-    color: "#b8b2c0",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 19,
     marginTop: 6,
@@ -2070,7 +2070,7 @@ const styles = StyleSheet.create({
   },
 
   snapshotMetricLabel: {
-    color: "#88888f",
+    color: "#ffffff",
     fontSize: 9,
     fontWeight: "700",
     textAlign: "center",
@@ -2104,7 +2104,7 @@ const styles = StyleSheet.create({
   },
 
   completionSubtitle: {
-    color: "#8e8e95",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 3,
   },
@@ -2188,7 +2188,7 @@ const styles = StyleSheet.create({
   },
 
   sectionDescription: {
-    color: "#8f8f96",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
@@ -2265,7 +2265,7 @@ const styles = StyleSheet.create({
   },
 
   recommendationValue: {
-    color: "#98989f",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 4,
@@ -2343,7 +2343,7 @@ const styles = StyleSheet.create({
 
   infoText: {
     flex: 1,
-    color: "#85818a",
+    color: "#ffffff",
     fontSize: 10,
     lineHeight: 16,
     marginLeft: 10,
@@ -2386,7 +2386,7 @@ const styles = StyleSheet.create({
   },
 
   modalHeaderSubtitle: {
-    color: "#8f8f96",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 2,
   },
@@ -2433,7 +2433,7 @@ const styles = StyleSheet.create({
   },
 
   wizardDescription: {
-    color: "#96969d",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
@@ -2489,7 +2489,7 @@ const styles = StyleSheet.create({
   },
 
   selectableOptionText: {
-    color: "#aaa0b5",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -2541,7 +2541,7 @@ const styles = StyleSheet.create({
   },
 
   goalOptionText: {
-    color: "#b1b1b7",
+    color: "#ffffff",
     fontSize: 13,
     fontWeight: "800",
   },
@@ -2573,7 +2573,7 @@ const styles = StyleSheet.create({
   },
 
   readyDescription: {
-    color: "#a59dab",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 4,
@@ -2695,7 +2695,7 @@ const styles = StyleSheet.create({
   },
 
   actionPlanText: {
-    color: "#b9b1c7",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 19,
     marginTop: 6,
@@ -2734,7 +2734,7 @@ const styles = StyleSheet.create({
   },
 
   previewSubtitle: {
-    color: "#8e8e95",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 2,
   },
@@ -2761,7 +2761,7 @@ const styles = StyleSheet.create({
   },
 
   previewPostBody: {
-    color: "#b1adb5",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 21,
     marginTop: 13,
@@ -2799,7 +2799,7 @@ const styles = StyleSheet.create({
   },
 
   previewVoiceText: {
-    color: "#aaa1b0",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 5,

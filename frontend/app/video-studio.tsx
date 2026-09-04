@@ -1,3 +1,5 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_WHITE_TEXT_AUDIT_V3141
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -17,6 +19,7 @@ import {
 import { WebView } from "react-native-webview";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "https://artboost-ai.onrender.com";
@@ -57,8 +60,8 @@ export default function VideoStudioScreen() {
   const [listingSearch, setListingSearch] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
   // ARTBOOST_SEEDANCE25_V1
-  const [generationMode, setGenerationMode] = useState<"standard" | "seedance2_5">("standard");
-  const [outputQuality, setOutputQuality] = useState<"720p" | "1080p">("720p");
+  const [generationMode, setGenerationMode] = useState<"standard" | "seedance2_5">("seedance2_5");
+  const [outputQuality, setOutputQuality] = useState<"720p" | "1080p">("1080p");
 
   const normalize = (value?: string | null) =>
     String(value || "").trim().toLowerCase();
@@ -207,6 +210,7 @@ export default function VideoStudioScreen() {
     }
 
     return scoped;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, [
     products,
     params.productId,
@@ -237,6 +241,7 @@ export default function VideoStudioScreen() {
 
   useEffect(() => {
     loadFoundation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
 
   useEffect(() => {
@@ -251,12 +256,14 @@ export default function VideoStudioScreen() {
       setSelectedProductId(routedProductId);
       setJob(null);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, [params.productId]);
 
   useEffect(() => {
     if (!job?.id || !userId || !["queued", "processing"].includes(job.status)) return;
     const timer = setInterval(() => refreshJob(job.id, userId), 2500);
     return () => clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, [job?.id, job?.status, userId]);
 
   async function loadFoundation() {
@@ -422,6 +429,43 @@ export default function VideoStudioScreen() {
     } finally { setLoading(false); }
   }
 
+  // ARTBOOST_VIDEO_SAFE_JSON_POLLING_V3146
+  async function readVideoApiJson(
+    response: Response,
+    label: string
+  ) {
+    const text = await response.text();
+    const trimmed = text.trim();
+
+    if (!trimmed) {
+      throw new Error(
+        `${label}: ArtBoost returned an empty response (HTTP ${response.status}).`
+      );
+    }
+
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      const contentType =
+        response.headers.get("content-type") || "";
+
+      const transient =
+        response.status >= 500 ||
+        /text\/html/i.test(contentType) ||
+        /^</.test(trimmed);
+
+      const error = new Error(
+        transient
+          ? `${label}: ArtBoost is temporarily restarting. The video job is preserved and polling will continue.`
+          : `${label}: ArtBoost returned an unexpected response (HTTP ${response.status}).`
+      );
+
+      (error as any).transient = transient;
+      throw error;
+    }
+  }
+
+  // ARTBOOST_FAILED_VIDEO_USAGE_REFRESH_V3141
   async function refreshJob(jobId: string, uid = userId) {
     try {
       const {
@@ -433,16 +477,22 @@ export default function VideoStudioScreen() {
         `${API_BASE}/video-studio/jobs/${encodeURIComponent(jobId)}?userId=${encodeURIComponent(uid)}`,
         { headers: authHeaders }
       );
-      const data = await response.json();
+      const data = await readVideoApiJson(response, "Video status");
       if (response.ok && data.success) {
         setJob(data.job);
+        if (data.usage) setVideoUsage(data.usage);
         setJobRefreshFailures(0);
       } else {
         setJobRefreshFailures((value) => value + 1);
       }
-    } catch (error) {
-      setJobRefreshFailures((value) => value + 1);
-      console.log("Video job refresh failed:", error);
+    } catch (error: any) {
+      setJobRefreshFailures((value) => {
+        const next = value + 1;
+        if (!error?.transient || next === 1 || next % 5 === 0) {
+          console.log("Video job refresh failed:", error);
+        }
+        return next;
+      });
     }
   }
 
@@ -471,7 +521,7 @@ export default function VideoStudioScreen() {
           outputQuality: generationMode === "seedance2_5" ? outputQuality : "720p",
         }),
       });
-      const data = await response.json();
+      const data = await readVideoApiJson(response, "Create video");
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to create video.");
       setJob(data.job);
       if (data.usage) setVideoUsage(data.usage);
@@ -502,7 +552,7 @@ export default function VideoStudioScreen() {
           outputQuality: generationMode === "seedance2_5" ? outputQuality : "720p",
         }),
       });
-      const data = await response.json();
+      const data = await readVideoApiJson(response, "Regenerate video");
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to regenerate video.");
       setJob(data.job);
       if (data.usage) setVideoUsage(data.usage);
@@ -568,17 +618,16 @@ export default function VideoStudioScreen() {
         <View style={styles.proBadge}><Ionicons name="sparkles" size={14} color="#f8d66d" /><Text style={styles.proText}>PREMIUM</Text></View>
       </View>
 
-      {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#8b5cf6" /><Text style={styles.muted}>Loading your products…</Text></View> : (
+      {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#9b5cff" /><Text style={styles.muted}>Loading your products…</Text></View> : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCard}><Text style={styles.heroTitle}>Turn a listing into a polished product video.</Text><Text style={styles.heroText}>Choose a product and a style. ArtBoost handles the 9:16 composition, camera motion, transitions, rendering, and high-quality export.</Text></View>
 
           <Text style={styles.step}>1  Choose Product</Text>
           {requestedStoreName || requestedStoreType ? (
             <View style={styles.storeContextBadge}>
-              <Ionicons
-                name="storefront-outline"
-                size={15}
-                color="#c4b5fd"
+              <ArtBoostBrandIcon
+                name={requestedStoreType || requestedStoreName || "artboost"}
+                size={24}
               />
               <Text style={styles.storeContextText}>
                 {requestedStoreName ||
@@ -601,13 +650,13 @@ export default function VideoStudioScreen() {
             />
             {listingSearch ? (
               <Pressable onPress={() => setListingSearch("")} hitSlop={8}>
-                <Ionicons name="close-circle" size={20} color="#777" />
+                <Ionicons name="close-circle" size={20} color="#9b94b7" />
               </Pressable>
             ) : null}
           </View>
           {filteredProducts.length === 0 ? (
             <View style={styles.noResults}>
-              <Ionicons name="search-outline" size={21} color="#8b5cf6" />
+              <Ionicons name="search-outline" size={21} color="#9b5cff" />
               <Text style={styles.noResultsText}>No listings match “{listingSearch}”.</Text>
             </View>
           ) : null}
@@ -615,7 +664,7 @@ export default function VideoStudioScreen() {
             {filteredProducts.map((product) => {
               const active = product.id === selectedProductId;
               return <Pressable key={product.id} onPress={() => { setSelectedProductId(product.id); setJob(null); }} style={[styles.productCard, active && styles.activeCard]}>
-                {product.imageUrl ? <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#777" /></View>}
+                {product.imageUrl ? <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#9b94b7" /></View>}
                 <Text style={styles.productTitle} numberOfLines={2}>{product.title}</Text>
                 <Text style={styles.storeText} numberOfLines={1}>{product.storeName || product.storeType || "Imported listing"}</Text>
                 {active ? <View style={styles.check}><Ionicons name="checkmark" size={14} color="#fff" /></View> : null}
@@ -629,7 +678,7 @@ export default function VideoStudioScreen() {
             return <Pressable key={template.id} onPress={() => setSelectedTemplateId(template.id)} style={[styles.templateCard, active && styles.activeCard]}>
               <View style={styles.templateIcon}><Ionicons name={template.id === "fast_social" ? "flash" : template.id === "artwork_focus" ? "color-palette" : template.id === "luxury" ? "diamond" : "videocam"} size={22} color="#c4b5fd" /></View>
               <View style={{ flex: 1 }}><Text style={styles.templateName}>{template.name}</Text><Text style={styles.templateDescription}>{template.description}</Text></View>
-              <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={23} color={active ? "#8b5cf6" : "#666"} />
+              <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={23} color={active ? "#9b5cff" : "#7c728f"} />
             </Pressable>;
           })}
 
@@ -667,12 +716,12 @@ export default function VideoStudioScreen() {
               {generationMode === "standard" ? <Ionicons name="checkmark-circle" size={22} color="#a78bfa" /> : null}
             </Pressable>
             <Pressable style={[styles.engineOption, generationMode === "seedance2_5" && styles.engineOptionActive]} onPress={() => setGenerationMode("seedance2_5")}>
-              <View style={{flex:1}}><Text style={styles.engineTitle}>Seedance 2.5</Text><Text style={styles.engineText}>Advanced reference-aware generation through Runway.</Text></View>
+              <View style={{flex:1}}><Text style={styles.engineTitle}>Seedance 2.5</Text><Text style={styles.engineText}>Premium default. Reference-aware high-detail generation through Runway.</Text></View>
               {generationMode === "seedance2_5" ? <Ionicons name="checkmark-circle" size={22} color="#a78bfa" /> : null}
             </Pressable>
             {generationMode === "seedance2_5" ? <View style={styles.qualityRow}>
-              <Pressable style={[styles.qualityButton, outputQuality === "720p" && styles.qualityActive]} onPress={() => setOutputQuality("720p")}><Text style={styles.qualityText}>720p</Text><Text style={styles.qualitySub}>Recommended</Text></Pressable>
-              <Pressable style={[styles.qualityButton, outputQuality === "1080p" && styles.qualityActive]} onPress={() => setOutputQuality("1080p")}><Text style={styles.qualityText}>1080p</Text><Text style={styles.qualitySub}>Uses 2 credits</Text></Pressable>
+              <Pressable style={[styles.qualityButton, outputQuality === "720p" && styles.qualityActive]} onPress={() => setOutputQuality("720p")}><Text style={styles.qualityText}>720p</Text><Text style={styles.qualitySub}>Economy • Lower motion detail</Text></Pressable>
+              <Pressable style={[styles.qualityButton, outputQuality === "1080p" && styles.qualityActive]} onPress={() => setOutputQuality("1080p")}><Text style={styles.qualityText}>1080p</Text><Text style={styles.qualitySub}>Recommended • Premium • Uses 2 credits</Text></Pressable>
             </View> : null}
           </View>
 
@@ -690,7 +739,7 @@ export default function VideoStudioScreen() {
               <Text style={styles.jobText}>
                 {jobRefreshFailures >= 3
                   ? "The server connection was interrupted. ArtBoost will automatically recover this video job after the worker restarts; you do not need to start another video."
-                  : "ArtBoost is rendering the final 1080 × 1920 MP4. You can leave this screen and return later."}
+                  : `ArtBoost is rendering the final ${generationMode === "seedance2_5" && outputQuality === "1080p" ? "1080 × 1920" : "720 × 1280"} MP4. You can leave this screen and return later.`}
               </Text>
             ) : null}
             {job.status === "failed" ? <Text style={styles.error}>{job.error_message || "Rendering failed."}</Text> : null}
@@ -741,36 +790,36 @@ const styles = StyleSheet.create({
   usageCard: { flexDirection: "row", gap: 12, alignItems: "center", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#3b2d58", backgroundColor: "#171321", marginBottom: 14 },
   usageTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
   usageText: { color: "#c4b5fd", fontSize: 12, fontWeight: "700", marginTop: 3 },
-  usageSub: { color: "#8d8d98", fontSize: 11, lineHeight: 16, marginTop: 5 },
+  usageSub: { color: "#ffffff", fontSize: 11, lineHeight: 16, marginTop: 5 },
   usageNumber: { color: "#fff", fontSize: 17, fontWeight: "900" },
   proBadge: { flexDirection: "row", gap: 5, alignItems: "center", borderWidth: 1, borderColor: "#665720", backgroundColor: "#272310", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 }, proText: { color: "#f8d66d", fontWeight: "800", fontSize: 9, letterSpacing: .7 },
-  content: { padding: 16 }, center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }, muted: { color: "#9ca3af" },
-  heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 23 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#bbb8cb", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
+  content: { padding: 16 }, center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }, muted: { color: "#ffffff" },
+  heroCard: { borderRadius: 22, padding: 20, backgroundColor: "#141226", borderWidth: 1, borderColor: "#30275a", marginBottom: 23 }, heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800", lineHeight: 28 }, heroText: { color: "#ffffff", fontSize: 14, lineHeight: 21, marginTop: 8 }, step: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12, marginTop: 4 },
   storeContextBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#1c1730", borderWidth: 1, borderColor: "#44347b", marginTop: -4, marginBottom: 11 },
   storeContextText: { color: "#c4b5fd", fontSize: 11, fontWeight: "700" },
-  rowScroll: { gap: 11, paddingBottom: 22 }, productCard: { width: 142, borderRadius: 17, backgroundColor: "#15161c", borderWidth: 1, borderColor: "#282a33", padding: 8, position: "relative" }, activeCard: { borderColor: "#8b5cf6", backgroundColor: "#191627" }, productImage: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#202127" }, placeholder: { alignItems: "center", justifyContent: "center" }, productTitle: { color: "#fff", fontWeight: "700", fontSize: 13, lineHeight: 17, marginTop: 8 }, storeText: { color: "#7f8493", fontSize: 11, marginTop: 4 }, check: { position: "absolute", top: 13, right: 13, width: 23, height: 23, borderRadius: 12, backgroundColor: "#8b5cf6", alignItems: "center", justifyContent: "center" },
-  templateCard: { borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#14151b", borderWidth: 1, borderColor: "#292b34", marginBottom: 10 }, templateIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: "#231e39", alignItems: "center", justifyContent: "center" }, templateName: { color: "#fff", fontSize: 15, fontWeight: "800" }, templateDescription: { color: "#9297a6", fontSize: 12, lineHeight: 17, marginTop: 3 },
-  readyCard: { padding: 14, borderRadius: 15, backgroundColor: "#0d201b", borderWidth: 1, borderColor: "#1c4b3b", flexDirection: "row", gap: 11, marginBottom: 14 }, readyTitle: { color: "#d1fae5", fontWeight: "800", fontSize: 14 }, readyText: { color: "#87b5a6", fontSize: 12, lineHeight: 17, marginTop: 2 }, createButton: { height: 56, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center", marginBottom: 18 }, disabled: { opacity: .48 }, createText: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  jobCard: { borderRadius: 20, padding: 16, backgroundColor: "#121319", borderWidth: 1, borderColor: "#2b2d36" }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, jobTitle: { color: "#fff", fontWeight: "800", fontSize: 17 }, percent: { color: "#a78bfa", fontWeight: "800" }, progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#252631", overflow: "hidden", marginTop: 13 }, progressFill: { height: 8, backgroundColor: "#8b5cf6", borderRadius: 999 }, jobText: { color: "#9398a7", fontSize: 13, lineHeight: 19, marginTop: 11 }, error: { color: "#fca5a5", fontSize: 13, marginTop: 11 }, preview: { marginTop: 15, alignSelf: "center", width: 240, height: 427, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" }, actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }, secondaryButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, downloadButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, backgroundColor: "#2563eb", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, publishButton: { flexGrow: 1, flexBasis: "100%", height: 48, borderRadius: 13, backgroundColor: "#7c3aed", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  rowScroll: { gap: 11, paddingBottom: 22 }, productCard: { width: 142, borderRadius: 17, backgroundColor: "#15161c", borderWidth: 1, borderColor: "#282a33", padding: 8, position: "relative" }, activeCard: { borderColor: "#9b5cff", backgroundColor: "#191627" }, productImage: { width: "100%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#202127" }, placeholder: { alignItems: "center", justifyContent: "center" }, productTitle: { color: "#fff", fontWeight: "700", fontSize: 13, lineHeight: 17, marginTop: 8 }, storeText: { color: "#ffffff", fontSize: 11, marginTop: 4 }, check: { position: "absolute", top: 13, right: 13, width: 23, height: 23, borderRadius: 12, backgroundColor: "#9b5cff", alignItems: "center", justifyContent: "center" },
+  templateCard: { borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#14151b", borderWidth: 1, borderColor: "#292b34", marginBottom: 10 }, templateIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: "#231e39", alignItems: "center", justifyContent: "center" }, templateName: { color: "#fff", fontSize: 15, fontWeight: "800" }, templateDescription: { color: "#ffffff", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  readyCard: { padding: 14, borderRadius: 15, backgroundColor: "#0d201b", borderWidth: 1, borderColor: "#1c4b3b", flexDirection: "row", gap: 11, marginBottom: 14 }, readyTitle: { color: "#d1fae5", fontWeight: "800", fontSize: 14 }, readyText: { color: "#ffffff", fontSize: 12, lineHeight: 17, marginTop: 2 }, createButton: { height: 56, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center", marginBottom: 18 }, disabled: { opacity: .48 }, createText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  jobCard: { borderRadius: 20, padding: 16, backgroundColor: "#121319", borderWidth: 1, borderColor: "#2b2d36" }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, jobTitle: { color: "#fff", fontWeight: "800", fontSize: 17 }, percent: { color: "#a78bfa", fontWeight: "800" }, progressTrack: { height: 8, borderRadius: 999, backgroundColor: "#252631", overflow: "hidden", marginTop: 13 }, progressFill: { height: 8, backgroundColor: "#9b5cff", borderRadius: 999 }, jobText: { color: "#ffffff", fontSize: 13, lineHeight: 19, marginTop: 11 }, error: { color: "#fca5a5", fontSize: 13, marginTop: 11 }, preview: { marginTop: 15, alignSelf: "center", width: 240, height: 427, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" }, actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }, secondaryButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, downloadButton: { flexGrow: 1, flexBasis: "46%", height: 48, borderRadius: 13, backgroundColor: "#2563eb", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, publishButton: { flexGrow: 1, flexBasis: "100%", height: 48, borderRadius: 13, backgroundColor: "#7c3aed", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   searchWrap:{minHeight:48,borderRadius:14,borderWidth:1,borderColor:"#30323b",backgroundColor:"#14151b",flexDirection:"row",alignItems:"center",paddingHorizontal:13,gap:9,marginBottom:12},
   searchInput:{flex:1,color:"#fff",fontSize:14,paddingVertical:11},
   noResults:{minHeight:74,borderRadius:14,borderWidth:1,borderColor:"#312e45",backgroundColor:"#151421",alignItems:"center",justifyContent:"center",padding:14,marginBottom:12,gap:6},
-  noResultsText:{color:"#b8b9c4",fontSize:13,textAlign:"center"},
+  noResultsText:{color: "#ffffff",fontSize:13,textAlign:"center"},
   promptCard:{borderRadius:16,borderWidth:1,borderColor:"#343044",backgroundColor:"#14131b",padding:13,marginBottom:14},
   promptHeader:{flexDirection:"row",alignItems:"center",gap:8,marginBottom:10},
   promptTitle:{flex:1,color:"#fff",fontSize:14,fontWeight:"800"},
-  promptCount:{color:"#777d8b",fontSize:11,fontWeight:"700"},
+  promptCount:{color: "#ffffff",fontSize:11,fontWeight:"700"},
   promptInput:{minHeight:108,borderRadius:13,borderWidth:1,borderColor:"#2b2d35",backgroundColor:"#0d0e12",color:"#fff",fontSize:14,lineHeight:20,paddingHorizontal:12,paddingVertical:11},
-  promptHelp:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:9},
+  promptHelp:{color: "#ffffff",fontSize:11,lineHeight:16,marginTop:9},
   engineCard:{borderRadius:16,borderWidth:1,borderColor:"#302b43",backgroundColor:"#111018",padding:10,marginBottom:16,gap:8},
   engineOption:{minHeight:64,borderRadius:13,borderWidth:1,borderColor:"#292b34",backgroundColor:"#15161c",padding:12,flexDirection:"row",alignItems:"center",gap:10},
-  engineOptionActive:{borderColor:"#7c3aed",backgroundColor:"#1d1730"},
+  engineOptionActive:{borderColor:"#7c3aed",backgroundColor:"rgba(29, 23, 48, 0.92)"},
   engineTitle:{color:"#fff",fontSize:14,fontWeight:"800"},
-  engineText:{color:"#8d92a0",fontSize:11,lineHeight:16,marginTop:3},
+  engineText:{color: "#ffffff",fontSize:11,lineHeight:16,marginTop:3},
   qualityRow:{flexDirection:"row",gap:8,marginTop:2},
   qualityButton:{flex:1,borderRadius:12,borderWidth:1,borderColor:"#30323b",backgroundColor:"#15161c",paddingVertical:10,alignItems:"center"},
-  qualityActive:{borderColor:"#8b5cf6",backgroundColor:"#241b3d"},
+  qualityActive:{borderColor:"#9b5cff",backgroundColor:"#3f2e68"},
   qualityText:{color:"#fff",fontSize:13,fontWeight:"800"},
-  qualitySub:{color:"#8d92a0",fontSize:9,marginTop:2}
+  qualitySub:{color: "#ffffff",fontSize:9,marginTop:2}
 });

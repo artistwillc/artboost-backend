@@ -3,6 +3,7 @@ import multer from "multer";
 import crypto from "crypto";
 
 import supabase from "../lib/supabase.js";
+import { resolveRequestUserId } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -354,7 +355,7 @@ router.post(
   async (req, res) => {
     try {
       const userId =
-        normalize(req.body?.userId);
+        await resolveRequestUserId(req, res);
 
       const storeId =
         normalize(req.body?.storeId);

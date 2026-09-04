@@ -1,3 +1,4 @@
+// ARTBOOST_AUTOMATION_NORMALIZATION_V3156
 import supabase from "../lib/supabase.js";
 import { randomUUID } from "node:crypto";
 
@@ -73,7 +74,7 @@ selectionMode:
     postingIntervalDays:
       Math.max(Number(row.posting_interval_days) || 1, 1),
     repeatDelayDays:
-      Number(row.repeat_delay_days) || 0,
+      Math.max(Number(row.repeat_delay_days) || 30, 0),
     lastRunAt: row.last_run_at || null,
     nextRunAt: row.next_run_at || null,
     lastProductId: row.last_product_id || null,

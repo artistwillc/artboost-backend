@@ -157,7 +157,7 @@ export async function importRedbubbleStore({
   const storefrontUrl =
     `${REDBUBBLE_BASE_URL}/people/${encodeURIComponent(
       username
-    )}/shop`;
+    )}/explore?asc=u`;
 
   const connection =
     await saveRedbubbleConnection({

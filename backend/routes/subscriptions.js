@@ -1,3 +1,5 @@
+// ARTBOOST_BILLING_OWNERSHIP_IDEMPOTENCY_V3158
+// ARTBOOST_SUBSCRIPTION_NOTIFICATION_PREFERENCE_GATE_V3154
 import express from "express";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
@@ -14,6 +16,24 @@ const supabase = createClient(
 const SITE_URL =
   process.env.ARTBOOST_SITE_URL ||
   "https://artboostai.com";
+
+const processedStripeWebhookEvents = new Map();
+const MAX_WEBHOOK_EVENT_CACHE = 2000;
+
+function webhookAlreadyProcessed(eventId) {
+  const id = String(eventId || "").trim();
+  return Boolean(id && processedStripeWebhookEvents.has(id));
+}
+
+function rememberProcessedWebhook(eventId) {
+  const id = String(eventId || "").trim();
+  if (!id) return;
+  processedStripeWebhookEvents.set(id, Date.now());
+  while (processedStripeWebhookEvents.size > MAX_WEBHOOK_EVENT_CACHE) {
+    const oldest = processedStripeWebhookEvents.keys().next().value;
+    processedStripeWebhookEvents.delete(oldest);
+  }
+}
 
 /*
  * Current ArtBoost monthly Stripe prices (Aug. 21, 2026).
@@ -105,6 +125,27 @@ function normalizeTier(value) {
 
 function priceIdForTier(tier) {
   return PRICE_IDS[tier] || null;
+}
+
+const EXPECTED_MONTHLY_AMOUNTS = {
+  starter: 1999,
+  pro: 3999,
+  business: 7999,
+};
+
+async function assertCanonicalStripePrice(tier, priceId) {
+  const expected = EXPECTED_MONTHLY_AMOUNTS[tier];
+  if (!expected || !priceId) throw new Error("Invalid ArtBoost billing tier or Stripe price.");
+
+  const price = await stripe.prices.retrieve(String(priceId));
+  if (
+    price?.active !== true ||
+    price?.currency !== "usd" ||
+    price?.recurring?.interval !== "month" ||
+    Number(price?.unit_amount || 0) !== expected
+  ) {
+    throw new Error(`Stripe price configuration mismatch for ${tier}. Checkout was blocked.`);
+  }
 }
 
 function tierFromPriceId(priceId) {
@@ -620,16 +661,14 @@ async function syncStripeSubscriptionForUser({
   };
 }
 
-async function findActiveLiveSubscriptionByEmail(email) {
+async function findActiveLiveSubscriptionForUser({ userId = "", email = "" }) {
+  const cleanUserId = String(userId || "").trim();
   const cleanEmail = String(email || "").trim().toLowerCase();
   if (!cleanEmail) return null;
 
-  const customers = await stripe.customers.list({
-    email: cleanEmail,
-    limit: 100,
-  });
-
-  const candidates = [];
+  const customers = await stripe.customers.list({ email: cleanEmail, limit: 100 });
+  const exactUserCandidates = [];
+  const legacyCandidates = [];
 
   for (const customer of customers.data || []) {
     const subscriptions = await stripe.subscriptions.list({
@@ -642,15 +681,20 @@ async function findActiveLiveSubscriptionByEmail(email) {
     for (const subscription of subscriptions.data || []) {
       if (subscription.status === "canceled") continue;
       if (!tierFromSubscription(subscription)) continue;
-      candidates.push(subscription);
+      const subscriptionUserId = String(subscription.metadata?.userId || "").trim();
+      if (cleanUserId && subscriptionUserId === cleanUserId) {
+        exactUserCandidates.push(subscription);
+      } else if (!subscriptionUserId) {
+        legacyCandidates.push(subscription);
+      }
     }
   }
 
-  candidates.sort(
-    (a, b) => Number(b.created || 0) - Number(a.created || 0)
-  );
+  const newest = (rows) =>
+    [...rows].sort((a, b) => Number(b.created || 0) - Number(a.created || 0))[0] || null;
 
-  return candidates[0] || null;
+  if (exactUserCandidates.length) return newest(exactUserCandidates);
+  return legacyCandidates.length === 1 ? legacyCandidates[0] : null;
 }
 
 async function profileForSubscription({ userId, email, customerId }) {
@@ -768,6 +812,8 @@ async function createCheckout({
     );
   }
 
+  await assertCanonicalStripePrice(normalizedTier, priceId);
+
   const cleanUserId =
     String(userId || "").trim();
 
@@ -822,7 +868,7 @@ async function createCheckout({
 
   if (cleanUserEmail) {
     const existingSubscription =
-      await findActiveLiveSubscriptionByEmail(cleanUserEmail);
+      await findActiveLiveSubscriptionForUser({ userId: cleanUserId, email: cleanUserEmail });
 
     if (existingSubscription) {
       const currentTier = tierFromSubscription(existingSubscription);
@@ -931,6 +977,10 @@ router.post(
     }
 
     try {
+      if (webhookAlreadyProcessed(event.id)) {
+        return res.json({ received: true, duplicate: true });
+      }
+
       switch (event.type) {
         case "checkout.session.completed": {
           const session =
@@ -1252,6 +1302,8 @@ router.post(
           );
       }
 
+      rememberProcessedWebhook(event.id);
+
       return res.json({
         received: true,
       });
@@ -1395,26 +1447,19 @@ router.post(
       const {
         plan,
         tier,
-        userEmail,
-        userId,
       } = req.body || {};
+
+      const authenticatedUser =
+        await authenticatedWebsiteUser(req);
+
+      const userId = String(authenticatedUser.id);
+      const userEmail =
+        String(authenticatedUser.email || "").trim().toLowerCase();
 
       const normalizedTier =
         normalizeTier(
           tier || plan
         ) || "pro";
-
-      if (
-        !userEmail ||
-        !userId
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Missing logged-in user information.",
-          });
-      }
 
       /*
        * Preserve the existing referral reward behavior for Pro.

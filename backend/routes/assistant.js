@@ -1,3 +1,4 @@
+// ARTBOOST_AI_CONSULTANT_FUNCTIONAL_INTEGRITY_V3159
 import express from "express";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
@@ -346,34 +347,10 @@ async function loadPublishingConnections(userId) {
 
 
 async function resolveAccountUserIds(userId) {
-  const ids = new Set([cleanString(userId, 120)].filter(Boolean));
-
-  try {
-    const { data: authData } = await supabase.auth.admin.getUserById(userId);
-    const email = cleanString(authData?.user?.email, 320).toLowerCase();
-
-    if (email) {
-      const { data: matchingProfiles, error } = await supabase
-        .from("profiles")
-        .select("id,email")
-        .ilike("email", email)
-        .limit(20);
-
-      if (!error) {
-        for (const profile of safeArray(matchingProfiles)) {
-          const id = cleanString(profile?.id, 120);
-          if (id) ids.add(id);
-        }
-      }
-    }
-  } catch (error) {
-    console.log(
-      "AI assistant legacy account ID resolution failed:",
-      error?.message || error
-    );
-  }
-
-  return [...ids];
+  // V3.15.9: the verified Supabase auth user is the only authoritative
+  // account boundary for Consultant data. Never expand identity by email.
+  const id = cleanString(userId, 120);
+  return id ? [id] : [];
 }
 
 async function loadAutomationLogs({
@@ -699,6 +676,19 @@ async function loadAccountContext(userId) {
       failedAutomationAttemptCount: failedAutomationAttempts.length,
       skippedAutomationAttemptCount: skippedAutomationAttempts.length,
       publishedCampaignCount: publishedCampaigns.length,
+      attributionBasis: "ArtBoost first-party publishing records",
+      externalMetricsInferred: false,
+      topPublishedProducts: safeArray(products)
+        .map((product) => ({
+          title: product?.title || "Untitled artwork",
+          storeType: product?.store_type || null,
+          storeName: product?.store_name || null,
+          timesPosted: Number(product?.times_posted || 0),
+          lastPostedAt: product?.last_posted_at || null,
+        }))
+        .filter((product) => product.timesPosted > 0)
+        .sort((a, b) => b.timesPosted - a.timesPosted)
+        .slice(0, 10),
     },
     summary: {
       connectedStoreCount: connectedStores.length,
@@ -884,8 +874,42 @@ function formatAutomationTime(value, timezone = "America/Chicago") {
   }
 }
 
-function redbubbleSupportAnswer(question) {
+function redbubbleSupportAnswer(question, accountContext = null) {
   const q = cleanString(question, 1200).toLowerCase();
+  const connectedRedbubble = safeArray(accountContext?.connectedStores).find(
+    (store) =>
+      normalizePlatform(store?.type) === "redbubble" ||
+      /redbubble/i.test(cleanString(store?.name, 120))
+  );
+  const asksAboutRefreshOrNewListings =
+    /\b(refresh|sync|new listing|new listings|new design|new designs|show my new|not showing|show up|appear|added listing|added listings)\b/.test(q);
+
+  if (connectedRedbubble && /\bredbubble\b/.test(q) && asksAboutRefreshOrNewListings) {
+    const storeName = cleanString(
+      connectedRedbubble?.name || "Redbubble",
+      120
+    );
+    return {
+      answer:
+        `Your Redbubble store ${storeName} is already connected, so you do not need to reconnect it just because you created new listings. In the current ArtBoost build, refreshing the Products view reloads products ArtBoost already knows about; Redbubble discovery is still browser-scanner based. To discover brand-new Redbubble designs, open the Redbubble store scanner. Do not remove or recreate the saved connection unless it is actually broken.`,
+      steps: [
+        "Keep the existing Redbubble connection in ArtBoost.",
+        "Open Connect > Stores > Redbubble.",
+        "Open the store scanner for the connected Redbubble store.",
+        "Run the full-store discovery scan and let thumbnail loading finish.",
+        "Import only the newly discovered designs.",
+        "Return to the Redbubble Products tab and refresh the ArtBoost product list.",
+      ],
+      actions: actions("open_connections", "open_library"),
+      followUps: [
+        "How do I scan my connected Redbubble store?",
+        "Why is a Redbubble listing missing?",
+        "How many Redbubble products are in ArtBoost?",
+      ],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
 
   if (!/\bredbubble\b/.test(q)) {
     return null;
@@ -1006,6 +1030,72 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
+  // ARTBOOST_CONSULTANT_PRODUCT_RECOMMENDATION_V1
+  if (
+    /\b(?:which|what|recommend|choose|pick)\b/.test(q) &&
+    /\b(?:product|artwork|listing|design)\b/.test(q) &&
+    /\b(?:promote|market|post|feature|push|next|today)\b/.test(q)
+  ) {
+    const candidates = safeArray(accountContext.newestProducts);
+    if (!candidates.length) {
+      return {
+        answer: "I do not currently have an imported product I can verify and recommend.",
+        steps: [], actions: action("open_library"),
+        followUps: ["Show me my Library.", "Refresh my connected stores."],
+        usedAccountData: true, severity: "info",
+      };
+    }
+    const ranked = [...candidates].sort((a, b) => {
+      const aUnposted = Number(a?.timesPosted || 0) === 0 ? 1 : 0;
+      const bUnposted = Number(b?.timesPosted || 0) === 0 ? 1 : 0;
+      if (aUnposted !== bUnposted) return bUnposted - aUnposted;
+      const at = a?.lastPostedAt ? new Date(a.lastPostedAt).getTime() : 0;
+      const bt = b?.lastPostedAt ? new Date(b.lastPostedAt).getTime() : 0;
+      return at - bt;
+    });
+    const pick = ranked[0];
+    const store = cleanString(pick?.storeName || pick?.storeType, 120);
+    const times = Number(pick?.timesPosted || 0);
+    const reason = times === 0
+      ? "it is one of your newest verified listings and has not been posted through ArtBoost yet"
+      : `it has only ${times} recorded ArtBoost ${times === 1 ? "post" : "posts"} and is among the least recently promoted candidates I can verify`;
+    return {
+      answer: `I recommend promoting “${cleanString(pick?.title || "Untitled artwork", 220)}”${store ? ` from ${store}` : ""} next because ${reason}. I’m using your verified ArtBoost product history, not invented sales or engagement data.`,
+      steps: [], actions: action("open_library"),
+      followUps: ["Create an Instagram post for that product.", "Why did you choose that one?"],
+      usedAccountData: true, severity: "success",
+    };
+  }
+
+  // ARTBOOST_CONSULTANT_ANALYTICS_ATTRIBUTION_V3164
+  if (
+    /\b(?:top|best|most|leading|performing|performance)\b/.test(q) &&
+    /\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
+  ) {
+    const analytics = accountContext.publishingAnalytics || {};
+    const leaders = safeArray(analytics.topPublishedProducts);
+    if (!leaders.length) {
+      return {
+        answer: "I do not have enough confirmed first-party ArtBoost publishing history to rank your artwork yet. I will not invent reach, engagement, sales, or revenue that ArtBoost has not received.",
+        steps: [],
+        actions: action("open_analytics"),
+        followUps: ["How many posts have I published?", "Show me my Analytics."],
+        usedAccountData: true,
+        severity: "info",
+      };
+    }
+    const leader = leaders[0];
+    const storeLabel = leader.storeName || leader.storeType;
+    return {
+      answer: `${leader.title} currently leads your confirmed ArtBoost publishing history with ${leader.timesPosted} recorded ${leader.timesPosted === 1 ? "post" : "posts"}${storeLabel ? ` for ${storeLabel}` : ""}. This ranking is based on ArtBoost first-party publishing activity, not inferred reach, engagement, sales, or revenue.`,
+      steps: [],
+      actions: action("open_analytics"),
+      followUps: ["How many posts have I published?", "How many automation failures have I had?"],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
   // Publishing and analytics awareness.
   if (
     (
@@ -1105,7 +1195,7 @@ function deterministicAccountAnswer(question, accountContext) {
     }
 
     return {
-      answer: `ArtBoost currently records ${totalPosts} published platform ${totalPosts === 1 ? "post" : "posts"}: ${automationPosts} from successful store automations and ${campaignPosts} from published Campaign Manager campaigns.`,
+      answer: `ArtBoost currently records ${totalPosts} published platform ${totalPosts === 1 ? "post" : "posts"}: ${automationPosts} from successful store automations and ${campaignPosts} from published Campaign Manager campaigns. These are first-party ArtBoost publishing records; I will not infer external reach, engagement, sales, or revenue unless ArtBoost has actually received those metrics.`,
       steps: [],
       actions: action("open_analytics"),
       followUps: [
@@ -1634,6 +1724,52 @@ function deterministicAccountAnswer(question, accountContext) {
   return null;
 }
 
+// ARTBOOST_CONSULTANT_NAMING_V3166
+router.get("/consultant-preferences", async (req, res) => {
+  try {
+    const user = await verifyRequestUser(req);
+    if (!user?.id) {
+      return res.status(401).json({ success: false, error: "Sign in to manage Consultant settings." });
+    }
+    const consultantName = cleanString(user?.user_metadata?.consultant_name || "ArtBoost AI Consultant", 40);
+    return res.json({ success: true, consultantName });
+  } catch (error) {
+    console.error("Consultant preferences read failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to load Consultant settings." });
+  }
+});
+
+router.post("/consultant-preferences", async (req, res) => {
+  try {
+    const user = await verifyRequestUser(req);
+    if (!user?.id) {
+      return res.status(401).json({ success: false, error: "Sign in to manage Consultant settings." });
+    }
+    const requested = cleanString(req.body?.consultantName, 40);
+    const consultantName = requested || "ArtBoost AI Consultant";
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._'’-]{0,39}$/.test(consultantName)) {
+      return res.status(400).json({
+        success: false,
+        error: "Use 1-40 letters, numbers, spaces, apostrophes, periods, or hyphens.",
+      });
+    }
+    const existingMetadata =
+      user?.user_metadata && typeof user.user_metadata === "object"
+        ? user.user_metadata
+        : {};
+    const { data, error } = await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: { ...existingMetadata, consultant_name: consultantName },
+    });
+    if (error || !data?.user) {
+      throw error || new Error("Consultant name was not saved.");
+    }
+    return res.json({ success: true, consultantName });
+  } catch (error) {
+    console.error("Consultant preferences save failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to save Consultant settings." });
+  }
+});
+
 router.post("/assistant", async (req, res) => {
   try {
     const question = cleanString(req.body?.question, 1200);
@@ -1643,6 +1779,10 @@ router.post("/assistant", async (req, res) => {
     );
     const appVersion = cleanString(req.body?.appVersion || "unknown", 50);
     const conversation = trimConversation(req.body?.conversation);
+    const assistantMode = cleanString(req.body?.assistantMode || "support", 80);
+    const isConsultant =
+      assistantMode === "consultant" ||
+      assistantMode === "marketing_consultant";
 
     if (!question) {
       return res.status(400).json({
@@ -1651,16 +1791,31 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
-    const redbubbleAnswer = redbubbleSupportAnswer(question);
+    const verifiedUser = await verifyRequestUser(req);
+
+    if (isConsultant && !verifiedUser?.id) {
+      return res.status(401).json({
+        success: false,
+        error: "Sign in to use the AI Consultant.",
+      });
+    }
+
+    const accountContext = await loadAccountContext(verifiedUser?.id || null);
+    const consultantName = cleanString(
+      verifiedUser?.user_metadata?.consultant_name || "ArtBoost AI Consultant",
+      40
+    );
+
+    const redbubbleAnswer = redbubbleSupportAnswer(
+      question,
+      accountContext
+    );
     if (redbubbleAnswer) {
       return res.json({
         success: true,
         ...redbubbleAnswer,
       });
     }
-
-    const verifiedUser = await verifyRequestUser(req);
-    const accountContext = await loadAccountContext(verifiedUser?.id || null);
 
     // Answer direct account-fact questions from ArtBoost data before calling the model.
     // This prevents malformed model JSON from breaking factual account queries.
@@ -1682,11 +1837,21 @@ router.post("/assistant", async (req, res) => {
       input: [
         {
           role: "system",
-          content: `You are ArtBoost AI Support, the official in-app AI support and troubleshooting agent for ArtBoost AI.
+          content: `You are the ArtBoost AI Consultant, the official unified in-app intelligence for ArtBoost AI.
 
-You must help with every supported part of ArtBoost accurately and practically. Use the official product knowledge and live account context below. Never invent a feature, route, connection, error, metric, or account fact.
+Your configured in-app display name for this authenticated user is "${consultantName}". Use that name naturally when identifying yourself, but do not pretend it changes your capabilities.
+
+You are both the user's ArtBoost product expert/support agent and their art-business/marketing consultant. You can also analyze an image attached by the user as visual context for artwork critique, pricing guidance, listing optimization, marketing, or troubleshooting. The Help/Customer Service entry point and the Consultant entry point use this same authoritative intelligence. Answer any legitimate question about ArtBoost, its workflows, stores, social integrations, analytics, campaigns, schedules, automations, subscriptions, troubleshooting, or marketing/business use accurately and practically.
+
+Use the official product knowledge and live account context below. Never invent a feature, route, connection, error, metric, account fact, store behavior, platform behavior, button, or workflow.
 
 ACCOUNT-AWARE BEHAVIOR:
+- When assistantMode=consultant or marketing_consultant, LIVE ACCOUNT CONTEXT must be authenticated=true; never answer account-specific questions from guessed or cross-user data.
+- When a question names a store, only use facts that can be attributed to that connected store. If the supplied context cannot prove a store-specific metric, say that the store-specific metric is unavailable rather than substituting an account-wide value or zero.
+- Distinguish unavailable data from a verified numeric zero.
+- ARTBOOST_CONSULTANT_CONTROL_SAFEGUARD_V3166: Never execute publish, delete, disconnect, billing, campaign, schedule, or automation mutations from this assistant route. Suggested actions are authenticated navigation-only and must come from ALLOWED ACTIONS.
+- For conversational requests to create or manage scheduled campaigns/posts, gather or explain the required details, then direct the user to Campaign Manager or Schedule for the existing confirmation/execution workflow. Never say the requested mutation happened merely because you suggested an action.
+- For pause/resume/cancel/delete/reschedule requests, identify the verified scheduled work from LIVE ACCOUNT CONTEXT when possible, explain the intended change, and require the user to complete/confirm it in the existing management screen. Never fabricate a campaign ID, schedule, status, or success result.
 - When LIVE ACCOUNT CONTEXT authenticated=true, use it whenever it is relevant.
 - For questions about stores, name the user's currently connected stores and state the count before giving general instructions.
 - For questions about social platforms, name the user's connected platforms and flag expired connections.
@@ -1697,11 +1862,14 @@ ACCOUNT-AWARE BEHAVIOR:
 - Do not dump raw records. Summarize only the facts needed to answer.
 
 REDBUBBLE SUPPORT RULES:
-- For a full-store or bulk Redbubble scan, tell the user to use the Redbubble Explore URL containing /people/USERNAME/explore. Do not tell them to use the normal /shop store URL for the full-store scanner.
-- In Universal Scanner, the workflow is: paste the Explore URL, run Scan Entire Store, wait for design discovery AND thumbnail loading to finish, then import.
-- Do not promise that every design in a Redbubble account must be exposed through the public Explore page.
-- If a design is missing from a bulk scan, explain that it can be added later with Single Product Import, Product URLs, or CSV import.
-- For one Redbubble product, use the direct product/listing URL rather than the Explore URL.
+- First determine whether the user's Redbubble store is already connected from LIVE ACCOUNT CONTEXT.
+- If it is already connected, never tell the user to reconnect it merely to add or discover new listings.
+- In this build, Library/Products refresh reloads ArtBoost's known products; it is not the same thing as Redbubble browser-based external discovery.
+- Redbubble full-store discovery currently uses the browser scanner. When the scanner needs a bulk-discovery source, use the Redbubble Explore URL containing /people/USERNAME/explore.
+- Direct product/listing URLs are for individual listing import.
+- Do not promise that every design in a Redbubble account must be exposed through Redbubble's public pages.
+- If a design is missing from a bulk scan, explain the supported fallback import paths.
+- Never describe a future one-tap connected-store sync as already installed until the current ArtBoost implementation actually supports it.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -1731,13 +1899,27 @@ ALLOWED ACTIONS:
 ${JSON.stringify(allowedActions)}
 
 CURRENT APP CONTEXT:
-${JSON.stringify({ currentScreen, appVersion })}
+${JSON.stringify({
+  currentScreen,
+  appVersion,
+  assistantMode,
+  selectedStoreId: cleanString(req.body?.storeId, 120) || null,
+  selectedDateRange: cleanString(req.body?.dateRange, 80) || null,
+})}
 
 LIVE ACCOUNT CONTEXT:
 ${JSON.stringify(accountContext)}`,
         },
         ...conversation,
-        { role: "user", content: question },
+        {
+          role: "user",
+          content: req.body?.imageDataUrl
+            ? [
+                { type: "input_text", text: question },
+                { type: "input_image", image_url: cleanString(req.body.imageDataUrl, 9_000_000) },
+              ]
+            : question,
+        },
       ],
     });
 

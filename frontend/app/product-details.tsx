@@ -1,11 +1,13 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import {
   router,
   useLocalSearchParams,
 } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -15,6 +17,13 @@ import {
   Text,
   View,
 } from "react-native";
+
+import { supabase } from "@/lib/supabase";
+import { readApiJson } from "@/lib/apiJson";
+
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  "https://artboost-ai.onrender.com";
 
 function normalize(value?: string) {
   return String(value || "").trim().toLowerCase();
@@ -79,6 +88,131 @@ export default function ProductDetailsScreen() {
     () => platformLabel(storeType),
     [storeType]
   );
+
+  const [favorite, setFavorite] =
+    useState(false);
+  const [favoriteLoading, setFavoriteLoading] =
+    useState(Boolean(productId));
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadFavoriteState() {
+      if (!productId) {
+        setFavoriteLoading(false);
+        return;
+      }
+
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          return;
+        }
+
+        const response = await fetch(
+          `${API_BASE}/products/${encodeURIComponent(
+            productId
+          )}?userId=${encodeURIComponent(user.id)}`
+        );
+
+        const data = await readApiJson(response, "Product Details");
+
+        if (
+          active &&
+          response.ok &&
+          data?.success
+        ) {
+          setFavorite(
+            data.product?.metadata
+              ?.artboostFavorite === true
+          );
+        }
+      } catch (error) {
+        console.log(
+          "Favorite state load failed:",
+          error
+        );
+      } finally {
+        if (active) {
+          setFavoriteLoading(false);
+        }
+      }
+    }
+
+    loadFavoriteState();
+
+    return () => {
+      active = false;
+    };
+  }, [productId]);
+
+  async function toggleFavorite() {
+    if (!productId || favoriteLoading) {
+      return;
+    }
+
+    try {
+      setFavoriteLoading(true);
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        throw new Error(
+          "Please sign in to manage Favorites."
+        );
+      }
+
+      const nextFavorite = !favorite;
+
+      const response = await fetch(
+        `${API_BASE}/products/${encodeURIComponent(
+          productId
+        )}/favorite?userId=${encodeURIComponent(
+          user.id
+        )}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            favorite: nextFavorite,
+          }),
+        }
+      );
+
+      const data = await readApiJson(response, "Product Details");
+
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.details ||
+            data?.error ||
+            "Unable to update Favorites."
+        );
+      }
+
+      setFavorite(Boolean(data.favorite));
+    } catch (error: any) {
+      Alert.alert(
+        "Favorites Update Failed",
+        error?.message ||
+          "ArtBoost could not update this Favorite."
+      );
+    } finally {
+      setFavoriteLoading(false);
+    }
+  }
 
   function goBackToStoreProducts() {
     if (router.canGoBack()) {
@@ -251,6 +385,48 @@ export default function ProductDetailsScreen() {
         </View>
 
         <Pressable
+          style={[
+            styles.favoriteButton,
+            favorite &&
+              styles.favoriteButtonActive,
+          ]}
+          onPress={toggleFavorite}
+          disabled={favoriteLoading}
+        >
+          {favoriteLoading ? (
+            <ActivityIndicator
+              size="small"
+              color="#ffffff"
+            />
+          ) : (
+            <Ionicons
+              name={
+                favorite
+                  ? "heart"
+                  : "heart-outline"
+              }
+              size={22}
+              color={
+                favorite
+                  ? "#ffffff"
+                  : "#c4b5fd"
+              }
+            />
+          )}
+          <Text
+            style={[
+              styles.favoriteButtonText,
+              favorite &&
+                styles.favoriteButtonTextActive,
+            ]}
+          >
+            {favorite
+              ? "Saved to Favorites"
+              : "Add to Favorites"}
+          </Text>
+        </Pressable>
+
+        <Pressable
           style={styles.primaryButton}
           onPress={openCampaignManager}
         >
@@ -317,7 +493,7 @@ export default function ProductDetailsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
   header: {
     paddingHorizontal: 18,
@@ -391,7 +567,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   description: {
-    color: "#aaaaaa",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
     marginTop: 10,
@@ -400,7 +576,7 @@ const styles = StyleSheet.create({
   detailRow: {
     minHeight: 45,
     borderTopWidth: 1,
-    borderTopColor: "#2d2d2d",
+    borderTopColor: "#49366f",
     marginTop: 11,
     paddingTop: 12,
     flexDirection: "row",
@@ -408,7 +584,7 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   detailLabel: {
-    color: "#777777",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "800",
   },
@@ -425,6 +601,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
     textAlign: "right",
+  },
+  favoriteButton: {
+    minHeight: 52,
+    borderRadius: 17,
+    backgroundColor: "#2b2145",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    marginBottom: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+  },
+  favoriteButtonActive: {
+    backgroundColor: "#7c3aed",
+    borderColor: "#a78bfa",
+  },
+  favoriteButtonText: {
+    color: "#c4b5fd",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  favoriteButtonTextActive: {
+    color: "#ffffff",
   },
   primaryButton: {
     minHeight: 54,
@@ -459,7 +659,7 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     borderRadius: 18,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 15,
@@ -470,7 +670,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     flex: 1,
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
   },

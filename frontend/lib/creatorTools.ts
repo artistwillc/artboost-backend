@@ -7,7 +7,13 @@ export type CreatorToolId =
   | "ai-hashtag"
   | "ai-cta"
   | "pricing"
-  | "pod-profit";
+  | "pod-profit"
+  | "collection-builder"
+  | "store-critique"
+  | "trending-ideas"
+  | "holiday-calendar"
+  | "opportunity-scanner"
+  | "business-coach";
 
 export type ToolTier = "Starter" | "Pro" | "Business";
 export type ToolKind = "ai" | "calculator";
@@ -300,6 +306,63 @@ export const CREATOR_TOOLS: Record<CreatorToolId, CreatorToolDefinition> = {
       },
     ],
   },
+  "collection-builder": {
+    id: "collection-builder", title: "Collection Builder", shortTitle: "Collection Builder",
+    description: "Organize related artwork into stronger collections and campaigns.", icon: "albums-outline",
+    tier: "Pro", kind: "ai", actionLabel: "Build Collection Plan",
+    fields: [
+      { key: "catalogContext", label: "Artwork / Catalog Context", placeholder: "Describe the products or collection you want to organize.", multiline: true, required: true },
+      { key: "goal", label: "Collection Goal", placeholder: "Example: Holiday collection, hunting series, premium wall art" },
+      { key: "audience", label: "Target Audience", placeholder: "Who should this collection appeal to?" }
+    ],
+  },
+  "store-critique": {
+    id: "store-critique", title: "AI Store Critique", shortTitle: "Store Critique",
+    description: "Review a store and identify opportunities to improve listings and sales.", icon: "storefront-outline",
+    tier: "Business", kind: "ai", actionLabel: "Critique Store",
+    fields: [
+      { key: "storeContext", label: "Store / Listing Context", placeholder: "Paste or describe the store, listings, strengths, and concerns.", multiline: true, required: true },
+      { key: "goal", label: "Primary Goal", placeholder: "Example: Improve conversion, consistency, SEO, merchandising" }
+    ],
+  },
+  "trending-ideas": {
+    id: "trending-ideas", title: "Trending Artwork Ideas", shortTitle: "Trending Ideas",
+    description: "Discover themes, subjects, and niches that fit your catalog and current market signals.", icon: "trending-up-outline",
+    tier: "Pro", kind: "ai", actionLabel: "Generate Ideas",
+    fields: [
+      { key: "niche", label: "Niche / Audience", placeholder: "Example: hunting, fishing, automotive, pet owners", required: true },
+      { key: "catalogContext", label: "Current Catalog", placeholder: "Describe what you already sell.", multiline: true },
+      { key: "trendContext", label: "Trend Notes (optional)", placeholder: "Paste any current trend signals you want ArtBoost to use.", multiline: true }
+    ],
+  },
+  "holiday-calendar": {
+    id: "holiday-calendar", title: "Holiday Marketing Calendar", shortTitle: "Holiday Calendar",
+    description: "Plan campaigns around seasonal and holiday opportunities.", icon: "calendar-outline",
+    tier: "Starter", kind: "ai", actionLabel: "Build Calendar",
+    fields: [
+      { key: "dateRange", label: "Planning Window", placeholder: "Example: Next 90 days", required: true },
+      { key: "products", label: "Products / Collections", placeholder: "Describe the products you want to market.", multiline: true, required: true },
+      { key: "audience", label: "Audience", placeholder: "Who are you trying to reach?" }
+    ],
+  },
+  "opportunity-scanner": {
+    id: "opportunity-scanner", title: "Opportunity Scanner", shortTitle: "Opportunity Scanner",
+    description: "Identify promising catalog, store, and campaign opportunities.", icon: "scan-outline",
+    tier: "Business", kind: "ai", actionLabel: "Scan Opportunities",
+    fields: [
+      { key: "businessContext", label: "Business / Catalog Context", placeholder: "Describe your stores, catalog, posting activity, and current goals.", multiline: true, required: true },
+      { key: "constraints", label: "Constraints", placeholder: "Example: low budget, focus on Redbubble, no new artwork this week" }
+    ],
+  },
+  "business-coach": {
+    id: "business-coach", title: "AI Business Coach", shortTitle: "Business Coach",
+    description: "Turn ArtBoost account context into prioritized business recommendations.", icon: "sparkles-outline",
+    tier: "Business", kind: "ai", actionLabel: "Get Coaching Plan",
+    fields: [
+      { key: "businessContext", label: "Current Situation", placeholder: "What are you trying to improve right now?", multiline: true, required: true },
+      { key: "goal", label: "Goal", placeholder: "Example: grow sales, improve consistency, launch a new collection" }
+    ],
+  }
 };
 
 export function isCreatorToolId(value: string): value is CreatorToolId {

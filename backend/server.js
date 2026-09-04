@@ -1,3 +1,4 @@
+// ARTBOOST_NOTIFICATION_PREFERENCE_GATE_V3154
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -29,6 +30,7 @@ import assistantRoutes from "./routes/assistant.js";
 import creatorToolsRoutes from "./routes/creatorTools.js";
 import etsyRoutes from "./routes/etsy.js";
 import redbubbleRoutes from "./routes/redbubble.js";
+import analyticsAttentionRoutes from "./routes/analyticsAttention.js";
 
 import {
   registerSocialPublishers,
@@ -46,7 +48,7 @@ import {
   applySecurityHeaders,
   createRateLimiter,
 } from "./middleware/security.js";
-import { securityAuthMode } from "./middleware/auth.js";
+import { securityAuthMode, resolveRequestUserId } from "./middleware/auth.js";
 
 dotenv.config({ override: true });
 
@@ -1095,16 +1097,8 @@ async function fetchAllActiveEtsyListings(shopId, accessToken) {
 
 app.post("/etsy/sync", async (req, res) => {
   try {
-    const userId =
-      req.body?.userId ||
-      req.query?.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -1317,14 +1311,8 @@ app.post("/etsy/sync", async (req, res) => {
 
 app.get("/etsy/store-summary", async (req, res) => {
   try {
-    const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -2677,13 +2665,64 @@ const mapCampaignFromDb = (item) => ({
   clicks: item.clicks || 0,
 });
 
+function inferNotificationPreferenceKey({ title = "", message = "", type = "info", category = "" }) {
+  if (category) return category;
+  const text = `${title} ${message}`.toLowerCase();
+  if (text.includes("video") && (text.includes("failed") || type === "error")) return "video_failed";
+  if (text.includes("video")) return "video_ready";
+  if (text.includes("automation") && text.includes("paused")) return "automation_paused";
+  if (text.includes("automation") && (text.includes("failed") || type === "error")) return "automation_failed";
+  if (text.includes("automation")) return "automation_completed";
+  if (text.includes("sync") && (text.includes("failed") || type === "error")) return "store_sync_failed";
+  if (text.includes("sync")) return "store_sync_completed";
+  if (text.includes("listing") && (text.includes("new") || text.includes("found"))) return "new_listings_found";
+  if (text.includes("connect") && (text.includes("issue") || text.includes("expired") || type === "error")) return "account_connection_issue";
+  if (text.includes("credit") && (text.includes("exhaust") || text.includes("zero"))) return "credits_exhausted";
+  if (text.includes("credit") || text.includes("usage")) return "usage_credit_warning";
+  if (text.includes("subscription") || text.includes("billing") || text.includes("payment")) return "subscription_billing";
+  if (text.includes("security") || text.includes("password") || text.includes("login")) return "security_alerts";
+  if (text.includes("consultant")) return "ai_consultant_alerts";
+  if (text.includes("schedule") && (text.includes("upcoming") || text.includes("soon"))) return "upcoming_scheduled_post";
+  if (text.includes("post") && (text.includes("failed") || type === "error")) return "post_failed";
+  if (text.includes("attention") || type === "warning") return "post_needs_attention";
+  return "post_published";
+}
+
+async function notificationPreferenceAllows(userId, category) {
+  if (!userId) return true;
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error || !data?.user) return true;
+
+    const prefs = data.user.user_metadata?.notification_preferences;
+    if (!prefs) return true;
+
+    // ARTBOOST_NOTIFICATION_SECURITY_GUARD_V3167
+    if (category === "security_alerts") {
+      return true;
+    }
+
+    if (prefs.master_enabled === false) return false;
+    return prefs[category] !== false;
+  } catch (err) {
+    console.log("Notification preference lookup failed:", err.message);
+    return true;
+  }
+}
+
 async function createNotification({
   userId,
   title,
   message,
   type = "info",
+  category = "",
 }) {
   try {
+    const preferenceKey = inferNotificationPreferenceKey({ title, message, type, category });
+    if (!(await notificationPreferenceAllows(userId, preferenceKey))) {
+      console.log(`Notification suppressed by user preference: ${preferenceKey}`);
+      return;
+    }
     const { error } = await supabase.from("notifications").insert({
       user_id: userId || null,
       title,
@@ -2951,6 +2990,7 @@ app.use("/api/hashtag-intelligence", generationLimiter, hashtagIntelligenceRoute
 app.use("/stores", storeRoutes);
 app.use("/catalog", importLimiter, catalogCsvRouter);
 app.use("/automations", automationRoutes);
+app.use("/analytics-attention", analyticsAttentionRoutes);
 
 app.use("/ai", generationLimiter, aiRouter);
 app.use("/ai", generationLimiter, assistantRoutes);
@@ -3517,20 +3557,44 @@ app.post("/notifications/create", async (req, res) => {
   }
 });
 
+// ARTBOOST_NOTIFICATION_AUTH_OWNERSHIP_V3167
+async function verifyNotificationRequestUser(req) {
+  const authHeader = String(req.headers.authorization || "").trim();
+  const accessToken = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+
+  if (!accessToken) return null;
+
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data?.user?.id) return null;
+
+  return data.user;
+}
+
 app.get("/notifications/:userId", async (req, res) => {
   try {
-    const { userId } = req.params;
-
-    let query = supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (userId && userId !== "all") {
-      query = query.eq("user_id", userId);
+    const verifiedUser = await verifyNotificationRequestUser(req);
+    if (!verifiedUser?.id) {
+      return res.status(401).json({ error: "Authentication is required." });
     }
 
-    const { data, error } = await query;
+    const requestedUserId = String(req.params.userId || "").trim();
+    if (
+      requestedUserId &&
+      requestedUserId !== "me" &&
+      requestedUserId !== verifiedUser.id
+    ) {
+      return res.status(403).json({
+        error: "You can only access your own notifications.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", verifiedUser.id)
+      .order("created_at", { ascending: false });
 
     if (error) {
       return res.status(500).json({
@@ -3539,11 +3603,9 @@ app.get("/notifications/:userId", async (req, res) => {
       });
     }
 
-    res.json({
-      notifications: data || [],
-    });
+    return res.json({ notifications: data || [] });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Notifications request failed.",
       details: err.message,
     });
@@ -3552,14 +3614,21 @@ app.get("/notifications/:userId", async (req, res) => {
 
 app.patch("/notifications/read/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const verifiedUser = await verifyNotificationRequestUser(req);
+    if (!verifiedUser?.id) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
+
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ error: "Missing notification ID." });
+    }
 
     const { error } = await supabase
       .from("notifications")
-      .update({
-        unread: false,
-      })
-      .eq("id", id);
+      .update({ unread: false })
+      .eq("id", id)
+      .eq("user_id", verifiedUser.id);
 
     if (error) {
       return res.status(500).json({
@@ -3568,11 +3637,9 @@ app.patch("/notifications/read/:id", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-    });
+    return res.json({ success: true });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Notification read update failed.",
       details: err.message,
     });
@@ -3581,17 +3648,26 @@ app.patch("/notifications/read/:id", async (req, res) => {
 
 app.patch("/notifications/read-all/:userId", async (req, res) => {
   try {
-    const { userId } = req.params;
-
-    let query = supabase.from("notifications").update({
-      unread: false,
-    });
-
-    if (userId && userId !== "all") {
-      query = query.eq("user_id", userId);
+    const verifiedUser = await verifyNotificationRequestUser(req);
+    if (!verifiedUser?.id) {
+      return res.status(401).json({ error: "Authentication is required." });
     }
 
-    const { error } = await query;
+    const requestedUserId = String(req.params.userId || "").trim();
+    if (
+      requestedUserId &&
+      requestedUserId !== "me" &&
+      requestedUserId !== verifiedUser.id
+    ) {
+      return res.status(403).json({
+        error: "You can only update your own notifications.",
+      });
+    }
+
+    const { error } = await supabase
+      .from("notifications")
+      .update({ unread: false })
+      .eq("user_id", verifiedUser.id);
 
     if (error) {
       return res.status(500).json({
@@ -3600,11 +3676,9 @@ app.patch("/notifications/read-all/:userId", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-    });
+    return res.json({ success: true });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Read all notifications failed.",
       details: err.message,
     });
@@ -3613,10 +3687,15 @@ app.patch("/notifications/read-all/:userId", async (req, res) => {
 
 app.delete("/notifications/clear-all", async (req, res) => {
   try {
+    const verifiedUser = await verifyNotificationRequestUser(req);
+    if (!verifiedUser?.id) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
+
     const { error } = await supabase
       .from("notifications")
       .delete()
-      .not("id", "is", null);
+      .eq("user_id", verifiedUser.id);
 
     if (error) {
       return res.status(500).json({
@@ -3625,11 +3704,9 @@ app.delete("/notifications/clear-all", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-    });
+    return res.json({ success: true });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Clear notifications failed.",
       details: err.message,
     });
@@ -3638,18 +3715,21 @@ app.delete("/notifications/clear-all", async (req, res) => {
 
 app.delete("/notifications/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const verifiedUser = await verifyNotificationRequestUser(req);
+    if (!verifiedUser?.id) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
 
+    const id = String(req.params.id || "").trim();
     if (!id || id === "all") {
-      return res.status(400).json({
-        error: "Missing notification ID.",
-      });
+      return res.status(400).json({ error: "Missing notification ID." });
     }
 
     const { error } = await supabase
       .from("notifications")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", verifiedUser.id);
 
     if (error) {
       return res.status(500).json({
@@ -3658,11 +3738,9 @@ app.delete("/notifications/:id", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-    });
+    return res.json({ success: true });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Notification deletion failed.",
       details: err.message,
     });
@@ -3709,6 +3787,7 @@ app.get("/analytics", async (req, res) => {
       campaignsResult,
       automationsResult,
       logsResult,
+      dismissalsResult,
     ] = await Promise.all([
       supabase
         .from("scheduled_campaigns")
@@ -3728,6 +3807,12 @@ app.get("/analytics", async (req, res) => {
           ascending: false,
         })
         .limit(1000),
+
+      supabase
+        .from("analytics_attention_dismissals")
+        .select("issue_key")
+        .eq("user_id", userId)
+        .limit(5000),
     ]);
 
     if (campaignsResult.error) {
@@ -3778,9 +3863,36 @@ app.get("/analytics", async (req, res) => {
       return Boolean(date && date >= analyticsRangeStart);
     };
 
-    const allCampaigns = campaignsResult.data || [];
-    const allAutomations = automationsResult.data || [];
-    const allAutomationLogs = logsResult.data || [];
+    // ARTBOOST_ANALYTICS_STORE_SCOPE_V3150
+    const requestedStoreId = String(req.query.storeId || "").trim();
+    const requestedStoreName = String(req.query.storeName || "").trim().toLowerCase();
+    const requestedStoreType = String(req.query.storeType || "").trim().toLowerCase();
+    const analyticsStoreScoped = Boolean(requestedStoreId || requestedStoreName || requestedStoreType);
+
+    const analyticsRecordMatchesStore = (record) => {
+      if (!analyticsStoreScoped) return true;
+      const ids = [record?.store_id, record?.storeId, record?.store_connection_id, record?.storeConnectionId]
+        .filter(Boolean).map((value) => String(value).trim());
+      if (requestedStoreId && ids.length) return ids.includes(requestedStoreId);
+
+      const names = [record?.store_name, record?.storeName, record?.shop_name, record?.shopName]
+        .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+      if (requestedStoreName && names.length && names.includes(requestedStoreName)) return true;
+
+      const types = [record?.store_type, record?.storeType, record?.platform, record?.provider]
+        .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+      if (requestedStoreType && types.length && types.includes(requestedStoreType)) {
+        return !requestedStoreName || !names.length || names.includes(requestedStoreName);
+      }
+
+      // A scoped Analytics request must never absorb an unidentifiable record
+      // from another connected store merely because it belongs to the same user.
+      return false;
+    };
+
+    const allCampaigns = (campaignsResult.data || []).filter(analyticsRecordMatchesStore);
+    const allAutomations = (automationsResult.data || []).filter(analyticsRecordMatchesStore);
+    const allAutomationLogs = (logsResult.data || []).filter(analyticsRecordMatchesStore);
 
     const campaigns = allCampaigns.filter((record) =>
       analyticsInRange(record, [
@@ -3891,6 +4003,21 @@ app.get("/analytics", async (req, res) => {
           platform
         ].totalAttempts += 1;
       }
+
+      recordArtworkAttribution({
+        title: campaign?.product_title || campaign?.title || campaign?.campaign_name,
+        productId: campaign?.product_id || null,
+        storeId: campaign?.store_id || campaign?.store_connection_id || null,
+        storeName: campaign?.store_name || campaign?.storeName || null,
+        storeType: campaign?.store_type || campaign?.storeType || null,
+        platform,
+        source: "campaign",
+        successfulPosts: status === "published" ? 1 : 0,
+        failedPosts: status === "failed" ? 1 : 0,
+        timestamp: analyticsRecordDate(campaign, [
+          "published_at", "publish_at", "completed_at", "updated_at", "created_at"
+        ])?.toISOString() || null,
+      });
     }
 
     /*
@@ -3898,8 +4025,55 @@ app.get("/analytics", async (req, res) => {
      * postEngine.js. This is the authoritative source for automatic posts,
      * including partial-success runs.
      */
+    // ARTBOOST_ANALYTICS_ATTRIBUTION_V3164
+    // First-party artwork attribution is derived only from confirmed ArtBoost
+    // campaign/automation publishing records. No external reach/sales are inferred.
     const artworkPublishCounts =
       new Map();
+    const artworkAttribution = new Map();
+
+    const recordArtworkAttribution = ({
+      title,
+      productId = null,
+      storeId = null,
+      storeName = null,
+      storeType = null,
+      platform = null,
+      source = "unknown",
+      successfulPosts = 0,
+      failedPosts = 0,
+      timestamp = null,
+    }) => {
+      const cleanTitle = String(title || "").trim();
+      if (!cleanTitle) return;
+      const key = String(productId || cleanTitle).trim().toLowerCase();
+      const existing = artworkAttribution.get(key) || {
+        productId: productId || null,
+        title: cleanTitle,
+        storeId: storeId || null,
+        storeName: storeName || null,
+        storeType: storeType || null,
+        confirmedPosts: 0,
+        failedAttempts: 0,
+        platforms: {},
+        sources: {},
+        lastActivityAt: null,
+      };
+      existing.confirmedPosts += Number(successfulPosts || 0);
+      existing.failedAttempts += Number(failedPosts || 0);
+      if (platform) {
+        const normalized = normalizedPlatform(platform);
+        existing.platforms[normalized] = Number(existing.platforms[normalized] || 0) +
+          Number(successfulPosts || 0);
+      }
+      existing.sources[source] = Number(existing.sources[source] || 0) +
+        Number(successfulPosts || 0) + Number(failedPosts || 0);
+      if (timestamp && (!existing.lastActivityAt ||
+          new Date(timestamp).getTime() > new Date(existing.lastActivityAt).getTime())) {
+        existing.lastActivityAt = timestamp;
+      }
+      artworkAttribution.set(key, existing);
+    };
 
     let successfulAutomationRuns = 0;
     let partialAutomationRuns = 0;
@@ -3983,6 +4157,21 @@ app.get("/analytics", async (req, res) => {
             platform
           ].failedPosts += 1;
         }
+
+        recordArtworkAttribution({
+          title: log?.product_title || log?.title || log?.automation_name,
+          productId: log?.product_id || null,
+          storeId: log?.store_id || log?.store_connection_id || null,
+          storeName: log?.store_name || log?.storeName || null,
+          storeType: log?.store_type || log?.storeType || null,
+          platform,
+          source: "automation",
+          successfulPosts: result?.success ? 1 : 0,
+          failedPosts: result?.success === false ? 1 : 0,
+          timestamp: analyticsRecordDate(log, [
+            "created_at", "ran_at", "completed_at", "updated_at"
+          ])?.toISOString() || null,
+        });
       }
 
       const productTitle =
@@ -4167,12 +4356,16 @@ app.get("/analytics", async (req, res) => {
           ).getTime()
       )[0] || null;
 
+    const artworkRanking =
+      [...artworkAttribution.values()]
+        .filter((item) => Number(item.confirmedPosts || 0) > 0)
+        .sort((a, b) =>
+          Number(b.confirmedPosts || 0) - Number(a.confirmedPosts || 0) ||
+          new Date(b.lastActivityAt || 0).getTime() - new Date(a.lastActivityAt || 0).getTime()
+        );
+
     const topArtworkEntry =
-      [...artworkPublishCounts.entries()]
-        .sort(
-          (a, b) =>
-            b[1] - a[1]
-        )[0] || null;
+      artworkRanking[0] || null;
 
     const platformRanking =
       Object.entries(
@@ -4295,14 +4488,20 @@ app.get("/analytics", async (req, res) => {
       return date ? date.toISOString() : null;
     };
 
+    const dismissedAnalyticsIssueKeys = new Set(
+      (dismissalsResult?.error ? [] : (dismissalsResult?.data || []))
+        .map((row) => String(row?.issue_key || "").trim())
+        .filter(Boolean)
+    );
+
     const analyticsAttentionItems = [];
     const analyticsIssueKeys = new Set();
 
     const pushAnalyticsIssue = (item) => {
       const key = `${item.type}:${item.id || item.title || analyticsAttentionItems.length}`;
-      if (analyticsIssueKeys.has(key)) return;
+      if (dismissedAnalyticsIssueKeys.has(key) || analyticsIssueKeys.has(key)) return;
       analyticsIssueKeys.add(key);
-      analyticsAttentionItems.push(item);
+      analyticsAttentionItems.push({ ...item, issueKey: key });
     };
 
     for (const campaign of campaigns) {
@@ -4410,6 +4609,14 @@ app.get("/analytics", async (req, res) => {
         storeType: item?.storeType || null,
         timestamp: item?.timestamp || null,
         reason: item?.reason || null,
+        attribution: {
+          source: item?.source || "unknown",
+          productId: item?.productId || null,
+          productTitle: item?.productTitle || item?.title || null,
+          automationId: item?.automationId || null,
+          campaignId: item?.campaignId || null,
+          firstParty: true,
+        },
       });
     };
 
@@ -4417,6 +4624,9 @@ app.get("/analytics", async (req, res) => {
       analyticsPushRecord({
         id: campaign?.id,
         source: "campaign",
+        campaignId: campaign?.id || null,
+        productId: campaign?.product_id || null,
+        productTitle: campaign?.product_title || campaign?.title || null,
         title:
           campaign?.title ||
           campaign?.campaign_name ||
@@ -4452,6 +4662,22 @@ app.get("/analytics", async (req, res) => {
           campaign?.error ||
           campaign?.error_message ||
           null,
+      });
+    }
+
+    for (const automation of automations) {
+      analyticsPushRecord({
+        id: automation?.id,
+        source: "automation",
+        automationId: automation?.id || null,
+        title: automation?.automation_name || automation?.name || automation?.store_name || "Store automation",
+        status: automation?.enabled === false ? "paused" : "active",
+        platform: automation?.platform || null,
+        storeId: automation?.store_id || automation?.store_connection_id || null,
+        storeName: automation?.store_name || null,
+        storeType: automation?.store_type || null,
+        timestamp: analyticsRecordDate(automation, ["updated_at", "created_at", "next_run_at"])?.toISOString() || null,
+        reason: automation?.last_error || null,
       });
     }
 
@@ -4502,6 +4728,9 @@ app.get("/analytics", async (req, res) => {
           analyticsPushRecord({
             id: log?.id,
             source: "automation_run",
+            automationId: log?.automation_id || log?.store_automation_id || null,
+            productId: log?.product_id || null,
+            productTitle: log?.product_title || null,
             title: baseTitle,
             status:
               result?.status ||
@@ -4526,6 +4755,9 @@ app.get("/analytics", async (req, res) => {
         analyticsPushRecord({
           id: log?.id,
           source: "automation_run",
+          automationId: log?.automation_id || log?.store_automation_id || null,
+          productId: log?.product_id || null,
+          productTitle: log?.product_title || null,
           title: baseTitle,
           status: baseStatus,
           platform: log?.platform || null,
@@ -4638,13 +4870,17 @@ app.get("/analytics", async (req, res) => {
       platformRanking,
 
       topArtwork: topArtworkEntry
-        ? {
-            title:
-              topArtworkEntry[0],
-            confirmedPosts:
-              topArtworkEntry[1],
-          }
+        ? topArtworkEntry
         : null,
+      artworkRanking: artworkRanking.slice(0, 25),
+
+      attribution: {
+        basis: "ArtBoost first-party publishing records",
+        externalMetricsInferred: false,
+        sources: ["campaign", "automation"],
+        storeScoped: analyticsStoreScoped,
+        range: analyticsRange,
+      },
 
       bestPlatform,
 
@@ -4662,6 +4898,7 @@ app.get("/analytics", async (req, res) => {
       insight,
 
       range: analyticsRange,
+      scope: analyticsStoreScoped ? { storeId: requestedStoreId || null, storeName: requestedStoreName || null, storeType: requestedStoreType || null } : null,
       rangeStart: analyticsRangeStart
         ? analyticsRangeStart.toISOString()
         : null,

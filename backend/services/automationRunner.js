@@ -1,3 +1,4 @@
+// ARTBOOST_AUTOMATION_RUNNER_GUARDS_V3156
 import supabase from "../lib/supabase.js";
 
 import {
@@ -15,6 +16,10 @@ import {
 import {
   publishToPlatforms,
 } from "./postEngine.js";
+
+import {
+  generatePlatformContent,
+} from "./aiService.js";
 
 function cleanText(value) {
   return String(value || "")
@@ -521,6 +526,27 @@ export async function runAutomation({
       ? automation.platforms
       : [];
 
+  // V3.15.6: scheduled automation execution fails closed unless it can be
+  // bound to one user-owned connected store.
+  if (!userId || !storeId) {
+    throw new Error(
+      "Automation ownership is incomplete. A userId and storeId are required."
+    );
+  }
+
+  const safeSelectionMode = [
+    "random",
+    "never_posted_first",
+    "least_recently_posted",
+  ].includes(String(selectionMode))
+    ? String(selectionMode)
+    : "least_recently_posted";
+
+  const safeRepeatDelayDays = Math.max(
+    Number(repeatDelayDays) || 30,
+    0
+  );
+
   console.log(
     "Running automation with store:",
     {
@@ -529,8 +555,8 @@ export async function runAutomation({
       storeId,
       storeType,
       storeName,
-      selectionMode,
-      repeatDelayDays,
+      selectionMode: safeSelectionMode,
+      repeatDelayDays: safeRepeatDelayDays,
       trigger: normalizedTrigger,
       shouldAdvanceSchedule,
     }
@@ -892,21 +918,33 @@ ${productLink}`,
     }
 
     if (normalizedPlatform === "instagram") {
-      contentByPlatform.instagram = {
+      const instagramFallback = {
         title: `✨ ${title}`,
-
-        description: `${professionalDescription}
-
-${availabilityText}
-
-View this listing:
-${productLink}`,
-
+        description: professionalDescription,
         hashtags,
-
-        cta: "",
+        cta: "Tap the link in bio to shop now.",
       };
 
+      try {
+        const generatedInstagram = await generatePlatformContent({
+          platform: "instagram",
+          product: { ...product, title, description: professionalDescription },
+        });
+        contentByPlatform.instagram = {
+          title: generatedInstagram?.title || instagramFallback.title,
+          description: generatedInstagram?.description || instagramFallback.description,
+          hashtags: generatedInstagram?.hashtags || instagramFallback.hashtags,
+          cta: generatedInstagram?.cta || instagramFallback.cta,
+        };
+      } catch (instagramGenerationError) {
+        console.error(
+          "Instagram automation AI caption generation failed; using safe fallback:",
+          instagramGenerationError instanceof Error
+            ? instagramGenerationError.message
+            : instagramGenerationError
+        );
+        contentByPlatform.instagram = instagramFallback;
+      }
       continue;
     }
 

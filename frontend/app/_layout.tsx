@@ -7,8 +7,12 @@ import { StripeProvider } from "@stripe/stripe-react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { installAuthenticatedBackendFetch } from "@/lib/authenticatedBackendFetch";
+
+installAuthenticatedBackendFetch();
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -21,7 +25,9 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <StripeProvider publishableKey={stripePublishableKey}>
+    <SafeAreaProvider>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#070611" }} edges={["top"]}>
+        <StripeProvider publishableKey={stripePublishableKey}>
       <ThemeProvider
         value={
           colorScheme === "dark"
@@ -66,20 +72,18 @@ export default function RootLayout() {
           <Stack.Screen name="store-automation" />
           <Stack.Screen name="product-post" />
           <Stack.Screen name="video-studio" />
-          <Stack.Screen name="schedule" />
           <Stack.Screen name="store-collections" />
           <Stack.Screen name="store-seo" />
           <Stack.Screen name="store-inventory" />
 
-          <Stack.Screen name="history" />
 
-          <Stack.Screen name="notifications" />
 
-          <Stack.Screen name="explore" />
         </Stack>
 
         <StatusBar style="light" />
       </ThemeProvider>
-    </StripeProvider>
+        </StripeProvider>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }

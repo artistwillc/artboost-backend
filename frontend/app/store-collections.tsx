@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React from "react";
@@ -49,21 +50,21 @@ export default function Screen() {
 }
 
 const styles=StyleSheet.create({
-  screen:{flex:1,backgroundColor:"#0b0b0b"},
-  header:{paddingHorizontal:20,paddingVertical:14,flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderBottomColor:"#252525"},
-  back:{width:44,height:44,borderRadius:15,backgroundColor:"#171717",alignItems:"center",justifyContent:"center"},
+  screen:{flex:1,backgroundColor:"rgba(7, 6, 17, 0.90)"},
+  header:{paddingHorizontal:20,paddingVertical:14,flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderBottomColor:"#211a38"},
+  back:{width:44,height:44,borderRadius:15,backgroundColor:"rgba(16, 13, 32, 0.92)",alignItems:"center",justifyContent:"center"},
   headerText:{marginLeft:14},
   eyebrow:{color:"#a78bfa",fontSize:10,fontWeight:"900",letterSpacing:1.3},
   title:{color:"#fff",fontSize:24,fontWeight:"900",marginTop:2},
   content:{padding:20,paddingBottom:50},
-  storeCard:{flexDirection:"row",alignItems:"center",gap:12,padding:16,borderRadius:18,backgroundColor:"#151515",borderWidth:1,borderColor:"#292929",marginBottom:18},
-  storeLabel:{color:"#777",fontSize:10,fontWeight:"900",letterSpacing:1},
+  storeCard:{flexDirection:"row",alignItems:"center",gap:12,padding:16,borderRadius:18,backgroundColor:"#0f0c1d",borderWidth:1,borderColor:"#3f2e68",marginBottom:18},
+  storeLabel:{color: "#ffffff",fontSize:10,fontWeight:"900",letterSpacing:1},
   storeName:{color:"#fff",fontSize:17,fontWeight:"800",marginTop:3},
   businessPill:{paddingHorizontal:9,paddingVertical:5,borderRadius:20,backgroundColor:"#30204b"},
   businessText:{color:"#d8b4fe",fontSize:9,fontWeight:"900"},
-  card:{padding:18,borderRadius:18,backgroundColor:"#141414",borderWidth:1,borderColor:"#292929",marginBottom:12},
+  card:{padding:18,borderRadius:18,backgroundColor:"#0d0b19",borderWidth:1,borderColor:"#3f2e68",marginBottom:12},
   cardTitle:{color:"#fff",fontSize:17,fontWeight:"900",marginBottom:7},
-  cardText:{color:"#aaa",fontSize:14,lineHeight:21},
+  cardText:{color: "#ffffff",fontSize:14,lineHeight:21},
   primary:{marginTop:8,minHeight:54,borderRadius:17,backgroundColor:"#7c3aed",flexDirection:"row",alignItems:"center",justifyContent:"center",gap:9,paddingHorizontal:18},
   primaryText:{color:"#fff",fontSize:15,fontWeight:"900"},
 });

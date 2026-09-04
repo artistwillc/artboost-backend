@@ -43,7 +43,7 @@ export default function AIHelpAvatar({ size = 44 }: { size?: number }) {
   const rotate = sway.interpolate({ inputRange: [0, 1], outputRange: ["-1.4deg", "1.4deg"] });
 
   return (
-    <View style={{ width: size, height: size }}>
+    <View style={[styles.shell, { width: size + 10, height: size + 10 }]}>
       <Animated.View
         pointerEvents="none"
         style={[
@@ -52,6 +52,8 @@ export default function AIHelpAvatar({ size = 44 }: { size?: number }) {
             width: size,
             height: size,
             borderRadius: size / 2,
+            left: 5,
+            top: 5,
             opacity: glowOpacity,
             transform: [{ scale }],
           },
@@ -64,6 +66,8 @@ export default function AIHelpAvatar({ size = 44 }: { size?: number }) {
           width: size,
           height: size,
           borderRadius: size / 2,
+          marginLeft: 5,
+          marginTop: 5,
           transform: [{ translateY }, { rotate }, { scale }],
         }}
       />
@@ -84,6 +88,7 @@ export default function AIHelpAvatar({ size = 44 }: { size?: number }) {
 }
 
 const styles = StyleSheet.create({
+  shell: { overflow: "visible" },
   glow: {
     position: "absolute",
     backgroundColor: "#5f2eea",

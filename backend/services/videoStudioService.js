@@ -264,17 +264,18 @@ export async function getOwnedProduct(userId, productId) {
   return data;
 }
 
+// ARTBOOST_VIDEO_ULTIMATE_DEFAULTS_V3141
 export async function createVideoJob({
   userId,
   productId,
   templateId = DEFAULT_VIDEO_TEMPLATE,
   userPrompt = "",
-  generationMode = "standard",
-  outputQuality = "720p",
+  generationMode = "seedance2_5",
+  outputQuality = "1080p",
 }) {
   return withVideoQuotaLock(userId, async () => {
-    const normalizedMode = String(generationMode || "standard").trim().toLowerCase() === "seedance2_5" ? "seedance2_5" : "standard";
-    const normalizedQuality = normalizedMode === "seedance2_5" && String(outputQuality || "720p").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
+    const normalizedMode = String(generationMode || "seedance2_5").trim().toLowerCase() === "seedance2_5" ? "seedance2_5" : "standard";
+    const normalizedQuality = normalizedMode === "seedance2_5" && String(outputQuality || "1080p").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
     const requestedCredits = normalizedMode === "seedance2_5" && normalizedQuality === "1080p" ? 2 : 1;
     await assertVideoGenerationAvailable(userId, requestedCredits);
 
@@ -308,8 +309,9 @@ export async function createVideoJob({
         store_type: product.store_type || null,
         store_name: product.store_name || null,
       },
-      output_width: 1080,
-      output_height: 1920,
+      // ARTBOOST_VIDEO_SELECTED_RESOLUTION_INTEGRITY_V3165
+      output_width: normalizedQuality === "1080p" ? 1080 : 720,
+      output_height: normalizedQuality === "1080p" ? 1920 : 1280,
       output_fps: 30,
     };
 
@@ -438,7 +440,7 @@ export async function regenerateVideoJob({ userId, jobId, templateId, userPrompt
     userPrompt:
       cleanVideoGuidance(userPrompt) ||
       String(previous?.source_snapshot?.user_prompt || ""), // ARTBOOST_VIDEO_GUIDANCE_REGEN_STEP_FIX_V1_3
-    generationMode: generationMode || previous?.source_snapshot?.video_model_mode || "standard",
-    outputQuality: outputQuality || previous?.source_snapshot?.video_output_quality || "720p",
+    generationMode: generationMode || previous?.source_snapshot?.video_model_mode || "seedance2_5",
+    outputQuality: outputQuality || previous?.source_snapshot?.video_output_quality || "1080p",
   });
 }

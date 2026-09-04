@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   ActivityIndicator,
@@ -116,130 +116,6 @@ export default function StoreDashboardScreen() {
 
   const [productCount, setProductCount] =
     useState(initialProductCount);
-  const [subscriptionTier, setSubscriptionTier] =
-    useState("starter");
-
-  const hasBusinessAccess =
-    String(subscriptionTier).trim().toLowerCase() === "business";
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSubscriptionTier() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const userId = session?.user?.id;
-      if (!userId) return;
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("subscription_tier")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (!cancelled) {
-        setSubscriptionTier(
-          String(data?.subscription_tier || "starter")
-        );
-      }
-    }
-
-    loadSubscriptionTier();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  function openBusinessTool(
-    pathname: "/analytics" | "/store-collections" | "/store-seo" | "/store-inventory"
-  ) {
-    if (!hasBusinessAccess) {
-      Alert.alert(
-        "Business Feature",
-        "This store tool is included with the ArtBoost AI Business plan.",
-        [
-          { text: "Not Now", style: "cancel" },
-          {
-            text: "View Plans",
-            onPress: () => router.push("/(tabs)/pro" as any),
-          },
-        ]
-      );
-      return;
-    }
-
-    router.push({
-      pathname: pathname as any,
-      params: { storeId, storeName, storeType },
-    });
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAuthoritativeStoreProductCount() {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        const user = session?.user || null;
-        if (!user?.id) return;
-
-        const query = new URLSearchParams({
-          userId: user.id,
-          limit: "1",
-          offset: "0",
-        });
-
-        if (storeId) {
-          query.set("storeId", String(storeId));
-        } else if (storeType) {
-          query.set(
-            "storeType",
-            String(storeType).trim().toLowerCase()
-          );
-          if (storeName) {
-            query.set("storeName", String(storeName));
-          }
-        }
-
-        const response = await fetch(
-          `${API_BASE}/products?${query.toString()}`,
-          {
-            headers: session?.access_token
-              ? {
-                  Authorization: `Bearer ${session.access_token}`,
-                }
-              : {},
-          }
-        );
-        const data = await response.json();
-
-        if (
-          response.ok &&
-          data?.success &&
-          Number.isFinite(Number(data.total)) &&
-          !cancelled
-        ) {
-          setProductCount(Number(data.total || 0));
-        }
-      } catch (error) {
-        console.log(
-          "Store dashboard product count refresh failed:",
-          error
-        );
-      }
-    }
-
-    loadAuthoritativeStoreProductCount();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [storeId, storeName, storeType]);
 
   const [lastSyncedAt, setLastSyncedAt] =
     useState(params.lastSyncedAt || "");
@@ -339,14 +215,10 @@ const syncButtonLabel = useMemo(() => {
     return syncing ? "Syncing..." : "Sync Listings";
   }
 
-  if (type === "redbubble") {
-    return "Import Catalog";
-  }
-
-  return productCount > 0
-    ? "Import More"
-    : "Import Products";
-}, [productCount, storeType, syncing]);
+  return syncing
+    ? "Refreshing..."
+    : "Refresh / Sync";
+}, [storeType, syncing]);
 
   function openProducts() {
     router.push({
@@ -399,7 +271,7 @@ const syncButtonLabel = useMemo(() => {
         }
 
         const response = await fetch(
-          `${API_BASE}/etsy/sync?userId=${encodeURIComponent(user.id)}`,
+          `${API_BASE}/etsy/sync`,
           {
             method: "POST",
             headers: {
@@ -469,12 +341,29 @@ const syncButtonLabel = useMemo(() => {
       return;
     }
 
+    if (!connected) {
+      Alert.alert(
+        "Store Disconnected",
+        "Reconnect this store before refreshing its products."
+      );
+      return;
+    }
+
+    if (!storeId) {
+      Alert.alert(
+        "Store Unavailable",
+        "ArtBoost could not identify this saved store connection."
+      );
+      return;
+    }
+
     router.push({
-      pathname: "/catalog-importer" as any,
+      pathname: "/ai-store-scanner" as any,
       params: {
         storeId,
         storeName,
         storeType,
+        autoSync: "true",
       },
     });
   }
@@ -494,15 +383,17 @@ const syncButtonLabel = useMemo(() => {
       <View style={styles.header}>
         <Pressable
   style={styles.backButton}
-          // ARTBOOST_LAUNCH_FIXES_V1_20260821_STORE_BACK
   onPress={() =>
-            router.replace({
-              pathname: "/(tabs)/connections" as any,
-              params: { section: "stores" },
-            })
-          }
-        >
-          <Ionicons
+  router.replace({
+    pathname:
+      "/(tabs)/connections" as any,
+    params: {
+      section: "stores",
+    },
+  })
+}
+>
+  <Ionicons
     name="arrow-back"
     size={24}
     color="#ffffff"
@@ -741,45 +632,33 @@ const syncButtonLabel = useMemo(() => {
         <DashboardAction
           icon="analytics-outline"
           title="Analytics"
-          description={
-            hasBusinessAccess
-              ? "Open performance analytics and drill-down reporting."
-              : "Business: performance analytics and drill-down reporting."
-          }
-          onPress={() => openBusinessTool("/analytics")}
+          description="Track product views, clicks, and social performance."
+          onPress={() => {}}
+          disabled
         />
 
         <DashboardAction
           icon="folder-open-outline"
           title="Collections"
-          description={
-            hasBusinessAccess
-              ? "Organize products for campaigns and promotion workflows."
-              : "Business: organize products for campaign workflows."
-          }
-          onPress={() => openBusinessTool("/store-collections")}
+          description="Organize products into categories and campaigns."
+          onPress={() => {}}
+          disabled
         />
 
         <DashboardAction
           icon="search-outline"
           title="SEO Tools"
-          description={
-            hasBusinessAccess
-              ? "Review listing SEO and open products for optimization."
-              : "Business: listing SEO and product optimization."
-          }
-          onPress={() => openBusinessTool("/store-seo")}
+          description="Improve titles, descriptions, keywords, and tags."
+          onPress={() => {}}
+          disabled
         />
 
         <DashboardAction
           icon="layers-outline"
           title="Inventory"
-          description={
-            hasBusinessAccess
-              ? "Review imported catalog availability and listing status."
-              : "Business: catalog availability and listing status."
-          }
-          onPress={() => openBusinessTool("/store-inventory")}
+          description="Review product availability and listing status."
+          onPress={() => {}}
+          disabled
         />
 
         <DashboardAction
@@ -804,9 +683,9 @@ const syncButtonLabel = useMemo(() => {
             </Text>
 
             <Text style={styles.futureText}>
-              Business tools are now available from this dashboard.
-              Analytics, collections, inventory, and SEO stay tied
-              to the selected store and its imported catalog.
+              ArtBoost will eventually manage product
+              synchronization, promotion history, analytics,
+              collections, inventory, and SEO from this dashboard.
             </Text>
           </View>
         </View>

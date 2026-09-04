@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
   router,
@@ -655,7 +656,7 @@ function openAIStoreScanner() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -746,7 +747,7 @@ const styles = StyleSheet.create({
   },
 
   storeDescription: {
-    color: "#999999",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 6,
@@ -776,7 +777,7 @@ const styles = StyleSheet.create({
   },
 
   marketplaceSoon: {
-    color: "#777777",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 8,
   },
@@ -790,7 +791,7 @@ const styles = StyleSheet.create({
   },
 
   advancedLabel: {
-    color: "#8f8f8f",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.5,
@@ -875,14 +876,14 @@ const styles = StyleSheet.create({
   },
 
   optionDescription: {
-    color: "#898989",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 17,
     marginTop: 4,
   },
 
   disabledText: {
-    color: "#727272",
+    color: "#ffffff",
   },
 
   soonPill: {
@@ -893,7 +894,7 @@ const styles = StyleSheet.create({
   },
 
   soonText: {
-    color: "#888888",
+    color: "#ffffff",
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -901,7 +902,7 @@ const styles = StyleSheet.create({
 
   infoCard: {
     borderRadius: 18,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 16,
@@ -913,7 +914,7 @@ const styles = StyleSheet.create({
 
   infoText: {
     flex: 1,
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
   },

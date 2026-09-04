@@ -45,7 +45,7 @@ function fallbackContent({
         cleanDescription ||
         `${cleanTitle} is now available.`,
       hashtags:
-        "#art #artist #shopsmall #supportartists",
+        "#art #artist #artwork #artforsale #shopsmall #supportartists #artistmade #creativebusiness",
       cta:
         "Tap the link in bio to shop now.",
     };
@@ -139,11 +139,13 @@ Return exactly this structure:
 Platform rules:
 
 Instagram:
-- Write an engaging caption under 100 words.
-- Focus on the artwork or design.
-- Product links are not clickable in captions.
-- The CTA must direct the customer to the link in bio.
-- Include 5 to 8 relevant hashtags.
+- Write an engaging, natural caption under 100 words.
+- Focus on the actual artwork/design, product facts, niche, and likely audience supplied above.
+- Never invent claims, materials, availability, discounts, reviews, or product features.
+- Never put a URL, "www." address, or raw product link in the title, description, hashtags, or CTA.
+- Product links are not clickable in Instagram captions.
+- The CTA must explicitly direct the customer to the link in bio.
+- Include 8 to 15 relevant niche hashtags based only on supplied product facts.
 
 Facebook:
 - Write concise promotional copy under 125 words.
@@ -175,6 +177,30 @@ function parseJsonResponse(outputText) {
     .trim();
 
   return JSON.parse(cleanOutput);
+}
+
+function stripUrls(value) {
+  return cleanText(value)
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/www\.\S+/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function normalizeInstagramContent(content, fallback) {
+  const title = stripUrls(content?.title) || fallback.title;
+  const description = stripUrls(content?.description) || stripUrls(fallback.description);
+  const rawHashtags = stripUrls(content?.hashtags) || stripUrls(fallback.hashtags);
+  const hashtags = rawHashtags
+    .split(/\s+/)
+    .filter((tag) => /^#[A-Za-z0-9_]+$/.test(tag))
+    .slice(0, 15)
+    .join(" ");
+  let cta = stripUrls(content?.cta);
+  if (!/\blink\s+in\s+(?:the\s+)?bio\b/i.test(cta)) {
+    cta = "Tap the link in bio to shop now.";
+  }
+  return { title, description, hashtags: hashtags || fallback.hashtags, cta };
 }
 
 export async function generatePlatformContent({
@@ -218,7 +244,9 @@ export async function generatePlatformContent({
       "AI content generation skipped because the platform was missing."
     );
 
-    return fallback;
+    return normalizedPlatform === "instagram"
+      ? normalizeInstagramContent(fallback, fallback)
+      : fallback;
   }
 
   if (!process.env.OPENAI_API_KEY) {
@@ -226,7 +254,9 @@ export async function generatePlatformContent({
       "OPENAI_API_KEY is missing. Using fallback marketing content."
     );
 
-    return fallback;
+    return normalizedPlatform === "instagram"
+      ? normalizeInstagramContent(fallback, fallback)
+      : fallback;
   }
 
   try {
@@ -262,27 +292,16 @@ export async function generatePlatformContent({
         outputText
       );
 
-    return {
-      title:
-        cleanText(parsed?.title) ||
-        fallback.title,
-
-      description:
-        cleanText(
-          parsed?.description
-        ) ||
-        fallback.description,
-
-      hashtags:
-        cleanText(
-          parsed?.hashtags
-        ) ||
-        fallback.hashtags,
-
-      cta:
-        cleanText(parsed?.cta) ||
-        fallback.cta,
+    const generated = {
+      title: cleanText(parsed?.title) || fallback.title,
+      description: cleanText(parsed?.description) || fallback.description,
+      hashtags: cleanText(parsed?.hashtags) || fallback.hashtags,
+      cta: cleanText(parsed?.cta) || fallback.cta,
     };
+
+    return normalizedPlatform === "instagram"
+      ? normalizeInstagramContent(generated, fallback)
+      : generated;
   } catch (error) {
     console.error(
       `AI content generation failed for ${normalizedPlatform}:`,
@@ -291,7 +310,9 @@ export async function generatePlatformContent({
         : error
     );
 
-    return fallback;
+    return normalizedPlatform === "instagram"
+      ? normalizeInstagramContent(fallback, fallback)
+      : fallback;
   }
 }
 

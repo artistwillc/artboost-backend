@@ -1,7 +1,9 @@
+// ARTBOOST_AUTOMATION_ROUTE_OWNERSHIP_V3156
 import express from "express";
 import { resolveRequestUserId } from "../middleware/auth.js";
 
 import {
+  calculateNextRun,
   createOrUpdateAutomation,
   disableAutomation,
   getAutomationById,
@@ -19,6 +21,40 @@ import {
 import supabase from "../lib/supabase.js";
 
 const router = express.Router();
+
+async function assertOwnedConnectedStore(userId, storeId) {
+  const { data, error } = await supabase
+    .from("store_connections")
+    .select("id,connected")
+    .eq("id", String(storeId))
+    .eq("user_id", String(userId))
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Unable to verify store ownership: ${error.message}`);
+  }
+
+  if (data) {
+    if (!data.connected) throw new Error("The selected store is not connected.");
+    return true;
+  }
+
+  const { data: legacy, error: legacyError } = await supabase
+    .from("social_connections")
+    .select("id,connected")
+    .eq("id", String(storeId))
+    .eq("user_id", String(userId))
+    .maybeSingle();
+
+  if (legacyError) {
+    throw new Error(`Unable to verify legacy store ownership: ${legacyError.message}`);
+  }
+  if (!legacy || !legacy.connected) {
+    throw new Error("The selected store is not an active connection owned by this user.");
+  }
+  return true;
+}
+
 
 /*
  * GET /automations/store/:storeId
@@ -341,6 +377,305 @@ router.post(
         success: false,
         error:
           "Unable to save automation.",
+        details: error.message,
+      });
+    }
+  }
+);
+
+/*
+ * POST /automations/multi-daily
+ *
+ * V3.16.2: saves multiple independent daily scheduler slots.
+ * Each slot is a normal store_automations row, so the existing
+ * scheduler continues to own execution while the app is closed.
+ */
+router.post(
+  "/multi-daily",
+  async (req, res) => {
+    try {
+      const {
+        storeId,
+        storeType,
+        storeName,
+        enabled = false,
+        postingTimes = [],
+        startDate = null,
+        timezone = "America/Chicago",
+        platforms = [],
+        facebookPageId = null,
+        pinterestBoardId = null,
+        tiktokPrivacyLevel = null,
+        tiktokDisableComment = false,
+        tiktokAutoAddMusic = true,
+        tiktokBrandOrganicToggle = true,
+        tiktokBrandContentToggle = false,
+        tiktokConsent = false,
+        selectionMode =
+          "least_recently_posted",
+        repeatDelayDays = 30,
+        replaceAutomationId = null,
+      } = req.body || {};
+
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) return;
+
+      if (!storeId || !storeType || !storeName) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "storeId, storeType, and storeName are required.",
+        });
+      }
+
+      await assertOwnedConnectedStore(
+        String(userId),
+        String(storeId)
+      );
+
+      if (
+        !Array.isArray(postingTimes) ||
+        postingTimes.length < 1
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Select at least one posting time.",
+        });
+      }
+
+      if (!Array.isArray(platforms)) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Platforms must be an array.",
+        });
+      }
+
+      const uniqueTimes = [
+        ...new Set(
+          postingTimes.map((value) =>
+            String(value || "")
+              .trim()
+              .slice(0, 5)
+          )
+        ),
+      ].sort();
+
+      const validTimePattern =
+        /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+      if (
+        uniqueTimes.length < 1 ||
+        uniqueTimes.some(
+          (value) =>
+            !validTimePattern.test(value)
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Every posting time must use HH:MM 24-hour format.",
+        });
+      }
+
+      if (uniqueTimes.length > 8) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "A maximum of 8 daily posting times is supported.",
+        });
+      }
+
+      const parsedRepeatDelay =
+        Math.max(
+          Number(repeatDelayDays) || 0,
+          0
+        );
+
+      const now = new Date().toISOString();
+      const namePrefix =
+        "ArtBoost Multi-Daily";
+
+      /*
+       * Snapshot prior V3.16.2 slots before creating replacements.
+       * New slots are inserted first so a failed insert cannot erase
+       * a previously working schedule.
+       */
+      const {
+        data: priorManagedRows,
+        error: priorRowsError,
+      } = await supabase
+        .from("store_automations")
+        .select("id")
+        .eq("user_id", String(userId))
+        .eq("store_id", String(storeId))
+        .like(
+          "automation_name",
+          `${namePrefix}%`
+        );
+
+      if (priorRowsError) {
+        throw new Error(
+          `Unable to inspect prior multi-daily slots: ${priorRowsError.message}`
+        );
+      }
+
+      const priorIds = new Set(
+        (priorManagedRows || []).map(
+          (row) => String(row.id)
+        )
+      );
+
+      if (replaceAutomationId) {
+        priorIds.add(
+          String(replaceAutomationId)
+        );
+      }
+
+      const rows = uniqueTimes.map(
+        (time) => {
+          const postingTime =
+            `${time}:00`;
+
+          const nextRunAt =
+            calculateNextRun({
+              frequency: "daily",
+              postingTime,
+              startDate,
+              timezone:
+                String(timezone) ||
+                "America/Chicago",
+              fromDate: new Date(),
+              initialSchedule: true,
+            });
+
+          return {
+            user_id: String(userId),
+            store_id: String(storeId),
+            store_type: String(storeType),
+            store_name: String(storeName),
+            automation_name:
+              `${namePrefix} • ${time}`,
+            enabled: Boolean(enabled),
+            frequency: "daily",
+            posting_time: postingTime,
+            start_date:
+              startDate
+                ? String(startDate)
+                : null,
+            timezone:
+              String(timezone) ||
+              "America/Chicago",
+            platforms,
+            facebook_page_id:
+              facebookPageId
+                ? String(facebookPageId)
+                : null,
+            board_id:
+              pinterestBoardId
+                ? String(pinterestBoardId)
+                : null,
+            tiktok_privacy_level:
+              tiktokPrivacyLevel
+                ? String(tiktokPrivacyLevel)
+                : null,
+            tiktok_disable_comment:
+              Boolean(
+                tiktokDisableComment
+              ),
+            tiktok_auto_add_music:
+              Boolean(tiktokAutoAddMusic),
+            tiktok_brand_organic_toggle:
+              Boolean(
+                tiktokBrandOrganicToggle
+              ),
+            tiktok_brand_content_toggle:
+              Boolean(
+                tiktokBrandContentToggle
+              ),
+            tiktok_consent:
+              Boolean(tiktokConsent),
+            posting_interval_days: 1,
+            selection_mode:
+              String(selectionMode),
+            repeat_delay_days:
+              parsedRepeatDelay,
+            next_run_at:
+              nextRunAt instanceof Date
+                ? nextRunAt.toISOString()
+                : String(nextRunAt),
+            last_error: null,
+            created_at: now,
+            updated_at: now,
+          };
+        }
+      );
+
+      const {
+        data: automations,
+        error: insertError,
+      } = await supabase
+        .from("store_automations")
+        .insert(rows)
+        .select("*");
+
+      if (insertError) {
+        throw new Error(
+          `Unable to save multi-daily automation: ${insertError.message}`
+        );
+      }
+
+      const oldIds = [...priorIds].filter(
+        (id) =>
+          !(automations || []).some(
+            (row) =>
+              String(row.id) === id
+          )
+      );
+
+      let cleanupWarning = null;
+
+      if (oldIds.length > 0) {
+        const {
+          error: cleanupError,
+        } = await supabase
+          .from("store_automations")
+          .delete()
+          .eq("user_id", String(userId))
+          .eq("store_id", String(storeId))
+          .in("id", oldIds);
+
+        if (cleanupError) {
+          cleanupWarning =
+            "New posting times were saved, but older multi-daily slots could not be removed. Review Scheduled Promotions before enabling the new slots.";
+
+          console.error(
+            "Multi-daily old-slot cleanup failed:",
+            cleanupError
+          );
+        }
+      }
+
+      return res.json({
+        success: true,
+        total: automations?.length || 0,
+        postingTimes: uniqueTimes,
+        automations: automations || [],
+        cleanupWarning,
+      });
+    } catch (error) {
+      console.error(
+        "Multi-daily automation save error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to save the multiple-daily automation.",
         details: error.message,
       });
     }

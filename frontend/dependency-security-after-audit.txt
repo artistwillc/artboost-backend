@@ -1,0 +1,146 @@
+# npm audit report
+
+brace-expansion  <=1.1.17
+Severity: high
+brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash - https://github.com/advisories/GHSA-mh99-v99m-4gvg
+brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation - https://github.com/advisories/GHSA-rgw5-rvv9-x895
+fix available via `npm audit fix`
+node_modules/brace-expansion
+
+elliptic  *
+Elliptic Uses a Cryptographic Primitive with a Risky Implementation - https://github.com/advisories/GHSA-848j-6mx2-7j84
+fix available via `npm audit fix --force`
+Will install crypto-browserify@3.5.1, which is a breaking change
+node_modules/elliptic
+  browserify-sign  >=2.4.0
+  Depends on vulnerable versions of elliptic
+  node_modules/browserify-sign
+    crypto-browserify  >=3.4.0
+    Depends on vulnerable versions of browserify-sign
+    Depends on vulnerable versions of create-ecdh
+    node_modules/crypto-browserify
+  create-ecdh  *
+  Depends on vulnerable versions of elliptic
+  node_modules/create-ecdh
+
+image-size  *
+Severity: high
+image-size: ICNS parser allows denial of service through an infinite loop - https://github.com/advisories/GHSA-w3rx-r6r6-pgpr
+image-size: JXL and HEIF parsers allow denial of service through infinite loops - https://github.com/advisories/GHSA-5p2g-fcmc-qvqq
+fix available via `npm audit fix --force`
+Will install expo@57.0.17, which is a breaking change
+node_modules/image-size
+  metro  0.22.1 - 0.83.7 || 0.84.0 - 0.84.4 || >=0.85.0
+  Depends on vulnerable versions of image-size
+  Depends on vulnerable versions of metro-config
+  Depends on vulnerable versions of metro-transform-worker
+  node_modules/metro
+    @expo/metro  <=55.1.1 || 56.0.0-rc.0 - 56.0.1
+    Depends on vulnerable versions of metro
+    Depends on vulnerable versions of metro-config
+    Depends on vulnerable versions of metro-transform-worker
+    node_modules/@expo/metro
+      @expo/cli  <=0.0.0-canary-20231123-1b19f96-4 || >=0.0.1-canary-20231125-d600e44
+      Depends on vulnerable versions of @expo/config
+      Depends on vulnerable versions of @expo/config-plugins
+      Depends on vulnerable versions of @expo/metro
+      Depends on vulnerable versions of @expo/metro-config
+      Depends on vulnerable versions of @expo/prebuild-config
+      node_modules/@expo/cli
+        expo  >=41.0.0-alpha.0
+        Depends on vulnerable versions of @expo/cli
+        Depends on vulnerable versions of @expo/config
+        Depends on vulnerable versions of @expo/config-plugins
+        Depends on vulnerable versions of @expo/metro
+        Depends on vulnerable versions of @expo/metro-config
+        Depends on vulnerable versions of expo-asset
+        Depends on vulnerable versions of expo-constants
+        node_modules/expo
+      @expo/metro-config  <=0.0.1-canary-20240418-8d74597 || >=0.1.49-alpha.0
+      Depends on vulnerable versions of @expo/config
+      Depends on vulnerable versions of @expo/metro
+      Depends on vulnerable versions of postcss
+      node_modules/@expo/metro-config
+    metro-config  <=0.83.7 || 0.84.0 - 0.84.4 || >=0.85.0
+    Depends on vulnerable versions of metro
+    node_modules/metro-config
+    metro-transform-worker  0.60.0 - 0.83.7 || 0.84.0 - 0.84.4 || >=0.85.0
+    Depends on vulnerable versions of metro
+    node_modules/metro-transform-worker
+
+postcss  <=8.5.22
+Severity: high
+PostCSS has XSS via Unescaped </style> in its CSS Stringify Output - https://github.com/advisories/GHSA-qx2v-qp2m-jg93
+PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments - https://github.com/advisories/GHSA-6g55-p6wh-862q
+PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset - https://github.com/advisories/GHSA-fxqj-rqcc-2cmp
+PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure - https://github.com/advisories/GHSA-r28c-9q8g-f849
+fix available via `npm audit fix --force`
+Will install expo@57.0.17, which is a breaking change
+node_modules/postcss
+
+uuid  <11.1.1
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+fix available via `npm audit fix --force`
+Will install expo@57.0.17, which is a breaking change
+node_modules/uuid
+node_modules/xcode/node_modules/uuid
+  @expo/ngrok  *
+  Depends on vulnerable versions of uuid
+  node_modules/@expo/ngrok
+  xcode  >=0.9.2
+  Depends on vulnerable versions of uuid
+  node_modules/xcode
+    @expo/config-plugins  *
+    Depends on vulnerable versions of xcode
+    node_modules/@expo/config-plugins
+      @expo/config  <=0.0.1-canary-20240418-8d74597 || >=3.3.23-alpha.0
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/@expo/config
+        expo-constants  <=0.0.1-canary-20240418-8d74597 || 10.1.2 - 55.0.14 || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+        Depends on vulnerable versions of @expo/config
+        node_modules/expo-constants
+          expo-asset  <=0.0.1-canary-20240418-8d74597 || 8.6.1 - 55.0.0-canary-20260223-05214f1 || 55.0.3-canary-20260128-67ce8d5 || 55.0.8-canary-20260424-7bedc9d - 55.0.8-canary-20260429-a5e59cf || 55.0.11-canary-20260327-0789fbc - 55.0.11-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+          Depends on vulnerable versions of expo-constants
+          node_modules/expo-asset
+          expo-linking  <=0.0.1-canary-20240418-8d74597 || 2.2.2 - 55.0.0-canary-20260223-05214f1 || 55.0.4-canary-20260128-67ce8d5 || 55.0.8-canary-20260424-7bedc9d - 55.0.8-canary-20260429-a5e59cf || 55.0.10-canary-20260327-0789fbc - 55.0.10-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+          Depends on vulnerable versions of expo-constants
+          node_modules/expo-linking
+          expo-notifications  <=0.0.1-canary-20240418-8d74597 || 0.11.4 - 55.0.0-canary-20260223-05214f1 || 55.0.5-canary-20260128-67ce8d5 || 55.0.11-canary-20260424-7bedc9d - 55.0.11-canary-20260429-a5e59cf || 55.0.15-canary-20260327-0789fbc - 55.0.15-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d || 56.0.15-canary-20260526-6cd5e37 - 56.0.15-canary-20260701-9100865 || 57.0.0-canary-20260526-13e89ca - 57.0.0-canary-20260623-1c70a78
+          Depends on vulnerable versions of expo-constants
+          node_modules/expo-notifications
+          expo-router  <=0.0.33 || 4.0.13-canary-20241211-61c49bd || 4.0.18-canary-20250124-42fe332 - 4.0.18-canary-20250306-d9d3e02 || 4.0.20-canary-20250320-7a205d3 || 4.0.21 - 5.0.2-preview.6 || 5.2.0-canary-20250611-f0afe80 - 55.0.0-canary-20260223-05214f1 || 55.0.3-canary-20260424-7bedc9d - 55.0.3-canary-20260429-a5e59cf || 55.0.9-canary-20260327-0789fbc - 55.0.9-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d || 56.2.8-canary-20260526-6cd5e37 - 56.2.8-canary-20260628-fc0d9b4 || 57.0.0-canary-20260526-13e89ca - 57.0.0-canary-20260623-1c70a78
+          Depends on vulnerable versions of expo-constants
+          Depends on vulnerable versions of expo-linking
+          node_modules/expo-router
+        expo-manifests  <=0.0.1-canary-20240418-8d74597 || 0.9.0 - 55.0.15 || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+        Depends on vulnerable versions of @expo/config
+        node_modules/expo-manifests
+          expo-dev-client  <=0.0.1-canary-20240418-8d74597 || 3.1.0 - 55.0.0-canary-20260223-05214f1 || 55.0.4-canary-20260128-67ce8d5 || 55.0.10-canary-20260424-7bedc9d - 55.0.10-canary-20260429-a5e59cf || 55.0.20-canary-20260327-0789fbc - 55.0.20-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+          Depends on vulnerable versions of expo-dev-launcher
+          Depends on vulnerable versions of expo-manifests
+          node_modules/expo-dev-client
+          expo-dev-launcher  <=0.0.1-canary-20240418-8d74597 || 3.1.0 - 55.0.0-canary-20260223-05214f1 || 55.0.5-canary-20260128-67ce8d5 || 55.0.11-canary-20260424-7bedc9d - 55.0.11-canary-20260429-a5e59cf || 55.0.21-canary-20260327-0789fbc - 55.0.21-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d
+          Depends on vulnerable versions of expo-manifests
+          node_modules/expo-dev-launcher
+          expo-updates  <=0.0.1-canary-20240418-8d74597 || 0.20.0 - 55.0.0-canary-20260223-05214f1 || 55.0.6-canary-20260128-67ce8d5 || 55.0.12-canary-20260424-7bedc9d - 55.0.12-canary-20260429-a5e59cf || 55.0.17-canary-20260327-0789fbc - 55.0.17-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0-canary-20260506-964f25d || 58.0.0-canary-20260805-ccd18b9
+          Depends on vulnerable versions of expo-manifests
+          node_modules/expo-updates
+      @expo/prebuild-config  *
+      Depends on vulnerable versions of @expo/config
+      Depends on vulnerable versions of @expo/config-plugins
+      node_modules/@expo/prebuild-config
+        expo-splash-screen  <=0.0.1-canary-20240418-8d74597 || 0.11.0 - 56.0.0-canary-20260506-964f25d
+        Depends on vulnerable versions of @expo/prebuild-config
+        node_modules/expo-splash-screen
+
+30 vulnerabilities (4 low, 16 moderate, 10 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.

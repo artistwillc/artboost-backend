@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
   router,
@@ -886,7 +887,7 @@ export default function CatalogImportUrlsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -977,7 +978,7 @@ const styles = StyleSheet.create({
   },
 
   storeDescription: {
-    color: "#999999",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 6,
@@ -1023,7 +1024,7 @@ const styles = StyleSheet.create({
   },
 
   modeButtonText: {
-    color: "#9b8fb5",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "900",
   },
@@ -1034,7 +1035,7 @@ const styles = StyleSheet.create({
 
   instructionsCard: {
     borderRadius: 18,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 16,
@@ -1054,7 +1055,7 @@ const styles = StyleSheet.create({
   },
 
   instructionsText: {
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 9,
@@ -1090,7 +1091,7 @@ const styles = StyleSheet.create({
   },
 
   sectionSubtitle: {
-    color: "#7d7d7d",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "700",
     marginTop: 4,
@@ -1115,7 +1116,7 @@ const styles = StyleSheet.create({
   },
 
   clearButtonTextDisabled: {
-    color: "#555555",
+    color: "#ffffff",
   },
 
   urlInput: {

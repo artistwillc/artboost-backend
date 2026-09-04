@@ -1,12 +1,17 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_V3142_FINAL_CLEANUP_ICONS
+// ARTBOOST_WHITE_TEXT_AUDIT_V3141
 /* eslint-disable react/no-unescaped-entities */
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "../lib/supabase";
 import {
   Alert,
@@ -36,6 +41,10 @@ type SelectionMode =
   | "never_posted_first"
   | "least_recently_posted"
   | "random";
+
+type AutomationSource =
+  | "all_products"
+  | "favorites";
 
 type PlatformOption = {
   id: string;
@@ -96,7 +105,8 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     label: "TikTok",
     icon: "logo-tiktok",
     available: true,
-  },  {
+  },
+  {
     id: "universal",
     label: "Universal Social",
     icon: "git-network-outline",
@@ -231,21 +241,6 @@ function formatStoreName(
   return storeName;
 }
 
-function normalizeTimeInput(
-  value: string
-) {
-  const digits = value.replace(/\D/g, "");
-
-  if (digits.length <= 2) {
-    return digits;
-  }
-
-  return `${digits.slice(0, 2)}:${digits.slice(
-    2,
-    4
-  )}`;
-}
-
 function validateTime(
   value: string
 ) {
@@ -370,13 +365,18 @@ function formatDateForDisplay(
   );
 }
 
+// ARTBOOST_STORE_AUTOMATION_WARNING_CLEANUP_V3102
 export default function StoreAutomationScreen() {
   const params = useLocalSearchParams<{
+    automationId?: string;
     storeId?: string;
     storeName?: string;
     storeType?: string;
     productCount?: string;
   }>();
+
+  // ARTBOOST_ANALYTICS_ISSUE_AUTOMATION_DEEPLINK_V3101C
+  const requestedAutomationId = String(params.automationId || "").trim();
 
   const storeId = params.storeId || "";
   const storeName =
@@ -421,6 +421,23 @@ export default function StoreAutomationScreen() {
 
   const [postingTime, setPostingTime] =
     useState("09:00");
+
+  const [
+    additionalPostingTimes,
+    setAdditionalPostingTimes,
+  ] = useState<string[]>([]);
+
+  const [
+    showAdditionalTimePicker,
+    setShowAdditionalTimePicker,
+  ] = useState(false);
+
+  const [
+    automationSource,
+    setAutomationSource,
+  ] = useState<AutomationSource>(
+    "all_products"
+  );
 
     const [startDate, setStartDate] =
   useState(
@@ -569,7 +586,7 @@ const [
     let screenIsActive = true;
 
     async function loadAutomation() {
-      if (!storeId) {
+      if (!storeId && !requestedAutomationId) {
         setLoadingAutomation(false);
         return;
       }
@@ -594,13 +611,11 @@ const [
           );
         }
 
-        const response = await fetch(
-          `${API_BASE}/automations/store/${encodeURIComponent(
-            storeId
-          )}?userId=${encodeURIComponent(
-            user.id
-          )}`
-        );
+        const automationEndpoint = requestedAutomationId
+          ? `${API_BASE}/automations/${encodeURIComponent(requestedAutomationId)}?userId=${encodeURIComponent(user.id)}`
+          : `${API_BASE}/automations/store/${encodeURIComponent(storeId)}?userId=${encodeURIComponent(user.id)}`;
+
+        const response = await fetch(automationEndpoint);
 
         const responseText =
           await response.text();
@@ -631,11 +646,9 @@ const [
           );
         }
 
-        const automation =
-          Array.isArray(
-            data.automations
-          ) &&
-          data.automations.length > 0
+        const automation = requestedAutomationId
+          ? data.automation || null
+          : Array.isArray(data.automations) && data.automations.length > 0
             ? data.automations[0]
             : null;
 
@@ -771,19 +784,40 @@ if (savedStartDate) {
         );
 
         const savedSelectionMode =
-          automation.selection_mode ||
-          automation.selectionMode;
+          String(
+            automation.selection_mode ||
+              automation.selectionMode ||
+              "least_recently_posted"
+          );
+
+        const savedFavoritesSource =
+          savedSelectionMode.startsWith(
+            "favorites_"
+          );
+
+        const savedBaseSelectionMode =
+          savedFavoritesSource
+            ? savedSelectionMode.slice(
+                "favorites_".length
+              )
+            : savedSelectionMode;
+
+        setAutomationSource(
+          savedFavoritesSource
+            ? "favorites"
+            : "all_products"
+        );
 
         if (
-          savedSelectionMode ===
+          savedBaseSelectionMode ===
             "never_posted_first" ||
-          savedSelectionMode ===
+          savedBaseSelectionMode ===
             "least_recently_posted" ||
-          savedSelectionMode ===
+          savedBaseSelectionMode ===
             "random"
         ) {
           setSelectionMode(
-            savedSelectionMode
+            savedBaseSelectionMode
           );
         }
 
@@ -843,7 +877,7 @@ if (
     return () => {
       screenIsActive = false;
     };
-  }, [storeId]);
+  }, [requestedAutomationId, storeId]);
 
 
   useEffect(() => {
@@ -1088,6 +1122,11 @@ if (
     };
   }, [selectedPlatforms]);
 
+  const effectiveSelectionMode =
+    automationSource === "favorites"
+      ? `favorites_${selectionMode}`
+      : selectionMode;
+
     async function loadProductPreview() {
     if (!storeId) {
       return;
@@ -1130,7 +1169,8 @@ if (
             storeId,
             storeType,
             storeName,
-            selectionMode,
+            selectionMode:
+              effectiveSelectionMode,
             repeatDelayDays:
             parsedRepeatDelay,
             postingIntervalDays:
@@ -1240,7 +1280,7 @@ if (
     postingTime,
   ]);
 
-  async function loadTikTokCreatorInfo() {
+  const loadTikTokCreatorInfo = useCallback(async () => {
     try {
       setLoadingTikTokCreator(true);
       setTikTokCreatorError("");
@@ -1334,7 +1374,9 @@ if (
     } finally {
       setLoadingTikTokCreator(false);
     }
-  }
+  }, [
+    tiktokPrivacyLevel,
+  ]);
 
   function getTikTokPrivacyLabel(
     value: string
@@ -1376,11 +1418,7 @@ if (
     } else {
       setTikTokCreatorError("");
     }
-  }, [
-    selectedPlatforms.includes(
-      "tiktok"
-    ),
-  ]);
+  }, [loadTikTokCreatorInfo, selectedPlatforms]);
 
   function togglePlatform(
     platform: PlatformOption
@@ -2094,6 +2132,51 @@ Alert.alert(
     return;
   }
 
+  const normalizedAdditionalTimes = [
+    ...new Set(
+      additionalPostingTimes
+        .map((value) =>
+          String(value).slice(0, 5)
+        )
+        .filter(Boolean)
+    ),
+  ]
+    .filter(
+      (value) =>
+        value !== postingTime
+    )
+    .sort();
+
+  if (
+    normalizedAdditionalTimes.some(
+      (value) => !validateTime(value)
+    )
+  ) {
+    Alert.alert(
+      "Invalid Additional Time",
+      "Every additional posting time must be a valid time."
+    );
+
+    return;
+  }
+
+  if (
+    normalizedAdditionalTimes.length > 0 &&
+    frequency !== "daily"
+  ) {
+    Alert.alert(
+      "Daily Frequency Required",
+      "Multiple posting times are available with Every Day frequency."
+    );
+
+    return;
+  }
+
+  const allPostingTimes = [
+    postingTime,
+    ...normalizedAdditionalTimes,
+  ].sort();
+
   const parsedPostingInterval =
   Number(postingIntervalDays);
 
@@ -2145,68 +2228,88 @@ if (
       );
     }
 
+    const useMultiDailyEndpoint =
+      frequency === "daily" &&
+      allPostingTimes.length > 1;
+
+    const automationPayload = {
+      userId: user.id,
+      storeId,
+      storeName,
+      storeType,
+      automationName:
+        frequency === "one_time"
+          ? "One-Time Store Promotion"
+          : frequency === "every_x_days"
+            ? `Store Promotion Every ${parsedPostingInterval} Days`
+            : automationSource ===
+                "favorites"
+              ? "Favorite Product Rotation"
+              : "Store Product Rotation",
+      enabled,
+      frequency,
+      postingTime: `${postingTime}:00`,
+      postingTimes: allPostingTimes,
+      startDate,
+      timezone,
+      platforms: selectedPlatforms,
+      facebookPageId:
+        selectedFacebookPageId ||
+        null,
+      pinterestBoardId:
+        selectedPinterestBoardId ||
+        null,
+      tiktokPrivacyLevel:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokPrivacyLevel
+          : null,
+      tiktokDisableComment:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokDisableComment
+          : false,
+      tiktokAutoAddMusic:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokAutoAddMusic
+          : true,
+      tiktokBrandOrganicToggle:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokBrandOrganicToggle
+          : true,
+      tiktokBrandContentToggle:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokBrandContentToggle
+          : false,
+      tiktokConsent:
+        selectedPlatforms.includes("tiktok")
+          ? tiktokConsent
+          : false,
+      selectionMode:
+        effectiveSelectionMode,
+      repeatDelayDays:
+        parsedRepeatDelay,
+      postingIntervalDays:
+        frequency === "every_x_days"
+          ? parsedPostingInterval
+          : 1,
+      replaceAutomationId:
+        useMultiDailyEndpoint &&
+        automationId
+          ? automationId
+          : null,
+    };
+
     const response = await fetch(
-      `${API_BASE}/automations`,
+      useMultiDailyEndpoint
+        ? `${API_BASE}/automations/multi-daily`
+        : `${API_BASE}/automations`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          userId: user.id,
-          storeId,
-          storeName,
-          storeType,
-          automationName:
-            frequency === "one_time"
-              ? "One-Time Store Promotion"
-              : frequency === "every_x_days"
-                ? `Store Promotion Every ${parsedPostingInterval} Days`
-                : "Store Product Rotation",
-          enabled,
-          frequency,
-          postingTime: `${postingTime}:00`,
-          startDate,
-          timezone,
-          platforms: selectedPlatforms,
-          facebookPageId:
-            selectedFacebookPageId ||
-            null,
-          pinterestBoardId:
-            selectedPinterestBoardId ||
-            null,
-          tiktokPrivacyLevel:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokPrivacyLevel
-              : null,
-          tiktokDisableComment:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokDisableComment
-              : false,
-          tiktokAutoAddMusic:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokAutoAddMusic
-              : true,
-          tiktokBrandOrganicToggle:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokBrandOrganicToggle
-              : true,
-          tiktokBrandContentToggle:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokBrandContentToggle
-              : false,
-          tiktokConsent:
-            selectedPlatforms.includes("tiktok")
-              ? tiktokConsent
-              : false,
-          selectionMode,
-          repeatDelayDays:
-            parsedRepeatDelay,
-          postingIntervalDays:
-            frequency === "every_x_days"
-              ? parsedPostingInterval
-              : 1,
-        }),
+        body: JSON.stringify(
+          automationPayload
+        ),
       }
     );
 
@@ -2233,7 +2336,15 @@ try {
     Alert.alert(
       "Automation Saved",
       enabled
-        ? `${platformLabel} will promote a different eligible product automatically.`
+        ? `${
+            automationSource === "favorites"
+              ? "Favorites"
+              : platformLabel
+          } automation saved${
+            allPostingTimes.length > 1
+              ? ` with ${allPostingTimes.length} daily posting times`
+              : ""
+          }.`
         : `${platformLabel} automation was saved in the off position.`,
       [
         {
@@ -2362,10 +2473,9 @@ try {
                 styles.storeIconWrap
               }
             >
-              <Ionicons
-                name="storefront-outline"
-                size={32}
-                color="#c4b5fd"
+              <ArtBoostBrandIcon
+                name={platformLabel}
+                size={50}
               />
             </View>
 
@@ -2621,7 +2731,7 @@ try {
   <Ionicons
     name="chevron-down"
     size={18}
-    color="#777777"
+    color="#9b94b7"
   />
 </Pressable>
 
@@ -2677,7 +2787,7 @@ try {
   <Ionicons
     name="chevron-down"
     size={18}
-    color="#777777"
+    color="#9b94b7"
   />
 </Pressable>
 
@@ -2721,6 +2831,130 @@ try {
 <Text style={styles.fieldHelp}>
   Select the first posting date and an AM/PM posting time.
 </Text>
+
+{frequency === "daily" ? (
+  <>
+    <Text style={styles.fieldLabel}>
+      Additional Daily Times
+    </Text>
+
+    <View style={styles.multiTimeWrap}>
+      {additionalPostingTimes.map(
+        (time) => (
+          <View
+            key={time}
+            style={styles.timeChip}
+          >
+            <Text style={styles.timeChipText}>
+              {displayTime(time)}
+            </Text>
+            <Pressable
+              onPress={() =>
+                setAdditionalPostingTimes(
+                  (current) =>
+                    current.filter(
+                      (item) =>
+                        item !== time
+                    )
+                )
+              }
+            >
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color="#c4b5fd"
+              />
+            </Pressable>
+          </View>
+        )
+      )}
+
+      <Pressable
+        style={styles.addTimeButton}
+        onPress={() =>
+          setShowAdditionalTimePicker(
+            true
+          )
+        }
+      >
+        <Ionicons
+          name="add"
+          size={18}
+          color="#ffffff"
+        />
+        <Text
+          style={styles.addTimeButtonText}
+        >
+          Add Time
+        </Text>
+      </Pressable>
+    </View>
+
+    {showAdditionalTimePicker ? (
+      <DateTimePicker
+        value={postingTimeToDate(
+          postingTime
+        )}
+        mode="time"
+        display={
+          Platform.OS === "ios"
+            ? "spinner"
+            : "default"
+        }
+        is24Hour={false}
+        onChange={(
+          event,
+          selectedTime
+        ) => {
+          setShowAdditionalTimePicker(
+            false
+          );
+
+          if (
+            event.type ===
+              "dismissed" ||
+            !selectedTime
+          ) {
+            return;
+          }
+
+          const hour = String(
+            selectedTime.getHours()
+          ).padStart(2, "0");
+          const minute = String(
+            selectedTime.getMinutes()
+          ).padStart(2, "0");
+          const nextTime =
+            `${hour}:${minute}`;
+
+          if (
+            nextTime === postingTime
+          ) {
+            return;
+          }
+
+          setAdditionalPostingTimes(
+            (current) =>
+              [
+                ...new Set([
+                  ...current,
+                  nextTime,
+                ]),
+              ].sort()
+          );
+        }}
+      />
+    ) : null}
+
+    <Text style={styles.fieldHelp}>
+      Add up to 7 more times. ArtBoost
+      creates a separate scheduler slot for
+      each time while preserving the same
+      product-selection and repeat-delay
+      rules.
+    </Text>
+  </>
+) : null}
 
 {frequency === "every_x_days" ? (
   <>
@@ -2916,18 +3150,9 @@ try {
                             styles.platformIconWrapSelected,
                         ]}
                       >
-                        <Ionicons
-                          name={
-                            platform.icon
-                          }
-                          size={24}
-                          color={
-                            selected
-                              ? "#ffffff"
-                              : platform.available
-                                ? "#a78bfa"
-                                : "#666666"
-                          }
+                        <ArtBoostBrandIcon
+                          name={platform.label}
+                          size={32}
                         />
                       </View>
 
@@ -3025,7 +3250,7 @@ try {
                     alignItems: "center",
                     justifyContent: "center",
                     backgroundColor:
-                      "#262626",
+                      "#211a38",
                   }}
                 >
                   <Ionicons
@@ -3128,11 +3353,11 @@ try {
                               backgroundColor:
                                 selected
                                   ? "#7c3aed"
-                                  : "#262626",
+                                  : "#211a38",
                               borderWidth: 1,
                               borderColor:
                                 selected
-                                  ? "#8b5cf6"
+                                  ? "#9b5cff"
                                   : "#3f3f46",
                             }}
                           >
@@ -3254,7 +3479,7 @@ try {
                         paddingVertical: 14,
                         borderBottomWidth: 1,
                         borderBottomColor:
-                          "#303030",
+                          "#3b3158",
                       }}
                     >
                       <View
@@ -3270,7 +3495,7 @@ try {
                         </Text>
                         <Text
                           style={{
-                            color: "#a3a3a3",
+                            color: "#ffffff",
                             fontSize: 12,
                             lineHeight: 18,
                             marginTop: 3,
@@ -3314,10 +3539,10 @@ try {
                       borderWidth: 1,
                       borderColor:
                         tiktokConsent
-                          ? "#8b5cf6"
+                          ? "#9b5cff"
                           : "#3f3f46",
                       backgroundColor:
-                        "#202020",
+                        "rgba(21, 17, 38, 0.94)",
                     }}
                   >
                     <View
@@ -3330,12 +3555,12 @@ try {
                           "center",
                         backgroundColor:
                           tiktokConsent
-                            ? "#8b5cf6"
+                            ? "#9b5cff"
                             : "transparent",
                         borderWidth: 1,
                         borderColor:
                           tiktokConsent
-                            ? "#8b5cf6"
+                            ? "#9b5cff"
                             : "#71717a",
                         marginTop: 1,
                       }}
@@ -3352,7 +3577,7 @@ try {
                     <Text
                       style={{
                         flex: 1,
-                        color: "#d4d4d4",
+                        color: "#ffffff",
                         fontSize: 12,
                         lineHeight: 18,
                       }}
@@ -3711,6 +3936,97 @@ try {
               store.
             </Text>
 
+            <Text
+              style={styles.fieldLabel}
+            >
+              Product Source
+            </Text>
+
+            <View
+              style={styles.optionStack}
+            >
+              {[
+                {
+                  id: "all_products",
+                  label: "All Store Products",
+                  description:
+                    "Choose from every eligible product in this connected store.",
+                },
+                {
+                  id: "favorites",
+                  label: "Favorites Only",
+                  description:
+                    "Choose only products you marked as Favorites.",
+                },
+              ].map((option) => {
+                const selected =
+                  automationSource ===
+                  option.id;
+
+                return (
+                  <Pressable
+                    key={option.id}
+                    style={[
+                      styles.radioCard,
+                      selected &&
+                        styles.radioCardSelected,
+                    ]}
+                    onPress={() =>
+                      setAutomationSource(
+                        option.id as
+                          AutomationSource
+                      )
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        selected &&
+                          styles.radioOuterSelected,
+                      ]}
+                    >
+                      {selected ? (
+                        <View
+                          style={
+                            styles.radioInner
+                          }
+                        />
+                      ) : null}
+                    </View>
+
+                    <View
+                      style={
+                        styles.radioTextWrap
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.radioTitle,
+                          selected &&
+                            styles.radioTitleSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text
+                        style={
+                          styles.radioDescription
+                        }
+                      >
+                        {option.description}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text
+              style={styles.fieldLabel}
+            >
+              Selection Order
+            </Text>
+
             <View
               style={
                 styles.optionStack
@@ -4053,7 +4369,7 @@ try {
                       <Ionicons
                         name="image-outline"
                         size={26}
-                        color="#8b5cf6"
+                        color="#9b5cff"
                       />
                     </View>
                   )}
@@ -4133,7 +4449,7 @@ try {
                 </View>
               )}
             </View>
-  
+
             <View
               style={
                 styles.previewRow
@@ -4317,7 +4633,7 @@ const styles = StyleSheet.create({
 
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -4325,7 +4641,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#1d1d1d",
+    borderBottomColor: "#141126",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -4334,9 +4650,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 15,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#3f2e68",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4347,7 +4663,7 @@ const styles = StyleSheet.create({
   },
 
   eyebrow: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1.4,
@@ -4364,7 +4680,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 15,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     borderWidth: 1,
     borderColor: "#4c3979",
     alignItems: "center",
@@ -4378,7 +4694,7 @@ const styles = StyleSheet.create({
 
   storeCard: {
     borderRadius: 22,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
     borderColor: "#302641",
     padding: 17,
@@ -4391,7 +4707,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 19,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     borderWidth: 1,
     borderColor: "#4c3979",
     alignItems: "center",
@@ -4420,7 +4736,7 @@ const styles = StyleSheet.create({
   },
 
   productCountText: {
-    color: "#858585",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
     marginTop: 5,
@@ -4428,9 +4744,9 @@ const styles = StyleSheet.create({
 
   sectionCard: {
     borderRadius: 22,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#3f2e68",
     padding: 17,
     marginBottom: 16,
   },
@@ -4444,7 +4760,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 15,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4461,7 +4777,7 @@ const styles = StyleSheet.create({
   },
 
   sectionDescription: {
-    color: "#8b8b8b",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
@@ -4471,7 +4787,7 @@ const styles = StyleSheet.create({
     minHeight: 42,
     marginTop: 16,
     borderRadius: 14,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
@@ -4489,7 +4805,7 @@ const styles = StyleSheet.create({
   },
 
   statusDotInactive: {
-    backgroundColor: "#777777",
+    backgroundColor: "#9b94b7",
   },
 
   statusBannerText: {
@@ -4502,11 +4818,11 @@ const styles = StyleSheet.create({
   },
 
   statusBannerTextInactive: {
-    color: "#aaaaaa",
+    color: "#ffffff",
   },
 
   fieldLabel: {
-    color: "#d7d7d7",
+    color: "#ffffff",
     fontSize: 13,
     fontWeight: "900",
     marginTop: 20,
@@ -4514,7 +4830,7 @@ const styles = StyleSheet.create({
   },
 
   fieldHelp: {
-    color: "#6f6f6f",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 8,
@@ -4527,9 +4843,9 @@ const styles = StyleSheet.create({
   radioCard: {
     minHeight: 73,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     padding: 13,
     flexDirection: "row",
     alignItems: "center",
@@ -4567,7 +4883,7 @@ const styles = StyleSheet.create({
   },
 
   radioTitle: {
-    color: "#d1d1d1",
+    color: "#ffffff",
     fontSize: 14,
     fontWeight: "900",
   },
@@ -4577,7 +4893,7 @@ const styles = StyleSheet.create({
   },
 
   radioDescription: {
-    color: "#858585",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 4,
@@ -4586,9 +4902,9 @@ const styles = StyleSheet.create({
   inputRow: {
     minHeight: 54,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 13,
@@ -4622,9 +4938,9 @@ const styles = StyleSheet.create({
   readOnlyRow: {
     minHeight: 54,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -4640,7 +4956,7 @@ const styles = StyleSheet.create({
 
   autoPill: {
     borderRadius: 99,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
@@ -4662,9 +4978,9 @@ const styles = StyleSheet.create({
     width: "48%",
     minHeight: 70,
     borderRadius: 17,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -4683,18 +4999,18 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 13,
-    backgroundColor: "#2a2a2a",
+    backgroundColor: "#3f2e68",
     alignItems: "center",
     justifyContent: "center",
   },
 
   platformIconWrapSelected: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
   },
 
   platformLabel: {
     flex: 1,
-    color: "#d0d0d0",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "900",
     marginLeft: 9,
@@ -4705,7 +5021,7 @@ const styles = StyleSheet.create({
   },
 
   platformLabelDisabled: {
-    color: "#777777",
+    color: "#ffffff",
   },
 
   checkbox: {
@@ -4719,12 +5035,12 @@ const styles = StyleSheet.create({
   },
 
   checkboxSelected: {
-    backgroundColor: "#8b5cf6",
-    borderColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
+    borderColor: "#9b5cff",
   },
 
   soonText: {
-    color: "#777777",
+    color: "#ffffff",
     fontSize: 8,
     fontWeight: "900",
   },
@@ -4733,9 +5049,9 @@ const styles = StyleSheet.create({
     minHeight: 54,
     marginTop: 16,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -4744,7 +5060,7 @@ const styles = StyleSheet.create({
 
   facebookPageStateText: {
     flex: 1,
-    color: "#b9afc7",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
   },
@@ -4753,7 +5069,7 @@ const styles = StyleSheet.create({
     minHeight: 54,
     marginTop: 16,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
     borderColor: "#4a3030",
     paddingHorizontal: 14,
@@ -4772,9 +5088,9 @@ const styles = StyleSheet.create({
   facebookPageCard: {
     minHeight: 62,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     paddingHorizontal: 13,
     flexDirection: "row",
     alignItems: "center",
@@ -4791,14 +5107,14 @@ const styles = StyleSheet.create({
     marginLeft: 11,
     marginRight: 10,
     borderRadius: 13,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
 
   facebookPageName: {
     flex: 1,
-    color: "#d0d0d0",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "900",
@@ -4818,7 +5134,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 16,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     borderWidth: 1,
     borderColor: "#4c3979",
     alignItems: "center",
@@ -4829,9 +5145,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 50,
     borderRadius: 16,
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -4846,14 +5162,14 @@ const styles = StyleSheet.create({
   },
 
   counterSuffix: {
-    color: "#8a8a8a",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
   },
 
   previewCard: {
     borderRadius: 22,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 17,
@@ -4869,7 +5185,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 15,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4886,7 +5202,7 @@ const styles = StyleSheet.create({
   },
 
   previewSubtitle: {
-    color: "#a99dbb",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 3,
   },
@@ -4906,7 +5222,7 @@ const styles = StyleSheet.create({
   },
 
   previewLabel: {
-    color: "#91859f",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -4943,7 +5259,7 @@ const styles = StyleSheet.create({
   refreshPreviewButton: {
     minHeight: 32,
     borderRadius: 11,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
@@ -4973,7 +5289,7 @@ previewImagePlaceholder: {
   width: 78,
   height: 78,
   borderRadius: 12,
-  backgroundColor: "#2b2145",
+  backgroundColor: "#21183a",
   alignItems: "center",
   justifyContent: "center",
   marginRight: 12,
@@ -5005,7 +5321,7 @@ previewProductInfo: {
   },
 
   previewProductMeta: {
-    color: "#a99dbb",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "800",
   },
@@ -5019,7 +5335,7 @@ previewProductInfo: {
 
   previewProductStateText: {
     flex: 1,
-    color: "#b9afc7",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
   },
@@ -5033,7 +5349,7 @@ previewProductInfo: {
 
   previewNotice: {
     borderRadius: 15,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     padding: 13,
     marginTop: 13,
     flexDirection: "row",
@@ -5043,7 +5359,7 @@ previewProductInfo: {
 
   previewNoticeText: {
     flex: 1,
-    color: "#b9afc7",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
   },
@@ -5051,7 +5367,7 @@ previewProductInfo: {
   saveButton: {
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -5069,10 +5385,48 @@ previewProductInfo: {
   },
 
   footerText: {
-    color: "#6f6f6f",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
     textAlign: "center",
     marginTop: 12,
+  },
+
+  multiTimeWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  timeChip: {
+    minHeight: 38,
+    borderRadius: 12,
+    backgroundColor: "#2b2145",
+    borderWidth: 1,
+    borderColor: "#4c3979",
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  timeChipText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  addTimeButton: {
+    minHeight: 38,
+    borderRadius: 12,
+    backgroundColor: "#7c3aed",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  addTimeButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
   },
 });

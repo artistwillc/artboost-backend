@@ -1,3 +1,4 @@
+// ARTBOOST_MORE_CHILD_BACK_DIRECT_V3106A
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import AIHelpAvatar from "@/components/AIHelpAvatar";
@@ -38,7 +39,7 @@ type FAQItem = {
   keywords?: string[];
 };
 
-const categories: Array<FAQCategory | "All"> = [
+const categories: (FAQCategory | "All")[] = [
   "All",
   "Getting Started",
   "Home",
@@ -1135,16 +1136,24 @@ export default function FAQScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <Pressable
-  style={styles.backButton}
-  onPress={() =>
-    router.replace({
-      pathname: "/(tabs)",
-      params: {
-        openMore: "true",
-      },
-    })
-  }
->
+          style={styles.backButton}
+          accessible={true}
+          focusable={true}
+          accessibilityRole="button"
+          accessibilityLabel="Back to More Tools"
+          testID="artboost-back-help-faq"
+          nativeID="artboost-back-help-faq"
+          collapsable={false}
+          pointerEvents="auto"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          pressRetentionOffset={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          onAccessibilityTap={() => {
+            router.replace("/(tabs)/more" as any);
+          }}
+          onPress={() => {
+            router.replace("/(tabs)/more" as any);
+          }}
+        >
           <Ionicons
             name="chevron-back"
             size={25}
@@ -1153,7 +1162,13 @@ export default function FAQScreen() {
         </Pressable>
 
         <View style={styles.headerTextWrap}>
-          <Text style={styles.headerTitle}>
+          <Text
+            style={styles.headerTitle}
+            testID="artboost-screen-help-faq"
+            nativeID="artboost-screen-help-faq"
+            accessibilityLabel="Help & FAQ"
+            accessible
+          >
             Help & FAQ
           </Text>
 
@@ -1246,7 +1261,7 @@ export default function FAQScreen() {
               <Ionicons
                 name="close-circle"
                 size={21}
-                color="#77777d"
+                color="#9b94b777d"
               />
             </Pressable>
           ) : null}
@@ -1282,7 +1297,7 @@ export default function FAQScreen() {
                     color={
                       selected
                         ? "#ffffff"
-                        : "#aaa0b5"
+                        : "#c3bdd20b5"
                     }
                   />
                 ) : (
@@ -1292,7 +1307,7 @@ export default function FAQScreen() {
                     color={
                       selected
                         ? "#ffffff"
-                        : "#aaa0b5"
+                        : "#c3bdd20b5"
                     }
                   />
                 )}
@@ -1568,7 +1583,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#242424",
+    borderBottomColor: "#1d1733",
     backgroundColor: "#111112",
     flexDirection: "row",
     alignItems: "center",
@@ -1595,7 +1610,7 @@ const styles = StyleSheet.create({
   },
 
   headerSubtitle: {
-    color: "#8f8f96",
+    color: "#ffffff",
     fontSize: 12,
     marginTop: 2,
   },
@@ -1649,7 +1664,7 @@ const styles = StyleSheet.create({
   },
 
   heroDescription: {
-    color: "#b8b2c0",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
     marginTop: 6,
@@ -1678,7 +1693,7 @@ const styles = StyleSheet.create({
   },
 
   noticeDescription: {
-    color: "#aaa1b0",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
@@ -1731,7 +1746,7 @@ const styles = StyleSheet.create({
   },
 
   categoryButtonText: {
-    color: "#aaa0b5",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -1753,7 +1768,7 @@ const styles = StyleSheet.create({
   },
 
   resultSubtitle: {
-    color: "#85858c",
+    color: "#ffffff",
     fontSize: 12,
     marginTop: 3,
   },
@@ -1803,7 +1818,7 @@ const styles = StyleSheet.create({
   },
 
   groupDescription: {
-    color: "#85858c",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 2,
   },
@@ -1870,7 +1885,7 @@ const styles = StyleSheet.create({
   },
 
   answerText: {
-    color: "#aaa5ad",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
   },
@@ -1911,7 +1926,7 @@ const styles = StyleSheet.create({
 
   stepText: {
     flex: 1,
-    color: "#c4c0c7",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 19,
   },
@@ -1933,7 +1948,7 @@ const styles = StyleSheet.create({
   },
 
   emptyDescription: {
-    color: "#8f8f96",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
@@ -1986,7 +2001,7 @@ const styles = StyleSheet.create({
   },
 
   supportDescription: {
-    color: "#aaa1b0",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 5,

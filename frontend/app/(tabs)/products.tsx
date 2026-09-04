@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { supabase } from "../../lib/supabase";
 import {
@@ -14,7 +14,67 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
+  ImageBackground,
+  type ImageSourcePropType,
 } from "react-native";
+
+const STORE_LOGOS: Record<string, ImageSourcePropType> = {
+  artpal: require("../../assets/platform-logos/artpal.webp"),
+  fine_art_america: require("../../assets/platform-logos/fine-art-america.png"),
+  gumroad: require("../../assets/platform-logos/gumroad.png"),
+  redbubble: require("../../assets/platform-logos/redbubble.webp"),
+  shopify: require("../../assets/platform-logos/shopify.webp"),
+  etsy: require("../../assets/platform-logos/etsy.webp"),
+};
+
+function storeLogoSource(storeType?: string | null) {
+  return STORE_LOGOS[String(storeType || "").trim().toLowerCase()] || null;
+}
+
+function BrandSquareIcon({
+  source,
+  size = 52,
+  fallback = "storefront-outline",
+}: {
+  source: ImageSourcePropType | null;
+  size?: number;
+  fallback?: React.ComponentProps<typeof Ionicons>["name"];
+}) {
+  const innerSize = Math.round(size * 0.60);
+
+  return (
+    <ImageBackground
+      source={require("../../assets/platform-logos/brand-square-frame.png")}
+      style={{
+        width: size,
+        height: size,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      imageStyle={{ borderRadius: Math.round(size * 0.22) }}
+      resizeMode="contain"
+    >
+      {source ? (
+        <Image
+          source={source}
+          style={{
+            width: innerSize,
+            height: innerSize,
+            borderRadius: Math.round(innerSize * 0.16),
+          }}
+          resizeMode="contain"
+        />
+      ) : (
+        <Ionicons
+          name={fallback}
+          size={Math.round(size * 0.42)}
+          color="#d7c9ff"
+        />
+      )}
+    </ImageBackground>
+  );
+}
 
 const API_BASE =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
@@ -387,7 +447,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
                 );
               }
             }}
-            tintColor="#8b5cf6"
+            tintColor="#9b5cff"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -398,7 +458,13 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
               ARTBOOST AI
             </Text>
 
-            <Text style={styles.title}>
+            <Text
+              style={styles.title}
+              testID="artboost-screen-library"
+              nativeID="artboost-screen-library"
+              accessibilityLabel="ArtBoost Library screen"
+              accessible
+            >
               Library
             </Text>
 
@@ -457,9 +523,30 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
           </View>
         </View>
 
+        <View style={styles.libraryNav}>
+          <Pressable style={[styles.libraryNavButton, styles.libraryNavButtonActive]}>
+            <Ionicons name="storefront-outline" size={18} color="#ffffff" />
+            <Text style={styles.libraryNavText}>Stores</Text>
+          </Pressable>
+          <Pressable style={styles.libraryNavButton} onPress={() => router.push("/(tabs)/saved" as any)}>
+            <Ionicons name="heart-outline" size={18} color="#d8d2ff" />
+            <Text style={styles.libraryNavText}>Favorites</Text>
+          </Pressable>
+          <Pressable style={styles.libraryNavButton} onPress={() => router.push("/created-videos" as any)}>
+            <Ionicons name="videocam-outline" size={18} color="#d8d2ff" />
+            <Text style={styles.libraryNavText}>Created Videos</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>
+            <Text
+              style={styles.sectionTitle}
+              testID="artboost-section-connected-stores"
+              nativeID="artboost-section-connected-stores"
+              accessibilityLabel="Connected Stores"
+              accessible
+            >
               Connected Stores
             </Text>
 
@@ -474,7 +561,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
           <View style={styles.loadingWrap}>
             <ActivityIndicator
               size="large"
-              color="#8b5cf6"
+              color="#9b5cff"
             />
 
             <Text style={styles.loadingText}>
@@ -539,22 +626,10 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
                     openStore(store)
                   }
                 >
-                  <View
-                    style={
-                      styles.sourceIconWrap
-                    }
-                  >
-                    <Ionicons
-                      name={
-                        String(
-                          store.storeType
-                        ).toLowerCase() ===
-                        "redbubble"
-                          ? "color-palette-outline"
-                          : "storefront-outline"
-                      }
-                      size={28}
-                      color="#c4b5fd"
+                  <View style={styles.sourceIconWrap}>
+                    <BrandSquareIcon
+                      source={storeLogoSource(store.storeType)}
+                      size={52}
                     />
                   </View>
 
@@ -619,7 +694,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
                   <Ionicons
                     name="chevron-forward"
                     size={22}
-                    color="#777777"
+                    color="#9b94b7"
                   />
                 </Pressable>
               );
@@ -676,7 +751,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
                 <Ionicons
                   name="chevron-forward"
                   size={22}
-                  color="#777777"
+                  color="#9b94b7"
                 />
               </Pressable>
             ) : null}
@@ -713,7 +788,7 @@ const styles = StyleSheet.create({
   },
 
   eyebrow: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1.6,
@@ -740,9 +815,9 @@ const styles = StyleSheet.create({
     paddingVertical: 17,
     paddingHorizontal: 12,
     borderRadius: 20,
-    backgroundColor: "#171717",
+    backgroundColor: "#100d20",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#241b3d",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -770,9 +845,13 @@ const styles = StyleSheet.create({
   summaryDivider: {
     width: 1,
     height: 35,
-    backgroundColor: "#333333",
+    backgroundColor: "#30234d",
   },
 
+  libraryNav: { marginHorizontal: 16, marginTop: 14, marginBottom: 8, flexDirection: "row", gap: 8 },
+  libraryNavButton: { flex: 1, minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: "#352e4d", backgroundColor: "#17141f", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 8 },
+  libraryNavButtonActive: { backgroundColor: "#332460", borderColor: "#704fe0" },
+  libraryNavText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   sectionHeader: {
     paddingHorizontal: 20,
     marginBottom: 13,
@@ -798,9 +877,9 @@ const styles = StyleSheet.create({
   sourceCard: {
     minHeight: 104,
     borderRadius: 20,
-    backgroundColor: "#171717",
+    backgroundColor: "#100d20",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#241b3d",
     padding: 15,
     marginBottom: 12,
     flexDirection: "row",
@@ -811,11 +890,17 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 18,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     borderWidth: 1,
     borderColor: "#4c3979",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  sourceBrandLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
   },
 
   sourceContent: {
@@ -855,7 +940,7 @@ const styles = StyleSheet.create({
   },
 
   metricSeparator: {
-    color: "#555555",
+    color: "#665b7d",
     marginHorizontal: 7,
   },
 
@@ -870,7 +955,7 @@ const styles = StyleSheet.create({
   },
 
   loadingText: {
-    color: "#888888",
+    color: "#c3bdd23c2",
     fontSize: 14,
     marginTop: 12,
   },
@@ -901,7 +986,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    color: "#999999",
+    color: "#b8b1ca",
     fontSize: 14,
     lineHeight: 21,
     textAlign: "center",
@@ -912,7 +997,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     height: 52,
     borderRadius: 16,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingHorizontal: 22,
     flexDirection: "row",
     alignItems: "center",

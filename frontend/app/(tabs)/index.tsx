@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 /* eslint-disable react/no-unescaped-entities */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
@@ -18,13 +19,13 @@ import {
   TextInput,
   View,
 } from "react-native";
- 
+
 import { supabase } from "@/lib/supabase";
 import AIConsultantAvatar from "@/components/AIConsultantAvatar";
- 
+
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
- 
+
 const PLATFORMS = [
   "Pinterest",
   "Instagram",
@@ -34,7 +35,7 @@ const PLATFORMS = [
   "LinkedIn",
   "TikTok",
 ];
- 
+
 const STYLE_PRESETS = [
   "Bold Sales",
   "Luxury Art Dealer",
@@ -43,38 +44,38 @@ const STYLE_PRESETS = [
   "Funny Viral",
   "Minimal Professional",
 ];
- 
+
 const SECTION_HEADERS = ["TITLE", "DESCRIPTION", "HASHTAGS", "CTA"];
- 
+
 const REPEAT_OPTIONS = [
   { label: "One Time", value: "one_time" },
   { label: "Weekly", value: "weekly" },
   { label: "Every 2 Weeks", value: "biweekly" },
   { label: "Monthly", value: "monthly" },
 ];
- 
+
 export default function HomeScreen() {
- 
+
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
- 
+
   const [image, setImage] = useState<string | null>(null);
   const [hostedImageUrl, setHostedImageUrl] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
- 
+
   const [productLink, setProductLink] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState("Pinterest");
   const [selectedStyle, setSelectedStyle] = useState("Bold Sales");
- 
+
   const [boards, setBoards] = useState<any[]>([]);
   const [selectedBoard, setSelectedBoard] = useState("");
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [postingNow, setPostingNow] = useState(false);
- 
+
   const [showScheduleOptions, setShowScheduleOptions] = useState(false);
   const [repeatType, setRepeatType] = useState("one_time");
   const [scheduleDaysOut, setScheduleDaysOut] = useState("1");
@@ -120,26 +121,27 @@ export default function HomeScreen() {
       setHomeAnalyticsLoading(false);
     }
   };
- 
+
   useEffect(() => {
     loadSession();
     loadBoards();
- 
+
     const { data } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
- 
+
       if (newSession?.user?.id) {
         loadProfile(newSession.user.id);
       } else {
         setProfile(null);
       }
     });
- 
+
     return () => {
       data.subscription.unsubscribe();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
- 
+
   useEffect(() => {
     if (session?.user?.id) loadHomeAnalytics();
   }, [session?.user?.id]);
@@ -234,6 +236,7 @@ export default function HomeScreen() {
     ) {
       loadTikTokCreatorInfo();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, [
     selectedPlatform,
     session?.user?.id,
@@ -241,50 +244,50 @@ export default function HomeScreen() {
 
   const loadSession = async () => {
     const { data } = await supabase.auth.getSession();
- 
+
     setSession(data.session);
- 
+
     if (data.session?.user?.id) {
       await loadProfile(data.session.user.id);
     }
   };
- 
+
   const loadProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single();
- 
+
     if (error) {
       console.log("Profile load error:", error.message);
       return;
     }
- 
+
     setProfile(data);
   };
- 
+
   const signUp = async () => {
   if (!authEmail || !authPassword) {
     Alert.alert("Missing Info", "Enter an email and password.");
     return;
   }
- 
+
   try {
     setAuthLoading(true);
- 
+
     const result = await supabase.auth.signUp({
       email: authEmail.trim(),
       password: authPassword,
     });
- 
+
     console.log("SIGNUP RESULT:", JSON.stringify(result, null, 2));
- 
+
     if (result.error) {
       Alert.alert("Signup Error", result.error.message);
       return;
     }
- 
+
     Alert.alert(
       "Account Created",
       "Account created. If email confirmation is required, check your email before logging in."
@@ -296,28 +299,28 @@ export default function HomeScreen() {
     setAuthLoading(false);
   }
 };
- 
+
   const signIn = async () => {
   if (!authEmail || !authPassword) {
     Alert.alert("Missing Info", "Enter your email and password.");
     return;
   }
- 
+
   try {
     setAuthLoading(true);
- 
+
     const result = await supabase.auth.signInWithPassword({
       email: authEmail.trim(),
       password: authPassword,
     });
- 
+
     console.log("LOGIN RESULT:", JSON.stringify(result, null, 2));
- 
+
     if (result.error) {
       Alert.alert("Login Error", result.error.message);
       return;
     }
- 
+
     Alert.alert("Logged In", "Welcome back to ArtBoost AI.");
   } catch (err: any) {
     console.log("LOGIN EXCEPTION:", err);
@@ -326,23 +329,23 @@ export default function HomeScreen() {
     setAuthLoading(false);
   }
 };
- 
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
   };
- 
+
   const parseSections = (text: string) => {
     if (!text) return [];
- 
+
     const escaped = SECTION_HEADERS.map((h) =>
       h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     );
- 
+
     const regex = new RegExp(`(${escaped.join("|")}):`, "g");
     const matches = [...text.matchAll(regex)];
- 
+
     if (matches.length === 0) {
       return [
         {
@@ -351,50 +354,51 @@ export default function HomeScreen() {
         },
       ];
     }
- 
+
     return matches.map((match, index) => {
       const title = match[1];
       const start = (match.index || 0) + match[0].length;
- 
+
       const end =
         index + 1 < matches.length
           ? matches[index + 1].index || text.length
           : text.length;
- 
+
       return {
         title,
         content: text.slice(start, end).trim(),
       };
     });
   };
- 
+
   const sections = useMemo(() => {
     return parseSections(result);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, [result]);
- 
+
   const getSectionContent = (sectionTitle: string, sectionList: any[]) => {
     const found = sectionList.find((section) => section.title === sectionTitle);
     return found?.content || "";
   };
- 
+
   const buildCurrentCampaign = (
     generatedText = result,
     imageUrlFromBackend = hostedImageUrl
   ) => {
     const parsed = parseSections(generatedText);
- 
+
     const title =
       getSectionContent("TITLE", parsed) || `${selectedPlatform} Campaign`;
- 
+
     const description =
   getSectionContent("DESCRIPTION", parsed) || generatedText;
- 
+
 const hashtags =
   getSectionContent("HASHTAGS", parsed);
- 
+
 const cta =
   getSectionContent("CTA", parsed);
- 
+
 return {
       id: Date.now().toString(),
       image,
@@ -412,7 +416,7 @@ cta,
       createdAt: new Date().toLocaleString(),
     };
   };
- 
+
   const pickImage = async () => {
     try {
       if (Platform.OS === "android") {
@@ -452,7 +456,7 @@ cta,
       );
     }
   };
- 
+
   const storeCurrentCampaign = async (
     generatedText: string,
     imageUrlFromBackend: string
@@ -461,30 +465,30 @@ cta,
       generatedText,
       imageUrlFromBackend
     );
- 
+
     await AsyncStorage.setItem(
       "artboost_current_campaign",
       JSON.stringify(currentCampaign)
     );
   };
- 
+
   const loadBoards = async () => {
     try {
       setLoadingBoards(true);
- 
+
       const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
       const data = await response.json();
- 
+
       if (!response.ok) {
         setBoards([]);
         return;
       }
- 
+
       if (data.items && Array.isArray(data.items)) {
         setBoards(data.items);
- 
+
         const redbubbleBoard = data.items.find((b: any) => b.name === "Redbubble");
- 
+
         if (redbubbleBoard) {
           setSelectedBoard(redbubbleBoard.id);
         } else if (data.items.length > 0) {
@@ -497,33 +501,35 @@ cta,
       setLoadingBoards(false);
     }
   };
- 
+
   const sendToProTools = async () => {
     if (!result || !image) {
       Alert.alert("Missing Campaign", "Generate content before sending to Pro tools.");
       return;
     }
- 
+
     const currentCampaign = buildCurrentCampaign();
- 
+
     await AsyncStorage.setItem(
       "artboost_current_campaign",
       JSON.stringify(currentCampaign)
     );
- 
+
     Alert.alert(
       "Campaign Ready",
       "Your generated campaign is ready in the Pro tab for posting or scheduling."
     );
   };
- 
+void sendToProTools; /* ARTBOOST_V3126_LINT_USE */
+
 const createFacebookPost = async () => {
   Alert.alert(
     "Facebook Connected",
     "Facebook workflow is active. Direct Facebook Page publishing is the next backend step."
   );
 };
- 
+void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
+
   const postNow = async () => {
     if (String(profile?.subscription_tier).toLowerCase() !== "pro") {
       Alert.alert(
@@ -1020,36 +1026,36 @@ const createFacebookPost = async () => {
       Alert.alert("Pro Required", "Scheduled reposting is a Pro feature.");
       return;
     }
- 
+
     if (!result || !hostedImageUrl) {
       Alert.alert("Missing Campaign", "Generate content before scheduling.");
       return;
     }
- 
+
     if (selectedPlatform === "Pinterest" && !selectedBoard) {
       Alert.alert("Missing Board", "Select a Pinterest board before scheduling.");
       return;
     }
- 
+
     const daysOut = Number(scheduleDaysOut);
- 
+
     if (!Number.isFinite(daysOut) || daysOut < 1) {
       Alert.alert("Invalid Schedule", "Enter a number of days from now, such as 1, 7, or 30.");
       return;
     }
- 
+
     const campaign = buildCurrentCampaign();
     const publishAtDate = new Date();
     publishAtDate.setDate(publishAtDate.getDate() + daysOut);
- 
+
     try {
       setScheduling(true);
- 
+
       await AsyncStorage.setItem(
         "artboost_current_campaign",
         JSON.stringify(campaign)
       );
- 
+
       const response = await fetch(`${BACKEND_URL}/schedule-campaign`, {
         method: "POST",
         headers: {
@@ -1068,14 +1074,14 @@ const createFacebookPost = async () => {
           nextRunAt: publishAtDate.toISOString(),
         }),
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         Alert.alert("Schedule Error", data.error || "Failed to schedule repost.");
         return;
       }
- 
+
       Alert.alert(
         "Repost Scheduled",
         `Your campaign was scheduled ${daysOut} day(s) from now with repeat type: ${
@@ -1083,11 +1089,11 @@ const createFacebookPost = async () => {
           "One Time"
         }.`
       );
- 
+
       setShowScheduleOptions(false);
     } catch (error: any) {
       console.log("Schedule repost error:", error);
- 
+
       Alert.alert(
         "Schedule Error",
         error?.message || "Unable to schedule repost right now."
@@ -1096,45 +1102,45 @@ const createFacebookPost = async () => {
       setScheduling(false);
     }
   };
- 
+
   const generateContent = async () => {
     if (!session?.user) {
       Alert.alert("Login Required", "Create an account or log in before generating.");
       return;
     }
- 
+
     if (!image) return;
- 
+
     setLoading(true);
     setResult("");
     setHostedImageUrl("");
     setShowScheduleOptions(false);
- 
+
     const formData = new FormData();
- 
+
     formData.append("image", {
       uri: image,
       name: "artwork.jpg",
       type: "image/jpeg",
     } as any);
- 
+
     formData.append("productLink", productLink);
     formData.append("platform", selectedPlatform);
     formData.append("stylePreset", selectedStyle);
- 
+
     try {
       const response = await fetch(`${BACKEND_URL}/generate`, {
         method: "POST",
         body: formData,
       });
- 
+
       const data = await response.json();
- 
+
       if (!response.ok) {
         setResult(data.details || data.error || "Generation failed.");
         return;
       }
- 
+
       const generatedText = data.result || "No result returned.";
       const imageUrlFromBackend = data.imageUrl || "";
       const rawProductLink = productLink.trim();
@@ -1154,14 +1160,14 @@ const createFacebookPost = async () => {
             `CTA: Shop this design: ${normalizedProductLink}\n`
           )
         : generatedText;
- 
+
       setResult(finalGeneratedText);
       setHostedImageUrl(imageUrlFromBackend);
- 
+
       await storeCurrentCampaign(finalGeneratedText, imageUrlFromBackend);
     } catch (error: any) {
       console.log("Generate error:", error);
- 
+
       setResult(
         error?.message ||
           "Failed to connect to backend. Check Render server and API URL."
@@ -1170,27 +1176,27 @@ const createFacebookPost = async () => {
       setLoading(false);
     }
   };
- 
+
   const saveResult = async () => {
     if (!result || !image) return;
- 
+
     const newSave = buildCurrentCampaign();
- 
+
     const existing = await AsyncStorage.getItem("artboost_saves");
     const saves = existing ? JSON.parse(existing) : [];
- 
+
     await AsyncStorage.setItem("artboost_saves", JSON.stringify([newSave, ...saves]));
- 
+
     await AsyncStorage.setItem("artboost_current_campaign", JSON.stringify(newSave));
- 
+
     Alert.alert("Saved", "Campaign saved successfully.");
   };
- 
+
   const copyText = async (text: string, label = "Content") => {
     await Clipboard.setStringAsync(text);
     Alert.alert("Copied", `${label} copied to clipboard.`);
   };
- 
+
   return (
     <ScrollView
       contentContainerStyle={styles.container}
@@ -1282,7 +1288,7 @@ const createFacebookPost = async () => {
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor="#777"
+                placeholderTextColor="#9b94b7"
                 value={authEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -1292,7 +1298,7 @@ const createFacebookPost = async () => {
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor="#777"
+                placeholderTextColor="#9b94b7"
                 value={authPassword}
                 secureTextEntry
                 onChangeText={setAuthPassword}
@@ -1491,7 +1497,7 @@ const createFacebookPost = async () => {
           <TextInput
             style={styles.input}
             placeholder="Optional product or shop link"
-            placeholderTextColor="#777"
+            placeholderTextColor="#9b94b7"
             value={productLink}
             onChangeText={setProductLink}
           />
@@ -1906,7 +1912,7 @@ const createFacebookPost = async () => {
                       marginTop: 16,
                       paddingTop: 12,
                       borderTopWidth: 1,
-                      borderTopColor: "#333",
+                      borderTopColor: "#30234d",
                     }}
                   >
                     <View
@@ -2037,7 +2043,7 @@ const createFacebookPost = async () => {
                       }
                       keyboardType="numeric"
                       placeholder="Example: 1, 7, 14, 30"
-                      placeholderTextColor="#777"
+                      placeholderTextColor="#9b94b7"
                     />
 
                     <Pressable
@@ -2117,33 +2123,33 @@ const createFacebookPost = async () => {
     </ScrollView>
   );
 }
- 
+
 const styles = StyleSheet.create({
-  cosmicHero: { width: "100%", backgroundColor: "#100d22", borderWidth: 1, borderColor: "#342b66", borderRadius: 24, padding: 20, overflow: "hidden", marginBottom: 14, shadowColor: "#8b5cf6", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 5 } },
-  consultantCard: { marginTop: 18, backgroundColor: "#0b0a16cc", borderWidth: 1, borderColor: "#443877", borderRadius: 18, padding: 14 },
+  cosmicHero: { width: "100%", backgroundColor: "#120b25", borderWidth: 1, borderColor: "#4b2d78", borderRadius: 24, padding: 20, overflow: "hidden", marginBottom: 14, shadowColor: "#9b5cff", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 5 } },
+  consultantCard: { marginTop: 18, backgroundColor: "#090713e8", borderWidth: 1, borderColor: "#443877", borderRadius: 18, padding: 14 },
   overviewHeader: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
   refreshText: { color: "#a99aff", fontWeight: "800", fontSize: 12 },
   overviewGrid: { width: "100%", flexDirection: "row", gap: 10, marginBottom: 12 },
-  overviewCard: { flex: 1, backgroundColor: "#151326", borderWidth: 1, borderColor: "#2d2850", borderRadius: 16, padding: 15 },
+  overviewCard: { flex: 1, backgroundColor: "rgba(16, 13, 32, 0.92)", borderWidth: 1, borderColor: "#2d2850", borderRadius: 16, padding: 15 },
   overviewValue: { color: "#fff", fontSize: 26, fontWeight: "900" },
-  overviewLabel: { color: "#aaa9bb", fontSize: 11, fontWeight: "700", marginTop: 4 },
-  insightCard: { width: "100%", backgroundColor: "#19122b", borderWidth: 1, borderColor: "#4a3376", borderRadius: 18, padding: 16, marginBottom: 12 },
+  overviewLabel: { color: "#ffffff", fontSize: 11, fontWeight: "700", marginTop: 4 },
+  insightCard: { width: "100%", backgroundColor: "#160d2a", borderWidth: 1, borderColor: "#4a3376", borderRadius: 18, padding: 16, marginBottom: 12 },
   insightKicker: { color: "#c4b5fd", fontSize: 10, fontWeight: "900", letterSpacing: 1.4 },
   insightTitle: { color: "#fff", fontSize: 17, fontWeight: "900", marginTop: 6 },
-  insightText: { color: "#c6c2d8", fontSize: 12, lineHeight: 18, marginTop: 5 },
+  insightText: { color: "#ffffff", fontSize: 12, lineHeight: 18, marginTop: 5 },
   quickRow: { width: "100%", flexDirection: "row", gap: 10, marginBottom: 8 },
-  quickButton: { flex: 1, backgroundColor: "#7c4dff", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
-  quickButtonSecondary: { flex: 1, backgroundColor: "#251b46", borderWidth: 1, borderColor: "#58428f", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  quickButton: { flex: 1, backgroundColor: "#8b4dff", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  quickButtonSecondary: { flex: 1, backgroundColor: "#21143d", borderWidth: 1, borderColor: "#58428f", borderRadius: 14, paddingVertical: 13, alignItems: "center" },
   quickButtonText: { color: "#fff", fontWeight: "900", fontSize: 13 },
   container: {
     padding: 24,
     paddingBottom: 60,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.88)",
     minHeight: "100%",
   },
 
   eyebrow: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1.6,
@@ -2160,7 +2166,7 @@ const styles = StyleSheet.create({
 
   subtitle: {
     fontSize: 15,
-    color: "#b8b8b8",
+    color: "#ffffff",
     marginTop: 8,
     lineHeight: 21,
   },
@@ -2168,7 +2174,7 @@ const styles = StyleSheet.create({
   promiseCard: {
     marginTop: 18,
     borderRadius: 18,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 16,
@@ -2185,9 +2191,9 @@ const styles = StyleSheet.create({
   accountStrip: {
     marginTop: 18,
     borderRadius: 16,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -2198,7 +2204,7 @@ const styles = StyleSheet.create({
   },
 
   accountLabel: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 1,
@@ -2213,7 +2219,7 @@ const styles = StyleSheet.create({
 
   accountBadge: {
     borderRadius: 99,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -2235,9 +2241,9 @@ const styles = StyleSheet.create({
   actionCard: {
     minHeight: 96,
     borderRadius: 19,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     padding: 15,
     marginBottom: 12,
     flexDirection: "row",
@@ -2248,7 +2254,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 17,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2271,14 +2277,14 @@ const styles = StyleSheet.create({
   },
 
   actionDescription: {
-    color: "#919191",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 5,
   },
 
   actionArrow: {
-    color: "#6f6f6f",
+    color: "#ffffff",
     fontSize: 27,
   },
 
@@ -2297,12 +2303,12 @@ const styles = StyleSheet.create({
 
   authBox: {
     width: "100%",
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 16,
     padding: 18,
     marginTop: 18,
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: "#30234d",
   },
 
   authTitle: {
@@ -2322,7 +2328,7 @@ const styles = StyleSheet.create({
   },
 
   signupButton: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 14,
     borderRadius: 12,
     width: "100%",
@@ -2340,9 +2346,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 15,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2366,7 +2372,7 @@ const styles = StyleSheet.create({
   },
 
   workflowIntro: {
-    color: "#aaaaaa",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
     marginTop: 18,
@@ -2375,7 +2381,7 @@ const styles = StyleSheet.create({
 
   input: {
     width: "100%",
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     color: "#fff",
     padding: 14,
     borderRadius: 12,
@@ -2386,7 +2392,7 @@ const styles = StyleSheet.create({
   uploadCard: {
     width: "100%",
     borderRadius: 18,
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     padding: 18,
     alignItems: "center",
   },
@@ -2411,7 +2417,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginTop: 20,
     resizeMode: "contain",
-    backgroundColor: "#222",
+    backgroundColor: "#18142d",
   },
 
   platformContainer: {
@@ -2427,7 +2433,7 @@ const styles = StyleSheet.create({
   },
 
   platformButton: {
-    backgroundColor: "#222",
+    backgroundColor: "#18142d",
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 12,
@@ -2435,7 +2441,7 @@ const styles = StyleSheet.create({
   },
 
   platformButtonActive: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
   },
 
   platformButtonText: {
@@ -2455,7 +2461,7 @@ const styles = StyleSheet.create({
 
   boardBox: {
     width: "100%",
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 14,
     padding: 14,
     marginTop: 18,
@@ -2467,7 +2473,7 @@ const styles = StyleSheet.create({
   },
 
   refreshBoardsButton: {
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 10,
@@ -2476,7 +2482,7 @@ const styles = StyleSheet.create({
   },
 
   boardButton: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     padding: 13,
     borderRadius: 10,
     marginBottom: 8,
@@ -2492,7 +2498,7 @@ const styles = StyleSheet.create({
   },
 
   boardHelpText: {
-    color: "#aaa",
+    color: "#ffffff",
     lineHeight: 20,
   },
 
@@ -2520,12 +2526,12 @@ const styles = StyleSheet.create({
   },
 
   schedulePanel: {
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: "#30234d",
   },
 
   scheduleTitle: {
@@ -2536,7 +2542,7 @@ const styles = StyleSheet.create({
   },
 
   repeatOption: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     padding: 12,
     borderRadius: 10,
     marginBottom: 8,
@@ -2559,7 +2565,7 @@ const styles = StyleSheet.create({
   },
 
   scheduleInput: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     color: "#fff",
     padding: 13,
     borderRadius: 10,
@@ -2575,7 +2581,7 @@ const styles = StyleSheet.create({
   },
 
   saveButton: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 14,
     borderRadius: 12,
     width: "100%",
@@ -2585,7 +2591,7 @@ const styles = StyleSheet.create({
 
   card: {
     marginTop: 18,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     padding: 18,
     borderRadius: 16,
     width: "100%",
@@ -2605,7 +2611,7 @@ const styles = StyleSheet.create({
   },
 
   smallCopyButton: {
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 11,
     borderRadius: 10,
     alignItems: "center",

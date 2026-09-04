@@ -1,3 +1,4 @@
+// ARTBOOST_CREATE_POST_STORE_SCOPE_V3155
 import express from "express";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
@@ -122,6 +123,7 @@ router.post("/generate", async (req, res) => {
     const productId = clean(req.body?.productId, 200);
     const platform = clean(req.body?.platform || "Instagram", 40);
     const tone = clean(req.body?.tone || "Professional Sales", 80);
+    const expectedStoreId = clean(req.body?.storeId || "", 200);
 
     if (!productId) return res.status(400).json({ success: false, error: "productId is required." });
     if (!ALLOWED_PLATFORMS.has(platform)) {
@@ -129,6 +131,15 @@ router.post("/generate", async (req, res) => {
     }
 
     const product = await getOwnedProduct(user.id, productId);
+    if (
+      expectedStoreId &&
+      String(product.store_connection_id || "") !== expectedStoreId
+    ) {
+      return res.status(409).json({
+        success: false,
+        error: "The selected product no longer belongs to the selected store. Refresh the Library and try again.",
+      });
+    }
     const title = clean(product.title || "Untitled Product", 500);
     const description = clean(product.description || "", 5000);
     const productUrl = validHttpUrl(product.product_url) ? String(product.product_url) : "";
@@ -164,6 +175,7 @@ router.post("/generate", async (req, res) => {
         productUrl,
         storeName,
         storeType: clean(product.store_type || "", 100),
+        storeConnectionId: clean(product.store_connection_id || "", 200),
         price,
         currency,
       },

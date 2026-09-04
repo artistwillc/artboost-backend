@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -1623,13 +1624,13 @@ const styles =
     screen: {
       flex: 1,
       backgroundColor:
-        "#101010",
+        "rgba(7, 6, 17, 0.92)",
     },
 
     invalidScreen: {
       flex: 1,
       backgroundColor:
-        "#101010",
+        "rgba(7, 6, 17, 0.92)",
       alignItems: "center",
       justifyContent:
         "center",
@@ -1712,7 +1713,7 @@ const styles =
     heroCard: {
       borderRadius: 20,
       backgroundColor:
-        "#1d1730",
+        "rgba(29, 23, 48, 0.92)",
       borderWidth: 1,
       borderColor:
         "#4c3979",
@@ -1745,7 +1746,7 @@ const styles =
     },
 
     heroDescription: {
-      color: "#b9afc8",
+      color: "#ffffff",
       fontSize: 12,
       lineHeight: 18,
       marginTop: 5,
@@ -1768,7 +1769,7 @@ const styles =
     },
 
     sectionSubtitle: {
-      color: "#8f8f8f",
+      color: "#ffffff",
       fontSize: 12,
       lineHeight: 18,
       marginTop: 5,
@@ -1786,7 +1787,7 @@ const styles =
     },
 
     artworkSectionHelp: {
-      color: "#8f8f8f",
+      color: "#ffffff",
       fontSize: 11,
       lineHeight: 17,
       marginTop: 5,
@@ -1822,7 +1823,7 @@ const styles =
     },
 
     uploadArtworkText: {
-      color: "#9f98aa",
+      color: "#ffffff",
       fontSize: 11,
       marginTop: 5,
       textAlign: "center",
@@ -1918,7 +1919,7 @@ const styles =
     },
 
     helperText: {
-      color: "#777777",
+      color: "#ffffff",
       fontSize: 10,
       marginTop: 5,
     },
@@ -1993,7 +1994,7 @@ const styles =
     },
 
     resultBody: {
-      color: "#b7c8bd",
+      color: "#ffffff",
       fontSize: 12,
       lineHeight: 19,
       marginTop: 13,
@@ -2057,7 +2058,7 @@ const styles =
     },
 
     metricLabel: {
-      color: "#8f8f8f",
+      color: "#ffffff",
       fontSize: 10,
       fontWeight: "700",
     },

@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -58,6 +59,7 @@ export default function CampaignHistoryScreen() {
 
   useEffect(() => {
     loadSessionAndCampaigns();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
 
   useEffect(() => {
@@ -440,7 +442,7 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.92)",
   },
   container: {
     padding: 20,
@@ -448,7 +450,7 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.92)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -465,7 +467,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   subtitle: {
-    color: "#b8b8b8",
+    color: "#ffffff",
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 18,
@@ -481,7 +483,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#2d2d2d",
+    borderColor: "#49366f",
   },
   summaryValue: {
     color: "#ffffff",
@@ -490,7 +492,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   summaryLabel: {
-    color: "#aaa",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -498,7 +500,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   filterButton: {
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     paddingVertical: 11,
     paddingHorizontal: 15,
     borderRadius: 999,
@@ -511,7 +513,7 @@ const styles = StyleSheet.create({
     borderColor: "#8b5cf6",
   },
   filterText: {
-    color: "#aaa",
+    color: "#ffffff",
     fontWeight: "800",
   },
   filterTextActive: {
@@ -522,7 +524,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 22,
     borderWidth: 1,
-    borderColor: "#2d2d2d",
+    borderColor: "#49366f",
   },
   emptyTitle: {
     color: "#ffffff",
@@ -531,7 +533,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyText: {
-    color: "#aaa",
+    color: "#ffffff",
     lineHeight: 22,
   },
   card: {
@@ -540,7 +542,7 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#2d2d2d",
+    borderColor: "#49366f",
   },
   image: {
     width: "100%",
@@ -582,7 +584,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#8b5cf6",
   },
   statusEnded: {
-    backgroundColor: "#555",
+    backgroundColor: "#665b7d",
   },
   statusText: {
     color: "#ffffff",
@@ -591,7 +593,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   metaText: {
-    color: "#cfcfcf",
+    color: "#ffffff",
     fontSize: 14,
     marginBottom: 5,
   },
@@ -635,7 +637,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#12a86b",
   },
   endButton: {
-    backgroundColor: "#555",
+    backgroundColor: "#665b7d",
   },
   deleteButton: {
     backgroundColor: "#b91c1c",

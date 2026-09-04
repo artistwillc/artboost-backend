@@ -1,3 +1,6 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_IOS_CONNECT_DETERMINISTIC_V3109
+// ARTBOOST_IOS_AI_CONSULTANT_DETERMINISTIC_V3108
 import { Ionicons } from "@expo/vector-icons";
 import {
   Tabs,
@@ -19,6 +22,8 @@ import {
   Text,
   TouchableWithoutFeedback,
   View,
+
+  Platform,
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
@@ -63,7 +68,7 @@ function CustomTabBar({
   const [unreadCount, setUnreadCount] =
     useState(0);
 
-  const [tierLabel, setTierLabel] =
+  const [, setTierLabel] =
     useState("Starter");
 
   const loadUnreadCount =
@@ -210,25 +215,29 @@ function CustomTabBar({
       {
         name: "index",
         title: "Home",
+        testId: "artboost-tab-home",
         icon: "home",
       },
       {
         name: "products",
         title: "Library",
+        testId: "artboost-tab-library",
         icon: "images",
       },
       {
         name: "connections",
         title: "Connect",
+        testId: "artboost-tab-connect",
         icon: "link",
       },
       {
         name: "consultant",
         title: "AI",
+        testId: "artboost-tab-ai",
         icon: "sparkles",
       },
     ],
-    [tierLabel]
+    []
   );
 
   const moreItems = [
@@ -239,11 +248,13 @@ function CustomTabBar({
 },
 {
   title: "Help & FAQ",
+  testId: "artboost-more-help-faq",
   icon: "help-circle",
   route: "/faq",
 },
     {
       title: "Campaign Manager",
+      testId: "artboost-more-campaign-manager",
       icon: "megaphone",
       route: "/campaign-manager",
     },
@@ -254,6 +265,7 @@ function CustomTabBar({
     },
     {
       title: "Analytics",
+      testId: "artboost-more-analytics",
       icon: "bar-chart",
       route: "/analytics",
     },
@@ -298,15 +310,19 @@ function CustomTabBar({
   ];
 
   function goToTab(name: string) {
-    const route = state.routes.find(
-      (item: any) => item.name === name
-    );
-
-    if (!route) {
+    if (name === "connect-main") {
+      router.replace("/(tabs)/connect-main" as any);
       return;
     }
 
+    const route = state.routes.find((item: any) => item.name === name);
+    if (!route) return;
     navigation.navigate(route.name);
+  }
+
+  // IOS_MORE_NATIVE_ACTIVATION_V261
+  function openMoreMenu() {
+    setMoreOpen(true);
   }
 
   function isActive(name: string) {
@@ -329,14 +345,23 @@ function CustomTabBar({
               onPress={() =>
                 goToTab(tab.name)
               }
-            >
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={`ArtBoost ${tab.title} tab`}
+              accessibilityState={{ selected: active }}
+              testID={tab.testId}
+              nativeID={tab.testId}
+              collapsable={false}
+              onAccessibilityTap={() => goToTab(tab.name)}
+
+          pressRetentionOffset={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons
                 name={tab.icon as any}
                 size={22}
                 color={
                   active
                     ? "#a78bfa"
-                    : "#888"
+                    : "#b9b0cc"
                 }
               />
 
@@ -356,17 +381,25 @@ function CustomTabBar({
 
         <Pressable
           style={styles.tabItem}
-          onPress={() => {
-            setMoreOpen(true);
-          }}
-        >
+          onPress={openMoreMenu}
+          onAccessibilityTap={openMoreMenu}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel="ArtBoost More tab"
+          accessibilityState={{ expanded: moreOpen, selected: moreOpen }}
+          testID="artboost-tab-more"
+          nativeID="artboost-tab-more"
+          collapsable={false}
+
+          hitSlop={{ top: 8, bottom: 12, left: 8, right: 8 }}
+          pressRetentionOffset={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <View
             style={styles.moreIconWrap}
           >
             <Ionicons
               name="menu"
               size={24}
-              color="#888"
+              color="#b9b0cc"
             />
 
             {unreadCount > 0 ? (
@@ -387,6 +420,8 @@ function CustomTabBar({
           </Text>
         </Pressable>
       </View>
+        {/* IOS_SINGLE_TARGET_NAV_V272_R2: V2.7.0 duplicate iOS responders removed; original controls are authoritative. */}
+
 
       <Modal
         visible={moreOpen}
@@ -400,11 +435,15 @@ function CustomTabBar({
           onPress={() =>
             setMoreOpen(false)
           }
-        >
+
+
+                      accessible={false}>
           <View
             style={styles.modalOverlay}
           >
-            <TouchableWithoutFeedback>
+            <TouchableWithoutFeedback
+
+                      accessible={false}>
               <View
                 style={styles.moreMenu}
               >
@@ -414,6 +453,11 @@ function CustomTabBar({
 
                 <Text
                   style={styles.moreTitle}
+
+                  testID="artboost-more-menu"
+                  nativeID="artboost-more-menu"
+                  accessibilityLabel="ArtBoost More Tools menu"
+                  accessible
                 >
                   More Tools
                 </Text>
@@ -441,6 +485,12 @@ function CustomTabBar({
                     <Pressable
                       key={item.title}
                       style={styles.moreItem}
+
+
+
+
+
+
                       onPress={() => {
                         setMoreOpen(false);
 
@@ -461,7 +511,19 @@ function CustomTabBar({
                           loadTier();
                         }, 800);
                       }}
-                    >
+
+
+
+
+
+
+
+                      accessible={true}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.title}
+                      testID={item.testId}
+                      nativeID={item.testId}
+                      collapsable={false}>
                       <View
                         style={
                           styles.moreIconBox
@@ -513,7 +575,7 @@ function CustomTabBar({
                       <Ionicons
                         name="chevron-forward"
                         size={20}
-                        color="#777"
+                        color="#9b94b7"
                       />
                     </Pressable>
                   ))}
@@ -527,34 +589,157 @@ function CustomTabBar({
   );
 }
 
-export default function TabLayout() {
+function FinalIosTabBar({ state, navigation }: any) {
+  const tabs = [
+    { name: "index", title: "Home", icon: "home", testID: "artboost-tab-home" },
+    { name: "products", title: "Library", icon: "images", testID: "artboost-tab-library" },
+    { name: "connections", title: "Connect", icon: "link", testID: "artboost-tab-connect" },
+    { name: "consultant", title: "AI", icon: "sparkles", testID: "artboost-tab-ai" },
+    { name: "more", title: "More", icon: "menu", testID: "artboost-tab-more" },
+  ];
+
+  const current = state.routes[state.index]?.name;
+
+  // ARTBOOST_IOS_MORE_DETERMINISTIC_V3104
+  const activateIosTab = (name: string) => {
+    if (name === "consultant") {
+      router.replace("/(tabs)/consultant" as any);
+      return;
+    }
+
+    if (name === "products") {
+      router.replace("/(tabs)/products" as any);
+      return;
+    }
+
+    if (name === "more") {
+      router.replace("/(tabs)/more" as any);
+      return;
+    }
+
+    if (name === "connections") {
+      router.replace("/(tabs)/connections" as any);
+      return;
+    }
+
+    navigation.navigate(name);
+  };
+
   return (
-    <Tabs
-      tabBar={(props) => (
-        <CustomTabBar {...props} />
-      )}
-      screenOptions={{
-        headerShown: false,
-      }}
+    <View
+      style={styles.finalIosTabBar}
+      testID="artboost-ios-tabbar"
+      nativeID="artboost-ios-tabbar"
+      accessible={false}
     >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="saved" />
-      <Tabs.Screen name="schedule" />
-      <Tabs.Screen name="products" />
-      <Tabs.Screen name="connections" />
-      <Tabs.Screen name="consultant" />
-      <Tabs.Screen name="brand" />
-      <Tabs.Screen name="pro" />
+      {tabs.map((tab) => {
+        const active = current === tab.name;
+
+        return (
+          <Pressable
+            key={tab.name}
+            testID={tab.testID}
+            nativeID={tab.testID}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={"ArtBoost " + tab.title + " tab"}
+            accessibilityState={{ selected: active }}
+            style={[
+              styles.finalIosTabItem,
+              tab.name === "connections"
+                ? styles.connectTouchPriority
+                : null,
+            ]}
+            pointerEvents="auto"
+            collapsable={false}
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+            pressRetentionOffset={{ top: 12, bottom: 12, left: 10, right: 10 }}
+            onAccessibilityTap={() => activateIosTab(tab.name)}
+            onPress={() => activateIosTab(tab.name)}
+
+            focusable={true}
+          >
+            <Ionicons
+              name={tab.icon as any}
+              size={22}
+              color={active ? "#c4b5fd" : "#c7bfd8"}
+            />
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.finalIosTabText,
+                active && styles.finalIosTabTextActive,
+              ]}
+            >
+              {tab.title}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export default function TabLayout() {
+  // IOS_NATIVE_ROUTE_OWNERSHIP_FINAL_V290
+  // IOS_UNIFORM_CUSTOM_TAB_FINAL_V291
+  // iOS uses one uniform custom Pressable implementation for all five primary tabs.
+  const ios = Platform.OS === "ios";
+  return (
+    <Tabs tabBar={ios ? (props) => <FinalIosTabBar {...props} /> : (props) => <CustomTabBar {...props} />} screenOptions={{ headerShown:false }}>
+      <Tabs.Screen name="index" options={{ title:"Home" }} />
+      <Tabs.Screen name="products" options={{ title:"Library" }} />
+      <Tabs.Screen name="connect-tab" options={{ href:null }} />
+      <Tabs.Screen name="consultant" options={{ title:"AI" }} />
+      <Tabs.Screen name="more-tab" options={{ href:null }} />
+      <Tabs.Screen name="brand" options={{ href: null }} />
+      <Tabs.Screen name="connect-main" options={{ href:null }} />
+      <Tabs.Screen name="connections" options={{ title:"Connect" }} />
+      <Tabs.Screen name="explore" options={{ href: null }} />
+      <Tabs.Screen name="history" options={{ href: null }} />
+      <Tabs.Screen name="more" options={{ title:"More" }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="pro" options={{ href: null }} />
+      <Tabs.Screen name="saved" options={{ href: null }} />
+      <Tabs.Screen name="schedule" options={{ href: null }} />
+      <Tabs.Screen name="store-dashboard" options={{ href: null }} />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
+  finalIosTabBar: {
+    height: 82,
+    paddingBottom: 18,
+    paddingTop: 6,
+    flexDirection: "row",
+    backgroundColor: "rgba(23, 17, 38, 0.97)",
+    borderTopWidth: 1,
+    borderTopColor: "#7c3aed",
+    position: "relative",
+    zIndex: 1000,
+    elevation: 24,
+  },
+  finalIosTabItem: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 58,
+    minWidth: 0,
+    zIndex: 1001,
+  },
+  finalIosTabText: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  finalIosTabTextActive: { color: "#c4b5fd" },
   tabBar: {
     height: 74,
-    backgroundColor: "#0b0a16",
+    backgroundColor: "rgba(13, 9, 24, 0.97)",
     borderTopWidth: 1,
-    borderTopColor: "#2d2850",
+    borderTopColor: "#7c3aed",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -571,7 +756,7 @@ const styles = StyleSheet.create({
   },
 
   tabText: {
-    color: "#888",
+    color: "#ffffff",
     fontSize: 10,
     fontWeight: "700",
     maxWidth: 64,
@@ -579,7 +764,7 @@ const styles = StyleSheet.create({
   },
 
   tabTextActive: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
   },
 
   modalOverlay: {
@@ -590,13 +775,13 @@ const styles = StyleSheet.create({
   },
 
   moreMenu: {
-    backgroundColor: "#151515",
+    backgroundColor: "#0f0c1d",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 22,
     paddingBottom: 34,
     borderTopWidth: 1,
-    borderColor: "#2b2b2b",
+    borderColor: "#3f2e68",
     maxHeight: "88%",
   },
 
@@ -604,7 +789,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 5,
     borderRadius: 99,
-    backgroundColor: "#444",
+    backgroundColor: "#49366f",
     alignSelf: "center",
     marginBottom: 18,
   },
@@ -625,28 +810,28 @@ const styles = StyleSheet.create({
   },
 
   moreSubtitle: {
-    color: "#aaa",
+    color: "#ffffff",
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 18,
   },
 
   moreItem: {
-    backgroundColor: "#202020",
+    backgroundColor: "rgba(21, 17, 38, 0.94)",
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2d2d2d",
+    borderColor: "#49366f",
   },
 
   moreIconBox: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -696,5 +881,12 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 10,
     fontWeight: "900",
+  },
+
+  // IOS_CONNECT_TOUCH_PRIORITY_V341
+  connectTouchPriority: {
+    position: "relative",
+    zIndex: 10000,
+    elevation: 10000,
   },
 });

@@ -1,3 +1,4 @@
+// ARTBOOST_CONNECTION_OAUTH_INTEGRITY_V3157
 import crypto from "crypto";
 import supabase from "../lib/supabase.js";
 import {
@@ -275,7 +276,7 @@ export async function completeProviderOAuth({
     new Date().toISOString();
 
   const {
-    data: existing,
+    data: providerConnections,
     error: existingError,
   } =
     await supabase
@@ -289,7 +290,56 @@ export async function completeProviderOAuth({
         "platform",
         provider.id
       )
-      .maybeSingle();
+      .order("updated_at", {
+        ascending: false,
+      });
+
+  const existingRows =
+    Array.isArray(providerConnections)
+      ? providerConnections
+      : [];
+
+  // V3.15.7: never silently merge two different real accounts merely
+  // because they use the same provider. Prefer an exact provider account ID;
+  // otherwise only reuse the single legacy row when identity is unambiguous.
+  const exactAccount =
+    accountId
+      ? existingRows.find(
+          (row) =>
+            clean(
+              row?.platform_data?.accountId
+            ) === accountId
+        )
+      : null;
+
+  const existing =
+    exactAccount ||
+    (
+      existingRows.length === 1 &&
+      !clean(
+        existingRows[0]?.platform_data?.accountId
+      )
+        ? existingRows[0]
+        : null
+    );
+
+  if (
+    accountId &&
+    existingRows.some(
+      (row) =>
+        clean(
+          row?.platform_data?.accountId
+        ) &&
+        clean(
+          row?.platform_data?.accountId
+        ) !== accountId
+    ) &&
+    !exactAccount
+  ) {
+    throw new Error(
+      `${provider.name} is already connected to a different account. Disconnect that account before connecting another one.`
+    );
+  }
 
   if (existingError) {
     throw new Error(
@@ -457,7 +507,9 @@ export async function refreshProviderToken({
         updated_at:
           new Date().toISOString(),
       })
-      .eq("id", connection.id);
+      .eq("id", connection.id)
+      .eq("user_id", connection.user_id)
+      .eq("platform", provider.id);
 
   if (error) {
     throw new Error(

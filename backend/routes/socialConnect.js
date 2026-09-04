@@ -1,3 +1,4 @@
+// ARTBOOST_CONNECTION_STATUS_EXPIRY_V3157
 import express from "express";
 import { resolveRequestUserId } from "../middleware/auth.js";
 import supabase from "../lib/supabase.js";
@@ -125,13 +126,40 @@ router.get(
         );
       }
 
+      const expiresAt =
+        data?.platform_data?.expiresAt ||
+        null;
+
+      const expired =
+        Boolean(
+          expiresAt &&
+          Number.isFinite(
+            Date.parse(expiresAt)
+          ) &&
+          Date.parse(expiresAt) <= Date.now()
+        );
+
+      const hasRefreshToken =
+        Boolean(
+          data?.platform_data?.refreshToken
+        );
+
       return res.json({
         connected:
           Boolean(
             data &&
-            data.connected !== false
+            data.connected !== false &&
+            !expired
           ),
         supported: true,
+        expired,
+        reconnectRequired:
+          Boolean(
+            data &&
+            data.connected !== false &&
+            expired &&
+            !hasRefreshToken
+          ),
         accountName:
           data?.platform_data?.accountName ||
           null,
@@ -141,6 +169,7 @@ router.get(
         updatedAt:
           data?.updated_at ||
           null,
+        expiresAt,
       });
     } catch (error) {
       return res.status(500).json({

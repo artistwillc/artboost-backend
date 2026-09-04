@@ -1,6 +1,7 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_WHITE_TEXT_AUDIT_V3141
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import * as Linking from "expo-linking";
 import {
   router,
   Stack,
@@ -25,6 +26,7 @@ import {
   TextInput,
 } from "react-native";
 
+import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
 
 const API_BASE =
@@ -484,22 +486,16 @@ export default function StoreProductsScreen() {
               setRefreshing(true);
               loadProducts(false);
             }}
-            tintColor="#8b5cf6"
+            tintColor="#9b5cff"
           />
         }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.summaryCard}>
           <View style={styles.summaryIcon}>
-            <Ionicons
-              name={
-                normalize(storeType) ===
-                "redbubble"
-                  ? "color-palette-outline"
-                  : "storefront-outline"
-              }
-              size={30}
-              color="#c4b5fd"
+            <ArtBoostBrandIcon
+              name={storeType || storeName}
+              size={44}
             />
           </View>
 
@@ -564,9 +560,9 @@ export default function StoreProductsScreen() {
         {/* ARTBOOST_STORE_PRODUCT_SEARCH_V1_1_20260821 */}
         {!loading && products.length > 0 ? (
           <View style={styles.productSearchWrap}>
-            <Ionicons name="search-outline" size={19} color="#8b5cf6" />
-            <TextInput value={productSearch} onChangeText={setProductSearch} placeholder="Search products" placeholderTextColor="#777" autoCapitalize="none" autoCorrect={false} style={styles.productSearchInput} />
-            {productSearch ? <Pressable onPress={() => setProductSearch("")} hitSlop={8}><Ionicons name="close-circle" size={20} color="#777" /></Pressable> : null}
+            <Ionicons name="search-outline" size={19} color="#9b5cff" />
+            <TextInput value={productSearch} onChangeText={setProductSearch} placeholder="Search products" placeholderTextColor="#9b94b7" autoCapitalize="none" autoCorrect={false} style={styles.productSearchInput} />
+            {productSearch ? <Pressable onPress={() => setProductSearch("")} hitSlop={8}><Ionicons name="close-circle" size={20} color="#9b94b7" /></Pressable> : null}
           </View>
         ) : null}
 
@@ -574,7 +570,7 @@ export default function StoreProductsScreen() {
           <View style={styles.loadingWrap}>
             <ActivityIndicator
               size="large"
-              color="#8b5cf6"
+              color="#9b5cff"
             />
             <Text style={styles.loadingText}>
               Loading store products...
@@ -627,7 +623,7 @@ export default function StoreProductsScreen() {
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
-                    <Ionicons name="image-outline" size={33} color="#777777" />
+                    <Ionicons name="image-outline" size={33} color="#9b94b7" />
                   </View>
                 )}
 
@@ -656,7 +652,7 @@ export default function StoreProductsScreen() {
                     </Text>
                   </View>
                 </View>
-                <Ionicons name="chevron-forward" size={22} color="#777777" />
+                <Ionicons name="chevron-forward" size={22} color="#9b94b7" />
               </Pressable>
 
               {/* ARTBOOST_PRODUCT_ACTIONS */}
@@ -688,14 +684,14 @@ export default function StoreProductsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
   header: {
     paddingHorizontal: 18,
     paddingTop: 14,
     paddingBottom: 15,
     borderBottomWidth: 1,
-    borderBottomColor: "#1d1d1d",
+    borderBottomColor: "#141126",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -703,9 +699,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 15,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#3f2e68",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -714,7 +710,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
   },
   eyebrow: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1.2,
@@ -731,7 +727,7 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     borderRadius: 20,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 16,
@@ -743,7 +739,7 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 17,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -757,14 +753,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   summaryText: {
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 5,
   },
   automationPrompt: {
     borderRadius: 20,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
     borderColor: "#4c3979",
     padding: 16,
@@ -777,7 +773,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 15,
-    backgroundColor: "#2b2145",
+    backgroundColor: "#21183a",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -795,7 +791,7 @@ const styles = StyleSheet.create({
   },
 
   automationPromptText: {
-    color: "#9990aa",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 5,
@@ -804,7 +800,7 @@ const styles = StyleSheet.create({
   automationPromptButton: {
     minHeight: 43,
     borderRadius: 13,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     marginTop: 12,
     paddingHorizontal: 14,
     flexDirection: "row",
@@ -825,16 +821,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   loadingText: {
-    color: "#888888",
+    color: "#ffffff",
     fontSize: 13,
     marginTop: 12,
   },
   emptyCard: {
     minHeight: 330,
     borderRadius: 22,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#3f2e68",
     padding: 24,
     alignItems: "center",
     justifyContent: "center",
@@ -846,7 +842,7 @@ const styles = StyleSheet.create({
     marginTop: 15,
   },
   emptyText: {
-    color: "#999999",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
     textAlign: "center",
@@ -856,7 +852,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     minHeight: 50,
     borderRadius: 16,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingHorizontal: 19,
     flexDirection: "row",
     alignItems: "center",
@@ -872,9 +868,9 @@ const styles = StyleSheet.create({
   productSearchInput: { flex: 1, color: "#ffffff", fontSize: 15, paddingVertical: 0 },
   productCard: {
     borderRadius: 20,
-    backgroundColor: "#171717",
+    backgroundColor: "rgba(16, 13, 32, 0.92)",
     borderWidth: 1,
-    borderColor: "#292929",
+    borderColor: "#3f2e68",
     padding: 12,
     marginBottom: 12,
   },
@@ -887,7 +883,7 @@ const styles = StyleSheet.create({
     width: 92,
     height: 104,
     borderRadius: 14,
-    backgroundColor: "#242424",
+    backgroundColor: "#1d1733",
   },
   imagePlaceholder: {
     alignItems: "center",
@@ -904,7 +900,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   productDescription: {
-    color: "#8f8f8f",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 6,
@@ -922,7 +918,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   automationStatus: {
-    color: "#888888",
+    color: "#ffffff",
     fontSize: 9,
     fontWeight: "900",
   },
@@ -935,7 +931,7 @@ const styles = StyleSheet.create({
     paddingTop: 11,
     marginTop: 5,
     borderTopWidth: 1,
-    borderTopColor: "#292929",
+    borderTopColor: "#3f2e68",
   },
   productActionButton: {
     flex: 1,

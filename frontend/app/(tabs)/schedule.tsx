@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
   router,
@@ -980,7 +981,7 @@ if (
     color="#c4b5fd"
   />
 </Pressable>
-          
+
       </View>
 
       <ScrollView
@@ -1590,7 +1591,7 @@ if (
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -1694,7 +1695,7 @@ const styles = StyleSheet.create({
   },
 
   storeDescription: {
-    color: "#858585",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 17,
     marginTop: 5,
@@ -1717,7 +1718,7 @@ const styles = StyleSheet.create({
   },
 
   stateText: {
-    color: "#8b8b8b",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     textAlign: "center",
@@ -1794,7 +1795,7 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    color: "#8b8b8b",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     textAlign: "center",
@@ -1843,7 +1844,7 @@ const styles = StyleSheet.create({
   },
 
   summaryLabel: {
-    color: "#8b8b8b",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "800",
     marginTop: 5,
@@ -1898,7 +1899,7 @@ const styles = StyleSheet.create({
   },
 
   automationStore: {
-    color: "#9d93aa",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "700",
     marginTop: 4,
@@ -1945,7 +1946,7 @@ const styles = StyleSheet.create({
   },
 
   statusTextInactive: {
-    color: "#aaaaaa",
+    color: "#ffffff",
   },
 
   automationDivider: {
@@ -1975,7 +1976,7 @@ const styles = StyleSheet.create({
   },
 
   detailLabel: {
-    color: "#7f7f7f",
+    color: "#ffffff",
     fontSize: 10,
     fontWeight: "800",
     textTransform: "uppercase",
@@ -2065,7 +2066,7 @@ const styles = StyleSheet.create({
 
   pausedNoticeText: {
     flex: 1,
-    color: "#b9afc7",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
   },

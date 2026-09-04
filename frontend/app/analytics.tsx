@@ -1,6 +1,9 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_WHITE_TEXT_AUDIT_V3141
+// ARTBOOST_ANALYTICS_DIRECT_MORE_BACK_V3110
 import { Ionicons } from "@expo/vector-icons";
-import { router, Stack } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { router, Stack, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -11,6 +14,8 @@ import {
   Text,
   View,
 } from "react-native";
+import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
+import { supabase } from "../lib/supabase";
 
 const BACKEND_URL = "https://artboost-ai.onrender.com";
 
@@ -31,6 +36,8 @@ type AnalyticsData = {
   instagramPosts: number;
   xPosts: number;
   upcoming: any | null;
+  topArtwork?: { title?: string; confirmedPosts?: number } | null;
+  attentionCount?: number;
 };
 
 type Detail = {
@@ -39,20 +46,76 @@ type Detail = {
   rows: { label: string; value: string | number; note?: string }[];
 };
 
+// ARTBOOST_ANALYTICS_RECORD_DRILLDOWNS_V393
+function getBestPlatform(
+  analytics: AnalyticsData | null
+) {
+  const candidates = [
+    { name: "Pinterest", posts: Number(analytics?.pinterestPosts || 0) },
+    { name: "Facebook", posts: Number(analytics?.facebookPosts || 0) },
+    { name: "Instagram", posts: Number(analytics?.instagramPosts || 0) },
+    { name: "X", posts: Number(analytics?.xPosts || 0) },
+  ];
+
+  const best = candidates.reduce(
+    (leader, candidate) =>
+      candidate.posts > leader.posts ? candidate : leader,
+    candidates[0]
+  );
+
+  return best && best.posts > 0
+    ? best.name
+    : "No platform data yet";
+}
 export default function AnalyticsScreen() {
+  const routeParams = useLocalSearchParams<{ storeId?: string; storeName?: string; storeType?: string }>();
+  const storeId = String(routeParams.storeId || "").trim();
+  const storeName = String(routeParams.storeName || "").trim();
+  const storeType = String(routeParams.storeType || "").trim();
+  const analyticsScopeQuery = [storeId ? `storeId=${encodeURIComponent(storeId)}` : "", storeName ? `storeName=${encodeURIComponent(storeName)}` : "", storeType ? `storeType=${encodeURIComponent(storeType)}` : ""].filter(Boolean).join("&");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
+  /* ARTBOOST_ANALYTICS_RANGE_ATTENTION_V390 */
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
+  // ARTBOOST_ANALYTICS_RANGE_NATIVE_STATE_V3131
+  const analyticsRequestSerial = useRef(0);
+  const [rangeReloading, setRangeReloading] = useState(false);
 
-  async function loadAnalytics() {
+  const loadAnalytics = useCallback(async (requestedRange: "7d" | "30d" | "90d" | "all" = range) => {
+    const requestId = ++analyticsRequestSerial.current;
+    setRangeReloading(true);
     try {
       setError("");
-      const response = await fetch(`${BACKEND_URL}/analytics`);
+      // ARTBOOST_ANALYTICS_BEARER_AUTH_V394
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw new Error(sessionError.message);
+      }
+
+      const accessToken = session?.access_token || "";
+
+      if (!accessToken) {
+        throw new Error(
+          "Your ArtBoost session is unavailable. Please sign in again."
+        );
+      }
+
+      const response = await fetch(`${BACKEND_URL}/analytics?range=${requestedRange}${analyticsScopeQuery ? `&${analyticsScopeQuery}` : ""}&_=${Date.now()}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Cache-Control": "no-cache",
+        },
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to load analytics.");
+      if (requestId !== analyticsRequestSerial.current) return;
       setAnalytics({
         totalCampaigns: data.totalCampaigns || 0,
         scheduled: data.scheduled || 0,
@@ -70,20 +133,25 @@ export default function AnalyticsScreen() {
         instagramPosts: data.instagramPosts || 0,
         xPosts: data.xPosts || 0,
         upcoming: data.upcoming || null,
+        topArtwork: data.topArtwork || null,
+        attentionCount: Number(data.attentionCount || 0),
       });
     } catch (err: any) {
       setError(err.message || "Something went wrong.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === analyticsRequestSerial.current) {
+        setLoading(false);
+        setRefreshing(false);
+        setRangeReloading(false);
+      }
     }
-  }
+  }, [range, analyticsScopeQuery]);
 
-  useEffect(() => { loadAnalytics(); }, []);
+  useEffect(() => { loadAnalytics(range); }, [loadAnalytics, range]);
 
   const attentionCount = useMemo(
-    () => (analytics?.failed || 0) + (analytics?.paused || 0),
-    [analytics?.failed, analytics?.paused]
+    () => Number(analytics?.attentionCount ?? ((analytics?.failed || 0) + (analytics?.paused || 0))),
+    [analytics?.attentionCount, analytics?.failed, analytics?.paused]
   );
 
   function formatDate(value?: string) {
@@ -93,69 +161,114 @@ export default function AnalyticsScreen() {
     });
   }
 
-  function openSummary(label: string, value: number | string) {
-    const rows: Detail["rows"] = [{ label, value }];
-    if (label === "Posts Published") rows.push({ label: "Total recorded posts", value: analytics?.totalPosts || 0 });
-    if (label === "Active Campaigns") rows.push({ label: "All campaigns", value: analytics?.totalCampaigns || 0 });
-    if (label === "Success Rate") rows.push({ label: "Failed", value: analytics?.failed || 0 });
-    setDetail({ title: label, subtitle: `Analytics range: ${rangeLabel(range)}`, rows });
-  }
-
-  function openPlatform(name: string, posts: number) {
-    setDetail({
-      title: `${name} Analytics`,
-      subtitle: "Platform detail currently available from ArtBoost publishing records.",
-      rows: [
-        { label: "Published posts", value: posts },
-        { label: "Range", value: rangeLabel(range) },
-        { label: "Engagement / reach", value: "Not connected yet", note: "ArtBoost will show additional official platform metrics when the connected platform/API returns them." },
-      ],
+  function openRecords(kind: string, title: string, platform = "") {
+    router.push({
+      pathname: "/analytics-records" as any,
+      params: { kind, title, platform, range, storeId, storeName, storeType },
     });
   }
 
+  function openSummary(label: string, _value: number | string) {
+    const kindMap: Record<string, string> = {
+      "Posts Published": "published",
+      "Active Automations": "automation-active",
+      "Success Rate": "attempts",
+      "Total Posts": "published",
+      "Scheduled": "scheduled",
+      "Paused": "paused",
+      "Failed": "failed",
+      "Saved": "saved",
+    };
+    openRecords(kindMap[label] || "all", label);
+  }
+
+  function openPlatform(name: string, _posts: number) {
+    openRecords("platform", `${name} Analytics`, name);
+  }
+
   if (loading) {
-    return <><Stack.Screen options={{ headerShown: false }} /><View style={styles.center}><ActivityIndicator size="large" color="#8b5cf6" /><Text style={styles.loadingText}>Loading business analytics...</Text></View></>;
+    return <><Stack.Screen options={{ headerShown: false }} /><View style={styles.center}><ActivityIndicator size="large" color="#9b5cff" /><Text style={styles.loadingText}>Loading business analytics...</Text></View></>;
   }
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.screen}>
+      <View style={styles.screen} testID="artboost-screen-analytics-root"
+        nativeID="artboost-screen-analytics-root"
+        accessibilityLabel="Analytics screen"
+        accessible={false}
+        accessibilityElementsHidden={false}
+      >
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/pro" as any); }}>
+          {/* ARTBOOST_ANALYTICS_BACK_NAV_V398
+              Match the proven Campaign Manager back-navigation pattern. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to More"
+            testID="artboost-back-analytics"
+            nativeID="artboost-back-analytics"
+            collapsable={false}
+            accessible={true}
+            focusable={true}
+            pointerEvents="auto"
+            style={styles.backButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            pressRetentionOffset={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onAccessibilityTap={() => {
+              router.replace("/(tabs)/more" as any);
+            }}
+            onPress={() => {
+              router.replace("/(tabs)/more" as any);
+            }}
+          >
             <Ionicons name="arrow-back" size={23} color="#ffffff" />
           </Pressable>
-          <View style={styles.headerTextWrap}><Text style={styles.eyebrow}>BUSINESS PERFORMANCE</Text><Text style={styles.headerTitle}>Analytics</Text></View>
+          <View style={styles.headerTextWrap}><Text style={styles.eyebrow}>BUSINESS PERFORMANCE</Text><Text style={styles.headerTitle} testID="artboost-screen-analytics" nativeID="artboost-screen-analytics" accessibilityLabel="Analytics" accessible>Analytics</Text></View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadAnalytics(); }} tintColor="#8b5cf6" />} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadAnalytics(range); }} tintColor="#9b5cff" />} showsVerticalScrollIndicator={false}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <Text style={styles.sectionTitle}>Date Range</Text>
           <View style={styles.rangeRow}>
             {(["7d", "30d", "90d", "all"] as const).map((item) => (
-              <Pressable key={item} style={[styles.rangeButton, range === item && styles.rangeButtonActive]} onPress={() => setRange(item)}>
+              <Pressable
+                key={item}
+                testID={`artboost-analytics-range-${item}`}
+                nativeID={`artboost-analytics-range-${item}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Analytics range ${item === "all" ? "All" : item.toUpperCase()}`}
+                accessibilityState={{ selected: range === item, busy: rangeReloading && range === item }}
+                accessible={true}
+                style={[styles.rangeButton, range === item && styles.rangeButtonActive]}
+                onPress={() => setRange(item)}
+              >
                 <Text style={[styles.rangeText, range === item && styles.rangeTextActive]}>{item === "all" ? "All" : item.toUpperCase()}</Text>
               </Pressable>
             ))}
           </View>
+          <Text
+            testID="artboost-analytics-range-status"
+            nativeID="artboost-analytics-range-status"
+            accessibilityLabel={`Analytics showing ${range === "all" ? "All recorded activity" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : "Last 90 days"}${rangeReloading ? ", refreshing" : ""}`}
+            accessible={true}
+            style={styles.rangeStatus}
+          >
+            {rangeReloading ? `Refreshing ${range === "all" ? "All recorded activity" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : "Last 90 days"}…` : `Showing ${range === "all" ? "All recorded activity" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : "Last 90 days"}`}
+          </Text>
 
           <Text style={styles.sectionTitle}>Business Performance</Text>
           <View style={styles.grid}>
             <StatCard label="Posts Published" value={analytics?.published || 0} onPress={() => openSummary("Posts Published", analytics?.published || 0)} />
-            <StatCard label="Active Campaigns" value={analytics?.active || 0} onPress={() => openSummary("Active Campaigns", analytics?.active || 0)} />
+            <StatCard label="Active Automations" value={analytics?.active || 0} onPress={() => openSummary("Active Automations", analytics?.active || 0)} />
             <StatCard label="Success Rate" value={`${analytics?.successRate || 0}%`} onPress={() => openSummary("Success Rate", `${analytics?.successRate || 0}%`)} />
             <StatCard label="Total Posts" value={analytics?.totalPosts || 0} onPress={() => openSummary("Total Posts", analytics?.totalPosts || 0)} />
           </View>
 
-          <Pressable style={[styles.attentionCard, attentionCount === 0 && styles.attentionCardClear]} onPress={() => setDetail({ title: "Needs Attention", rows: [
-            { label: "Failed campaigns/posts", value: analytics?.failed || 0 },
-            { label: "Paused automations/campaigns", value: analytics?.paused || 0 },
-            { label: "Total needing attention", value: attentionCount },
-          ]})}>
+          <Pressable style={[styles.attentionCard, attentionCount === 0 && styles.attentionCardClear]} onPress={() => router.push({ pathname: "/analytics-issues" as any, params: { range, storeId, storeName, storeType } })}>
             <Ionicons name={attentionCount ? "warning-outline" : "checkmark-circle-outline"} size={24} color={attentionCount ? "#fbbf24" : "#86efac"} />
             <View style={styles.attentionCopy}><Text style={styles.attentionTitle}>{attentionCount ? `${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention` : "No current issues detected"}</Text><Text style={styles.attentionText}>Tap to review failures and paused activity.</Text></View>
-            <Ionicons name="chevron-forward" size={20} color="#777" />
+            <Ionicons name="chevron-forward" size={20} color="#9b94b7" />
           </Pressable>
 
           <Text style={styles.sectionTitle}>Platform Performance</Text>
@@ -185,8 +298,8 @@ export default function AnalyticsScreen() {
           </Pressable>
 
           <Text style={styles.sectionTitle}>Top Performers</Text>
-          <Pressable style={styles.insightCard} onPress={() => setDetail({ title: "Top Artwork", rows: [{ label: "Status", value: "Not enough connected engagement data yet" }] })}>
-            <Text style={styles.insightLabel}>TOP ARTWORK</Text><Text style={styles.insightTitle}>Not enough data yet</Text><Text style={styles.insightText}>ArtBoost will identify your highest-performing artwork after engagement and click tracking are connected.</Text>
+          <Pressable style={styles.insightCard} onPress={() => setDetail({ title: "Top Artwork", rows: analytics?.topArtwork ? [{ label: "Artwork", value: analytics.topArtwork.title || "Artwork" }, { label: "Confirmed posts", value: Number(analytics.topArtwork.confirmedPosts || 0), note: "Based on ArtBoost first-party publishing history for the selected store and date range." }] : [{ label: "Status", value: "No confirmed publishing history in this selection" }] })}>
+            <Text style={styles.insightLabel}>TOP ARTWORK</Text><Text style={styles.insightTitle}>{analytics?.topArtwork?.title || "Not enough data yet"}</Text><Text style={styles.insightText}>{analytics?.topArtwork ? `${Number(analytics.topArtwork.confirmedPosts || 0)} confirmed published post${Number(analytics.topArtwork.confirmedPosts || 0) === 1 ? "" : "s"} in this selection.` : "ArtBoost will identify your top artwork from first-party publishing history as records accumulate."}</Text>
           </Pressable>
           <Pressable style={styles.insightCard} onPress={() => setDetail({ title: "Best Platform", rows: [{ label: "Current leader", value: getBestPlatform(analytics) }, { label: "Basis", value: "Published post volume" }] })}>
             <Text style={styles.insightLabel}>BEST PLATFORM</Text><Text style={styles.insightTitle}>{getBestPlatform(analytics)}</Text><Text style={styles.insightText}>Based on published post volume. Reach, clicks, and engagement will improve this recommendation as platform data becomes available.</Text>
@@ -204,24 +317,17 @@ export default function AnalyticsScreen() {
   );
 }
 
-function rangeLabel(range: "7d" | "30d" | "90d" | "all") { return range === "all" ? "All recorded activity" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : "Last 90 days"; }
-function getBestPlatform(analytics: AnalyticsData | null) {
-  if (!analytics) return "Not enough data yet";
-  const platforms = [{ name: "Pinterest", value: analytics.pinterestPosts }, { name: "Facebook", value: analytics.facebookPosts }, { name: "Instagram", value: analytics.instagramPosts }, { name: "X", value: analytics.xPosts }];
-  const best = [...platforms].sort((a, b) => b.value - a.value)[0];
-  return best.value > 0 ? best.name : "Not enough data yet";
-}
 function StatCard({ label, value, onPress }: { label: string; value: number | string; onPress: () => void }) { return <Pressable style={styles.statCard} onPress={onPress}><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text><Text style={styles.tapHint}>View details</Text></Pressable>; }
 function SmallStat({ label, value, onPress }: { label: string; value: number; onPress: () => void }) { return <Pressable style={styles.smallStat} onPress={onPress}><Text style={styles.smallStatValue}>{value}</Text><Text style={styles.smallStatLabel}>{label}</Text></Pressable>; }
-function PlatformCard({ name, icon, posts, onPress }: { name: string; icon: any; posts: number; onPress: () => void }) { return <Pressable style={styles.platformCard} onPress={onPress}><View style={styles.platformIconWrap}><Ionicons name={icon} size={22} color="#c4b5fd" /></View><View style={styles.platformContent}><Text style={styles.platformName}>{name}</Text><Text style={styles.platformMetric}>{posts} published posts</Text></View><Text style={styles.platformValue}>{posts}</Text><Ionicons name="chevron-forward" size={18} color="#666" /></Pressable>; }
+function PlatformCard({ name, icon, posts, onPress }: { name: string; icon: any; posts: number; onPress: () => void }) { return <Pressable style={styles.platformCard} onPress={onPress}><View style={styles.platformIconWrap}><ArtBoostBrandIcon name={name} size={38} /></View><View style={styles.platformContent}><Text style={styles.platformName}>{name}</Text><Text style={styles.platformMetric}>{posts} published posts</Text></View><Text style={styles.platformValue}>{posts}</Text><Ionicons name="chevron-forward" size={18} color="#7c728f" /></Pressable>; }
 
 const styles = StyleSheet.create({
-  screen:{flex:1,backgroundColor:"#101010"}, header:{paddingHorizontal:20,paddingTop:18,paddingBottom:15,borderBottomWidth:1,borderBottomColor:"#242424",flexDirection:"row",alignItems:"center"}, backButton:{width:44,height:44,borderRadius:15,backgroundColor:"#1b1b1b",borderWidth:1,borderColor:"#303030",alignItems:"center",justifyContent:"center"}, headerTextWrap:{flex:1,paddingLeft:14}, eyebrow:{color:"#8b5cf6",fontSize:9,fontWeight:"900",letterSpacing:1.2}, headerTitle:{color:"#fff",fontSize:24,fontWeight:"900",marginTop:3}, content:{padding:20,paddingBottom:48}, center:{flex:1,alignItems:"center",justifyContent:"center",backgroundColor:"#101010"}, loadingText:{color:"#fff",marginTop:12}, error:{padding:12,borderRadius:12,backgroundColor:"#3a1111",color:"#ffb4b4",marginBottom:16}, sectionTitle:{color:"#fff",fontSize:19,fontWeight:"900",marginTop:18,marginBottom:12},
-  rangeRow:{flexDirection:"row",gap:8}, rangeButton:{flex:1,paddingVertical:10,borderRadius:12,borderWidth:1,borderColor:"#333",alignItems:"center",backgroundColor:"#171717"}, rangeButtonActive:{backgroundColor:"#2b2145",borderColor:"#8b5cf6"}, rangeText:{color:"#999",fontWeight:"800",fontSize:11}, rangeTextActive:{color:"#fff"},
-  grid:{flexDirection:"row",flexWrap:"wrap",gap:10}, statCard:{width:"48%",minHeight:118,backgroundColor:"#1b1b1b",borderWidth:1,borderColor:"#303030",padding:16,borderRadius:18,justifyContent:"center"}, statValue:{fontSize:29,fontWeight:"900",color:"#fff"}, statLabel:{color:"#999",fontSize:11,fontWeight:"700",marginTop:5}, tapHint:{color:"#8b5cf6",fontSize:10,fontWeight:"800",marginTop:8},
-  attentionCard:{marginTop:14,minHeight:84,borderRadius:18,borderWidth:1,borderColor:"#5c4818",backgroundColor:"#29230f",padding:14,flexDirection:"row",alignItems:"center",gap:12}, attentionCardClear:{borderColor:"#24543d",backgroundColor:"#12281e"}, attentionCopy:{flex:1}, attentionTitle:{color:"#fff",fontWeight:"900",fontSize:14}, attentionText:{color:"#aaa",fontSize:11,marginTop:4},
-  platformList:{gap:10}, platformCard:{minHeight:82,backgroundColor:"#1b1b1b",borderWidth:1,borderColor:"#303030",borderRadius:18,padding:14,flexDirection:"row",alignItems:"center",gap:10}, platformIconWrap:{width:46,height:46,borderRadius:15,backgroundColor:"#2b2145",alignItems:"center",justifyContent:"center"}, platformContent:{flex:1}, platformName:{color:"#fff",fontSize:15,fontWeight:"900"}, platformMetric:{color:"#929292",fontSize:11,marginTop:4}, platformValue:{color:"#c4b5fd",fontSize:18,fontWeight:"900"},
-  compactGrid:{flexDirection:"row",flexWrap:"wrap",gap:10}, smallStat:{width:"48%",backgroundColor:"#1b1b1b",borderRadius:16,borderWidth:1,borderColor:"#303030",padding:14}, smallStatValue:{color:"#fff",fontSize:23,fontWeight:"900"}, smallStatLabel:{color:"#8e8e8e",fontSize:11,marginTop:3,fontWeight:"700"}, upcomingCard:{marginTop:14,borderRadius:19,backgroundColor:"#24183b",borderWidth:1,borderColor:"#4c3979",padding:17}, upcomingLabel:{color:"#c4b5fd",fontSize:9,fontWeight:"900",letterSpacing:1}, upcomingTitle:{color:"#fff",fontSize:16,fontWeight:"900",marginTop:8}, upcomingText:{color:"#aaa0ba",fontSize:12,lineHeight:18,marginTop:5},
-  insightCard:{borderRadius:18,backgroundColor:"#1b1b1b",borderWidth:1,borderColor:"#303030",padding:16,marginBottom:10}, insightLabel:{color:"#8b5cf6",fontSize:9,fontWeight:"900",letterSpacing:1}, insightTitle:{color:"#fff",fontSize:17,fontWeight:"900",marginTop:7}, insightText:{color:"#999",fontSize:12,lineHeight:18,marginTop:6},
-  modalShade:{flex:1,backgroundColor:"rgba(0,0,0,0.7)",justifyContent:"flex-end"}, modalCard:{backgroundColor:"#151515",borderTopLeftRadius:28,borderTopRightRadius:28,padding:20,paddingBottom:34,borderWidth:1,borderColor:"#343434"}, modalHeader:{flexDirection:"row",alignItems:"flex-start",gap:12,marginBottom:14}, modalEyebrow:{color:"#8b5cf6",fontSize:9,fontWeight:"900",letterSpacing:1.1}, modalTitle:{color:"#fff",fontSize:23,fontWeight:"900",marginTop:4}, modalSubtitle:{color:"#999",fontSize:11,lineHeight:17,marginTop:5}, closeButton:{width:40,height:40,borderRadius:13,backgroundColor:"#262626",alignItems:"center",justifyContent:"center"}, detailRow:{minHeight:68,borderTopWidth:1,borderTopColor:"#292929",paddingVertical:13,flexDirection:"row",alignItems:"center",gap:12}, detailLabel:{color:"#ddd",fontSize:13,fontWeight:"800"}, detailValue:{color:"#c4b5fd",fontSize:16,fontWeight:"900",maxWidth:"42%",textAlign:"right"}, detailNote:{color:"#808080",fontSize:10,lineHeight:15,marginTop:4},
+  screen:{flex:1,backgroundColor:"rgba(7, 6, 17, 0.88)"}, header:{paddingHorizontal:20,paddingTop:18,paddingBottom:15,borderBottomWidth:1,borderBottomColor:"#1d1733",flexDirection:"row",alignItems:"center"}, backButton:{width:44,height:44,borderRadius:15,backgroundColor:"rgba(18, 16, 36, 0.92)",borderWidth:1,borderColor:"#3b3158",alignItems:"center",justifyContent:"center"}, headerTextWrap:{flex:1,paddingLeft:14}, eyebrow:{color:"#9b5cff",fontSize:9,fontWeight:"900",letterSpacing:1.2}, headerTitle:{color:"#fff",fontSize:24,fontWeight:"900",marginTop:3}, content:{padding:20,paddingBottom:48}, center:{flex:1,alignItems:"center",justifyContent:"center",backgroundColor:"rgba(7, 6, 17, 0.88)"}, loadingText:{color:"#fff",marginTop:12}, error:{padding:12,borderRadius:12,backgroundColor:"#3a1111",color:"#ffb4b4",marginBottom:16}, sectionTitle:{color:"#fff",fontSize:19,fontWeight:"900",marginTop:18,marginBottom:12},
+  rangeRow:{flexDirection:"row",gap:8}, rangeButton:{flex:1,paddingVertical:10,borderRadius:12,borderWidth:1,borderColor:"#30234d",alignItems:"center",backgroundColor:"rgba(16, 13, 32, 0.92)"}, rangeButtonActive:{backgroundColor:"#21183a",borderColor:"#9b5cff"}, rangeText:{color: "#ffffff",fontWeight:"800",fontSize:11}, rangeTextActive:{color:"#fff"}, rangeStatus:{color: "#ffffff",fontSize:10,fontWeight:"700",marginTop:8},
+  grid:{flexDirection:"row",flexWrap:"wrap",gap:10}, statCard:{width:"48%",minHeight:118,backgroundColor:"rgba(18, 16, 36, 0.92)",borderWidth:1,borderColor:"#3b3158",padding:16,borderRadius:18,justifyContent:"center"}, statValue:{fontSize:29,fontWeight:"900",color:"#fff"}, statLabel:{color: "#ffffff",fontSize:11,fontWeight:"700",marginTop:5}, tapHint:{color:"#9b5cff",fontSize:10,fontWeight:"800",marginTop:8},
+  attentionCard:{marginTop:14,minHeight:84,borderRadius:18,borderWidth:1,borderColor:"#5c4818",backgroundColor:"#29230f",padding:14,flexDirection:"row",alignItems:"center",gap:12}, attentionCardClear:{borderColor:"#24543d",backgroundColor:"#12281e"}, attentionCopy:{flex:1}, attentionTitle:{color:"#fff",fontWeight:"900",fontSize:14}, attentionText:{color: "#ffffff",fontSize:11,marginTop:4},
+  platformList:{gap:10}, platformCard:{minHeight:82,backgroundColor:"rgba(18, 16, 36, 0.92)",borderWidth:1,borderColor:"#3b3158",borderRadius:18,padding:14,flexDirection:"row",alignItems:"center",gap:10}, platformIconWrap:{width:46,height:46,borderRadius:15,backgroundColor:"#21183a",alignItems:"center",justifyContent:"center"}, platformContent:{flex:1}, platformName:{color:"#fff",fontSize:15,fontWeight:"900"}, platformMetric:{color: "#ffffff",fontSize:11,marginTop:4}, platformValue:{color:"#c4b5fd",fontSize:18,fontWeight:"900"},
+  compactGrid:{flexDirection:"row",flexWrap:"wrap",gap:10}, smallStat:{width:"48%",backgroundColor:"rgba(18, 16, 36, 0.92)",borderRadius:16,borderWidth:1,borderColor:"#3b3158",padding:14}, smallStatValue:{color:"#fff",fontSize:23,fontWeight:"900"}, smallStatLabel:{color: "#ffffff",fontSize:11,marginTop:3,fontWeight:"700"}, upcomingCard:{marginTop:14,borderRadius:19,backgroundColor:"#24183b",borderWidth:1,borderColor:"#4c3979",padding:17}, upcomingLabel:{color:"#c4b5fd",fontSize:9,fontWeight:"900",letterSpacing:1}, upcomingTitle:{color:"#fff",fontSize:16,fontWeight:"900",marginTop:8}, upcomingText:{color: "#ffffff",fontSize:12,lineHeight:18,marginTop:5},
+  insightCard:{borderRadius:18,backgroundColor:"rgba(18, 16, 36, 0.92)",borderWidth:1,borderColor:"#3b3158",padding:16,marginBottom:10}, insightLabel:{color:"#9b5cff",fontSize:9,fontWeight:"900",letterSpacing:1}, insightTitle:{color:"#fff",fontSize:17,fontWeight:"900",marginTop:7}, insightText:{color: "#ffffff",fontSize:12,lineHeight:18,marginTop:6},
+  modalShade:{flex:1,backgroundColor:"rgba(0,0,0,0.7)",justifyContent:"flex-end"}, modalCard:{backgroundColor:"#0f0c1d",borderTopLeftRadius:28,borderTopRightRadius:28,padding:20,paddingBottom:34,borderWidth:1,borderColor:"#343434"}, modalHeader:{flexDirection:"row",alignItems:"flex-start",gap:12,marginBottom:14}, modalEyebrow:{color:"#9b5cff",fontSize:9,fontWeight:"900",letterSpacing:1.1}, modalTitle:{color:"#fff",fontSize:23,fontWeight:"900",marginTop:4}, modalSubtitle:{color: "#ffffff",fontSize:11,lineHeight:17,marginTop:5}, closeButton:{width:40,height:40,borderRadius:13,backgroundColor:"#211a38",alignItems:"center",justifyContent:"center"}, detailRow:{minHeight:68,borderTopWidth:1,borderTopColor:"#3f2e68",paddingVertical:13,flexDirection:"row",alignItems:"center",gap:12}, detailLabel:{color:"#ddd",fontSize:13,fontWeight:"800"}, detailValue:{color:"#c4b5fd",fontSize:16,fontWeight:"900",maxWidth:"42%",textAlign:"right"}, detailNote:{color: "#ffffff",fontSize:10,lineHeight:15,marginTop:4},
 });

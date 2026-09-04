@@ -1,6 +1,8 @@
 import express from "express";
 import multer from "multer";
 import OpenAI from "openai";
+import { resolveRequestUserId } from "../middleware/auth.js";
+import supabase from "../lib/supabase.js";
 
 const router = express.Router();
 
@@ -24,6 +26,50 @@ const upload = multer({
 });
 
 const TOOL_PROMPTS = {
+  "collection-builder": {
+    instruction: `
+Create a practical artwork collection plan from the supplied catalog/context.
+Return 6-10 concise items. Include a collection theme, which products belong together,
+gaps to fill, naming ideas, and a campaign angle. Do not invent products the user did not supply;
+clearly label proposed new artwork ideas as suggestions.
+`,
+  },
+  "store-critique": {
+    instruction: `
+Produce an actionable store critique using only the supplied store/listing context and image when present.
+Return 6-10 prioritized findings covering titles, descriptions, visual consistency, pricing presentation,
+merchandising, catalog gaps, and marketing opportunities. Separate verified observations from recommendations.
+`,
+  },
+  "trending-ideas": {
+    instruction: `
+Generate 8 artwork opportunity ideas that fit the supplied niche/catalog context.
+Treat any trend notes supplied by ArtBoost as evidence; do not claim live trend data unless it is supplied.
+Each item should include the idea, audience, and why it may fit the user's catalog.
+`,
+  },
+  "holiday-calendar": {
+    instruction: `
+Build a practical seasonal marketing calendar from the supplied date range, products, and audience.
+Return 8-12 campaign entries with occasion, preparation lead time, recommended product angle, and suggested action.
+Do not invent store discounts or deadlines.
+`,
+  },
+  "opportunity-scanner": {
+    instruction: `
+Identify 6-10 specific growth opportunities using the supplied catalog, store, automation, and analytics context.
+Prioritize under-promoted products, catalog gaps, store inconsistencies, and campaign opportunities.
+Do not invent sales or external demand metrics.
+`,
+  },
+  "business-coach": {
+    instruction: `
+Act as an account-aware art business coach. Return 5-8 prioritized recommendations using the supplied verified context.
+Each recommendation must state the evidence, the recommended next action, and expected business rationale.
+Do not fabricate revenue, engagement, sales, or external market facts.
+`,
+  },
+
   "ai-title": {
     instruction: `
 Generate exactly 8 title options.
@@ -192,6 +238,8 @@ router.post(
   upload.single("image"),
   async (req, res) => {
     try {
+      const userId = await resolveRequestUserId(req, res);
+      if (!userId) return;
       const toolId = String(req.body?.toolId || "").trim();
       const tool = TOOL_PROMPTS[toolId];
 
@@ -312,5 +360,34 @@ router.post(
     }
   }
 );
+
+
+// ARTBOOST_FEATURE_SUGGESTION_V1
+router.post("/suggestion", async (req, res) => {
+  try {
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
+    const category = String(req.body?.category || "Other").trim().slice(0, 80);
+    const suggestion = String(req.body?.suggestion || "").trim().slice(0, 2000);
+    const useCase = String(req.body?.useCase || "").trim().slice(0, 3000);
+    const appVersion = String(req.body?.appVersion || "").trim().slice(0, 80);
+    if (suggestion.length < 5) {
+      return res.status(400).json({ success: false, error: "Enter a little more detail about your suggestion." });
+    }
+    const { data, error } = await supabase.from("feature_suggestions").insert({
+      user_id: userId,
+      category,
+      suggestion,
+      use_case: useCase || null,
+      app_version: appVersion || null,
+      status: "new",
+    }).select("id,created_at").single();
+    if (error) throw new Error(error.message);
+    return res.json({ success: true, suggestionId: data.id, createdAt: data.created_at });
+  } catch (error) {
+    console.error("Feature suggestion failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to submit your suggestion.", details: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 export default router;

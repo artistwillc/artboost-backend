@@ -1,90 +1,111 @@
-# Git
-.git
-.gitignore
+﻿# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# Node
-node_modules
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+.env
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# generated native folders
+/ios
+/android
+# ================================================================
+# ArtBoost AI V3.15.11 - EAS archive optimization
+# Added after the validated V3.15.11 RC to reduce upload size only.
+# These rules do NOT exclude application source or runtime assets.
+# ================================================================
+
+# Dependency trees are restored by EAS from package-lock.json.
+node_modules/
+**/node_modules/
+
+# Expo / Metro / tooling caches.
+.expo/
+.expo-shared/
+.metro-cache/
+.cache/
+.parcel-cache/
+.turbo/
+.nx/
+tmp/
+temp/
+*.tmp
+
+# Test / coverage / local reports.
+coverage/
+.nyc_output/
+reports/
+test-results/
+playwright-report/
+
+# Local logs and debug output.
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Expo
-.expo
-.expo-shared
-dist
-web-build
+# Local build output. Native SOURCE directories remain included.
+dist/
+web-build/
+build/
+android/.gradle/
+android/build/
+android/app/build/
+ios/build/
+ios/DerivedData/
+ios/Pods/
 
-# Build folders
-build
-Build
-ios/build
-android/build
+# EAS/local generated build artifacts should never be uploaded as source.
+*.apk
+*.aab
+*.ipa
+*.xcarchive
 
-# Android
-android/.gradle
-android/app/build
-
-# iOS
-ios/build
-DerivedData
-
-# IDEs
-.vscode
-.idea
-
-# OS files
+# Local editor / OS metadata.
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# Local environment
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Documentation
-README.md
-CHANGELOG.md
-LICENSE
-
-# Temporary files
-tmp
-temp
-*.tmp
-*.bak
-
-# Test files
-coverage
-__tests__
-*.spec.js
-*.spec.ts
-*.test.js
-*.test.ts
-
-# Photoshop and artwork
-*.psd
-*.psb
-*.ai
-*.xcf
-
-# Video files
-*.mp4
-*.mov
-*.avi
-*.mkv
-
-# Images not used by app
-screenshots
-mockups
-
-# Archives
-*.zip
-*.7z
-*.rar
-
-# Windows
 desktop.ini
+
+# ArtBoost local repair/build output if it exists inside frontend.
+build-logs/
+backups/
+backup/
+repair-backups/
+*.bak
+*.backup

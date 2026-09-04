@@ -1,3 +1,4 @@
+// ARTBOOST_VIDEO_DELIVERED_1080_BOOKEND_INTEGRITY_V3152
 // ARTBOOST_VIDEO_SOLID_10S_1080_BOOKEND_GATE_V3134
 // ARTBOOST_LOW_MEMORY_SEGMENT_FINALIZER_V3146
 // Mandatory listing-artwork bookends for every finalized Video Studio video.
@@ -12,9 +13,17 @@ import ffmpegStatic from "ffmpeg-static";
 import { v2 as cloudinary } from "cloudinary";
 
 const FFMPEG = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
-const WIDTH = 1080;
-const HEIGHT = 1920;
 const FPS = 30;
+
+function getOutputDimensions(job) {
+  const requestedQuality = String(
+    job?.source_snapshot?.video_output_quality || "1080p"
+  ).trim().toLowerCase();
+
+  return requestedQuality === "720p"
+    ? { width: 720, height: 1280, quality: "720p" }
+    : { width: 1080, height: 1920, quality: "1080p" };
+}
 
 // Keep these explicit so the final export contract is deterministic.
 const OPEN = 1.5;
@@ -136,7 +145,7 @@ function parseSsim(stderr) {
   return Number(matches[matches.length - 1][1]);
 }
 
-async function validateFinalVideo({ output, image, dir, fit }) {
+async function validateFinalVideo({ output, image, dir, fit, width, height }) {
   const inspect = await ffmpegCapture([
     "-hide_banner",
     "-v", "info",
@@ -155,9 +164,9 @@ async function validateFinalVideo({ output, image, dir, fit }) {
   }
 
   const dimensions = parseVideoDimensions(inspect);
-  if (!dimensions || dimensions.width !== WIDTH || dimensions.height !== HEIGHT) {
+  if (!dimensions || dimensions.width !== width || dimensions.height !== height) {
     throw new Error(
-      `Video quality gate failed: expected ${WIDTH}x${HEIGHT}, got ${dimensions?.width || "?"}x${dimensions?.height || "?"}.`
+      `Video quality gate failed: expected ${width}x${height}, got ${dimensions?.width || "?"}x${dimensions?.height || "?"}.`
     );
   }
 
@@ -234,6 +243,13 @@ export async function finalizeVideoWithPrimaryImage({
   generatedVideoUrl,
   onProgress = async () => {},
 }) {
+  // ARTBOOST_VIDEO_SELECTED_RESOLUTION_INTEGRITY_V3165
+  const {
+    width: targetWidth,
+    height: targetHeight,
+    quality: requestedQuality,
+  } = getOutputDimensions(job);
+
   // This is intentionally strict. We do not silently substitute an AI frame,
   // store thumbnail, logo, or generated image for the listing's primary art.
   if (!primaryImageUrl) {
@@ -258,8 +274,8 @@ export async function finalizeVideoWithPrimaryImage({
     ]);
 
     const fit = [
-      `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=decrease`,
-      `pad=${WIDTH}:${HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black`,
+      `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease`,
+      `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black`,
       `fps=${FPS}`,
       "setsar=1",
       "format=yuv420p",
@@ -357,6 +373,8 @@ export async function finalizeVideoWithPrimaryImage({
       image,
       dir,
       fit,
+      width: targetWidth,
+      height: targetHeight,
     });
 
     await onProgress(97);
@@ -372,7 +390,8 @@ export async function finalizeVideoWithPrimaryImage({
         "video-studio",
         "exact-10-seconds",
         "mandatory-primary-artwork-bookends",
-        "1080x1920",
+        `${targetWidth}x${targetHeight}`,
+        `selected-quality-${requestedQuality}`,
         "bookends-validated",
         "quality-gated",
         "duration-normalized",
@@ -383,13 +402,16 @@ export async function finalizeVideoWithPrimaryImage({
       throw new Error("Cloudinary did not return a finalized video URL.");
     }
 
-    if (Number(uploaded.width) !== WIDTH || Number(uploaded.height) !== HEIGHT) {
+    if (
+      Number(uploaded.width) !== targetWidth ||
+      Number(uploaded.height) !== targetHeight
+    ) {
       await cloudinary.uploader.destroy(uploaded.public_id || publicId, {
         resource_type: "video",
         invalidate: true,
       }).catch(() => {});
       throw new Error(
-        `Cloudinary output dimensions failed: ${uploaded.width}x${uploaded.height}, expected ${WIDTH}x${HEIGHT}.`
+        `Cloudinary output dimensions failed: ${uploaded.width}x${uploaded.height}, expected ${targetWidth}x${targetHeight}.`
       );
     }
 
@@ -407,14 +429,61 @@ export async function finalizeVideoWithPrimaryImage({
       );
     }
 
+    // V3.15.2 delivery-integrity gate:
+    // Validate the exact Cloudinary URL returned to the app, not only the local
+    // pre-upload file. This prevents a storage/delivery transform from silently
+    // reducing the selected 1080x1920 export or losing the original-artwork
+    // opening/closing frames.
+    const delivered = path.join(dir, "delivered-final.mp4");
+    await download(uploaded.secure_url, delivered, 350 * 1024 * 1024);
+    const deliveredQualityGate = await validateFinalVideo({
+      output: delivered,
+      image,
+      dir,
+      fit,
+      width: targetWidth,
+      height: targetHeight,
+    });
+
+    if (
+      deliveredQualityGate.width !== targetWidth ||
+      deliveredQualityGate.height !== targetHeight
+    ) {
+      await cloudinary.uploader.destroy(uploaded.public_id || publicId, {
+        resource_type: "video",
+        invalidate: true,
+      }).catch(() => {});
+      throw new Error(
+        `Delivered Video Studio asset failed ${requestedQuality} integrity: ${deliveredQualityGate.width}x${deliveredQualityGate.height}; expected ${targetWidth}x${targetHeight}.`
+      );
+    }
+
     return {
       secureUrl: uploaded.secure_url,
       publicId: uploaded.public_id || publicId,
-      width: uploaded.width || WIDTH,
-      height: uploaded.height || HEIGHT,
+      width: uploaded.width || targetWidth,
+      height: uploaded.height || targetHeight,
       duration: TOTAL,
       bytes: uploaded.bytes || stat.size,
-      qualityGate,
+      qualityGate: {
+        ...qualityGate,
+        delivered: deliveredQualityGate,
+        requestedQuality,
+        expectedWidth: targetWidth,
+        expectedHeight: targetHeight,
+        deliveredSelectedResolution:
+          deliveredQualityGate.width === targetWidth &&
+          deliveredQualityGate.height === targetHeight,
+        delivered1080x1920:
+          requestedQuality === "1080p" &&
+          deliveredQualityGate.width === 1080 &&
+          deliveredQualityGate.height === 1920,
+        delivered720x1280:
+          requestedQuality === "720p" &&
+          deliveredQualityGate.width === 720 &&
+          deliveredQualityGate.height === 1280,
+        originalArtworkBookendsVerified: true,
+      },
     };
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});

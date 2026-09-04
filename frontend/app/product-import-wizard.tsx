@@ -1,3 +1,5 @@
+// ARTBOOST_NAVIGATION_UX_INTEGRITY_V31510
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
   router,
@@ -515,7 +517,10 @@ export default function ProductImportWizardScreen() {
         <View style={styles.header}>
           <Pressable
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace("/(tabs)/products" as any);
+            }}
           >
             <Ionicons
               name="arrow-back"
@@ -812,7 +817,7 @@ export default function ProductImportWizardScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -903,7 +908,7 @@ const styles = StyleSheet.create({
   },
 
   storeDescription: {
-    color: "#999999",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
     marginTop: 6,
@@ -911,7 +916,7 @@ const styles = StyleSheet.create({
 
   noticeCard: {
     borderRadius: 18,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#3c2d63",
     padding: 16,
@@ -923,7 +928,7 @@ const styles = StyleSheet.create({
 
   noticeText: {
     flex: 1,
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
   },
@@ -936,7 +941,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    color: "#d6d6d6",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "800",
     marginBottom: 7,
@@ -969,7 +974,7 @@ const styles = StyleSheet.create({
   },
 
   helperText: {
-    color: "#777777",
+    color: "#ffffff",
     fontSize: 11,
     marginTop: 7,
   },

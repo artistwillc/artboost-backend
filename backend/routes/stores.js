@@ -1,3 +1,4 @@
+// ARTBOOST_STORE_CONNECTION_AUTH_SCOPE_V3157
 import express from "express";
 import { resolveRequestUserId } from "../middleware/auth.js";
 
@@ -54,21 +55,12 @@ router.post("/:storeId/sync-background", async (req, res) => {
           ""
       ).trim();
 
-    const userId =
-      String(
-        req.auth?.userId ||
-          req.user?.id ||
-          req.body?.userId ||
-          ""
-      ).trim();
+    const resolvedUserId =
+      await resolveRequestUserId(req, res);
+    if (!resolvedUserId) return;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error:
-          "Authentication is required.",
-      });
-    }
+    const userId =
+      String(resolvedUserId).trim();
 
     if (!storeId) {
       return res.status(400).json({
@@ -119,21 +111,12 @@ router.post("/:storeId/sync-background", async (req, res) => {
  */
 router.get("/import-jobs/:jobId", async (req, res) => {
   try {
-    const userId =
-      String(
-        req.auth?.userId ||
-          req.user?.id ||
-          req.query?.userId ||
-          ""
-      ).trim();
+    const resolvedUserId =
+      await resolveRequestUserId(req, res);
+    if (!resolvedUserId) return;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error:
-          "Authentication is required.",
-      });
-    }
+    const userId =
+      String(resolvedUserId).trim();
 
     const job =
       await getCatalogImportJob({

@@ -1,3 +1,4 @@
+// ARTBOOST_VIDEO_CANONICAL_ORIGINAL_ARTWORK_V3152
 // ARTBOOST_VIDEO_V5_GENERATIVE
 import supabase from "../lib/supabase.js";
 import { renderVideoJob as renderLegacyVideoJob } from "./videoRenderService.js";
@@ -25,16 +26,54 @@ async function loadProduct(job) {
   return data;
 }
 
+// ARTBOOST_ALL_VIDEO_PATHS_FINALIZER_V3134
 export async function renderVideoJob(job, onProgress=async()=>{}) {
-  if (!enabled()) {
-    console.log("ArtBoost V5 generative provider not configured; using stable legacy renderer.", { jobId:job.id });
-    return renderLegacyVideoJob(job,onProgress);
-  }
-
   videoMemorySnapshot("render_start", { jobId: job.id });
   await onProgress(6);
   const product = await loadProduct(job);
   await onProgress(8);
+
+  if (!enabled()) {
+    console.log("ArtBoost V5 generative provider not configured; using stable legacy renderer with mandatory 10s bookend finalization.", { jobId:job.id });
+    const legacy = await renderLegacyVideoJob(job,onProgress);
+    const legacyUrl =
+      legacy?.videoUrl ||
+      legacy?.video_url ||
+      legacy?.secureUrl ||
+      legacy?.secure_url ||
+      legacy?.url ||
+      null;
+
+    if (!legacyUrl) {
+      throw new Error("Legacy Video Studio renderer did not return media for mandatory finalization.");
+    }
+
+    const stored = await finalizeVideoWithPrimaryImage({
+      job,
+      primaryImageUrl: product.image_url,
+    generatedVideoUrl: legacyUrl,
+      onProgress,
+    });
+
+    return {
+      ...legacy,
+      videoUrl: stored.secureUrl,
+      video_url: stored.secureUrl,
+      url: stored.secureUrl,
+      secure_url: stored.secureUrl,
+      publicId: stored.publicId,
+      public_id: stored.publicId,
+      cloudinaryPublicId: stored.publicId,
+      duration: stored.duration,
+      durationSeconds: stored.duration,
+      duration_seconds: stored.duration,
+      width: stored.width,
+      height: stored.height,
+      bytes: stored.bytes,
+      qualityGate: stored.qualityGate,
+      provider: "legacy-finalized",
+    };
+  }
 
   const templateId = job.template_id || job.templateId || "cinematic";
   const motionPlan = await createArtworkMotionPlan({
@@ -64,9 +103,9 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
   await onProgress(92);
   const stored = await finalizeVideoWithPrimaryImage({
     job,
-    primaryImageUrl:
-      product.image_url || product.imageUrl || product.thumbnail_url || product.thumbnailUrl ||
-      product.metadata?.image_url || product.metadata?.imageUrl || product.metadata?.thumbnail_url || null,
+    // V3.15.2: bookends must use the canonical listing artwork loaded from
+    // products.image_url. Never substitute a thumbnail or generated derivative.
+    primaryImageUrl: product.image_url,
     generatedVideoUrl: generated.temporaryVideoUrl,
     onProgress,
   });
@@ -83,6 +122,7 @@ export async function renderVideoJob(job, onProgress=async()=>{}) {
     publicId:stored.publicId, public_id:stored.publicId, cloudinaryPublicId:stored.publicId,
     duration:stored.duration, durationSeconds:stored.duration, duration_seconds:stored.duration,
     width:stored.width, height:stored.height, bytes:stored.bytes,
+    qualityGate:stored.qualityGate,
     provider:"runway", providerTaskId:generated.taskId, provider_task_id:generated.taskId,
     model:generated.model, ratio:generated.ratio, planner:motionPlan.planner, motionPrompt:motionPlan.prompt
   };

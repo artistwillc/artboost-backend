@@ -1,10 +1,27 @@
+// ARTBOOST_VISUAL_PARITY_V3153
+// ARTBOOST_V3142_FINAL_CLEANUP_ICONS
+// ARTBOOST_WHITE_TEXT_AUDIT_V3141
+// ARTBOOST_CAMPAIGN_COMPLETE_ZERO_WARNING_REPAIR_V31112
+// ARTBOOST_CAMPAIGN_QUEUE_REFRESH_STABILITY_V31111
+// ARTBOOST_CAMPAIGN_DEAD_BILLING_PORTAL_CLEANUP_V31110
+// ARTBOOST_CAMPAIGN_FOCUS_REFRESH_STABILITY_V3119
+// ARTBOOST_CAMPAIGN_DEAD_CHECKOUT_CLEANUP_V3118
+// ARTBOOST_PINTEREST_SMART_TAG_PAYLOAD_V3117
+// ARTBOOST_CAMPAIGN_DEAD_COPY_REFERRAL_CLEANUP_V3116
+// ARTBOOST_CAMPAIGN_DEAD_SIMULATION_CLEANUP_V3115
+// ARTBOOST_HASHTAG_EFFECT_STABILITY_V3114A
+// ARTBOOST_TIKTOK_CREATOR_EFFECT_STABILITY_V3113
+// ARTBOOST_CAMPAIGN_ARRAY_TYPE_CLEANUP_V3112
+// ARTBOOST_CAMPAIGN_UNUSED_STATE_VALUE_CLEANUP_V3111
+// ARTBOOST_CAMPAIGN_MEDIA_SMART_TAG_INTEGRITY_V3107
+// ARTBOOST_MORE_CHILD_BACK_DIRECT_V3106A
 /* eslint-disable react/no-unescaped-entities */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   Alert,
@@ -18,7 +35,9 @@ import {
   View,
 } from "react-native";
 
+import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
+import { readApiJson } from "@/lib/apiJson";
 
 const BACKEND_URL = "https://artboost-ai.onrender.com";
 
@@ -65,6 +84,12 @@ export default function CampaignManagerScreen() {
   const [productLink, setProductLink] = useState("");
   const [previewImage, setPreviewImage] = useState("");
   const [hashtags, setHashtags] = useState("");
+  const hashtagsRef = useRef("");
+
+  useEffect(() => {
+    hashtagsRef.current = hashtags;
+  }, [hashtags]);
+
   const [cta, setCta] = useState("");
 
   const normalizeImageUrl = (value: unknown) => {
@@ -137,6 +162,8 @@ export default function CampaignManagerScreen() {
     productParams.productDescription,
     productParams.productImageUrl,
     productParams.productLink,
+    productParams.videoUrl,
+    productParams.campaignMediaType,
   ]);
 
   const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
@@ -159,22 +186,19 @@ export default function CampaignManagerScreen() {
   const [queueSearch, setQueueSearch] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [loadingBoards, setLoadingBoards] = useState(false);
-  const [loadingQueue, setLoadingQueue] = useState(false);
+  const [, setLoadingQueue] = useState(false);
   const [variations, setVariations] = useState<any[]>([]);
   const [loadingVariations, setLoadingVariations] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [openingBilling, setOpeningBilling] = useState(false);
-  const [syncingSubscription, setSyncingSubscription] = useState(false);
-  const [referralInput, setReferralInput] = useState("");
-  const [applyingReferral, setApplyingReferral] = useState(false);
-  const [facebookConnected, setFacebookConnected] = useState(false);
-  const [facebookConnectedAt, setFacebookConnectedAt] =
+  const [, setSyncingSubscription] = useState(false);
+  const [, setFacebookConnected] = useState(false);
+  const [, setFacebookConnectedAt] =
   useState("");
   const [selectedPlatform, setSelectedPlatform] =
 useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" | "TikTok">(
 "Pinterest"
 );
   // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+    // ARTBOOST_VIDEO_PUBLISH_UI_V3147
   type MultiPublishPlatform =
     | "Pinterest"
     | "Facebook"
@@ -263,7 +287,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
       .trim();
   };
 
-  const loadTikTokCreatorInfo = async () => {
+  const loadTikTokCreatorInfo = useCallback(async () => {
     try {
       if (!session?.user?.id) {
         return;
@@ -277,7 +301,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
         )}`
       );
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok || !data?.success) {
         throw new Error(
@@ -303,7 +327,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
     } finally {
       setLoadingTikTokCreator(false);
     }
-  };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (
@@ -313,7 +337,9 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
       loadTikTokCreatorInfo();
     }
   }, [
+    loadTikTokCreatorInfo,
     selectedPlatform,
+    selectedPlatforms,
     session?.user?.id,
   ]);
 
@@ -353,7 +379,7 @@ useState<"Pinterest" | "Facebook" | "Instagram" | "X" | "Threads" | "LinkedIn" |
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
 
       if (!response.ok) {
@@ -497,120 +523,7 @@ const applyRepostPreset = (
     return aTime - bTime;
   });
 
-  const startStripeCheckout = async (plan: "monthly" | "yearly") => {
-    try {
-      if (!session?.user?.email) {
-        Alert.alert(
-          "Login Required",
-          "Please log in or create an account before upgrading to Pro."
-        );
-        return;
-      }
-
-      setCheckingOut(true);
-
-      const response = await fetch(`${BACKEND_URL}/create-checkout-session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          plan,
-          userEmail: session.user.email,
-          userId: session.user.id,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-  Alert.alert(
-    "Checkout Error",
-    data.error || "Unable to start Stripe checkout."
-  );
-  return;
-}
-
-if (data.usedFreeMonth) {
-  Alert.alert(
-    "Free Month Activated",
-    "Your referral reward was used to activate ArtBoost AI Pro for 30 days."
-  );
-
-  await loadProfile(session.user.id);
-  return;
-}
-
-if (!data.url) {
-  Alert.alert(
-    "Checkout Error",
-    "No Stripe checkout URL was returned."
-  );
-  return;
-}
-
-await Linking.openURL(data.url);
-    } catch (err: any) {
-      console.log(err);
-      Alert.alert("Checkout Error", err.message || "Failed to open checkout.");
-    } finally {
-      setCheckingOut(false);
-    }
-  };
-
-  const openBillingPortal = async () => {
-  try {
-    if (!session?.user?.email || !session?.user?.id) {
-      Alert.alert(
-        "Login Required",
-        "Please log in before managing your subscription."
-      );
-      return;
-    }
-
-    setOpeningBilling(true);
-
-    if (!profile?.stripe_customer_id) {
-      await syncSubscription(session.user.id, session.user.email);
-      await loadProfile(session.user.id);
-    }
-
-    const response = await fetch(`${BACKEND_URL}/create-billing-portal`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        customerId: profile?.stripe_customer_id || null,
-        email: session.user.email,
-        userId: session.user.id,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.url) {
-      Alert.alert(
-        "Billing Portal Error",
-        data.error || "Unable to open billing portal."
-      );
-      return;
-    }
-
-    await Linking.openURL(data.url);
-  } catch (err: any) {
-    console.log(err);
-
-    Alert.alert(
-      "Billing Portal Error",
-      err.message || "Failed to open billing portal."
-    );
-  } finally {
-    setOpeningBilling(false);
-  }
-};
-
-  const loadCurrentCampaign = async () => {
+  const loadCurrentCampaign = useCallback(async () => {
   try {
     const saved =
       (await AsyncStorage.getItem("artboost_current_campaign")) ||
@@ -766,9 +679,16 @@ await Linking.openURL(data.url);
   } catch (err) {
     console.log("Failed loading campaign:", err);
   }
-};
+}, [
+    productParams.productId,
+    productParams.productTitle,
+    productParams.productDescription,
+    productParams.productImageUrl,
+    productParams.productLink,
+    selectedPlatform,
+  ]);
 
-  const loadScheduledCampaigns = async () => {
+  const loadScheduledCampaigns = useCallback(async () => {
     try {
       setLoadingQueue(true);
 
@@ -778,7 +698,7 @@ await Linking.openURL(data.url);
         : `${BACKEND_URL}/scheduled-campaigns`;
 
       const response = await fetch(url);
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (data.campaigns) {
         setScheduledCampaigns(data.campaigns);
@@ -788,7 +708,9 @@ await Linking.openURL(data.url);
     } finally {
       setLoadingQueue(false);
     }
-  };
+  }, [
+    session?.user?.id,
+  ]);
 
   const saveScheduledCampaign = async () => {
     try {
@@ -842,7 +764,7 @@ await Linking.openURL(data.url);
 }),
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
         Alert.alert("Scheduling Error", data.error || "Failed to schedule campaign.");
@@ -869,7 +791,9 @@ await Linking.openURL(data.url);
     );
   };
   // ARTBOOST_HASHTAG_INTELLIGENCE_CLIENT_V1
-  const getSmartHashtags = async (platform: string) => {
+  const getSmartHashtags = useCallback(async (platform: string) => {
+    const currentHashtags = hashtagsRef.current;
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/hashtag-intelligence/generate`, {
         method: "POST",
@@ -881,17 +805,28 @@ await Linking.openURL(data.url);
           imageUrl,
           storeType: String(productParams.productStoreType || ""),
           storeName: String(productParams.productStoreName || ""),
-          existingHashtags: hashtags,
+          existingHashtags: currentHashtags,
         }),
       });
-      const data = await response.json();
-      if (!response.ok || !data?.hashtagText) return hashtags;
-      return String(data.hashtagText).trim() || hashtags;
+
+      const data = await readApiJson(response, "Campaign Manager");
+
+      if (!response.ok || !data?.hashtagText) {
+        return currentHashtags;
+      }
+
+      return String(data.hashtagText).trim() || currentHashtags;
     } catch (error) {
       console.log("Hashtag intelligence fallback:", error);
-      return hashtags;
+      return currentHashtags;
     }
-  };
+  }, [
+    title,
+    description,
+    imageUrl,
+    productParams.productStoreType,
+    productParams.productStoreName,
+  ]);
 
   // ARTBOOST_HASHTAG_VISIBLE_HYDRATION_V1_1
   // Keep the editable Hashtags field synchronized with the actual product/design
@@ -946,6 +881,7 @@ await Linking.openURL(data.url);
     productParams.productId,
     productParams.productStoreType,
     productParams.productStoreName,
+    getSmartHashtags,
   ]);
 
 
@@ -1009,7 +945,7 @@ for (const platform of platforms) {
         userId: session?.user?.id || null,
         title,
         description,
-        hashtags,
+        hashtags: smartHashtags || hashtags,
         cta,
         imageUrl,
         productLink: finalProductLink,
@@ -1026,7 +962,7 @@ for (const platform of platforms) {
       }),
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok) {
       failedPlatforms.push(platform);
@@ -1072,7 +1008,7 @@ for (const platform of platforms) {
         method: "DELETE",
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
         Alert.alert("Delete Error", data.error || "Failed to delete campaign.");
@@ -1106,7 +1042,7 @@ for (const platform of platforms) {
         }
       );
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
         Alert.alert(
@@ -1184,7 +1120,7 @@ const loadFacebookStatus = async () => {
 const loadFacebookPages = async () => {
   try {
     const response = await fetch(`${BACKEND_URL}/facebook/pages`);
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 console.log("Facebook Pages Response:", data);
 
     if (!response.ok || !data.data) {
@@ -1204,13 +1140,20 @@ console.log("Facebook Pages Response:", data);
   }
 };
 
+const loadSessionRef = useRef(loadSession);
+const loadFacebookPagesRef = useRef(loadFacebookPages);
+
+loadSessionRef.current = loadSession;
+loadFacebookPagesRef.current = loadFacebookPages;
+
+
   const loadBoards = async () => {
     try {
       setLoadingBoards(true);
       setBoardError("");
 
       const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
         setBoards([]);
@@ -1285,13 +1228,19 @@ console.log("Facebook Pages Response:", data);
         body: JSON.stringify({
           boardId: selectedBoard,
           title,
-          description,
+          description: [
+            removeLinks(description),
+            removeLinks(smartHashtags),
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+            .trim(),
           link: finalProductLink,
           imageUrl,
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
   console.log("Pinterest publish error:", data);
@@ -1399,7 +1348,7 @@ const createFacebookPost = async () => {
       }
     );
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     console.log("Facebook post response:", data);
 
@@ -1433,6 +1382,14 @@ const createInstagramPost = async () => {
   try {
       // ARTBOOST_SMART_TAGS_INSTAGRAM_V1
       const smartHashtags = await getSmartHashtags("Instagram");
+      const instagramDescription = String(description || "")
+        .replace(/https?:\/\/\S+/gi, "")
+        .replace(/www\.\S+/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      const instagramCta = /\blink\s+in\s+(?:the\s+)?bio\b/i.test(String(cta || ""))
+        ? String(cta || "").replace(/https?:\/\/\S+/gi, "").replace(/www\.\S+/gi, "").trim()
+        : "Tap the link in bio to shop now.";
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
       Alert.alert(
         "Paid Plan Required",
@@ -1460,9 +1417,9 @@ const createInstagramPost = async () => {
         body: JSON.stringify({
           message: `${title}
 
-${description}
+${instagramDescription}
 
-${cta}
+${instagramCta}
 
 ${smartHashtags}`,
           imageUrl,
@@ -1473,7 +1430,7 @@ ${smartHashtags}`,
       }
     );
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok) {
       throw new Error(
@@ -1576,7 +1533,7 @@ const createXPost = async () => {
       }),
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok || data.error) {
       throw new Error(
@@ -1662,7 +1619,7 @@ const createThreadsPost = async () => {
       }),
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok || data.error) {
       throw new Error(
@@ -1760,7 +1717,7 @@ const createLinkedInPost = async () => {
       }),
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok || data.error) {
       throw new Error(
@@ -1887,7 +1844,7 @@ const createTikTokPost = async () => {
       }
     );
 
-    const data = await response.json();
+    const data = await readApiJson(response, "Campaign Manager");
 
     if (!response.ok || data.error) {
       throw new Error(
@@ -1989,17 +1946,17 @@ const publishSelectedVideoPlatforms = async () => {
   }
 
   const unsupportedForVideo = selectedPlatforms.filter((platform) =>
-    ["Pinterest", "X", "LinkedIn"].includes(platform)
+    ["Pinterest", "LinkedIn"].includes(platform)
   );
 
   const videoPlatforms = selectedPlatforms.filter((platform) =>
-    ["Facebook", "Instagram", "Threads", "TikTok"].includes(platform)
+    ["Facebook", "Instagram", "Threads", "TikTok", "X"].includes(platform)
   );
 
   if (videoPlatforms.length === 0) {
     Alert.alert(
       "No Supported Video Destinations",
-      "For Video Studio campaigns, select Facebook, Instagram, Threads, or TikTok. Pinterest, X, and LinkedIn video adapters are not enabled yet."
+      "For Video Studio campaigns, select Facebook, Instagram, Threads, TikTok, or X. Pinterest and LinkedIn video adapters are not enabled yet."
     );
     return true;
   }
@@ -2015,11 +1972,11 @@ const publishSelectedVideoPlatforms = async () => {
     .join("\n\n")
     .trim();
 
-  const results: Array<{
+  const results: {
     platform: string;
     success: boolean;
     message?: string;
-  }> = [];
+  }[] = [];
 
   setPublishing(true);
 
@@ -2058,6 +2015,8 @@ const publishSelectedVideoPlatforms = async () => {
             brandContentToggle: tiktokPaidPartnership,
             consent: true,
           };
+        } else if (platform === "X") {
+          endpoint = `${BACKEND_URL}/x/video-post`;
         }
 
         const response = await fetch(endpoint, {
@@ -2359,12 +2318,13 @@ const generateVariations = async () => {
 
       setLoadingVariations(true);
 
-      const response = await fetch(`${BACKEND_URL}/generate-variations`, {
+      const response = await fetch(`${BACKEND_URL}/ai/generate-variations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          productId: productParams.productId || null,
           title,
           description,
           platform: selectedPlatform,
@@ -2372,7 +2332,7 @@ const generateVariations = async () => {
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
         console.log(data);
@@ -2410,18 +2370,6 @@ const generateVariations = async () => {
     Alert.alert("Loaded", "Variation loaded into the publishing fields.");
   };
 
-  const simulateProFeature = (feature: string) => {
-    if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
-      Alert.alert("Paid Plan Required", `${feature} requires a Pro or Business plan.`);
-      return;
-    }
-
-    Alert.alert(
-      feature,
-      `${feature} automation workflow will be activated as platform APIs are connected.`
-    );
-  };
-
   const handleDateChange = (event: any, selected: Date | undefined) => {
     setShowDatePicker(false);
 
@@ -2453,74 +2401,23 @@ const generateVariations = async () => {
     setScheduledDate(updated);
   };
 
-  const copyReferralCode = async () => {
-  if (!profile?.referral_code) {
-    Alert.alert("No Referral Code", "Your referral code is not available yet.");
-    return;
-  }
-
-  await Clipboard.setStringAsync(profile.referral_code);
-  Alert.alert("Copied", "Referral code copied to clipboard.");
-};
-
-const applyReferralCode = async () => {
-  try {
-    if (!session?.user?.id) {
-      Alert.alert("Login Required", "Please log in before using a referral code.");
-      return;
-    }
-
-    if (!referralInput.trim()) {
-      Alert.alert("Missing Code", "Enter a referral code first.");
-      return;
-    }
-
-    setApplyingReferral(true);
-
-    const response = await fetch(`${BACKEND_URL}/apply-referral`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: session.user.id,
-        referralCode: referralInput.trim().toUpperCase(),
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      Alert.alert("Referral Error", data.error || "Unable to apply referral code.");
-      return;
-    }
-
-    setReferralInput("");
-    await loadProfile(session.user.id);
-
-    Alert.alert("Referral Applied", "Referral code applied successfully.");
-  } catch (err: any) {
-    Alert.alert("Referral Error", err.message || "Failed to apply referral code.");
-  } finally {
-    setApplyingReferral(false);
-  }
-};
-
 useFocusEffect(
   useCallback(() => {
     loadCurrentCampaign();
-  }, [])
+  }, [
+    loadCurrentCampaign,
+  ])
 );
 
   useEffect(() => {
 
-  loadSession();
+  loadSessionRef.current();
 
   loadBoards();
 
   loadFacebookStatus();
 
-  loadFacebookPages();
+  loadFacebookPagesRef.current();
 
   loadCurrentCampaign();
 
@@ -2537,7 +2434,9 @@ useFocusEffect(
     return () => {
       authSubscription.data.subscription.unsubscribe();
     };
-  }, []);
+  }, [
+    loadCurrentCampaign,
+  ]);
 
   useEffect(() => {
     loadScheduledCampaigns();
@@ -2551,7 +2450,10 @@ useFocusEffect(
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [session?.user?.id]);
+  }, [
+    session?.user?.id,
+    loadScheduledCampaigns,
+  ]);
 
   return (
     <ScrollView
@@ -2560,22 +2462,29 @@ useFocusEffect(
     >
       <View style={styles.titleRow}>
         <Pressable
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace("/(tabs)");
-            }
-          }}
           style={styles.backButton}
+          accessible={true}
+          focusable={true}
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel="Back to More Tools"
+          testID="artboost-back-campaign-manager"
+          nativeID="artboost-back-campaign-manager"
+          collapsable={false}
+          pointerEvents="auto"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          pressRetentionOffset={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          onAccessibilityTap={() => {
+            router.replace("/(tabs)/more" as any);
+          }}
+          onPress={() => {
+            router.replace("/(tabs)/more" as any);
+          }}
         >
           <Ionicons name="arrow-back" size={23} color="#ffffff" />
         </Pressable>
 
         <View style={styles.titleCopy}>
-          <Text style={styles.header}>Campaign Manager</Text>
+          <Text style={styles.header} testID="artboost-screen-campaign-manager" nativeID="artboost-screen-campaign-manager" accessibilityLabel="Campaign Manager" accessible>Campaign Manager</Text>
           <Text style={styles.subheader}>
             Create, schedule, and publish your artwork.
           </Text>
@@ -2664,24 +2573,9 @@ useFocusEffect(
                 ]}
                 onPress={() => togglePublishPlatform(platform as MultiPublishPlatform)}
               >
-                <Ionicons
-                  name={
-                    platform === "Pinterest"
-                      ? "logo-pinterest"
-                      : platform === "Facebook"
-                      ? "logo-facebook"
-                      : platform === "Instagram"
-                      ? "logo-instagram"
-                      : platform === "Threads"
-                      ? "at-circle-outline"
-                      : platform === "LinkedIn"
-                      ? "logo-linkedin"
-                      : platform === "TikTok"
-                      ? "logo-tiktok"
-                      : "logo-twitter"
-                  }
-                  size={18}
-                  color={selectedPlatforms.includes(platform as MultiPublishPlatform) ? "#ffffff" : "#b7b7b7"}
+                <ArtBoostBrandIcon
+                  name={platform}
+                  size={28}
                 />
                 <Text
                   style={[
@@ -2968,7 +2862,7 @@ useFocusEffect(
           value={title}
           onChangeText={setTitle}
           placeholder="Campaign title"
-          placeholderTextColor="#777"
+          placeholderTextColor="#9b94b7"
         />
 
         <Text style={styles.label}>{selectedPlatform} description</Text>
@@ -2978,7 +2872,7 @@ useFocusEffect(
           value={description}
           onChangeText={setDescription}
           placeholder="Campaign description"
-          placeholderTextColor="#777"
+          placeholderTextColor="#9b94b7"
         />
 
         <Text style={styles.label}>Call to action</Text>
@@ -2988,7 +2882,7 @@ useFocusEffect(
           value={cta}
           onChangeText={setCta}
           placeholder="Add a clear call to action"
-          placeholderTextColor="#777"
+          placeholderTextColor="#9b94b7"
         />
 
         <Text style={styles.label}>Hashtags</Text>
@@ -2998,7 +2892,7 @@ useFocusEffect(
           value={hashtags}
           onChangeText={setHashtags}
           placeholder="#art #artist #shopsmall"
-          placeholderTextColor="#777"
+          placeholderTextColor="#9b94b7"
         />
       </View>
 
@@ -3179,7 +3073,7 @@ useFocusEffect(
 <TextInput
   style={styles.input}
   placeholder="Search campaigns..."
-  placeholderTextColor="#777"
+  placeholderTextColor="#9b94b7"
   value={queueSearch}
   onChangeText={setQueueSearch}
 />
@@ -3548,7 +3442,7 @@ else {
 const styles = StyleSheet.create({
   container: {
     padding: 20,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.88)",
     minHeight: "100%",
   },
 
@@ -3560,7 +3454,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a1a",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#2b2b2b",
+    borderColor: "#3f2e68",
     overflow: "hidden",
     marginBottom: 14,
   },
@@ -3568,7 +3462,7 @@ const styles = StyleSheet.create({
   heroImage: {
     width: "100%",
     height: 220,
-    backgroundColor: "#242424",
+    backgroundColor: "#1d1733",
   },
 
   artworkMeta: {
@@ -3576,7 +3470,7 @@ const styles = StyleSheet.create({
   },
 
   artworkLabel: {
-    color: "#9a9a9a",
+    color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
@@ -3609,7 +3503,7 @@ const styles = StyleSheet.create({
   },
 
   sectionHint: {
-    color: "#a7a7a7",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 19,
     marginTop: 5,
@@ -3626,7 +3520,7 @@ const styles = StyleSheet.create({
     width: "48%",
     minHeight: 46,
     borderRadius: 12,
-    backgroundColor: "#292929",
+    backgroundColor: "#3f2e68",
     borderWidth: 1,
     borderColor: "#343434",
     flexDirection: "row",
@@ -3641,7 +3535,7 @@ const styles = StyleSheet.create({
   },
 
   platformButtonText: {
-    color: "#b7b7b7",
+    color: "#ffffff",
     fontSize: 13,
     fontWeight: "800",
   },
@@ -3665,7 +3559,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -3677,9 +3571,9 @@ const styles = StyleSheet.create({
   },
 
   optionPill: {
-    backgroundColor: "#292929",
+    backgroundColor: "#3f2e68",
     borderWidth: 1,
-    borderColor: "#3a3a3a",
+    borderColor: "#49366f",
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 10,
@@ -3711,7 +3605,7 @@ const styles = StyleSheet.create({
   actionButton: {
     width: "48%",
     minHeight: 118,
-    backgroundColor: "#242424",
+    backgroundColor: "#1d1733",
     borderWidth: 1,
     borderColor: "#343434",
     borderRadius: 14,
@@ -3726,7 +3620,7 @@ const styles = StyleSheet.create({
   },
 
   actionButtonText: {
-    color: "#a8a8a8",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 5,
@@ -3740,7 +3634,7 @@ const styles = StyleSheet.create({
 
   secondaryAction: {
     flex: 1,
-    backgroundColor: "#303030",
+    backgroundColor: "#3b3158",
     borderRadius: 10,
     paddingVertical: 11,
     alignItems: "center",
@@ -3775,7 +3669,7 @@ const styles = StyleSheet.create({
 
   scheduleValue: {
     flex: 1,
-    backgroundColor: "#282828",
+    backgroundColor: "#211a38",
     borderRadius: 12,
     padding: 12,
     minHeight: 70,
@@ -3792,7 +3686,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#1f1f1f",
+    backgroundColor: "#141126",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -3806,7 +3700,7 @@ const styles = StyleSheet.create({
   },
 
   subheader: {
-    color: "#aaa",
+    color: "#ffffff",
     marginLeft: 52,
     marginBottom: 24,
     fontSize: 15,
@@ -3814,11 +3708,11 @@ const styles = StyleSheet.create({
   },
 
   heroBox: {
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#8b5cf6",
+    borderColor: "#9b5cff",
     marginBottom: 20,
   },
 
@@ -3830,7 +3724,7 @@ const styles = StyleSheet.create({
   },
 
   heroText: {
-    color: "#d0d0d0",
+    color: "#ffffff",
     lineHeight: 24,
     fontSize: 15,
   },
@@ -3845,7 +3739,7 @@ const styles = StyleSheet.create({
   },
 
   freeBadge: {
-    backgroundColor: "#555",
+    backgroundColor: "#665b7d",
     paddingVertical: 12,
     borderRadius: 14,
     alignItems: "center",
@@ -3874,7 +3768,7 @@ const styles = StyleSheet.create({
   },
 
   upgradeButton: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: "center",
@@ -3894,7 +3788,7 @@ const styles = StyleSheet.create({
   },
 
   automationCard: {
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 18,
     padding: 18,
     marginBottom: 14,
@@ -3908,20 +3802,20 @@ const styles = StyleSheet.create({
   },
 
   automationText: {
-    color: "#aaa",
+    color: "#ffffff",
     lineHeight: 22,
     fontSize: 14,
   },
 
   variationCard: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
   },
 
   variationStyle: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 13,
     fontWeight: "900",
     marginBottom: 8,
@@ -3935,14 +3829,14 @@ const styles = StyleSheet.create({
   },
 
   variationDescription: {
-    color: "#d0d0d0",
+    color: "#ffffff",
     lineHeight: 22,
     fontSize: 14,
     marginBottom: 14,
   },
 
   copyButton: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -3950,7 +3844,7 @@ const styles = StyleSheet.create({
   },
 
   useButton: {
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -3997,7 +3891,7 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     color: "#fff",
     borderRadius: 12,
     padding: 14,
@@ -4010,14 +3904,14 @@ const styles = StyleSheet.create({
   },
 
   helperText: {
-    color: "#777",
+    color: "#ffffff",
     fontSize: 12,
     marginTop: 8,
     lineHeight: 18,
   },
 
   boardButton: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     padding: 14,
     borderRadius: 12,
     marginBottom: 10,
@@ -4040,17 +3934,17 @@ const styles = StyleSheet.create({
   },
 
   loading: {
-    color: "#aaa",
+    color: "#ffffff",
   },
 
   scheduleBox: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     borderRadius: 14,
     padding: 14,
   },
 
   scheduleTitle: {
-  color: "#9ca3af",
+  color: "#ffffff",
   fontSize: 13,
   fontWeight: "700",
   marginTop: 12,
@@ -4070,7 +3964,7 @@ const styles = StyleSheet.create({
 
   scheduleButton: {
     flex: 1,
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -4083,16 +3977,16 @@ const styles = StyleSheet.create({
   },
 
   pickerBox: {
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderRadius: 16,
     padding: 10,
     marginTop: 12,
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: "#30234d",
   },
 
   donePickerButton: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -4111,7 +4005,7 @@ const styles = StyleSheet.create({
   },
 
   smallRefreshButton: {
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
@@ -4129,7 +4023,7 @@ const styles = StyleSheet.create({
   height: 220,
   borderRadius: 12,
   marginBottom: 12,
-  backgroundColor: "#202020",
+  backgroundColor: "rgba(21, 17, 38, 0.94)",
 },
 
 readyText: {
@@ -4140,7 +4034,7 @@ readyText: {
 },
 
   queueCard: {
-    backgroundColor: "#2b2b2b",
+    backgroundColor: "#3f2e68",
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
@@ -4174,11 +4068,11 @@ lifecycleActive: {
 },
 
 lifecyclePaused: {
-  backgroundColor: "#555",
+  backgroundColor: "#665b7d",
 },
 
 lifecycleSaved: {
-  backgroundColor: "#8b5cf6",
+  backgroundColor: "#9b5cff",
 },
 
 lifecycleEnded: {
@@ -4206,7 +4100,7 @@ lifecycleEnded: {
   },
 
   statusScheduled: {
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
   },
 
   statusPublishing: {
@@ -4222,11 +4116,11 @@ lifecycleEnded: {
   },
 
   statusSaved: {
-    backgroundColor: "#444",
+    backgroundColor: "#49366f",
   },
 
   queueText: {
-    color: "#aaa",
+    color: "#ffffff",
     fontSize: 13,
     lineHeight: 20,
   },
@@ -4247,7 +4141,7 @@ lifecycleEnded: {
 
   queuePostButton: {
     flexGrow: 1,
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -4256,7 +4150,7 @@ lifecycleEnded: {
   },
 queuePauseButton: {
   flexGrow: 1,
-  backgroundColor: "#444",
+  backgroundColor: "#49366f",
   paddingVertical: 12,
   borderRadius: 12,
   alignItems: "center",
@@ -4276,7 +4170,7 @@ queuePauseButton: {
 
   queueSaveButton: {
     flexGrow: 1,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
@@ -4337,7 +4231,7 @@ presetRow: {
 },
 
 presetButton: {
-  backgroundColor: "#2b2b2b",
+  backgroundColor: "#3f2e68",
   paddingVertical: 10,
   paddingHorizontal: 14,
   borderRadius: 12,
@@ -4346,7 +4240,7 @@ presetButton: {
 },
 
 presetButtonActive: {
-  backgroundColor: "#8b5cf6",
+  backgroundColor: "#9b5cff",
 },
 
 presetButtonText: {
@@ -4362,7 +4256,7 @@ filterRow: {
 },
 
 filterButton: {
-  backgroundColor: "#2b2b2b",
+  backgroundColor: "#3f2e68",
   paddingVertical: 8,
   paddingHorizontal: 12,
   borderRadius: 10,
@@ -4371,7 +4265,7 @@ filterButton: {
 },
 
 filterButtonActive: {
-  backgroundColor: "#8b5cf6",
+  backgroundColor: "#9b5cff",
 },
 
 filterButtonText: {
@@ -4381,7 +4275,7 @@ filterButtonText: {
 },
 
 emptyStateBox: {
-  backgroundColor: "#2b2b2b",
+  backgroundColor: "#3f2e68",
   borderRadius: 14,
   padding: 20,
   alignItems: "center",
@@ -4389,7 +4283,7 @@ emptyStateBox: {
 },
 
 emptyStateText: {
-  color: "#aaa",
+  color: "#ffffff",
   fontSize: 14,
   fontWeight: "700",
 },
@@ -4401,7 +4295,7 @@ analyticsRow: {
 },
 
 analyticsCard: {
-  backgroundColor: "#2b2b2b",
+  backgroundColor: "#3f2e68",
   borderRadius: 10,
   paddingVertical: 8,
   paddingHorizontal: 8,
@@ -4411,13 +4305,13 @@ analyticsCard: {
 },
 
 analyticsNumber: {
-  color: "#8b5cf6",
+  color: "#9b5cff",
   fontSize: 15,
   fontWeight: "900",
 },
 
 analyticsLabel: {
-  color: "#aaa",
+  color: "#ffffff",
   fontSize: 11,
   fontWeight: "700",
 },
@@ -4429,7 +4323,7 @@ metricsRow: {
 },
 
 metricBox: {
-  backgroundColor: "#222",
+  backgroundColor: "#18142d",
   borderRadius: 10,
   paddingVertical: 8,
   paddingHorizontal: 12,
@@ -4438,13 +4332,13 @@ metricBox: {
 },
 
 metricNumber: {
-  color: "#8b5cf6",
+  color: "#9b5cff",
   fontSize: 16,
   fontWeight: "900",
 },
 
 metricLabel: {
-  color: "#888",
+  color: "#ffffff",
   fontSize: 11,
   marginTop: 2,
 },
@@ -4469,7 +4363,7 @@ metricLabel: {
     gap: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#2b2b2b",
+    borderBottomColor: "#3f2e68",
   },
 
   tiktokSettingCopy: {
@@ -4488,9 +4382,9 @@ metricLabel: {
     marginTop: 18,
     padding: 14,
     borderRadius: 14,
-    backgroundColor: "#1d1d1d",
+    backgroundColor: "#141126",
     borderWidth: 1,
-    borderColor: "#3a3a3a",
+    borderColor: "#49366f",
   },
 
   tiktokConsentBox: {
@@ -4498,7 +4392,7 @@ metricLabel: {
     height: 24,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: "#777777",
+    borderColor: "#9b94b7",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
@@ -4506,13 +4400,13 @@ metricLabel: {
   },
 
   tiktokConsentBoxActive: {
-    backgroundColor: "#8b5cf6",
-    borderColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
+    borderColor: "#9b5cff",
   },
 
   tiktokConsentText: {
     flex: 1,
-    color: "#d0d0d0",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
   },
@@ -4539,7 +4433,7 @@ metricLabel: {
     fontWeight: "700",
   },
   multiSelectCount: {
-    color: "#a7a9b4",
+    color: "#ffffff",
     fontSize: 12,
     marginLeft: "auto",
   }

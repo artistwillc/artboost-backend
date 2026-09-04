@@ -107,7 +107,8 @@ const TOOLS: ToolItem[] = [
     description: "Organize related artwork into stronger collections and campaigns.",
     icon: "albums-outline",
     tier: "Pro",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/collection-builder`,
     category: "Business",
     details:
       "Group related artwork, identify gaps, and create collection themes for stronger marketing campaigns.",
@@ -118,7 +119,8 @@ const TOOLS: ToolItem[] = [
     description: "Review a store and identify opportunities to improve listings and sales.",
     icon: "storefront-outline",
     tier: "Business",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/store-critique`,
     category: "Business",
     details:
       "Review store presentation, product titles, descriptions, images, pricing, and merchandising opportunities.",
@@ -129,7 +131,8 @@ const TOOLS: ToolItem[] = [
     description: "Discover themes, subjects, and niches gaining attention.",
     icon: "trending-up-outline",
     tier: "Pro",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/trending-ideas`,
     category: "Growth",
     details:
       "Surface promising themes and niches using current demand signals and your existing catalog.",
@@ -140,7 +143,8 @@ const TOOLS: ToolItem[] = [
     description: "Plan campaigns around seasonal and holiday opportunities.",
     icon: "calendar-outline",
     tier: "Starter",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/holiday-calendar`,
     category: "Growth",
     details:
       "Build a campaign calendar around major holidays, seasonal demand, and preparation deadlines.",
@@ -151,7 +155,8 @@ const TOOLS: ToolItem[] = [
     description: "Identify promising artwork categories and campaign opportunities.",
     icon: "scan-outline",
     tier: "Business",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/opportunity-scanner`,
     category: "Growth",
     details:
       "Compare your catalog, stores, campaigns, and performance data to identify underused opportunities.",
@@ -162,7 +167,8 @@ const TOOLS: ToolItem[] = [
     description: "Receive recommendations based on artwork and campaign performance.",
     icon: "sparkles-outline",
     tier: "Business",
-    status: "coming",
+    status: "available",
+    route: `/creator-tools/business-coach`,
     category: "Growth",
     details:
       "Turn campaign, store, and analytics data into clear recommendations and next actions.",
@@ -343,10 +349,14 @@ export default function CreatorToolsScreen() {
             <Ionicons name="rocket-outline" size={24} color="#86efac" />
 
             <View style={styles.footerTextWrap}>
-              <Text style={styles.footerTitle}>More tools are coming</Text>
+              <Text style={styles.footerTitle}>Help Shape ArtBoost AI</Text>
               <Text style={styles.footerText}>
-                New creator and business tools will appear here as ArtBoost grows.
+                Have an idea for a creator or business tool? Tell us what would make ArtBoost more useful for your business.
               </Text>
+              <Pressable style={styles.suggestButton} onPress={() => router.push("/feature-suggestion" as any)}>
+                <Ionicons name="chatbox-ellipses-outline" size={17} color="#ffffff" />
+                <Text style={styles.suggestButtonText}>Suggest a Tool</Text>
+              </Pressable>
             </View>
           </View>
         </ScrollView>
@@ -775,6 +785,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
+  suggestButton: { marginTop: 12, alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: "#22c55e" },
+  suggestButtonText: { color: "#07120b", fontSize: 12, fontWeight: "900" },
   footerText: {
     color: "#9ed3b3",
     fontSize: 12,

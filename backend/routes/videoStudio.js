@@ -1,6 +1,7 @@
 // ARTBOOST_VIDEO_PLAN_LIMITS_V1
 import express from "express";
 import { resolveRequestUserId } from "../middleware/auth.js";
+import supabase from "../lib/supabase.js";
 import { listVideoTemplates } from "../video/templates.js";
 import {
   createVideoJob,
@@ -113,6 +114,28 @@ router.post("/jobs/:jobId/regenerate", async (req, res) => {
       code: error?.code || null,
       usage: error?.videoUsage || null,
     });
+  }
+});
+
+router.delete("/jobs/:jobId", async (req, res) => {
+  try {
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
+    const jobId = String(req.params.jobId || "").trim();
+    const { data: existing, error: readError } = await supabase
+      .from("video_generation_jobs")
+      .select("id,user_id")
+      .eq("id", jobId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ success: false, error: "Video not found." });
+    const { error } = await supabase.from("video_generation_jobs").delete().eq("id", jobId).eq("user_id", userId);
+    if (error) throw error;
+    return res.json({ success: true, deletedId: jobId });
+  } catch (error) {
+    console.error("Video Studio delete error:", error);
+    return res.status(500).json({ success: false, error: "Unable to delete this retained video." });
   }
 });
 

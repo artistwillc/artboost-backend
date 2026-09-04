@@ -1,3 +1,5 @@
+// ARTBOOST_NOTIFICATION_SETTINGS_V3154
+// ARTBOOST_VISUAL_PARITY_V3153
 import React, {
   useEffect,
   useMemo,
@@ -11,7 +13,9 @@ import {
   StyleSheet,
   Text,
   View,
+  Switch,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
 
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL ||
@@ -30,6 +34,50 @@ type NotificationItem = {
   created_at?: string;
 };
 
+
+type NotificationPreferenceKey =
+  | "post_published" | "post_failed" | "post_needs_attention"
+  | "upcoming_scheduled_post" | "video_ready" | "video_failed"
+  | "automation_completed" | "automation_failed" | "automation_paused"
+  | "store_sync_completed" | "store_sync_failed" | "new_listings_found"
+  | "account_connection_issue" | "usage_credit_warning" | "credits_exhausted"
+  | "subscription_billing" | "security_alerts" | "ai_consultant_alerts";
+
+type NotificationPreferences = {
+  master_enabled: boolean;
+} & Record<NotificationPreferenceKey, boolean>;
+
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  master_enabled: true,
+  post_published: true, post_failed: true, post_needs_attention: true,
+  upcoming_scheduled_post: true, video_ready: true, video_failed: true,
+  automation_completed: true, automation_failed: true, automation_paused: true,
+  store_sync_completed: true, store_sync_failed: true, new_listings_found: true,
+  account_connection_issue: true, usage_credit_warning: true, credits_exhausted: true,
+  subscription_billing: true, security_alerts: true, ai_consultant_alerts: true,
+};
+
+const NOTIFICATION_PREFERENCE_GROUPS: Array<{title:string; items:Array<{key:NotificationPreferenceKey; label:string}>}> = [
+  { title: "Publishing", items: [
+    {key:"post_published",label:"Post Published"}, {key:"post_failed",label:"Post Failed"},
+    {key:"post_needs_attention",label:"Post Needs Attention"}, {key:"upcoming_scheduled_post",label:"Upcoming Scheduled Post"},
+  ]},
+  { title: "Video Studio", items: [{key:"video_ready",label:"Video Ready"},{key:"video_failed",label:"Video Failed"}]},
+  { title: "Automations", items: [
+    {key:"automation_completed",label:"Automation Completed"},{key:"automation_failed",label:"Automation Failed"},
+    {key:"automation_paused",label:"Automation Paused"},
+  ]},
+  { title: "Stores & Connections", items: [
+    {key:"store_sync_completed",label:"Store Sync Completed"},{key:"store_sync_failed",label:"Store Sync Failed"},
+    {key:"new_listings_found",label:"New Listings Found"},{key:"account_connection_issue",label:"Account Connection Issue"},
+  ]},
+  { title: "Usage & Account", items: [
+    {key:"usage_credit_warning",label:"Usage / Credit Warning"},{key:"credits_exhausted",label:"Credits Exhausted"},
+    {key:"subscription_billing",label:"Subscription / Billing"},{key:"security_alerts",label:"Security Alerts"},
+    {key:"ai_consultant_alerts",label:"AI Consultant Alerts"},
+  ]},
+];
+
 const FILTERS = [
   { label: "All", value: "all" },
   { label: "Unread", value: "unread" },
@@ -38,11 +86,34 @@ const FILTERS = [
   { label: "Errors", value: "error" },
 ];
 
+async function getNotificationAuthHeaders(
+  extra: Record<string, string> = {}
+) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error("Sign in to manage notifications.");
+  }
+
+  return {
+    ...extra,
+    Authorization: `Bearer ${session.access_token}`,
+  };
+}
+
 export default function NotificationsScreen() {
   const [
     notifications,
     setNotifications,
   ] = useState<NotificationItem[]>([]);
+
+
+  const [userId, setUserId] = useState<string | null>(null);
+  const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
+  const [savingPreferences, setSavingPreferences] = useState(false);
+
 
   const [loading, setLoading] =
     useState(true);
@@ -68,19 +139,65 @@ export default function NotificationsScreen() {
   ] = useState(false);
 
   useEffect(() => {
-    loadNotifications();
+    initializeNotifications();
   }, []);
 
-  async function loadNotifications() {
+  async function initializeNotifications() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      Alert.alert("Sign In Required", "Sign in to view and manage your notifications.");
+      return;
+    }
+    setUserId(user.id);
+    const saved = user.user_metadata?.notification_preferences || {};
+    setPreferences({
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      ...saved,
+      security_alerts: true,
+    });
+    await loadNotifications(user.id);
+  }
+
+  async function savePreferences(next: NotificationPreferences) {
+    const previous = preferences;
+    const normalizedNext = {
+      ...next,
+      security_alerts: true,
+    };
+    setPreferences(normalizedNext);
+    try {
+      setSavingPreferences(true);
+      const { error } = await supabase.auth.updateUser({
+        data: { notification_preferences: normalizedNext },
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      setPreferences(previous);
+      Alert.alert("Settings Not Saved", err?.message || "Unable to save notification preferences.");
+    } finally {
+      setSavingPreferences(false);
+    }
+  }
+
+  function setMasterEnabled(enabled: boolean) {
+    savePreferences({ ...preferences, master_enabled: enabled });
+  }
+
+  function setPreference(key: NotificationPreferenceKey, enabled: boolean) {
+    savePreferences({ ...preferences, [key]: enabled });
+  }
+
+  async function loadNotifications(scopedUserId: string = userId || "") {
     try {
       setLoading(true);
 
       const response = await fetch(
-        `${BACKEND_URL}/notifications/all?refresh=${Date.now()}`,
+        `${BACKEND_URL}/notifications/${encodeURIComponent(scopedUserId)}?refresh=${Date.now()}`,
         {
-          headers: {
+          headers: await getNotificationAuthHeaders({
             "Cache-Control": "no-cache",
-          },
+          }),
         }
       );
 
@@ -119,9 +236,10 @@ export default function NotificationsScreen() {
       setMarkingAllRead(true);
 
       const response = await fetch(
-        `${BACKEND_URL}/notifications/read-all/all`,
+        `${BACKEND_URL}/notifications/read-all/${encodeURIComponent(userId || "")}`,
         {
           method: "PATCH",
+          headers: await getNotificationAuthHeaders(),
         }
       );
 
@@ -161,6 +279,7 @@ export default function NotificationsScreen() {
         `${BACKEND_URL}/notifications/${id}`,
         {
           method: "DELETE",
+          headers: await getNotificationAuthHeaders(),
         }
       );
 
@@ -218,6 +337,7 @@ export default function NotificationsScreen() {
         `${BACKEND_URL}/notifications/clear-all`,
         {
           method: "DELETE",
+          headers: await getNotificationAuthHeaders(),
         }
       );
 
@@ -326,6 +446,50 @@ export default function NotificationsScreen() {
           Platform updates, campaigns,
           publishing alerts and status.
         </Text>
+      </View>
+
+
+      <View style={styles.settingsCard}>
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextWrap}>
+            <Text style={styles.settingsTitle}>Notification Settings</Text>
+            <Text style={styles.settingsSubtitle}>Choose which ArtBoost alerts you want to receive.</Text>
+          </View>
+          <Switch
+            value={preferences.master_enabled}
+            onValueChange={setMasterEnabled}
+            disabled={savingPreferences}
+            trackColor={{ false: "#3b3158", true: "#8b5cf6" }}
+          />
+        </View>
+        <Text style={styles.masterHint}>
+          {preferences.master_enabled
+            ? "Notifications are enabled. Your individual choices are active."
+            : "Notifications are paused. Your individual choices are preserved. Security-critical alerts remain active."}
+        </Text>
+
+        {NOTIFICATION_PREFERENCE_GROUPS.map(group => (
+          <View key={group.title} style={styles.preferenceGroup}>
+            <Text style={styles.preferenceGroupTitle}>{group.title}</Text>
+            {group.items.map(item => (
+              <View key={item.key} style={styles.preferenceRow}>
+                <Text style={[styles.preferenceLabel, !preferences.master_enabled && styles.preferenceLabelDisabled]}>
+                  {item.label}
+                </Text>
+                <Switch
+                  value={item.key === "security_alerts" ? true : preferences[item.key]}
+                  onValueChange={(value) => setPreference(item.key, value)}
+                  disabled={
+                    savingPreferences ||
+                    item.key === "security_alerts" ||
+                    !preferences.master_enabled
+                  }
+                  trackColor={{ false: "#3b3158", true: "#8b5cf6" }}
+                />
+              </View>
+            ))}
+          </View>
+        ))}
       </View>
 
       <View style={styles.summaryBox}>
@@ -555,7 +719,7 @@ const styles =
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: "#101010",
+      backgroundColor: "rgba(7, 6, 17, 0.92)",
     },
 
     container: {
@@ -575,7 +739,7 @@ const styles =
     },
 
     subtitle: {
-      color: "#aaa",
+      color: "#ffffff",
       marginTop: 6,
     },
 
@@ -593,7 +757,7 @@ const styles =
     },
 
     summaryLabel: {
-      color: "#aaa",
+      color: "#ffffff",
     },
 
     actionRow: {
@@ -644,7 +808,7 @@ const styles =
     },
 
     filterText: {
-      color: "#aaa",
+      color: "#ffffff",
     },
 
     filterTextActive: {
@@ -664,7 +828,7 @@ const styles =
     },
 
     emptyText: {
-      color: "#aaa",
+      color: "#ffffff",
       marginTop: 8,
     },
 
@@ -751,7 +915,23 @@ const styles =
     },
 
     cardTime: {
-      color: "#777",
+      color: "#ffffff",
       marginTop: 8,
     },
+
+    settingsCard: {
+      backgroundColor: "rgba(18, 16, 36, 0.94)",
+      borderWidth: 1, borderColor: "#4b2d78", borderRadius: 20,
+      padding: 16, marginBottom: 16,
+    },
+    settingRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+    settingTextWrap: { flex: 1 },
+    settingsTitle: { color: "#fff", fontSize: 20, fontWeight: "900" },
+    settingsSubtitle: { color: "#d8d2ff", fontSize: 12, lineHeight: 18, marginTop: 4 },
+    masterHint: { color: "#c4b5fd", fontSize: 11, lineHeight: 17, marginTop: 10, marginBottom: 8 },
+    preferenceGroup: { borderTopWidth: 1, borderTopColor: "#342d5c", marginTop: 12, paddingTop: 12 },
+    preferenceGroupTitle: { color: "#a99aff", fontSize: 11, fontWeight: "900", letterSpacing: 1.1, marginBottom: 4 },
+    preferenceRow: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    preferenceLabel: { color: "#fff", fontSize: 13, fontWeight: "700", flex: 1, paddingRight: 12 },
+    preferenceLabelDisabled: { opacity: 0.5 },
   });

@@ -123,7 +123,7 @@ const detectRedbubbleUrlType = (value) => {
 
   if (
     pathname.includes("/people/") &&
-    pathname.endsWith("/shop")
+    (pathname.endsWith("/shop") || pathname.endsWith("/explore"))
   ) {
     return "store";
   }

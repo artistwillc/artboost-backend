@@ -1,3 +1,4 @@
+// ARTBOOST_VISUAL_PARITY_V3153
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { router, useFocusEffect } from "expo-router";
@@ -302,7 +303,7 @@ export default function ProScreen() {
       <View style={styles.loadingScreen}>
         <ActivityIndicator
           size="large"
-          color="#8b5cf6"
+          color="#9b5cff"
         />
 
         <Text style={styles.loadingText}>
@@ -541,25 +542,25 @@ export default function ProScreen() {
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.88)",
     alignItems: "center",
     justifyContent: "center",
   },
 
   loadingText: {
-    color: "#999999",
+    color: "#ffffff",
     marginTop: 12,
   },
 
   container: {
     padding: 22,
     paddingBottom: 60,
-    backgroundColor: "#101010",
+    backgroundColor: "rgba(7, 6, 17, 0.88)",
     minHeight: "100%",
   },
 
   eyebrow: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1.5,
@@ -574,7 +575,7 @@ const styles = StyleSheet.create({
   },
 
   subheader: {
-    color: "#a4a4a4",
+    color: "#ffffff",
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8,
@@ -583,7 +584,7 @@ const styles = StyleSheet.create({
 
   tierCard: {
     borderRadius: 20,
-    backgroundColor: "#1d1730",
+    backgroundColor: "rgba(29, 23, 48, 0.92)",
     borderWidth: 1,
     borderColor: "#5b3fa3",
     padding: 18,
@@ -624,7 +625,7 @@ const styles = StyleSheet.create({
   },
 
   accountEmail: {
-    color: "#aaa0ba",
+    color: "#ffffff",
     fontSize: 12,
     marginTop: 12,
   },
@@ -647,7 +648,7 @@ const styles = StyleSheet.create({
     width: "48%",
     minHeight: 100,
     borderRadius: 18,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
     borderColor: "#2f2f2f",
     padding: 14,
@@ -661,7 +662,7 @@ const styles = StyleSheet.create({
   },
 
   metricLabel: {
-    color: "#8f8f8f",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "700",
     marginTop: 5,
@@ -699,9 +700,9 @@ const styles = StyleSheet.create({
 
   actionCard: {
     borderRadius: 18,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     padding: 16,
     marginBottom: 12,
     flexDirection: "row",
@@ -720,7 +721,7 @@ const styles = StyleSheet.create({
   },
 
   actionText: {
-    color: "#919191",
+    color: "#ffffff",
     fontSize: 11,
     lineHeight: 17,
     marginTop: 5,
@@ -730,7 +731,7 @@ const styles = StyleSheet.create({
     minWidth: 72,
     height: 42,
     borderRadius: 12,
-    backgroundColor: "#8b5cf6",
+    backgroundColor: "#9b5cff",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -744,7 +745,7 @@ const styles = StyleSheet.create({
     minWidth: 72,
     height: 42,
     borderRadius: 12,
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -756,28 +757,28 @@ const styles = StyleSheet.create({
 
   referralCard: {
     borderRadius: 20,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: "rgba(18, 16, 36, 0.92)",
     borderWidth: 1,
-    borderColor: "#303030",
+    borderColor: "#3b3158",
     padding: 17,
     marginTop: 10,
   },
 
   referralText: {
-    color: "#a4a4a4",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 18,
   },
 
   referralCodeBox: {
     borderRadius: 14,
-    backgroundColor: "#292929",
+    backgroundColor: "#3f2e68",
     padding: 14,
     marginTop: 14,
   },
 
   referralLabel: {
-    color: "#8b5cf6",
+    color: "#9b5cff",
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 1,
@@ -797,14 +798,14 @@ const styles = StyleSheet.create({
   },
 
   referralMetric: {
-    color: "#aaaaaa",
+    color: "#ffffff",
     fontSize: 11,
     fontWeight: "700",
   },
 
   copyButton: {
     borderRadius: 12,
-    backgroundColor: "#2d6cdf",
+    backgroundColor: "#665cff",
     paddingVertical: 12,
     alignItems: "center",
     marginTop: 14,

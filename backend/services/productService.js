@@ -1,15 +1,23 @@
+// ARTBOOST_AUTOMATION_PRODUCT_STORE_BOUNDARY_V3156
+// ARTBOOST_LIBRARY_STORE_INTEGRITY_V3155
 import supabase from "../lib/supabase.js";
 
 export async function getProductById({
   productId,
   userId,
+  storeId = "",
 }) {
-  const { data: product, error } = await supabase
+  let query = supabase
     .from("products")
     .select("*")
     .eq("id", productId)
-    .eq("user_id", userId)
-    .maybeSingle();
+    .eq("user_id", userId);
+
+  if (storeId) {
+    query = query.eq("store_connection_id", String(storeId));
+  }
+
+  const { data: product, error } = await query.maybeSingle();
 
   if (error) {
     throw new Error(
@@ -18,6 +26,93 @@ export async function getProductById({
   }
 
   return product || null;
+}
+
+export function productIsFavorite(product) {
+  return Boolean(
+    product &&
+      product.metadata &&
+      typeof product.metadata === "object" &&
+      product.metadata.artboostFavorite === true
+  );
+}
+
+export async function setProductFavorite({
+  productId,
+  userId,
+  favorite,
+}) {
+  const product = await getProductById({
+    productId,
+    userId,
+  });
+
+  if (!product) {
+    return null;
+  }
+
+  const existingMetadata =
+    product.metadata &&
+    typeof product.metadata === "object" &&
+    !Array.isArray(product.metadata)
+      ? product.metadata
+      : {};
+
+  const now = new Date().toISOString();
+
+  const {
+    data: updatedProduct,
+    error,
+  } = await supabase
+    .from("products")
+    .update({
+      metadata: {
+        ...existingMetadata,
+        artboostFavorite: Boolean(favorite),
+        artboostFavoriteUpdatedAt: now,
+      },
+      updated_at: now,
+    })
+    .eq("id", productId)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Unable to update product favorite: ${error.message}`
+    );
+  }
+
+  return updatedProduct;
+}
+
+export async function getFavoriteProducts({
+  userId,
+  storeId,
+  storeType,
+  storeName,
+  limit = 500,
+}) {
+  const result = await getProducts({
+    userId,
+    storeId,
+    storeType,
+    storeName,
+    limit,
+    offset: 0,
+  });
+
+  const favoriteProducts = (
+    result.products || []
+  ).filter(productIsFavorite);
+
+  return {
+    products: favoriteProducts,
+    total: favoriteProducts.length,
+    limit: Number(limit) || 500,
+    offset: 0,
+  };
 }
 
 export async function getProducts({
@@ -310,14 +405,13 @@ export async function getStores({
         null,
       connected:
         connection.connected !== false,
+      // V3.15.5: a connected-store ID is the authoritative catalog boundary.
+      // Never borrow a count from another connection merely because platform
+      // and display name happen to match.
       productCount:
         countsByConnectionId[
           connection.id
-        ] ||
-        countsByTypeAndName[
-          `${storeType}::${storeName}`
-        ] ||
-        0,
+        ] || 0,
       connectedAt:
         connection.created_at || null,
       updatedAt:
@@ -426,6 +520,25 @@ export async function getNextAutomationProduct({
     Number(repeatDelayDays) || 0,
     0
   );
+
+  const rawSelectionMode =
+    String(selectionMode || "least_recently_posted");
+
+  const favoritesOnly =
+    rawSelectionMode.startsWith("favorites_");
+
+  const requestedSelectionMode =
+    favoritesOnly
+      ? rawSelectionMode.slice("favorites_".length)
+      : rawSelectionMode;
+
+  const normalizedSelectionMode = [
+    "random",
+    "never_posted_first",
+    "least_recently_posted",
+  ].includes(requestedSelectionMode)
+    ? requestedSelectionMode
+    : "least_recently_posted";
 
   let resolvedStoreType = storeType
     ? String(storeType).toLowerCase()
@@ -547,9 +660,18 @@ export async function getNextAutomationProduct({
   let query = supabase
     .from("products")
     .select("*")
-    .eq("user_id", userId)
-    .eq("store_type", resolvedStoreType)
-    .eq("store_name", resolvedStoreName);
+    .eq("user_id", userId);
+
+  // V3.15.6: when an automation has a connected-store ID, that ID is the
+  // authoritative catalog boundary. Platform/name are retained only for
+  // legacy automations that genuinely have no connection ID.
+  if (storeId) {
+    query = query.eq("store_connection_id", String(storeId));
+  } else {
+    query = query
+      .eq("store_type", resolvedStoreType)
+      .eq("store_name", resolvedStoreName);
+  }
 
   /*
    * Only include active products when a status value exists.
@@ -569,7 +691,15 @@ export async function getNextAutomationProduct({
     );
   }
 
-  const availableProducts = products || [];
+  const availableProducts = (
+    products || []
+  ).filter((product) => {
+    if (!favoritesOnly) {
+      return true;
+    }
+
+    return productIsFavorite(product);
+  });
 
   if (availableProducts.length === 0) {
     return null;
@@ -614,7 +744,7 @@ export async function getNextAutomationProduct({
     return null;
   }
 
-  if (selectionMode === "random") {
+  if (normalizedSelectionMode === "random") {
     const randomIndex = Math.floor(
       Math.random() * eligibleProducts.length
     );

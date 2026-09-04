@@ -1,3 +1,4 @@
+// ARTBOOST_PRODUCT_POST_STORE_HANDOFF_V3155
 /* eslint-disable react/no-unescaped-entities */
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -31,9 +32,11 @@ export default function ProductPostScreen() {
     productLink?: string;
     storeName?: string;
     storeType?: string;
+    storeId?: string;
   }>();
 
   const productId = String(params.productId || "");
+  const storeId = String(params.storeId || "");
   const [platform, setPlatform] = useState<Platform>("Instagram");
   const [tone, setTone] = useState("Professional Sales");
   const [title, setTitle] = useState(String(params.productTitle || ""));
@@ -65,7 +68,7 @@ export default function ProductPostScreen() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ productId, platform, tone }),
+        body: JSON.stringify({ productId, platform, tone, storeId }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Unable to create post.");
@@ -219,14 +222,14 @@ const styles = StyleSheet.create({
   placeholder: { alignItems: "center", justifyContent: "center" },
   productTitle: { color: "#fff", fontSize: 15, lineHeight: 20, fontWeight: "800" },
   productMeta: { color: "#a78bfa", fontSize: 11, marginTop: 5, fontWeight: "700" },
-  productHint: { color: "#8c91a0", fontSize: 11, lineHeight: 16, marginTop: 7 },
+  productHint: { color: "#ffffff", fontSize: 11, lineHeight: 16, marginTop: 7 },
   sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "900", marginBottom: 12 },
   platformRow: { gap: 8, paddingBottom: 18 },
   platformChip: { borderRadius: 999, borderWidth: 1, borderColor: "#343640", paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#15161c" },
   platformChipActive: { backgroundColor: "#2b2145", borderColor: "#8b5cf6" },
-  platformText: { color: "#a0a4b1", fontSize: 12, fontWeight: "800" },
+  platformText: { color: "#ffffff", fontSize: 12, fontWeight: "800" },
   platformTextActive: { color: "#fff" },
-  label: { color: "#d7d8df", fontSize: 12, fontWeight: "800", marginBottom: 7, marginTop: 10 },
+  label: { color: "#ffffff", fontSize: 12, fontWeight: "800", marginBottom: 7, marginTop: 10 },
   input: { minHeight: 48, borderRadius: 13, borderWidth: 1, borderColor: "#30323b", backgroundColor: "#14151a", color: "#fff", paddingHorizontal: 13, paddingVertical: 12, fontSize: 14 },
   largeInput: { minHeight: 140, textAlignVertical: "top" },
   mediumInput: { minHeight: 84, textAlignVertical: "top" },
@@ -237,13 +240,13 @@ const styles = StyleSheet.create({
   readyText: { color: "#c9f7e6", fontSize: 12, flex: 1 },
   linkCard: { marginTop: 14, borderRadius: 15, padding: 13, flexDirection: "row", gap: 10, backgroundColor: "#18142b", borderWidth: 1, borderColor: "#44347b" },
   linkTitle: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  linkText: { color: "#9d97af", fontSize: 11, lineHeight: 16, marginTop: 3 },
+  linkText: { color: "#ffffff", fontSize: 11, lineHeight: 16, marginTop: 3 },
   actionRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   secondaryButton: { flex: 1, height: 48, borderRadius: 13, borderWidth: 1, borderColor: "#3a3c47", backgroundColor: "#1b1c23", flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" },
   actionText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   campaignButton: { marginTop: 11, minHeight: 72, borderRadius: 16, padding: 13, flexDirection: "row", gap: 10, alignItems: "center", backgroundColor: "#171820", borderWidth: 1, borderColor: "#343640" },
   campaignTitle: { color: "#fff", fontSize: 13, fontWeight: "900" },
-  campaignText: { color: "#8e93a2", fontSize: 10, lineHeight: 15, marginTop: 3 },
+  campaignText: { color: "#ffffff", fontSize: 10, lineHeight: 15, marginTop: 3 },
   videoButton: { marginTop: 11, minHeight: 76, borderRadius: 16, padding: 13, flexDirection: "row", gap: 10, alignItems: "center", backgroundColor: "#5b21b6" },
   videoTitle: { color: "#fff", fontSize: 13, fontWeight: "900" },
   videoText: { color: "#ddd6fe", fontSize: 10, lineHeight: 15, marginTop: 3 },

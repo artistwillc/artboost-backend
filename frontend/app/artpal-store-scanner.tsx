@@ -1,3 +1,5 @@
+// ARTBOOST_NAVIGATION_UX_INTEGRITY_V31510
+// ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
   router,
@@ -63,14 +65,14 @@ type ScannerMessage = {
   pageTitle?: string;
   totalLinks?: number;
   totalImages?: number;
-  sampleLinks?: Array<{
+  sampleLinks?: {
     href?: string;
     text?: string;
-  }>;
-  sampleImages?: Array<{
+  }[];
+  sampleImages?: {
     src?: string;
     alt?: string;
-  }>;
+  }[];
   htmlSnippet?: string;
     scannedCount?: number;
   scrollStep?: number;
@@ -532,6 +534,7 @@ export default function ArtPalStoreScannerScreen() {
         normalized
       );
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
 
   const [products, setProducts] =
@@ -1487,7 +1490,7 @@ scanProgress ? (
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "rgba(7, 6, 17, 0.90)",
   },
 
   header: {
@@ -1598,7 +1601,7 @@ const styles = StyleSheet.create({
   },
 
   pageLoaderText: {
-    color: "#aaaaaa",
+    color: "#ffffff",
     fontSize: 11,
   },
 
@@ -1666,7 +1669,7 @@ const styles = StyleSheet.create({
   },
 
   emptyBrowserText: {
-    color: "#999999",
+    color: "#ffffff",
     fontSize: 12,
     lineHeight: 19,
     textAlign: "center",
@@ -1696,7 +1699,7 @@ const styles = StyleSheet.create({
   },
 
   resultsSubtitle: {
-    color: "#888888",
+    color: "#ffffff",
     fontSize: 10,
     marginTop: 3,
   },

@@ -1,6 +1,7 @@
 import express from "express";
 import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
+import { resolveRequestUserId } from "../middleware/auth.js";
 
 import {
   importCatalogUrls,
@@ -27,24 +28,20 @@ const router = express.Router();
 router.post("/artpal-image-upload", async (req, res) => {
   try {
     const {
-      userId,
       productUrl,
       dataUrl,
     } = req.body || {};
 
     const cleanUserId =
-      String(userId || "").trim();
+      await resolveRequestUserId(req, res);
+
+    if (!cleanUserId) {
+      return;
+    }
     const cleanProductUrl =
       String(productUrl || "").trim();
     const cleanDataUrl =
       String(dataUrl || "").trim();
-
-    if (!cleanUserId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
 
     if (!cleanProductUrl) {
       return res.status(400).json({
@@ -141,18 +138,17 @@ router.post("/artpal-image-upload", async (req, res) => {
 router.post("/import-urls", async (req, res) => {
   try {
     const {
-      userId,
       storeId,
       storeName,
       storeType,
       urls,
     } = req.body || {};
 
+    const userId =
+      await resolveRequestUserId(req, res);
+
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
+      return;
     }
 
     if (!storeName) {
@@ -213,7 +209,6 @@ router.post(
   async (req, res) => {
     try {
       const {
-        userId,
         storeId,
         storeName,
         storeType,
@@ -227,11 +222,11 @@ router.post(
         tags,
       } = req.body || {};
 
+      const userId =
+        await resolveRequestUserId(req, res);
+
       if (!userId) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing userId.",
-        });
+        return;
       }
 
       if (!storeName) {
