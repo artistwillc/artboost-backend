@@ -31,6 +31,7 @@ import { supabase } from "@/lib/supabase";
 
 const API_BASE =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
 type Product = {
@@ -82,6 +83,10 @@ function platformLabel(value: string) {
 }
 
 export default function StoreProductsScreen() {
+  // ARTBOOST_PRODUCT_IMAGE_FAILURE_FALLBACK_V31644
+  const [failedImageIds, setFailedImageIds] =
+    useState<Record<string, boolean>>({});
+
   const params = useLocalSearchParams<{
     storeId?: string;
     storeName?: string;
@@ -315,6 +320,7 @@ export default function StoreProductsScreen() {
           })
         );
 
+        setFailedImageIds({});
         setProducts(
           mappedProducts.filter(matchesStore)
         );
@@ -615,11 +621,21 @@ export default function StoreProductsScreen() {
                 style={styles.productMainRow}
                 onPress={() => openProduct(product)}
               >
-                {product.imageUrl ? (
+                {product.imageUrl &&
+                !failedImageIds[product.id] ? (
                   <Image
                     source={{ uri: product.imageUrl }}
                     style={styles.productImage}
                     resizeMode="cover"
+                    onError={() =>
+                      setFailedImageIds(
+                        (current) => ({
+                          ...current,
+                          [product.id]:
+                            true,
+                        })
+                      )
+                    }
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
@@ -662,14 +678,28 @@ export default function StoreProductsScreen() {
                   onPress={() => createProductPost(product)}
                 >
                   <Ionicons name="sparkles-outline" size={17} color="#ffffff" />
-                  <Text style={styles.productActionText}>Create Post</Text>
+                  <Text
+                    style={styles.productActionText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                  >
+                    Create Post
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={[styles.productActionButton, styles.productVideoButton]}
                   onPress={() => createProductVideo(product)}
                 >
                   <Ionicons name="videocam-outline" size={18} color="#ffffff" />
-                  <Text style={styles.productActionText}>Create Video</Text>
+                  <Text
+                    style={styles.productActionText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                  >
+                    Create Video
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -935,14 +965,16 @@ const styles = StyleSheet.create({
   },
   productActionButton: {
     flex: 1,
+    minWidth: 0,
     minHeight: 43,
     borderRadius: 13,
     backgroundColor: "#7c3aed",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    paddingHorizontal: 10,
+    gap: 6,
+    paddingHorizontal: 8,
+    overflow: "hidden",
   },
   productVideoButton: {
     backgroundColor: "#4338ca",
@@ -951,5 +983,9 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "center",
+    includeFontPadding: false,
   },
 });
