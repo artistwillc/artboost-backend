@@ -200,6 +200,154 @@ router.post("/import-urls", async (req, res) => {
 });
 
 /*
+ * POST /catalog/import-products-batch
+ *
+ * Imports many catalog products in one authenticated request so large
+ * storefront refreshes do not exhaust the /catalog request rate limiter.
+ */
+router.post(
+  "/import-products-batch",
+  async (req, res) => {
+    try {
+      const {
+        storeId,
+        storeName,
+        storeType,
+        products,
+      } = req.body || {};
+
+      const userId =
+        await resolveRequestUserId(req, res);
+
+      if (!userId) {
+        return;
+      }
+
+      if (!storeName) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing storeName.",
+        });
+      }
+
+      if (!Array.isArray(products)) {
+        return res.status(400).json({
+          success: false,
+          error: "products must be an array.",
+        });
+      }
+
+      if (products.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "No products supplied.",
+        });
+      }
+
+      if (products.length > 500) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "A maximum of 500 products can be imported per batch.",
+        });
+      }
+
+      const imported = [];
+      const failed = [];
+
+      for (
+        let index = 0;
+        index < products.length;
+        index += 1
+      ) {
+        const product =
+          products[index] &&
+          typeof products[index] === "object"
+            ? products[index]
+            : {};
+
+        try {
+          const result =
+            await importSingleCatalogProduct({
+              userId: String(userId),
+              storeId:
+                storeId
+                  ? String(storeId)
+                  : null,
+              storeName:
+                String(storeName),
+              storeType: String(
+                storeType || "custom_store"
+              ),
+              title:
+                product.title,
+              description:
+                product.description,
+              imageUrl:
+                product.imageUrl,
+              productUrl:
+                product.productUrl,
+              price:
+                product.price,
+              currency:
+                product.currency || "USD",
+              productType:
+                product.productType,
+              tags:
+                product.tags,
+            });
+
+          imported.push({
+            index,
+            action:
+              result.action,
+            product:
+              result.product,
+          });
+        } catch (error) {
+          failed.push({
+            index,
+            title:
+              String(product.title || ""),
+            productUrl:
+              String(product.productUrl || ""),
+            error:
+              error instanceof Error
+                ? error.message
+                : String(error),
+          });
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        requested:
+          products.length,
+        importedCount:
+          imported.length,
+        failedCount:
+          failed.length,
+        imported,
+        failed,
+      });
+    } catch (error) {
+      console.error(
+        "Batch catalog product import failed:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      });
+    }
+  }
+);
+
+/*
  * POST /catalog/import-product
  *
  * Creates or updates one manually entered product.
