@@ -3,6 +3,8 @@ import { verifyFineArtAmericaProductOwnership } from "./fineArtAmericaService.js
 
 const MAX_URLS_PER_REQUEST = 25;
 const FETCH_TIMEOUT_MS = 15000;
+const METADATA_FETCH_ATTEMPTS = 3;
+const METADATA_RETRY_BASE_MS = 600;
 
 function cleanText(value) {
   return String(value || "")
@@ -196,6 +198,164 @@ function extractTitleTag(html) {
     : null;
 }
 
+function delay(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      Math.max(
+        0,
+        Math.floor(milliseconds)
+      )
+    );
+  });
+}
+
+function extractJsonLdProduct(html) {
+  const scripts = [
+    ...String(html || "").matchAll(
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+    ),
+  ];
+
+  const candidates = [];
+
+  function collect(value) {
+    if (!value) return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        collect(item);
+      }
+      return;
+    }
+
+    if (
+      typeof value !== "object"
+    ) {
+      return;
+    }
+
+    const graph =
+      value["@graph"];
+
+    if (Array.isArray(graph)) {
+      for (const item of graph) {
+        collect(item);
+      }
+    }
+
+    const rawType =
+      value["@type"];
+
+    const types =
+      Array.isArray(rawType)
+        ? rawType
+        : [rawType];
+
+    if (
+      types.some(
+        (type) =>
+          String(type || "")
+            .toLowerCase() ===
+          "product"
+      )
+    ) {
+      candidates.push(value);
+    }
+  }
+
+  for (const match of scripts) {
+    const raw =
+      String(match?.[1] || "")
+        .trim();
+
+    if (!raw) {
+      continue;
+    }
+
+    try {
+      collect(JSON.parse(raw));
+    } catch {
+      // Ignore unrelated or malformed JSON-LD blocks.
+    }
+  }
+
+  const product =
+    candidates[0];
+
+  if (!product) {
+    return null;
+  }
+
+  const imageValue =
+    product.image;
+
+  const imageUrl =
+    Array.isArray(imageValue)
+      ? String(
+          imageValue[0]?.url ||
+          imageValue[0] ||
+          ""
+        ).trim()
+      : typeof imageValue === "object"
+      ? String(
+          imageValue?.url || ""
+        ).trim()
+      : String(
+          imageValue || ""
+        ).trim();
+
+  const offers =
+    Array.isArray(product.offers)
+      ? product.offers[0]
+      : product.offers;
+
+  const rawPrice =
+    offers?.price ??
+    offers?.lowPrice ??
+    null;
+
+  const parsedPrice =
+    rawPrice === null ||
+    rawPrice === undefined
+      ? null
+      : Number(
+          String(rawPrice)
+            .replace(
+              /[^0-9.-]/g,
+              ""
+            )
+        );
+
+  return {
+    title:
+      cleanText(
+        product.name || ""
+      ) || null,
+    description:
+      cleanText(
+        product.description || ""
+      ) || null,
+    imageUrl:
+      imageUrl || null,
+    productUrl:
+      String(
+        offers?.url ||
+        product.url ||
+        ""
+      ).trim() || null,
+    price:
+      Number.isFinite(parsedPrice)
+        ? parsedPrice
+        : null,
+    currency:
+      String(
+        offers?.priceCurrency ||
+        ""
+      ).trim() || null,
+  };
+}
+
 function extractPrice(html) {
   const rawPrice =
     extractMetaContent(
@@ -261,88 +421,177 @@ function isUsableImageUrl(value) {
 }
 
 async function fetchProductMetadata(productUrl) {
-  const controller = new AbortController();
+  let lastError = null;
 
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, FETCH_TIMEOUT_MS);
+  for (
+    let attempt = 1;
+    attempt <=
+    METADATA_FETCH_ATTEMPTS;
+    attempt += 1
+  ) {
+    const controller =
+      new AbortController();
 
-  try {
-    const response = await fetch(productUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; ArtBoostAI/1.0)",
-        Accept:
-          "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-      signal: controller.signal,
-    });
+    const timeout =
+      setTimeout(() => {
+        controller.abort();
+      }, FETCH_TIMEOUT_MS);
 
-    if (!response.ok) {
-      throw new Error(
-        `Marketplace returned HTTP ${response.status}.`
+    try {
+      const response =
+        await fetch(
+          productUrl,
+          {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (compatible; ArtBoostAI/1.0)",
+              Accept:
+                "text/html,application/xhtml+xml",
+              "Accept-Language":
+                "en-US,en;q=0.9",
+            },
+            redirect: "follow",
+            signal:
+              controller.signal,
+          }
+        );
+
+      if (!response.ok) {
+        const retryable =
+          response.status === 408 ||
+          response.status === 425 ||
+          response.status === 429 ||
+          response.status >= 500;
+
+        const error =
+          new Error(
+            `Marketplace returned HTTP ${response.status}.`
+          );
+
+        error.retryable =
+          retryable;
+
+        throw error;
+      }
+
+      const html =
+        await response.text();
+
+      const jsonLd =
+        extractJsonLdProduct(
+          html
+        );
+
+      const title =
+        extractMetaContent(
+          html,
+          "og:title"
+        ) ||
+        extractMetaContent(
+          html,
+          "twitter:title"
+        ) ||
+        jsonLd?.title ||
+        extractTitleTag(html);
+
+      const description =
+        extractMetaContent(
+          html,
+          "og:description"
+        ) ||
+        extractMetaContent(
+          html,
+          "twitter:description"
+        ) ||
+        extractMetaContent(
+          html,
+          "description"
+        ) ||
+        jsonLd?.description;
+
+      const imageUrl =
+        extractMetaContent(
+          html,
+          "og:image"
+        ) ||
+        extractMetaContent(
+          html,
+          "twitter:image"
+        ) ||
+        jsonLd?.imageUrl;
+
+      const canonicalUrl =
+        extractCanonicalUrl(html) ||
+        jsonLd?.productUrl ||
+        response.url ||
+        productUrl;
+
+      const metaPrice =
+        extractPrice(html);
+
+      return {
+        title:
+          cleanText(title) ||
+          "Imported Product",
+        description:
+          cleanText(
+            description
+          ) || null,
+        imageUrl:
+          imageUrl || null,
+        productUrl:
+          normalizeUrl(
+            canonicalUrl
+          ),
+        price:
+          metaPrice ??
+          jsonLd?.price ??
+          null,
+        currency:
+          extractCurrency(html) ||
+          jsonLd?.currency ||
+          "USD",
+      };
+    } catch (error) {
+      const isAbort =
+        error?.name ===
+        "AbortError";
+
+      const retryable =
+        isAbort ||
+        error?.retryable === true;
+
+      lastError =
+        isAbort
+          ? new Error(
+              "Marketplace request timed out."
+            )
+          : error;
+
+      if (
+        !retryable ||
+        attempt >=
+          METADATA_FETCH_ATTEMPTS
+      ) {
+        break;
+      }
+
+      await delay(
+        METADATA_RETRY_BASE_MS *
+          2 **
+            (attempt - 1)
       );
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const html = await response.text();
-
-    const title =
-      extractMetaContent(html, "og:title") ||
-      extractMetaContent(html, "twitter:title") ||
-      extractTitleTag(html);
-
-    const description =
-      extractMetaContent(
-        html,
-        "og:description"
-      ) ||
-      extractMetaContent(
-        html,
-        "twitter:description"
-      ) ||
-      extractMetaContent(
-        html,
-        "description"
-      );
-
-    const imageUrl =
-      extractMetaContent(html, "og:image") ||
-      extractMetaContent(
-        html,
-        "twitter:image"
-      );
-
-    const canonicalUrl =
-      extractCanonicalUrl(html) ||
-      response.url ||
-      productUrl;
-
-    return {
-      title:
-        cleanText(title) ||
-        "Imported Product",
-      description:
-        cleanText(description) || null,
-      imageUrl: imageUrl || null,
-      productUrl:
-        normalizeUrl(canonicalUrl),
-      price: extractPrice(html),
-      currency:
-        extractCurrency(html),
-    };
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(
-        "Marketplace request timed out."
-      );
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw (
+    lastError ||
+    new Error(
+      "Marketplace metadata request failed."
+    )
+  );
 }
 
 async function saveImportedProduct({
@@ -833,6 +1082,16 @@ export async function importSingleCatalogProduct({
         ? { artworkId: redbubbleArtworkId }
         : {}),
       imageStatus: finalImageUrl ? "verified" : "pending",
+      metadataStatus:
+        fallbackMetadata
+          ? "enriched"
+          : needsMetadataFallback
+          ? "partial"
+          : "supplied",
+      metadataFetchedAt:
+        fallbackMetadata
+          ? now
+          : existingMetadata?.metadataFetchedAt || null,
       importer: "catalog_product",
       ...(fineArtAmericaOwnership?.verified
         ? {
