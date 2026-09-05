@@ -7845,9 +7845,13 @@ app.get(
   }
 );
 
-// ARTBOOST_SHOPIFY_STOREFRONT_THUMBNAIL_NORMALIZATION_V31657
+// ARTBOOST_SHOPIFY_CLOUDINARY_THUMBNAIL_NORMALIZATION_V31655
 const SHOPIFY_THUMBNAIL_FOLDER =
   "artboost-ai/shopify-thumbnails";
+
+const SHOPIFY_THUMBNAIL_SYNC_CONCURRENCY =
+  6;
+
 
 function normalizeShopifySourceUrl(
   value
@@ -7946,89 +7950,10 @@ function shopifyThumbnailPublicId(
   return `shopify-${digest}`;
 }
 
-// ARTBOOST_SHOPIFY_STOREFRONT_CDN_URL_V31657
-function buildShopifyStorefrontImageUrl(
-  shopDomain,
-  sourceUrl
-) {
-  const normalized =
-    normalizeShopifySourceUrl(
-      sourceUrl
-    );
-
-  if (
-    !normalized ||
-    !shopDomain
-  ) {
-    return null;
-  }
-
-  try {
-    const source =
-      new URL(normalized);
-
-    const path =
-      source.pathname;
-
-    const filesMarker =
-      "/files/";
-
-    const markerIndex =
-      path.lastIndexOf(
-        filesMarker
-      );
-
-    if (
-      markerIndex < 0
-    ) {
-      return normalized;
-    }
-
-    const filePath =
-      path.slice(
-        markerIndex +
-          filesMarker.length
-      );
-
-    if (!filePath) {
-      return normalized;
-    }
-
-    const storefront =
-      new URL(
-        `https://${shopDomain}/cdn/shop/files/${filePath}`
-      );
-
-    for (
-      const [
-        key,
-        value,
-      ] of
-        source.searchParams.entries()
-    ) {
-      storefront.searchParams.set(
-        key,
-        value
-      );
-    }
-
-    // Match Shopify storefront thumbnail delivery rather than Admin CDN origin.
-    storefront.searchParams.set(
-      "width",
-      "533"
-    );
-
-    return storefront.toString();
-  } catch {
-    return normalized;
-  }
-}
-
 async function normalizeShopifyThumbnail({
   userId,
   node,
   existingProduct,
-  shopDomain,
 }) {
   const candidates =
     buildShopifyImageSourceCandidates(
@@ -8076,30 +8001,82 @@ async function normalizeShopifyThumbnail({
     };
   }
 
-  const storefrontPrimary =
-    buildShopifyStorefrontImageUrl(
-      shopDomain,
-      primarySource
+  const publicId =
+    shopifyThumbnailPublicId(
+      userId,
+      node.id
     );
 
-  if (
-    storefrontPrimary
+  let lastError =
+    null;
+
+  for (
+    const sourceUrl of candidates
   ) {
-    return {
-      imageUrl:
-        storefrontPrimary,
-      sourceUrl:
-        primarySource,
-      source:
-        storefrontPrimary ===
-          primarySource
-          ? "directShopify"
-          : "storefrontCdn",
-      normalized:
-        storefrontPrimary !==
-          primarySource,
-    };
+    try {
+      const uploaded =
+        await cloudinary.uploader.upload(
+          sourceUrl,
+          {
+            folder:
+              SHOPIFY_THUMBNAIL_FOLDER,
+            public_id:
+              publicId,
+            overwrite: true,
+            invalidate: true,
+            resource_type:
+              "image",
+            format:
+              "png",
+            transformation: [
+              {
+                width: 700,
+                crop: "limit",
+              },
+            ],
+          }
+        );
+
+      const secureUrl =
+        normalizeShopifySourceUrl(
+          uploaded?.secure_url
+        );
+
+      if (secureUrl) {
+        return {
+          imageUrl:
+            secureUrl,
+          sourceUrl,
+          source:
+            sourceUrl ===
+              primarySource
+              ? "cloudinaryFeatured"
+              : "cloudinaryFallback",
+          normalized:
+            true,
+        };
+      }
+    } catch (error) {
+      lastError =
+        error;
+    }
   }
+
+  console.warn(
+    "Shopify thumbnail normalization failed; using direct Shopify URL.",
+    {
+      productId:
+        node.id,
+      title:
+        node.title,
+      message:
+        lastError instanceof Error
+          ? lastError.message
+          : String(
+              lastError || ""
+            ),
+    }
+  );
 
   return {
     imageUrl:
@@ -8107,7 +8084,7 @@ async function normalizeShopifyThumbnail({
     sourceUrl:
       primarySource,
     source:
-      "directShopify",
+      "directFallback",
     normalized:
       false,
   };
@@ -8313,134 +8290,147 @@ app.get("/shopify/products", async (req, res) => {
 
     const syncedAt = new Date().toISOString();
 
-    const productsToSave = [];
-
     let normalizedThumbnailCount = 0;
     let cachedThumbnailCount = 0;
     let directFallbackCount = 0;
     let missingThumbnailCount = 0;
 
-    for (
-      const { node } of
-        allProductEdges
-    ) {
-      const variantEdges =
-        node.variants?.edges || [];
+    // ARTBOOST_SHOPIFY_CLOUDINARY_PIPELINE_REBUILD_V31658
+    const preparedProducts =
+      await mapWithConcurrency(
+        allProductEdges,
+        SHOPIFY_THUMBNAIL_SYNC_CONCURRENCY,
+        async ({ node }) => {
+          const variantEdges =
+            node.variants?.edges || [];
 
-      const firstVariant =
-        variantEdges[0]?.node ||
-        null;
+          const firstVariant =
+            variantEdges[0]?.node ||
+            null;
 
-      const normalizedThumbnail =
-        await normalizeShopifyThumbnail({
-          userId,
+          const normalizedThumbnail =
+            await normalizeShopifyThumbnail({
+              userId,
+              node,
+              existingProduct:
+                existingByExternalId.get(
+                  node.id
+                ) || null,
+            });
+
+          return {
+            node,
+            firstVariant,
+            normalizedThumbnail,
+          };
+        }
+      );
+
+    const productsToSave =
+      preparedProducts.map(
+        ({
           node,
-          existingProduct:
-            existingByExternalId.get(
-              node.id
-            ) || null,
-          shopDomain:
-            connection.shop_domain,
-        });
+          firstVariant,
+          normalizedThumbnail,
+        }) => {
+          if (
+            normalizedThumbnail.source ===
+            "cloudinaryCached"
+          ) {
+            cachedThumbnailCount += 1;
+          } else if (
+            normalizedThumbnail.normalized
+          ) {
+            normalizedThumbnailCount += 1;
+          } else if (
+            normalizedThumbnail.imageUrl
+          ) {
+            directFallbackCount += 1;
+          } else {
+            missingThumbnailCount += 1;
+          }
 
-      if (
-        normalizedThumbnail.source ===
-        "cloudinaryCached"
-      ) {
-        cachedThumbnailCount += 1;
-      } else if (
-        normalizedThumbnail.normalized
-      ) {
-        normalizedThumbnailCount += 1;
-      } else if (
-        normalizedThumbnail.imageUrl
-      ) {
-        directFallbackCount += 1;
-      } else {
-        missingThumbnailCount += 1;
-      }
+          return {
+            user_id: userId,
+            store_type: "shopify",
+            store_name:
+              connection.shop_domain,
+            store_connection_id:
+              connection.id,
 
-      productsToSave.push({
-        user_id: userId,
-        store_type: "shopify",
-        store_name:
-          connection.shop_domain,
-        store_connection_id:
-          connection.id,
+            external_product_id:
+              node.id,
+            external_variant_id:
+              firstVariant?.id || null,
 
-        external_product_id:
-          node.id,
-        external_variant_id:
-          firstVariant?.id || null,
+            title:
+              node.title || "",
+            description:
+              node.description || "",
+            image_url:
+              normalizedThumbnail.imageUrl,
+            product_url:
+              `https://${connection.shop_domain}/products/${node.handle}`,
 
-        title:
-          node.title || "",
-        description:
-          node.description || "",
-        image_url:
-          normalizedThumbnail.imageUrl,
-        product_url:
-          `https://${connection.shop_domain}/products/${node.handle}`,
+            price:
+              firstVariant?.price
+                ? Number(
+                    firstVariant.price
+                  )
+                : null,
 
-        price:
-          firstVariant?.price
-            ? Number(
-                firstVariant.price
-              )
-            : null,
+            currency,
 
-        currency,
+            tags:
+              node.tags || [],
 
-        tags:
-          node.tags || [],
+            categories:
+              node.productType
+                ? [node.productType]
+                : [],
 
-        categories:
-          node.productType
-            ? [node.productType]
-            : [],
+            metadata: {
+              handle:
+                node.handle,
+              inventoryQuantity:
+                firstVariant
+                  ?.inventoryQuantity ??
+                null,
+              shopifyStatus:
+                node.status,
+              shopifyImageFoundation:
+                "original-renderer-cloudinary-normalized-v31658",
+              shopifyThumbnailSource:
+                normalizedThumbnail.source,
+              shopifyThumbnailSourceUrl:
+                normalizedThumbnail.sourceUrl,
+              shopifyThumbnailNormalized:
+                normalizedThumbnail.normalized,
+              shopifyThumbnailVersion:
+                "V3.16.58-R1",
+            },
 
-        metadata: {
-          handle:
-            node.handle,
-          inventoryQuantity:
-            firstVariant
-              ?.inventoryQuantity ??
-            null,
-          shopifyStatus:
-            node.status,
-          shopifyImageFoundation:
-            "original-renderer-storefront-cdn",
-          shopifyThumbnailSource:
-            normalizedThumbnail.source,
-          shopifyThumbnailSourceUrl:
-            normalizedThumbnail.sourceUrl,
-          shopifyThumbnailNormalized:
-            normalizedThumbnail.normalized,
-          shopifyThumbnailVersion:
-            "V3.16.57-R1",
-        },
+            status:
+              String(
+                node.status || ""
+              ).toLowerCase() ===
+                "active"
+                ? "active"
+                : "inactive",
 
-        status:
-          String(
-            node.status || ""
-          ).toLowerCase() ===
-            "active"
-            ? "active"
-            : "inactive",
-
-        last_synced_at:
-          syncedAt,
-        source_created_at:
-          node.createdAt ||
-          null,
-        source_updated_at:
-          node.updatedAt ||
-          null,
-        updated_at:
-          syncedAt,
-      });
-    }
-
+            last_synced_at:
+              syncedAt,
+            source_created_at:
+              node.createdAt ||
+              null,
+            source_updated_at:
+              node.updatedAt ||
+              null,
+            updated_at:
+              syncedAt,
+          };
+        }
+      );
     let savedProducts = [];
     const batchSize = 100;
 
@@ -8474,7 +8464,7 @@ app.get("/shopify/products", async (req, res) => {
     }
 
     console.log(
-      "ARTBOOST SHOPIFY STOREFRONT CDN THUMBNAILS V31657",
+      "ARTBOOST SHOPIFY CLOUDINARY THUMBNAILS V31658",
       {
         store: connection.shop_domain,
         pages: pageCount,
