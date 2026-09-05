@@ -7161,6 +7161,10 @@ async function getShopifyPublicProductImage(
 const SHOPIFY_THUMBNAIL_PROXY_VERSION =
   "V3.16.45-R1";
 
+// ARTBOOST_SHOPIFY_PROXY_CONNECTION_FALLBACK_V31646
+const SHOPIFY_THUMBNAIL_DISPLAY_FIX_VERSION =
+  "V3.16.46-R1";
+
 function isAllowedShopifyImageHost(
   imageUrl
 ) {
@@ -7492,31 +7496,125 @@ app.get(
           });
       }
 
-      const {
-        data: connection,
-        error: connectionError,
-      } =
-        await supabase
-          .from(
-            "store_connections"
-          )
-          .select(
-            "id,shop_domain,access_token"
-          )
-          .eq(
-            "id",
-            product.store_connection_id
-          )
-          .eq(
-            "user_id",
-            String(userId)
-          )
-          .maybeSingle();
+      let connection =
+        null;
 
       if (
-        connectionError ||
-        !connection
+        product.store_connection_id
       ) {
+        const {
+          data:
+            linkedConnection,
+          error:
+            linkedConnectionError,
+        } =
+          await supabase
+            .from(
+              "store_connections"
+            )
+            .select(
+              "id,shop_domain,access_token"
+            )
+            .eq(
+              "id",
+              product.store_connection_id
+            )
+            .eq(
+              "user_id",
+              String(userId)
+            )
+            .maybeSingle();
+
+        if (
+          !linkedConnectionError &&
+          linkedConnection
+        ) {
+          connection =
+            linkedConnection;
+        }
+      }
+
+      if (!connection) {
+        const {
+          data:
+            activeShopifyConnections,
+          error:
+            activeShopifyError,
+        } =
+          await supabase
+            .from(
+              "store_connections"
+            )
+            .select(
+              "id,shop_domain,access_token,connected,updated_at"
+            )
+            .eq(
+              "user_id",
+              String(userId)
+            )
+            .eq(
+              "store_type",
+              "shopify"
+            )
+            .order(
+              "updated_at",
+              {
+                ascending: false,
+              }
+            )
+            .limit(5);
+
+        if (
+          !activeShopifyError
+        ) {
+          connection =
+            (
+              activeShopifyConnections ||
+              []
+            ).find(
+              (item) =>
+                item?.connected !==
+                false
+            ) ||
+            activeShopifyConnections?.[0] ||
+            null;
+        }
+      }
+
+      if (!connection) {
+        const {
+          data:
+            legacyShopifyConnection,
+          error:
+            legacyShopifyError,
+        } =
+          await supabase
+            .from(
+              "social_connections"
+            )
+            .select(
+              "id,shop_domain,access_token,connected,updated_at"
+            )
+            .eq(
+              "user_id",
+              String(userId)
+            )
+            .eq(
+              "platform",
+              "shopify"
+            )
+            .maybeSingle();
+
+        if (
+          !legacyShopifyError &&
+          legacyShopifyConnection
+        ) {
+          connection =
+            legacyShopifyConnection;
+        }
+      }
+
+      if (!connection) {
         return res
           .status(404)
           .json({

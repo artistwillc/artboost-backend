@@ -39,6 +39,7 @@ type Product = {
   title: string;
   description?: string | null;
   imageUrl?: string | null;
+  proxyImageUrl?: string | null;
   productUrl: string;
   price?: number | null;
   currency?: string | null;
@@ -82,15 +83,25 @@ function platformLabel(value: string) {
     .join(" ");
 }
 
-function resolveProductImageUrl(
+function resolveProductImageUrls(
   item: any,
   userId: string
 ) {
+  const directUrl =
+    item?.image_url ||
+    item?.imageUrl ||
+    item?.thumbnail_url ||
+    item?.thumbnailUrl ||
+    null;
+
   const itemStoreType =
     normalize(
       item?.store_type ||
         item?.storeType
     );
+
+  let proxyUrl: string | null =
+    null;
 
   if (
     itemStoreType === "shopify" &&
@@ -110,22 +121,23 @@ function resolveProductImageUrl(
           ),
       });
 
-    return `${API_BASE}/shopify/product-image?${query.toString()}`;
+    proxyUrl =
+      `${API_BASE}/shopify/product-image?${query.toString()}`;
   }
 
-  return (
-    item?.image_url ||
-    item?.imageUrl ||
-    item?.thumbnail_url ||
-    item?.thumbnailUrl ||
-    null
-  );
+  return {
+    directUrl,
+    proxyUrl,
+  };
 }
 
 export default function StoreProductsScreen() {
   // ARTBOOST_PRODUCT_IMAGE_FAILURE_FALLBACK_V31644
   // ARTBOOST_SHOPIFY_THUMBNAIL_PROXY_FRONTEND_V31645
+  // ARTBOOST_SHOPIFY_DIRECT_FIRST_PROXY_FALLBACK_V31646
   const [failedImageIds, setFailedImageIds] =
+    useState<Record<string, boolean>>({});
+  const [proxyImageIds, setProxyImageIds] =
     useState<Record<string, boolean>>({});
 
   const params = useLocalSearchParams<{
@@ -314,10 +326,15 @@ export default function StoreProductsScreen() {
               item.description || null,
             // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
             imageUrl:
-              resolveProductImageUrl(
+              resolveProductImageUrls(
                 item,
                 user.id
-              ),
+              ).directUrl,
+            proxyImageUrl:
+              resolveProductImageUrls(
+                item,
+                user.id
+              ).proxyUrl,
             productUrl: String(
               item.product_url ||
               item.productUrl ||
@@ -361,6 +378,7 @@ export default function StoreProductsScreen() {
         );
 
         setFailedImageIds({});
+        setProxyImageIds({});
         setProducts(
           mappedProducts.filter(matchesStore)
         );
@@ -661,21 +679,48 @@ export default function StoreProductsScreen() {
                 style={styles.productMainRow}
                 onPress={() => openProduct(product)}
               >
-                {product.imageUrl &&
+                {(
+                  proxyImageIds[product.id]
+                    ? product.proxyImageUrl
+                    : product.imageUrl
+                ) &&
                 !failedImageIds[product.id] ? (
                   <Image
-                    source={{ uri: product.imageUrl }}
+                    source={{
+                      uri:
+                        proxyImageIds[
+                          product.id
+                        ]
+                          ? product.proxyImageUrl!
+                          : product.imageUrl!,
+                    }}
                     style={styles.productImage}
                     resizeMode="cover"
-                    onError={() =>
+                    onError={() => {
+                      if (
+                        !proxyImageIds[
+                          product.id
+                        ] &&
+                        product.proxyImageUrl
+                      ) {
+                        setProxyImageIds(
+                          (current) => ({
+                            ...current,
+                            [product.id]:
+                              true,
+                          })
+                        );
+                        return;
+                      }
+
                       setFailedImageIds(
                         (current) => ({
                           ...current,
                           [product.id]:
                             true,
                         })
-                      )
-                    }
+                      );
+                    }}
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
