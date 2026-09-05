@@ -30,7 +30,6 @@ import assistantRoutes from "./routes/assistant.js";
 import creatorToolsRoutes from "./routes/creatorTools.js";
 import etsyRoutes from "./routes/etsy.js";
 import redbubbleRoutes from "./routes/redbubble.js";
-import analyticsAttentionRoutes from "./routes/analyticsAttention.js";
 
 import {
   registerSocialPublishers,
@@ -48,7 +47,7 @@ import {
   applySecurityHeaders,
   createRateLimiter,
 } from "./middleware/security.js";
-import { securityAuthMode, resolveRequestUserId } from "./middleware/auth.js";
+import { securityAuthMode } from "./middleware/auth.js";
 
 dotenv.config({ override: true });
 
@@ -1097,8 +1096,16 @@ async function fetchAllActiveEtsyListings(shopId, accessToken) {
 
 app.post("/etsy/sync", async (req, res) => {
   try {
-    const userId = await resolveRequestUserId(req, res);
-    if (!userId) return;
+    const userId =
+      req.body?.userId ||
+      req.query?.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -1311,8 +1318,14 @@ app.post("/etsy/sync", async (req, res) => {
 
 app.get("/etsy/store-summary", async (req, res) => {
   try {
-    const userId = await resolveRequestUserId(req, res);
-    if (!userId) return;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -1357,6 +1370,10 @@ app.get("/etsy/store-summary", async (req, res) => {
     return res.json({
       success: true,
       connected: true,
+      connectionId:
+        connection?.id
+          ? String(connection.id)
+          : null,
       shopId: String(shop.shop_id),
       shopName:
         shop?.shop_name || "Etsy",
@@ -1373,6 +1390,52 @@ app.get("/etsy/store-summary", async (req, res) => {
         error instanceof Error
           ? error.message
           : "Unable to load Etsy store summary.",
+    });
+  }
+});
+
+app.delete("/etsy/connection", async (req, res) => {
+  try {
+    const userId =
+      req.query?.userId ||
+      req.body?.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const { error } =
+      await supabase
+        .from("social_connections")
+        .update({
+          connected: false,
+          access_token: null,
+          refresh_token: null,
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq("user_id", String(userId))
+        .eq("platform", "etsy");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return res.json({
+      success: true,
+      connected: false,
+      platform: "etsy",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect Etsy.",
     });
   }
 });
@@ -2990,7 +3053,6 @@ app.use("/api/hashtag-intelligence", generationLimiter, hashtagIntelligenceRoute
 app.use("/stores", storeRoutes);
 app.use("/catalog", importLimiter, catalogCsvRouter);
 app.use("/automations", automationRoutes);
-app.use("/analytics-attention", analyticsAttentionRoutes);
 
 app.use("/ai", generationLimiter, aiRouter);
 app.use("/ai", generationLimiter, assistantRoutes);
@@ -3787,7 +3849,6 @@ app.get("/analytics", async (req, res) => {
       campaignsResult,
       automationsResult,
       logsResult,
-      dismissalsResult,
     ] = await Promise.all([
       supabase
         .from("scheduled_campaigns")
@@ -3807,12 +3868,6 @@ app.get("/analytics", async (req, res) => {
           ascending: false,
         })
         .limit(1000),
-
-      supabase
-        .from("analytics_attention_dismissals")
-        .select("issue_key")
-        .eq("user_id", userId)
-        .limit(5000),
     ]);
 
     if (campaignsResult.error) {
@@ -3961,6 +4016,57 @@ app.get("/analytics", async (req, res) => {
         )
       );
 
+    // ARTBOOST_ANALYTICS_RUNTIME_ORDER_V31613
+    // Define first-party artwork attribution before campaign rows use it.
+    // The prior RC referenced recordArtworkAttribution while the const was
+    // still in its temporal dead zone, causing /analytics to fail at runtime
+    // whenever a campaign row was present.
+    const artworkPublishCounts = new Map();
+    const artworkAttribution = new Map();
+
+    const recordArtworkAttribution = ({
+      title,
+      productId = null,
+      storeId = null,
+      storeName = null,
+      storeType = null,
+      platform = null,
+      source = "unknown",
+      successfulPosts = 0,
+      failedPosts = 0,
+      timestamp = null,
+    }) => {
+      const cleanTitle = String(title || "").trim();
+      if (!cleanTitle) return;
+      const key = String(productId || cleanTitle).trim().toLowerCase();
+      const existing = artworkAttribution.get(key) || {
+        productId: productId || null,
+        title: cleanTitle,
+        storeId: storeId || null,
+        storeName: storeName || null,
+        storeType: storeType || null,
+        confirmedPosts: 0,
+        failedAttempts: 0,
+        platforms: {},
+        sources: {},
+        lastActivityAt: null,
+      };
+      existing.confirmedPosts += Number(successfulPosts || 0);
+      existing.failedAttempts += Number(failedPosts || 0);
+      if (platform) {
+        const normalized = normalizedPlatform(platform);
+        existing.platforms[normalized] = Number(existing.platforms[normalized] || 0) +
+          Number(successfulPosts || 0);
+      }
+      existing.sources[source] = Number(existing.sources[source] || 0) +
+        Number(successfulPosts || 0) + Number(failedPosts || 0);
+      if (timestamp && (!existing.lastActivityAt ||
+          new Date(timestamp).getTime() > new Date(existing.lastActivityAt).getTime())) {
+        existing.lastActivityAt = timestamp;
+      }
+      artworkAttribution.set(key, existing);
+    };
+
     /*
      * scheduled_campaigns stores one campaign/platform row. Count only
      * rows that actually published as successful posts.
@@ -4026,54 +4132,7 @@ app.get("/analytics", async (req, res) => {
      * including partial-success runs.
      */
     // ARTBOOST_ANALYTICS_ATTRIBUTION_V3164
-    // First-party artwork attribution is derived only from confirmed ArtBoost
-    // campaign/automation publishing records. No external reach/sales are inferred.
-    const artworkPublishCounts =
-      new Map();
-    const artworkAttribution = new Map();
-
-    const recordArtworkAttribution = ({
-      title,
-      productId = null,
-      storeId = null,
-      storeName = null,
-      storeType = null,
-      platform = null,
-      source = "unknown",
-      successfulPosts = 0,
-      failedPosts = 0,
-      timestamp = null,
-    }) => {
-      const cleanTitle = String(title || "").trim();
-      if (!cleanTitle) return;
-      const key = String(productId || cleanTitle).trim().toLowerCase();
-      const existing = artworkAttribution.get(key) || {
-        productId: productId || null,
-        title: cleanTitle,
-        storeId: storeId || null,
-        storeName: storeName || null,
-        storeType: storeType || null,
-        confirmedPosts: 0,
-        failedAttempts: 0,
-        platforms: {},
-        sources: {},
-        lastActivityAt: null,
-      };
-      existing.confirmedPosts += Number(successfulPosts || 0);
-      existing.failedAttempts += Number(failedPosts || 0);
-      if (platform) {
-        const normalized = normalizedPlatform(platform);
-        existing.platforms[normalized] = Number(existing.platforms[normalized] || 0) +
-          Number(successfulPosts || 0);
-      }
-      existing.sources[source] = Number(existing.sources[source] || 0) +
-        Number(successfulPosts || 0) + Number(failedPosts || 0);
-      if (timestamp && (!existing.lastActivityAt ||
-          new Date(timestamp).getTime() > new Date(existing.lastActivityAt).getTime())) {
-        existing.lastActivityAt = timestamp;
-      }
-      artworkAttribution.set(key, existing);
-    };
+    // First-party attribution helper is initialized above before campaign iteration.
 
     let successfulAutomationRuns = 0;
     let partialAutomationRuns = 0;
@@ -4488,20 +4547,14 @@ app.get("/analytics", async (req, res) => {
       return date ? date.toISOString() : null;
     };
 
-    const dismissedAnalyticsIssueKeys = new Set(
-      (dismissalsResult?.error ? [] : (dismissalsResult?.data || []))
-        .map((row) => String(row?.issue_key || "").trim())
-        .filter(Boolean)
-    );
-
     const analyticsAttentionItems = [];
     const analyticsIssueKeys = new Set();
 
     const pushAnalyticsIssue = (item) => {
       const key = `${item.type}:${item.id || item.title || analyticsAttentionItems.length}`;
-      if (dismissedAnalyticsIssueKeys.has(key) || analyticsIssueKeys.has(key)) return;
+      if (analyticsIssueKeys.has(key)) return;
       analyticsIssueKeys.add(key);
-      analyticsAttentionItems.push({ ...item, issueKey: key });
+      analyticsAttentionItems.push(item);
     };
 
     for (const campaign of campaigns) {
@@ -4662,22 +4715,6 @@ app.get("/analytics", async (req, res) => {
           campaign?.error ||
           campaign?.error_message ||
           null,
-      });
-    }
-
-    for (const automation of automations) {
-      analyticsPushRecord({
-        id: automation?.id,
-        source: "automation",
-        automationId: automation?.id || null,
-        title: automation?.automation_name || automation?.name || automation?.store_name || "Store automation",
-        status: automation?.enabled === false ? "paused" : "active",
-        platform: automation?.platform || null,
-        storeId: automation?.store_id || automation?.store_connection_id || null,
-        storeName: automation?.store_name || null,
-        storeType: automation?.store_type || null,
-        timestamp: analyticsRecordDate(automation, ["updated_at", "created_at", "next_run_at"])?.toISOString() || null,
-        reason: automation?.last_error || null,
       });
     }
 
@@ -4884,7 +4921,13 @@ app.get("/analytics", async (req, res) => {
 
       bestPlatform,
 
-      upcoming,
+      upcoming: upcoming
+        ? {
+            ...upcoming,
+            // Compatibility for the current mobile Analytics card.
+            publish_at: upcoming.scheduledAt || upcoming.publish_at || null,
+          }
+        : null,
 
       performanceTracking: {
         engagementAvailable,
@@ -4913,6 +4956,12 @@ app.get("/analytics", async (req, res) => {
        * Compatibility fields for older clients while the new Analytics
        * screen rolls out.
        */
+      totalCampaigns:
+        campaigns.length,
+      averagePostsPerCampaign:
+        campaigns.length > 0
+          ? Number((totalPublishedPosts / campaigns.length).toFixed(2))
+          : 0,
       published:
         totalPublishedPosts,
       totalPosts:
@@ -6654,6 +6703,84 @@ app.get(
   }
 );
 
+
+async function getShopifyLiveProductCount({
+  shopDomain,
+  accessToken,
+}) {
+  if (!shopDomain || !accessToken) {
+    return {
+      count: 0,
+      precision: null,
+    };
+  }
+
+  const query = `
+    query ArtBoostShopifyProductCount {
+      productsCount(limit: null) {
+        count
+        precision
+      }
+    }
+  `;
+
+  const response =
+    await fetch(
+      `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+          "X-Shopify-Access-Token":
+            accessToken,
+        },
+        body:
+          JSON.stringify({
+            query,
+          }),
+      }
+    );
+
+  const payload =
+    await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      `Shopify product count request failed with HTTP ${response.status}.`
+    );
+  }
+
+  if (
+    Array.isArray(payload?.errors) &&
+    payload.errors.length > 0
+  ) {
+    throw new Error(
+      payload.errors
+        .map(
+          (item) =>
+            item?.message ||
+            "Shopify GraphQL error."
+        )
+        .join("; ")
+    );
+  }
+
+  return {
+    count:
+      Number(
+        payload?.data
+          ?.productsCount
+          ?.count
+      ) || 0,
+    precision:
+      payload?.data
+        ?.productsCount
+        ?.precision ||
+      null,
+  };
+}
+
 app.get("/shopify/status", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -6668,7 +6795,7 @@ app.get("/shopify/status", async (req, res) => {
     const { data, error } = await supabase
       .from("social_connections")
       .select(
-        "connected, shop_domain, scopes, connected_at"
+        "id, connected, shop_domain, access_token, scopes, connected_at"
       )
       .eq("user_id", userId)
       .eq("platform", "shopify")
@@ -6681,6 +6808,72 @@ app.get("/shopify/status", async (req, res) => {
       });
     }
 
+    let liveProductCount = 0;
+    let productCountPrecision = null;
+    let localProductCount = 0;
+
+    if (
+      data?.connected &&
+      data?.shop_domain &&
+      data?.access_token
+    ) {
+      try {
+        const countResult =
+          await getShopifyLiveProductCount({
+            shopDomain:
+              data.shop_domain,
+            accessToken:
+              data.access_token,
+          });
+
+        liveProductCount =
+          countResult.count;
+
+        productCountPrecision =
+          countResult.precision;
+      } catch (error) {
+        console.log(
+          "Shopify live product count failed:",
+          error
+        );
+      }
+    }
+
+    try {
+      const {
+        count,
+        error: localCountError,
+      } =
+        await supabase
+          .from("products")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .eq(
+            "store_type",
+            "shopify"
+          )
+          .eq(
+            "status",
+            "active"
+          );
+
+      if (!localCountError) {
+        localProductCount =
+          Number(count) || 0;
+      }
+    } catch (error) {
+      console.log(
+        "Shopify local product count failed:",
+        error
+      );
+    }
+
     res.json({
       configured: Boolean(
         SHOPIFY_CLIENT_ID &&
@@ -6690,6 +6883,17 @@ app.get("/shopify/status", async (req, res) => {
         data?.connected &&
         data?.shop_domain
       ),
+      connectionId:
+        data?.id
+          ? String(data.id)
+          : null,
+      productCount:
+        liveProductCount > 0
+          ? liveProductCount
+          : localProductCount,
+      liveProductCount,
+      localProductCount,
+      productCountPrecision,
       shopDomain:
         data?.shop_domain || null,
       scopes: data?.scopes || null,
@@ -6700,6 +6904,51 @@ app.get("/shopify/status", async (req, res) => {
     res.status(500).json({
       connected: false,
       error: err.message,
+    });
+  }
+});
+
+app.delete("/shopify/connection", async (req, res) => {
+  try {
+    const userId =
+      req.query?.userId ||
+      req.body?.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId.",
+      });
+    }
+
+    const { error } =
+      await supabase
+        .from("social_connections")
+        .update({
+          connected: false,
+          access_token: null,
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq("user_id", String(userId))
+        .eq("platform", "shopify");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return res.json({
+      success: true,
+      connected: false,
+      platform: "shopify",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to disconnect Shopify.",
     });
   }
 });
