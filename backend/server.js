@@ -7845,8 +7845,249 @@ app.get(
   }
 );
 
+// ARTBOOST_SHOPIFY_CLOUDINARY_THUMBNAIL_NORMALIZATION_V31655
+const SHOPIFY_THUMBNAIL_FOLDER =
+  "artboost-ai/shopify-thumbnails";
+
+function normalizeShopifySourceUrl(
+  value
+) {
+  const clean =
+    String(value || "").trim();
+
+  if (!clean) {
+    return null;
+  }
+
+  const candidate =
+    clean.startsWith("//")
+      ? `https:${clean}`
+      : clean;
+
+  try {
+    const parsed =
+      new URL(candidate);
+
+    if (
+      parsed.protocol !== "https:"
+    ) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildShopifyImageSourceCandidates(
+  node
+) {
+  const variantEdges =
+    node?.variants?.edges || [];
+
+  const candidates = [
+    node?.featuredImage?.url,
+    ...(
+      node?.images?.nodes || []
+    ).map(
+      (item) =>
+        item?.url || null
+    ),
+    ...variantEdges.map(
+      (edge) =>
+        edge?.node?.image?.url ||
+        null
+    ),
+  ]
+    .map(
+      normalizeShopifySourceUrl
+    )
+    .filter(Boolean);
+
+  return candidates.filter(
+    (url, index, all) =>
+      all.indexOf(url) ===
+        index
+  );
+}
+
+function isCloudinaryUrl(value) {
+  try {
+    const parsed =
+      new URL(
+        String(value || "")
+      );
+
+    return (
+      parsed.protocol ===
+        "https:" &&
+      parsed.hostname ===
+        "res.cloudinary.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function shopifyThumbnailPublicId(
+  userId,
+  externalProductId
+) {
+  const digest =
+    crypto
+      .createHash("sha256")
+      .update(
+        `${userId}:${externalProductId}`
+      )
+      .digest("hex")
+      .slice(0, 32);
+
+  return `shopify-${digest}`;
+}
+
+async function normalizeShopifyThumbnail({
+  userId,
+  node,
+  existingProduct,
+}) {
+  const candidates =
+    buildShopifyImageSourceCandidates(
+      node
+    );
+
+  if (
+    candidates.length === 0
+  ) {
+    return {
+      imageUrl: null,
+      sourceUrl: null,
+      source:
+        "missing",
+      normalized:
+        false,
+    };
+  }
+
+  const primarySource =
+    candidates[0];
+
+  const existingSource =
+    normalizeShopifySourceUrl(
+      existingProduct?.metadata
+        ?.shopifyThumbnailSourceUrl
+    );
+
+  if (
+    existingSource ===
+      primarySource &&
+    isCloudinaryUrl(
+      existingProduct?.image_url
+    )
+  ) {
+    return {
+      imageUrl:
+        existingProduct.image_url,
+      sourceUrl:
+        primarySource,
+      source:
+        "cloudinaryCached",
+      normalized:
+        true,
+    };
+  }
+
+  const publicId =
+    shopifyThumbnailPublicId(
+      userId,
+      node.id
+    );
+
+  let lastError =
+    null;
+
+  for (
+    const sourceUrl of candidates
+  ) {
+    try {
+      const uploaded =
+        await cloudinary.uploader.upload(
+          sourceUrl,
+          {
+            folder:
+              SHOPIFY_THUMBNAIL_FOLDER,
+            public_id:
+              publicId,
+            overwrite: true,
+            invalidate: true,
+            resource_type:
+              "image",
+            format:
+              "png",
+            transformation: [
+              {
+                width: 700,
+                crop: "limit",
+              },
+            ],
+          }
+        );
+
+      const secureUrl =
+        normalizeShopifySourceUrl(
+          uploaded?.secure_url
+        );
+
+      if (secureUrl) {
+        return {
+          imageUrl:
+            secureUrl,
+          sourceUrl,
+          source:
+            sourceUrl ===
+              primarySource
+              ? "cloudinaryFeatured"
+              : "cloudinaryFallback",
+          normalized:
+            true,
+        };
+      }
+    } catch (error) {
+      lastError =
+        error;
+    }
+  }
+
+  console.warn(
+    "Shopify thumbnail normalization failed; using direct Shopify URL.",
+    {
+      productId:
+        node.id,
+      title:
+        node.title,
+      message:
+        lastError instanceof Error
+          ? lastError.message
+          : String(
+              lastError || ""
+            ),
+    }
+  );
+
+  return {
+    imageUrl:
+      primarySource,
+    sourceUrl:
+      primarySource,
+    source:
+      "directFallback",
+    normalized:
+      false,
+  };
+}
+
 // ARTBOOST_SHOPIFY_ORIGINAL_IMAGE_FOUNDATION_V31648
-// ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_WITH_DIRECT_FALLBACK_CHAIN_V31653
+// ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_BACKEND_NORMALIZED_V31655
 app.get("/shopify/products", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -8006,91 +8247,170 @@ app.get("/shopify/products", async (req, res) => {
       pageCount < 100
     );
 
+    const {
+      data: existingRows,
+      error: existingRowsError,
+    } =
+      await supabase
+        .from("products")
+        .select(
+          "external_product_id,image_url,metadata"
+        )
+        .eq(
+          "user_id",
+          userId
+        )
+        .eq(
+          "store_type",
+          "shopify"
+        );
+
+    if (existingRowsError) {
+      console.warn(
+        "Unable to load existing Shopify thumbnail cache:",
+        existingRowsError.message
+      );
+    }
+
+    const existingByExternalId =
+      new Map(
+        (
+          existingRows || []
+        ).map(
+          (item) => [
+            item.external_product_id,
+            item,
+          ]
+        )
+      );
+
     const syncedAt = new Date().toISOString();
 
-    const productsToSave =
-      allProductEdges.map(({ node }) => {
-        const variantEdges =
-          node.variants?.edges || [];
+    const productsToSave = [];
 
-        const firstVariant =
-          variantEdges[0]?.node || null;
+    let normalizedThumbnailCount = 0;
+    let cachedThumbnailCount = 0;
+    let directFallbackCount = 0;
+    let missingThumbnailCount = 0;
 
-        const featuredImageUrl =
-          node.featuredImage?.url || null;
+    for (
+      const { node } of
+        allProductEdges
+    ) {
+      const variantEdges =
+        node.variants?.edges || [];
 
-        const directFallbackUrls =
-          [
-            ...(
-              node.images?.nodes || []
-            ).map(
-              (item) =>
-                item?.url || null
-            ),
-            ...variantEdges.map(
-              (edge) =>
-                edge?.node?.image?.url ||
-                null
-            ),
-          ]
-            .filter(Boolean)
-            .filter(
-              (url, index, all) =>
-                all.indexOf(url) ===
-                  index &&
-                url !==
-                  featuredImageUrl
-            );
+      const firstVariant =
+        variantEdges[0]?.node ||
+        null;
 
-        return {
-          user_id: userId,
-          store_type: "shopify",
-          store_name: connection.shop_domain,
-          store_connection_id: connection.id,
+      const normalizedThumbnail =
+        await normalizeShopifyThumbnail({
+          userId,
+          node,
+          existingProduct:
+            existingByExternalId.get(
+              node.id
+            ) || null,
+        });
 
-          external_product_id: node.id,
-          external_variant_id: firstVariant?.id || null,
+      if (
+        normalizedThumbnail.source ===
+        "cloudinaryCached"
+      ) {
+        cachedThumbnailCount += 1;
+      } else if (
+        normalizedThumbnail.normalized
+      ) {
+        normalizedThumbnailCount += 1;
+      } else if (
+        normalizedThumbnail.imageUrl
+      ) {
+        directFallbackCount += 1;
+      } else {
+        missingThumbnailCount += 1;
+      }
 
-          title: node.title || "",
-          description: node.description || "",
-          image_url: featuredImageUrl,
-          product_url:
-            `https://${connection.shop_domain}/products/${node.handle}`,
+      productsToSave.push({
+        user_id: userId,
+        store_type: "shopify",
+        store_name:
+          connection.shop_domain,
+        store_connection_id:
+          connection.id,
 
-          price: firstVariant?.price
-            ? Number(firstVariant.price)
+        external_product_id:
+          node.id,
+        external_variant_id:
+          firstVariant?.id || null,
+
+        title:
+          node.title || "",
+        description:
+          node.description || "",
+        image_url:
+          normalizedThumbnail.imageUrl,
+        product_url:
+          `https://${connection.shop_domain}/products/${node.handle}`,
+
+        price:
+          firstVariant?.price
+            ? Number(
+                firstVariant.price
+              )
             : null,
 
-          currency,
+        currency,
 
-          tags: node.tags || [],
+        tags:
+          node.tags || [],
 
-          categories: node.productType
+        categories:
+          node.productType
             ? [node.productType]
             : [],
 
-          metadata: {
-            handle: node.handle,
-            inventoryQuantity:
-              firstVariant?.inventoryQuantity ?? null,
-            shopifyStatus: node.status,
-            shopifyImageFoundation:
-              "original-featuredImage-direct-fallback-chain",
-            shopifyImageFallbackUrls:
-              directFallbackUrls,
-          },
+        metadata: {
+          handle:
+            node.handle,
+          inventoryQuantity:
+            firstVariant
+              ?.inventoryQuantity ??
+            null,
+          shopifyStatus:
+            node.status,
+          shopifyImageFoundation:
+            "original-renderer-backend-normalized",
+          shopifyThumbnailSource:
+            normalizedThumbnail.source,
+          shopifyThumbnailSourceUrl:
+            normalizedThumbnail.sourceUrl,
+          shopifyThumbnailNormalized:
+            normalizedThumbnail.normalized,
+          shopifyThumbnailVersion:
+            "V3.16.55-R1",
+        },
 
-          status:
-            String(node.status || "").toLowerCase() === "active"
-              ? "active"
-              : "inactive",
+        status:
+          String(
+            node.status || ""
+          ).toLowerCase() ===
+            "active"
+            ? "active"
+            : "inactive",
 
-          last_synced_at: syncedAt,
-          source_created_at: node.createdAt || null,
-          source_updated_at: node.updatedAt || null,
-          updated_at: syncedAt,
-        };
+        last_synced_at:
+          syncedAt,
+        source_created_at:
+          node.createdAt ||
+          null,
+        source_updated_at:
+          node.updatedAt ||
+          null,
+        updated_at:
+          syncedAt,
       });
+    });
 
     let savedProducts = [];
     const batchSize = 100;
@@ -8125,22 +8445,26 @@ app.get("/shopify/products", async (req, res) => {
     }
 
     console.log(
-      "ARTBOOST SHOPIFY ORIGINAL PRODUCTS V31653",
+      "ARTBOOST SHOPIFY BACKEND NORMALIZED THUMBNAILS V31655",
       {
         store: connection.shop_domain,
         pages: pageCount,
         discovered: allProductEdges.length,
         saved: savedProducts.length,
-        withFeaturedImage:
-          productsToSave.filter((item) => Boolean(item.image_url)).length,
-        withoutFeaturedImage:
-          productsToSave.filter((item) => !item.image_url).length,
+        normalized:
+          normalizedThumbnailCount,
+        cached:
+          cachedThumbnailCount,
+        directFallback:
+          directFallbackCount,
+        missing:
+          missingThumbnailCount,
       }
     );
 
     res.json({
       success: true,
-      fixVersion: "V3.16.53-R1",
+      fixVersion: "V3.16.55-R1",
       store: connection.shop_domain,
       total: savedProducts.length,
       pages: pageCount,
