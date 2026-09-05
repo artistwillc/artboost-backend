@@ -82,8 +82,49 @@ function platformLabel(value: string) {
     .join(" ");
 }
 
+function resolveProductImageUrl(
+  item: any,
+  userId: string
+) {
+  const itemStoreType =
+    normalize(
+      item?.store_type ||
+        item?.storeType
+    );
+
+  if (
+    itemStoreType === "shopify" &&
+    item?.id &&
+    userId
+  ) {
+    const query =
+      new URLSearchParams({
+        userId,
+        productId:
+          String(item.id),
+        v:
+          String(
+            item.updated_at ||
+              item.last_synced_at ||
+              ""
+          ),
+      });
+
+    return `${API_BASE}/shopify/product-image?${query.toString()}`;
+  }
+
+  return (
+    item?.image_url ||
+    item?.imageUrl ||
+    item?.thumbnail_url ||
+    item?.thumbnailUrl ||
+    null
+  );
+}
+
 export default function StoreProductsScreen() {
   // ARTBOOST_PRODUCT_IMAGE_FAILURE_FALLBACK_V31644
+  // ARTBOOST_SHOPIFY_THUMBNAIL_PROXY_FRONTEND_V31645
   const [failedImageIds, setFailedImageIds] =
     useState<Record<string, boolean>>({});
 
@@ -273,11 +314,10 @@ export default function StoreProductsScreen() {
               item.description || null,
             // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
             imageUrl:
-              item.image_url ||
-              item.imageUrl ||
-              item.thumbnail_url ||
-              item.thumbnailUrl ||
-              null,
+              resolveProductImageUrl(
+                item,
+                user.id
+              ),
             productUrl: String(
               item.product_url ||
               item.productUrl ||

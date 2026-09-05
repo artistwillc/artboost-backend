@@ -6994,6 +6994,15 @@ function getShopifyImageCandidates(node) {
       node?.featuredImage?.url
     );
 
+  const productImagesImageUrl =
+    normalizeShopifyImageUrl(
+      Array.isArray(node?.images?.nodes)
+        ? node.images.nodes.find(
+            (item) => item?.url
+          )?.url
+        : null
+    );
+
   const productMediaImageUrl =
     normalizeShopifyImageUrl(
       Array.isArray(node?.media?.nodes)
@@ -7020,6 +7029,7 @@ function getShopifyImageCandidates(node) {
 
   return {
     featuredImageUrl,
+    productImagesImageUrl,
     productMediaImageUrl,
     variantMediaImageUrl,
   };
@@ -7147,6 +7157,560 @@ async function getShopifyPublicProductImage(
   }
 }
 
+// ARTBOOST_SHOPIFY_THUMBNAIL_PROXY_V31645
+const SHOPIFY_THUMBNAIL_PROXY_VERSION =
+  "V3.16.45-R1";
+
+function isAllowedShopifyImageHost(
+  imageUrl
+) {
+  try {
+    const parsed =
+      new URL(imageUrl);
+
+    const host =
+      parsed.hostname.toLowerCase();
+
+    return (
+      parsed.protocol === "https:" &&
+      (
+        host === "cdn.shopify.com" ||
+        host.endsWith(
+          ".shopifycdn.com"
+        )
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function fetchShopifyImageBuffer(
+  imageUrl
+) {
+  const clean =
+    normalizeShopifyImageUrl(
+      imageUrl
+    );
+
+  if (
+    !clean ||
+    !isAllowedShopifyImageHost(
+      clean
+    )
+  ) {
+    return null;
+  }
+
+  const controller =
+    new AbortController();
+
+  const timeout =
+    setTimeout(
+      () =>
+        controller.abort(),
+      8000
+    );
+
+  try {
+    const response =
+      await fetch(
+        clean,
+        {
+          method: "GET",
+          headers: {
+            Accept:
+              "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+          },
+          redirect: "follow",
+          signal:
+            controller.signal,
+        }
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentType =
+      String(
+        response.headers.get(
+          "content-type"
+        ) || ""
+      ).toLowerCase();
+
+    if (
+      !contentType.startsWith(
+        "image/"
+      )
+    ) {
+      return null;
+    }
+
+    const bytes =
+      Buffer.from(
+        await response.arrayBuffer()
+      );
+
+    if (
+      bytes.length === 0 ||
+      bytes.length >
+        12 * 1024 * 1024
+    ) {
+      return null;
+    }
+
+    return {
+      bytes,
+      contentType,
+      sourceUrl:
+        response.url || clean,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadLiveShopifyProductImage(
+  connection,
+  externalProductId
+) {
+  if (
+    !connection?.shop_domain ||
+    !connection?.access_token ||
+    !externalProductId
+  ) {
+    return null;
+  }
+
+  const query = `
+    query ArtBoostShopifyProductImage(
+      $id: ID!
+    ) {
+      product(id: $id) {
+        id
+        handle
+
+        featuredImage {
+          url
+        }
+
+        images(first: 5) {
+          nodes {
+            url
+          }
+        }
+
+        media(
+          first: 5,
+          query: "media_type:IMAGE",
+          sortKey: POSITION
+        ) {
+          nodes {
+            ... on MediaImage {
+              image {
+                url
+              }
+            }
+          }
+        }
+
+        variants(first: 5) {
+          nodes {
+            media(first: 5) {
+              nodes {
+                ... on MediaImage {
+                  image {
+                    url
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const response =
+      await fetch(
+        `https://${connection.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            "X-Shopify-Access-Token":
+              connection.access_token,
+          },
+          body:
+            JSON.stringify({
+              query,
+              variables: {
+                id:
+                  externalProductId,
+              },
+            }),
+        }
+      );
+
+    const result =
+      await response.json();
+
+    if (
+      !response.ok ||
+      result?.errors?.length ||
+      !result?.data?.product
+    ) {
+      return null;
+    }
+
+    const product =
+      result.data.product;
+
+    const variantMediaImageUrl =
+      Array.isArray(
+        product?.variants?.nodes
+      )
+        ? product.variants.nodes
+            .flatMap(
+              (variant) =>
+                Array.isArray(
+                  variant?.media?.nodes
+                )
+                  ? variant.media.nodes
+                  : []
+            )
+            .find(
+              (item) =>
+                item?.image?.url
+            )?.image?.url ||
+          null
+        : null;
+
+    return {
+      imageUrl:
+        normalizeShopifyImageUrl(
+          product?.featuredImage
+            ?.url
+        ) ||
+        normalizeShopifyImageUrl(
+          Array.isArray(
+            product?.images?.nodes
+          )
+            ? product.images.nodes.find(
+                (item) =>
+                  item?.url
+              )?.url
+            : null
+        ) ||
+        normalizeShopifyImageUrl(
+          Array.isArray(
+            product?.media?.nodes
+          )
+            ? product.media.nodes.find(
+                (item) =>
+                  item?.image?.url
+              )?.image?.url
+            : null
+        ) ||
+        normalizeShopifyImageUrl(
+          variantMediaImageUrl
+        ) ||
+        null,
+      handle:
+        product?.handle ||
+        null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+app.get(
+  "/shopify/product-image",
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        productId,
+      } = req.query;
+
+      if (
+        !userId ||
+        !productId
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error:
+              "Missing userId or productId.",
+            fixVersion:
+              SHOPIFY_THUMBNAIL_PROXY_VERSION,
+          });
+      }
+
+      const {
+        data: product,
+        error: productError,
+      } =
+        await supabase
+          .from("products")
+          .select(
+            "id,user_id,store_type,store_connection_id,external_product_id,image_url,product_url,metadata"
+          )
+          .eq(
+            "id",
+            String(productId)
+          )
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .eq(
+            "store_type",
+            "shopify"
+          )
+          .maybeSingle();
+
+      if (
+        productError ||
+        !product
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            error:
+              "Shopify product image was not found.",
+            fixVersion:
+              SHOPIFY_THUMBNAIL_PROXY_VERSION,
+          });
+      }
+
+      const {
+        data: connection,
+        error: connectionError,
+      } =
+        await supabase
+          .from(
+            "store_connections"
+          )
+          .select(
+            "id,shop_domain,access_token"
+          )
+          .eq(
+            "id",
+            product.store_connection_id
+          )
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .maybeSingle();
+
+      if (
+        connectionError ||
+        !connection
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            error:
+              "Shopify connection was not found.",
+            fixVersion:
+              SHOPIFY_THUMBNAIL_PROXY_VERSION,
+          });
+      }
+
+      const candidates = [];
+
+      const storedImageUrl =
+        normalizeShopifyImageUrl(
+          product.image_url
+        );
+
+      if (storedImageUrl) {
+        candidates.push(
+          storedImageUrl
+        );
+      }
+
+      let live =
+        null;
+
+      // If the stored CDN URL fails, resolve the product again from
+      // Shopify Admin using the documented product(id:) query.
+      for (
+        const candidate of candidates
+      ) {
+        const image =
+          await fetchShopifyImageBuffer(
+            candidate
+          );
+
+        if (image) {
+          res.setHeader(
+            "Content-Type",
+            image.contentType
+          );
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=300, stale-while-revalidate=86400"
+          );
+          res.setHeader(
+            "X-ArtBoost-Shopify-Image-Source",
+            "stored"
+          );
+          res.setHeader(
+            "X-ArtBoost-Fix-Version",
+            SHOPIFY_THUMBNAIL_PROXY_VERSION
+          );
+          return res
+            .status(200)
+            .send(image.bytes);
+        }
+      }
+
+      live =
+        await loadLiveShopifyProductImage(
+          connection,
+          product.external_product_id
+        );
+
+      let resolvedUrl =
+        normalizeShopifyImageUrl(
+          live?.imageUrl
+        );
+
+      if (
+        !resolvedUrl
+      ) {
+        const handle =
+          live?.handle ||
+          product?.metadata?.handle ||
+          (() => {
+            try {
+              const parsed =
+                new URL(
+                  product.product_url ||
+                    ""
+                );
+              const parts =
+                parsed.pathname
+                  .split("/")
+                  .filter(Boolean);
+              const index =
+                parts.indexOf(
+                  "products"
+                );
+              return index >= 0
+                ? parts[index + 1] ||
+                    null
+                : null;
+            } catch {
+              return null;
+            }
+          })();
+
+        resolvedUrl =
+          await getShopifyPublicProductImage(
+            connection.shop_domain,
+            handle
+          );
+      }
+
+      const repairedImage =
+        resolvedUrl
+          ? await fetchShopifyImageBuffer(
+              resolvedUrl
+            )
+          : null;
+
+      if (
+        !repairedImage
+      ) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            error:
+              "Shopify did not return a usable image for this product.",
+            fixVersion:
+              SHOPIFY_THUMBNAIL_PROXY_VERSION,
+          });
+      }
+
+      if (
+        resolvedUrl !==
+        storedImageUrl
+      ) {
+        await supabase
+          .from("products")
+          .update({
+            image_url:
+              resolvedUrl,
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            product.id
+          )
+          .eq(
+            "user_id",
+            String(userId)
+          );
+      }
+
+      res.setHeader(
+        "Content-Type",
+        repairedImage.contentType
+      );
+      res.setHeader(
+        "Cache-Control",
+        "public, max-age=300, stale-while-revalidate=86400"
+      );
+      res.setHeader(
+        "X-ArtBoost-Shopify-Image-Source",
+        "live-repair"
+      );
+      res.setHeader(
+        "X-ArtBoost-Fix-Version",
+        SHOPIFY_THUMBNAIL_PROXY_VERSION
+      );
+
+      return res
+        .status(200)
+        .send(
+          repairedImage.bytes
+        );
+    } catch (error) {
+      console.error(
+        "Shopify product image proxy failed:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Shopify product image proxy failed.",
+          fixVersion:
+            SHOPIFY_THUMBNAIL_PROXY_VERSION,
+        });
+    }
+  }
+);
+
 app.get("/shopify/products", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -7258,6 +7822,12 @@ app.get("/shopify/products", async (req, res) => {
 
               featuredImage {
                 url
+              }
+
+              images(first: 5) {
+                nodes {
+                  url
+                }
               }
 
               media(
@@ -7434,6 +8004,7 @@ app.get("/shopify/products", async (req, res) => {
     let repairedImages = 0;
     let missingImages = 0;
     let invalidStoredImages = 0;
+    let productImagesFallback = 0;
     let publicFallbackImages = 0;
     let retainedExistingImages = 0;
 
@@ -7467,6 +8038,7 @@ app.get("/shopify/products", async (req, res) => {
 
           const {
             featuredImageUrl,
+            productImagesImageUrl,
             productMediaImageUrl,
             variantMediaImageUrl,
           } =
@@ -7474,6 +8046,7 @@ app.get("/shopify/products", async (req, res) => {
 
           let imageUrl =
             featuredImageUrl ||
+            productImagesImageUrl ||
             productMediaImageUrl ||
             variantMediaImageUrl ||
             null;
@@ -7481,11 +8054,20 @@ app.get("/shopify/products", async (req, res) => {
           let shopifyImageSource =
             featuredImageUrl
               ? "featuredImage"
+              : productImagesImageUrl
+              ? "productImages"
               : productMediaImageUrl
               ? "productMedia"
               : variantMediaImageUrl
               ? "variantMedia"
               : "missing";
+
+          if (
+            !featuredImageUrl &&
+            productImagesImageUrl
+          ) {
+            productImagesFallback += 1;
+          }
 
           if (
             !imageUrl &&
@@ -7685,6 +8267,7 @@ app.get("/shopify/products", async (req, res) => {
         repairedImages,
         missingImages,
         invalidStoredImages,
+        productImagesFallback,
         publicFallbackImages,
         retainedExistingImages,
       }
@@ -7707,6 +8290,7 @@ app.get("/shopify/products", async (req, res) => {
           missingImages,
         invalidStored:
           invalidStoredImages,
+        productImagesFallback,
         publicFallback:
           publicFallbackImages,
         retainedExisting:
