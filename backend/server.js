@@ -7846,7 +7846,7 @@ app.get(
 );
 
 // ARTBOOST_SHOPIFY_ORIGINAL_IMAGE_FOUNDATION_V31648
-// ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_PLUS_NULL_ONLY_FALLBACK_V31652
+// ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_WITH_DIRECT_FALLBACK_CHAIN_V31653
 app.get("/shopify/products", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -7913,18 +7913,21 @@ app.get("/shopify/products", async (req, res) => {
                 url
               }
 
-              images(first: 1) {
+              images(first: 10) {
                 nodes {
                   url
                 }
               }
 
-              variants(first: 1) {
+              variants(first: 20) {
                 edges {
                   node {
                     id
                     price
                     inventoryQuantity
+                    image {
+                      url
+                    }
                   }
                 }
               }
@@ -8007,8 +8010,37 @@ app.get("/shopify/products", async (req, res) => {
 
     const productsToSave =
       allProductEdges.map(({ node }) => {
+        const variantEdges =
+          node.variants?.edges || [];
+
         const firstVariant =
-          node.variants?.edges?.[0]?.node || null;
+          variantEdges[0]?.node || null;
+
+        const featuredImageUrl =
+          node.featuredImage?.url || null;
+
+        const directFallbackUrls =
+          [
+            ...(
+              node.images?.nodes || []
+            ).map(
+              (item) =>
+                item?.url || null
+            ),
+            ...variantEdges.map(
+              (edge) =>
+                edge?.node?.image?.url ||
+                null
+            ),
+          ]
+            .filter(Boolean)
+            .filter(
+              (url, index, all) =>
+                all.indexOf(url) ===
+                  index &&
+                url !==
+                  featuredImageUrl
+            );
 
         return {
           user_id: userId,
@@ -8021,7 +8053,7 @@ app.get("/shopify/products", async (req, res) => {
 
           title: node.title || "",
           description: node.description || "",
-          image_url: node.featuredImage?.url || node.images?.nodes?.[0]?.url || null,
+          image_url: featuredImageUrl,
           product_url:
             `https://${connection.shop_domain}/products/${node.handle}`,
 
@@ -8043,7 +8075,9 @@ app.get("/shopify/products", async (req, res) => {
               firstVariant?.inventoryQuantity ?? null,
             shopifyStatus: node.status,
             shopifyImageFoundation:
-              "original-featuredImage-plus-null-only-images-fallback",
+              "original-featuredImage-direct-fallback-chain",
+            shopifyImageFallbackUrls:
+              directFallbackUrls,
           },
 
           status:
@@ -8091,7 +8125,7 @@ app.get("/shopify/products", async (req, res) => {
     }
 
     console.log(
-      "ARTBOOST SHOPIFY ORIGINAL PRODUCTS V31652",
+      "ARTBOOST SHOPIFY ORIGINAL PRODUCTS V31653",
       {
         store: connection.shop_domain,
         pages: pageCount,
@@ -8106,7 +8140,7 @@ app.get("/shopify/products", async (req, res) => {
 
     res.json({
       success: true,
-      fixVersion: "V3.16.52-R1",
+      fixVersion: "V3.16.53-R1",
       store: connection.shop_domain,
       total: savedProducts.length,
       pages: pageCount,

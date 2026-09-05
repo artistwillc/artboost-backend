@@ -39,6 +39,7 @@ type Product = {
   title: string;
   description?: string | null;
   imageUrl?: string | null;
+  fallbackImageUrls?: string[];
   productUrl: string;
   price?: number | null;
   currency?: string | null;
@@ -84,6 +85,7 @@ function platformLabel(value: string) {
 
 export default function StoreProductsScreen() {
   // ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_REFRESH_BUTTON_V31651
+  // ARTBOOST_SHOPIFY_DIRECT_IMAGE_FALLBACK_CHAIN_V31653
   // ARTBOOST_SHOPIFY_ORIGINAL_FRONTEND_IMAGE_FOUNDATION_V31648
 
   const params = useLocalSearchParams<{
@@ -276,7 +278,43 @@ export default function StoreProductsScreen() {
               item.imageUrl ||
               item.thumbnail_url ||
               item.thumbnailUrl ||
+              (
+                Array.isArray(
+                  item.metadata
+                    ?.shopifyImageFallbackUrls
+                )
+                  ? item.metadata
+                      .shopifyImageFallbackUrls[0]
+                  : null
+              ) ||
               null,
+            fallbackImageUrls:
+              (
+                Array.isArray(
+                  item.metadata
+                    ?.shopifyImageFallbackUrls
+                )
+                  ? item.metadata
+                      .shopifyImageFallbackUrls
+                  : []
+              )
+                .filter(
+                  (url: any) =>
+                    typeof url ===
+                      "string" &&
+                    Boolean(url.trim())
+                )
+                .filter(
+                  (url: string) =>
+                    url !==
+                    (
+                      item.image_url ||
+                      item.imageUrl ||
+                      item.thumbnail_url ||
+                      item.thumbnailUrl ||
+                      null
+                    )
+                ),
             productUrl: String(
               item.product_url ||
               item.productUrl ||
@@ -346,6 +384,49 @@ export default function StoreProductsScreen() {
       loadProducts();
     }, [loadProducts])
   );
+
+  function advanceProductImage(
+    productId: string
+  ) {
+    setProducts(
+      (current) =>
+        current.map(
+          (product) => {
+            if (
+              product.id !==
+              productId
+            ) {
+              return product;
+            }
+
+            const remaining =
+              (
+                product.fallbackImageUrls ||
+                []
+              ).filter(
+                (url) =>
+                  Boolean(url) &&
+                  url !==
+                    product.imageUrl
+              );
+
+            const nextImage =
+              remaining[0] ||
+              null;
+
+            return {
+              ...product,
+              imageUrl:
+                nextImage,
+              fallbackImageUrls:
+                nextImage
+                  ? remaining.slice(1)
+                  : [],
+            };
+          }
+        )
+    );
+  }
 
   function openProduct(product: Product) {
     router.push({
@@ -638,6 +719,11 @@ export default function StoreProductsScreen() {
                     source={{ uri: product.imageUrl }}
                     style={styles.productImage}
                     resizeMode="cover"
+                    onError={() =>
+                      advanceProductImage(
+                        product.id
+                      )
+                    }
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
