@@ -23,6 +23,7 @@ import { readApiJson } from "@/lib/apiJson";
 
 const API_BASE =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
 function normalize(value?: string) {
@@ -64,9 +65,18 @@ export default function ProductDetailsScreen() {
   const description = String(
     params.description || ""
   );
-  const imageUrl = String(
+  const initialImageUrl = String(
     params.imageUrl || ""
   );
+
+  // ARTBOOST_PRODUCT_DETAILS_AUTHORITATIVE_IMAGE_HYDRATION_V31650
+  const [
+    resolvedImageUrl,
+    setResolvedImageUrl,
+  ] =
+    useState(
+      initialImageUrl
+    );
   const productUrl = String(
     params.productUrl || ""
   );
@@ -129,6 +139,23 @@ export default function ProductDetailsScreen() {
             data.product?.metadata
               ?.artboostFavorite === true
           );
+
+          const canonicalImageUrl =
+            String(
+              data.product?.image_url ||
+                data.product?.imageUrl ||
+                data.product?.thumbnail_url ||
+                data.product?.thumbnailUrl ||
+                ""
+            ).trim();
+
+          if (
+            canonicalImageUrl
+          ) {
+            setResolvedImageUrl(
+              canonicalImageUrl
+            );
+          }
         }
       } catch (error) {
         console.log(
@@ -237,7 +264,8 @@ export default function ProductDetailsScreen() {
         productId,
         productTitle: title,
         productDescription: description,
-        productImageUrl: imageUrl,
+        productImageUrl:
+          resolvedImageUrl,
         productLink: productUrl,
         productStoreId: storeId,
         productStoreName: storeName,
@@ -313,9 +341,12 @@ export default function ProductDetailsScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {imageUrl ? (
+        {resolvedImageUrl ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{
+              uri:
+                resolvedImageUrl,
+            }}
             style={styles.heroImage}
             resizeMode="cover"
           />
