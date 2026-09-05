@@ -83,9 +83,76 @@ function platformLabel(value: string) {
     .join(" ");
 }
 
+function buildShopifyRenderCandidates(
+  urls: string[]
+) {
+  const result: string[] = [];
+
+  for (const raw of urls) {
+    const clean =
+      String(raw || "").trim();
+
+    if (!clean) {
+      continue;
+    }
+
+    const normalized =
+      clean.startsWith("//")
+        ? `https:${clean}`
+        : clean;
+
+    if (!result.includes(normalized)) {
+      result.push(normalized);
+    }
+
+    try {
+      const parsed =
+        new URL(normalized);
+
+      const host =
+        parsed.hostname.toLowerCase();
+
+      const isShopifyImageHost =
+        host === "cdn.shopify.com" ||
+        host.endsWith(".shopifycdn.com") ||
+        host.endsWith(".myshopify.com");
+
+      if (isShopifyImageHost) {
+        // ARTBOOST_SHOPIFY_JPEG_RENDER_FALLBACK_V31654
+        parsed.searchParams.set(
+          "width",
+          "700"
+        );
+        parsed.searchParams.set(
+          "format",
+          "jpg"
+        );
+
+        const transformed =
+          parsed.toString();
+
+        if (
+          !result.includes(
+            transformed
+          )
+        ) {
+          result.push(
+            transformed
+          );
+        }
+      }
+    } catch {
+      // Keep original only.
+    }
+  }
+
+  return result;
+}
+
 export default function StoreProductsScreen() {
   // ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_REFRESH_BUTTON_V31651
   // ARTBOOST_SHOPIFY_DIRECT_IMAGE_FALLBACK_CHAIN_V31653
+  // ARTBOOST_SHOPIFY_CLIENT_COMPATIBLE_IMAGE_RENDER_V31654
   // ARTBOOST_SHOPIFY_ORIGINAL_FRONTEND_IMAGE_FOUNDATION_V31648
 
   const params = useLocalSearchParams<{
@@ -273,48 +340,46 @@ export default function StoreProductsScreen() {
             description:
               item.description || null,
             // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
-            imageUrl:
-              item.image_url ||
-              item.imageUrl ||
-              item.thumbnail_url ||
-              item.thumbnailUrl ||
-              (
-                Array.isArray(
-                  item.metadata
-                    ?.shopifyImageFallbackUrls
-                )
-                  ? item.metadata
-                      .shopifyImageFallbackUrls[0]
-                  : null
-              ) ||
-              null,
-            fallbackImageUrls:
-              (
+            ...(() => {
+              const primary =
+                item.image_url ||
+                item.imageUrl ||
+                item.thumbnail_url ||
+                item.thumbnailUrl ||
+                null;
+
+              const alternates =
                 Array.isArray(
                   item.metadata
                     ?.shopifyImageFallbackUrls
                 )
                   ? item.metadata
                       .shopifyImageFallbackUrls
-                  : []
-              )
-                .filter(
-                  (url: any) =>
-                    typeof url ===
-                      "string" &&
-                    Boolean(url.trim())
-                )
-                .filter(
-                  (url: string) =>
-                    url !==
-                    (
-                      item.image_url ||
-                      item.imageUrl ||
-                      item.thumbnail_url ||
-                      item.thumbnailUrl ||
-                      null
-                    )
-                ),
+                  : [];
+
+              const candidates =
+                buildShopifyRenderCandidates(
+                  [
+                    primary,
+                    ...alternates,
+                  ].filter(
+                    (url: any) =>
+                      typeof url ===
+                        "string" &&
+                      Boolean(
+                        url.trim()
+                      )
+                  )
+                );
+
+              return {
+                imageUrl:
+                  candidates[0] ||
+                  null,
+                fallbackImageUrls:
+                  candidates.slice(1),
+              };
+            })(),
             productUrl: String(
               item.product_url ||
               item.productUrl ||
