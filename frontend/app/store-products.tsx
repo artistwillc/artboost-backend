@@ -39,7 +39,6 @@ type Product = {
   title: string;
   description?: string | null;
   imageUrl?: string | null;
-  proxyImageUrl?: string | null;
   productUrl: string;
   price?: number | null;
   currency?: string | null;
@@ -83,63 +82,8 @@ function platformLabel(value: string) {
     .join(" ");
 }
 
-function resolveProductImageUrls(
-  item: any,
-  userId: string
-) {
-  const directUrl =
-    item?.image_url ||
-    item?.imageUrl ||
-    item?.thumbnail_url ||
-    item?.thumbnailUrl ||
-    null;
-
-  const itemStoreType =
-    normalize(
-      item?.store_type ||
-        item?.storeType
-    );
-
-  let proxyUrl: string | null =
-    null;
-
-  if (
-    itemStoreType === "shopify" &&
-    item?.id &&
-    userId
-  ) {
-    const query =
-      new URLSearchParams({
-        userId,
-        productId:
-          String(item.id),
-        v:
-          String(
-            item.updated_at ||
-              item.last_synced_at ||
-              ""
-          ),
-      });
-
-    proxyUrl =
-      `${API_BASE}/shopify/product-image?${query.toString()}`;
-  }
-
-  return {
-    directUrl,
-    proxyUrl,
-  };
-}
-
 export default function StoreProductsScreen() {
-  // ARTBOOST_PRODUCT_IMAGE_FAILURE_FALLBACK_V31644
-  // ARTBOOST_SHOPIFY_THUMBNAIL_PROXY_FRONTEND_V31645
-  // ARTBOOST_SHOPIFY_DIRECT_FIRST_PROXY_FALLBACK_V31646
-  // ARTBOOST_SHOPIFY_VARIANT_CDN_RECOVERY_FRONTEND_V31647
-  const [failedImageIds, setFailedImageIds] =
-    useState<Record<string, boolean>>({});
-  const [proxyImageIds, setProxyImageIds] =
-    useState<Record<string, boolean>>({});
+  // ARTBOOST_SHOPIFY_ORIGINAL_FRONTEND_IMAGE_FOUNDATION_V31648
 
   const params = useLocalSearchParams<{
     storeId?: string;
@@ -327,15 +271,11 @@ export default function StoreProductsScreen() {
               item.description || null,
             // ARTBOOST_PRODUCT_FIELD_COMPAT_V1
             imageUrl:
-              resolveProductImageUrls(
-                item,
-                user.id
-              ).directUrl,
-            proxyImageUrl:
-              resolveProductImageUrls(
-                item,
-                user.id
-              ).proxyUrl,
+              item.image_url ||
+              item.imageUrl ||
+              item.thumbnail_url ||
+              item.thumbnailUrl ||
+              null,
             productUrl: String(
               item.product_url ||
               item.productUrl ||
@@ -378,8 +318,6 @@ export default function StoreProductsScreen() {
           })
         );
 
-        setFailedImageIds({});
-        setProxyImageIds({});
         setProducts(
           mappedProducts.filter(matchesStore)
         );
@@ -680,51 +618,11 @@ export default function StoreProductsScreen() {
                 style={styles.productMainRow}
                 onPress={() => openProduct(product)}
               >
-                {(
-                  proxyImageIds[product.id] ||
-                  !product.imageUrl
-                    ? product.proxyImageUrl
-                    : product.imageUrl
-                ) &&
-                !failedImageIds[product.id] ? (
+                {product.imageUrl ? (
                   <Image
-                    source={{
-                      uri:
-                        proxyImageIds[
-                          product.id
-                        ] ||
-                        !product.imageUrl
-                          ? product.proxyImageUrl!
-                          : product.imageUrl!,
-                    }}
+                    source={{ uri: product.imageUrl }}
                     style={styles.productImage}
                     resizeMode="cover"
-                    onError={() => {
-                      if (
-                        !proxyImageIds[
-                          product.id
-                        ] &&
-                        product.imageUrl &&
-                        product.proxyImageUrl
-                      ) {
-                        setProxyImageIds(
-                          (current) => ({
-                            ...current,
-                            [product.id]:
-                              true,
-                          })
-                        );
-                        return;
-                      }
-
-                      setFailedImageIds(
-                        (current) => ({
-                          ...current,
-                          [product.id]:
-                            true,
-                        })
-                      );
-                    }}
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>
