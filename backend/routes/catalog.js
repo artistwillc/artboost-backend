@@ -255,69 +255,107 @@ router.post(
       const imported = [];
       const failed = [];
 
-      for (
-        let index = 0;
-        index < products.length;
-        index += 1
-      ) {
-        const product =
-          products[index] &&
-          typeof products[index] === "object"
-            ? products[index]
-            : {};
+      /*
+       * Keep large storefront refreshes inside practical mobile/Render request
+       * lifetimes without launching hundreds of marketplace requests at once.
+       */
+      const concurrency =
+        Math.min(
+          6,
+          products.length
+        );
 
-        try {
-          const result =
-            await importSingleCatalogProduct({
-              userId: String(userId),
-              storeId:
-                storeId
-                  ? String(storeId)
-                  : null,
-              storeName:
-                String(storeName),
-              storeType: String(
-                storeType || "custom_store"
-              ),
-              title:
-                product.title,
-              description:
-                product.description,
-              imageUrl:
-                product.imageUrl,
-              productUrl:
-                product.productUrl,
-              price:
-                product.price,
-              currency:
-                product.currency || "USD",
-              productType:
-                product.productType,
-              tags:
-                product.tags,
+      let nextProductIndex = 0;
+
+      async function importWorker() {
+        while (true) {
+          const index =
+            nextProductIndex;
+
+          nextProductIndex += 1;
+
+          if (
+            index >= products.length
+          ) {
+            return;
+          }
+
+          const product =
+            products[index] &&
+            typeof products[index] === "object"
+              ? products[index]
+              : {};
+
+          try {
+            const result =
+              await importSingleCatalogProduct({
+                userId: String(userId),
+                storeId:
+                  storeId
+                    ? String(storeId)
+                    : null,
+                storeName:
+                  String(storeName),
+                storeType: String(
+                  storeType || "custom_store"
+                ),
+                title:
+                  product.title,
+                description:
+                  product.description,
+                imageUrl:
+                  product.imageUrl,
+                productUrl:
+                  product.productUrl,
+                price:
+                  product.price,
+                currency:
+                  product.currency || "USD",
+                productType:
+                  product.productType,
+                tags:
+                  product.tags,
+              });
+
+            imported.push({
+              index,
+              action:
+                result.action,
+              product:
+                result.product,
             });
-
-          imported.push({
-            index,
-            action:
-              result.action,
-            product:
-              result.product,
-          });
-        } catch (error) {
-          failed.push({
-            index,
-            title:
-              String(product.title || ""),
-            productUrl:
-              String(product.productUrl || ""),
-            error:
-              error instanceof Error
-                ? error.message
-                : String(error),
-          });
+          } catch (error) {
+            failed.push({
+              index,
+              title:
+                String(product.title || ""),
+              productUrl:
+                String(product.productUrl || ""),
+              error:
+                error instanceof Error
+                  ? error.message
+                  : String(error),
+            });
+          }
         }
       }
+
+      await Promise.all(
+        Array.from(
+          { length: concurrency },
+          () => importWorker()
+        )
+      );
+
+      imported.sort(
+        (a, b) =>
+          a.index - b.index
+      );
+
+      failed.sort(
+        (a, b) =>
+          a.index - b.index
+      );
 
       return res.status(200).json({
         success: true,
