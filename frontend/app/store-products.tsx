@@ -135,6 +135,7 @@ export default function StoreProductsScreen() {
   // ARTBOOST_PRODUCT_IMAGE_FAILURE_FALLBACK_V31644
   // ARTBOOST_SHOPIFY_THUMBNAIL_PROXY_FRONTEND_V31645
   // ARTBOOST_SHOPIFY_DIRECT_FIRST_PROXY_FALLBACK_V31646
+  // ARTBOOST_SHOPIFY_VARIANT_CDN_RECOVERY_FRONTEND_V31647
   const [failedImageIds, setFailedImageIds] =
     useState<Record<string, boolean>>({});
   const [proxyImageIds, setProxyImageIds] =
@@ -680,7 +681,8 @@ export default function StoreProductsScreen() {
                 onPress={() => openProduct(product)}
               >
                 {(
-                  proxyImageIds[product.id]
+                  proxyImageIds[product.id] ||
+                  !product.imageUrl
                     ? product.proxyImageUrl
                     : product.imageUrl
                 ) &&
@@ -690,7 +692,8 @@ export default function StoreProductsScreen() {
                       uri:
                         proxyImageIds[
                           product.id
-                        ]
+                        ] ||
+                        !product.imageUrl
                           ? product.proxyImageUrl!
                           : product.imageUrl!,
                     }}
@@ -701,6 +704,7 @@ export default function StoreProductsScreen() {
                         !proxyImageIds[
                           product.id
                         ] &&
+                        product.imageUrl &&
                         product.proxyImageUrl
                       ) {
                         setProxyImageIds(

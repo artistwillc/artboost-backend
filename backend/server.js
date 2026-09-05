@@ -6962,7 +6962,7 @@ const SHOPIFY_THUMBNAIL_REPAIR_VERSION =
   "V3.16.44-R1";
 
 function normalizeShopifyImageUrl(value) {
-  const clean =
+  let clean =
     String(value || "").trim();
 
   if (
@@ -6972,6 +6972,13 @@ function normalizeShopifyImageUrl(value) {
     clean === "[object Object]"
   ) {
     return null;
+  }
+
+  if (
+    clean.startsWith("//")
+  ) {
+    clean =
+      `https:${clean}`;
   }
 
   try {
@@ -7016,6 +7023,11 @@ function getShopifyImageCandidates(node) {
     node?.variants?.edges?.[0]?.node ||
     null;
 
+  const variantImageUrl =
+    normalizeShopifyImageUrl(
+      firstVariant?.image?.url
+    );
+
   const variantMediaImageUrl =
     normalizeShopifyImageUrl(
       Array.isArray(
@@ -7031,6 +7043,7 @@ function getShopifyImageCandidates(node) {
     featuredImageUrl,
     productImagesImageUrl,
     productMediaImageUrl,
+    variantImageUrl,
     variantMediaImageUrl,
   };
 }
@@ -7164,6 +7177,10 @@ const SHOPIFY_THUMBNAIL_PROXY_VERSION =
 // ARTBOOST_SHOPIFY_PROXY_CONNECTION_FALLBACK_V31646
 const SHOPIFY_THUMBNAIL_DISPLAY_FIX_VERSION =
   "V3.16.46-R1";
+
+// ARTBOOST_SHOPIFY_VARIANT_CDN_RECOVERY_V31647
+const SHOPIFY_THUMBNAIL_RECOVERY_VERSION =
+  "V3.16.47-R1";
 
 function isAllowedShopifyImageHost(
   imageUrl
@@ -7323,6 +7340,10 @@ async function loadLiveShopifyProductImage(
 
         variants(first: 5) {
           nodes {
+            image {
+              url
+            }
+
             media(first: 5) {
               nodes {
                 ... on MediaImage {
@@ -7375,6 +7396,18 @@ async function loadLiveShopifyProductImage(
     const product =
       result.data.product;
 
+    const variantImageUrl =
+      normalizeShopifyImageUrl(
+        Array.isArray(
+          product?.variants?.nodes
+        )
+          ? product.variants.nodes.find(
+              (variant) =>
+                variant?.image?.url
+            )?.image?.url
+          : null
+      );
+
     const variantMediaImageUrl =
       Array.isArray(
         product?.variants?.nodes
@@ -7420,6 +7453,9 @@ async function loadLiveShopifyProductImage(
                   item?.image?.url
               )?.image?.url
             : null
+        ) ||
+        normalizeShopifyImageUrl(
+          variantImageUrl
         ) ||
         normalizeShopifyImageUrl(
           variantMediaImageUrl
@@ -7949,6 +7985,10 @@ app.get("/shopify/products", async (req, res) => {
                     price
                     inventoryQuantity
 
+                    image {
+                      url
+                    }
+
                     media(
                       first: 5
                     ) {
@@ -8138,6 +8178,7 @@ app.get("/shopify/products", async (req, res) => {
             featuredImageUrl,
             productImagesImageUrl,
             productMediaImageUrl,
+            variantImageUrl,
             variantMediaImageUrl,
           } =
             getShopifyImageCandidates(node);
@@ -8146,6 +8187,7 @@ app.get("/shopify/products", async (req, res) => {
             featuredImageUrl ||
             productImagesImageUrl ||
             productMediaImageUrl ||
+            variantImageUrl ||
             variantMediaImageUrl ||
             null;
 
@@ -8156,6 +8198,8 @@ app.get("/shopify/products", async (req, res) => {
               ? "productImages"
               : productMediaImageUrl
               ? "productMedia"
+              : variantImageUrl
+              ? "variantImage"
               : variantMediaImageUrl
               ? "variantMedia"
               : "missing";
