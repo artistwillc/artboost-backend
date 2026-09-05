@@ -85,6 +85,7 @@ function platformLabel(value: string) {
 export default function StoreProductsScreen() {
   // ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_REFRESH_BUTTON_V31651
   // ARTBOOST_SHOPIFY_BACKEND_NORMALIZED_THUMBNAILS_V31655
+  // ARTBOOST_SHOPIFY_REAL_REFRESH_BUTTON_V31656
   // ARTBOOST_SHOPIFY_ORIGINAL_FRONTEND_IMAGE_FOUNDATION_V31648
 
   const params = useLocalSearchParams<{
@@ -342,6 +343,119 @@ export default function StoreProductsScreen() {
     [matchesStore, storeId, storeType]
   );
 
+  const refreshStoreProducts =
+    useCallback(
+      async () => {
+        if (refreshing) {
+          return;
+        }
+
+        try {
+          setRefreshing(true);
+
+          const {
+            data: { session },
+          } =
+            await supabase.auth.getSession();
+
+          const user =
+            session?.user || null;
+
+          if (!user) {
+            throw new Error(
+              "Please sign in to refresh products."
+            );
+          }
+
+          const authHeaders =
+            session?.access_token
+              ? {
+                  Authorization:
+                    `Bearer ${session.access_token}`,
+                }
+              : ({} as Record<
+                  string,
+                  string
+                >);
+
+          if (
+            normalize(
+              storeType
+            ) === "shopify"
+          ) {
+            // ARTBOOST_SHOPIFY_REAL_REFRESH_SYNC_V31656
+            const query =
+              new URLSearchParams({
+                userId:
+                  user.id,
+              });
+
+            const response =
+              await fetch(
+                `${API_BASE}/shopify/products?${query.toString()}`,
+                {
+                  headers:
+                    authHeaders,
+                }
+              );
+
+            const responseText =
+              await response.text();
+
+            let data: any;
+
+            try {
+              data =
+                JSON.parse(
+                  responseText
+                );
+            } catch {
+              throw new Error(
+                `Shopify refresh returned ${response.status}: ${responseText.slice(
+                  0,
+                  160
+                )}`
+              );
+            }
+
+            if (
+              !response.ok ||
+              !data.success
+            ) {
+              throw new Error(
+                data.details ||
+                  data.error ||
+                  "Shopify refresh failed."
+              );
+            }
+          }
+
+          await loadProducts(
+            false
+          );
+        } catch (error: any) {
+          console.log(
+            "Store product refresh failed:",
+            error
+          );
+
+          Alert.alert(
+            "Refresh failed",
+            error?.message ||
+              "Unable to refresh products."
+          );
+
+          setRefreshing(false);
+        }
+      },
+      [
+        refreshing,
+        storeType,
+        loadProducts,
+      ]
+    );
+
+
   useFocusEffect(
     useCallback(() => {
       loadProducts();
@@ -470,8 +584,8 @@ export default function StoreProductsScreen() {
 
         <Pressable
           style={styles.headerButton}
-          onPress={() =>
-            loadProducts(true)
+          onPress={
+            refreshStoreProducts
           }
           disabled={refreshing}
         >
