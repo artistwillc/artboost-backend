@@ -7845,7 +7845,7 @@ app.get(
   }
 );
 
-// ARTBOOST_SHOPIFY_CLOUDINARY_THUMBNAIL_NORMALIZATION_V31655
+// ARTBOOST_SHOPIFY_STOREFRONT_THUMBNAIL_NORMALIZATION_V31657
 const SHOPIFY_THUMBNAIL_FOLDER =
   "artboost-ai/shopify-thumbnails";
 
@@ -7946,10 +7946,89 @@ function shopifyThumbnailPublicId(
   return `shopify-${digest}`;
 }
 
+// ARTBOOST_SHOPIFY_STOREFRONT_CDN_URL_V31657
+function buildShopifyStorefrontImageUrl(
+  shopDomain,
+  sourceUrl
+) {
+  const normalized =
+    normalizeShopifySourceUrl(
+      sourceUrl
+    );
+
+  if (
+    !normalized ||
+    !shopDomain
+  ) {
+    return null;
+  }
+
+  try {
+    const source =
+      new URL(normalized);
+
+    const path =
+      source.pathname;
+
+    const filesMarker =
+      "/files/";
+
+    const markerIndex =
+      path.lastIndexOf(
+        filesMarker
+      );
+
+    if (
+      markerIndex < 0
+    ) {
+      return normalized;
+    }
+
+    const filePath =
+      path.slice(
+        markerIndex +
+          filesMarker.length
+      );
+
+    if (!filePath) {
+      return normalized;
+    }
+
+    const storefront =
+      new URL(
+        `https://${shopDomain}/cdn/shop/files/${filePath}`
+      );
+
+    for (
+      const [
+        key,
+        value,
+      ] of
+        source.searchParams.entries()
+    ) {
+      storefront.searchParams.set(
+        key,
+        value
+      );
+    }
+
+    // Match Shopify storefront thumbnail delivery rather than Admin CDN origin.
+    storefront.searchParams.set(
+      "width",
+      "533"
+    );
+
+    return storefront.toString();
+  } catch {
+    return normalized;
+  }
+}
+
 async function normalizeShopifyThumbnail({
   userId,
   node,
   existingProduct,
+  shopDomain,
 }) {
   const candidates =
     buildShopifyImageSourceCandidates(
@@ -7997,82 +8076,30 @@ async function normalizeShopifyThumbnail({
     };
   }
 
-  const publicId =
-    shopifyThumbnailPublicId(
-      userId,
-      node.id
+  const storefrontPrimary =
+    buildShopifyStorefrontImageUrl(
+      shopDomain,
+      primarySource
     );
 
-  let lastError =
-    null;
-
-  for (
-    const sourceUrl of candidates
+  if (
+    storefrontPrimary
   ) {
-    try {
-      const uploaded =
-        await cloudinary.uploader.upload(
-          sourceUrl,
-          {
-            folder:
-              SHOPIFY_THUMBNAIL_FOLDER,
-            public_id:
-              publicId,
-            overwrite: true,
-            invalidate: true,
-            resource_type:
-              "image",
-            format:
-              "png",
-            transformation: [
-              {
-                width: 700,
-                crop: "limit",
-              },
-            ],
-          }
-        );
-
-      const secureUrl =
-        normalizeShopifySourceUrl(
-          uploaded?.secure_url
-        );
-
-      if (secureUrl) {
-        return {
-          imageUrl:
-            secureUrl,
-          sourceUrl,
-          source:
-            sourceUrl ===
-              primarySource
-              ? "cloudinaryFeatured"
-              : "cloudinaryFallback",
-          normalized:
-            true,
-        };
-      }
-    } catch (error) {
-      lastError =
-        error;
-    }
+    return {
+      imageUrl:
+        storefrontPrimary,
+      sourceUrl:
+        primarySource,
+      source:
+        storefrontPrimary ===
+          primarySource
+          ? "directShopify"
+          : "storefrontCdn",
+      normalized:
+        storefrontPrimary !==
+          primarySource,
+    };
   }
-
-  console.warn(
-    "Shopify thumbnail normalization failed; using direct Shopify URL.",
-    {
-      productId:
-        node.id,
-      title:
-        node.title,
-      message:
-        lastError instanceof Error
-          ? lastError.message
-          : String(
-              lastError || ""
-            ),
-    }
-  );
 
   return {
     imageUrl:
@@ -8080,7 +8107,7 @@ async function normalizeShopifyThumbnail({
     sourceUrl:
       primarySource,
     source:
-      "directFallback",
+      "directShopify",
     normalized:
       false,
   };
@@ -8312,6 +8339,8 @@ app.get("/shopify/products", async (req, res) => {
             existingByExternalId.get(
               node.id
             ) || null,
+          shopDomain:
+            connection.shop_domain,
         });
 
       if (
@@ -8380,7 +8409,7 @@ app.get("/shopify/products", async (req, res) => {
           shopifyStatus:
             node.status,
           shopifyImageFoundation:
-            "original-renderer-backend-normalized",
+            "original-renderer-storefront-cdn",
           shopifyThumbnailSource:
             normalizedThumbnail.source,
           shopifyThumbnailSourceUrl:
@@ -8388,7 +8417,7 @@ app.get("/shopify/products", async (req, res) => {
           shopifyThumbnailNormalized:
             normalizedThumbnail.normalized,
           shopifyThumbnailVersion:
-            "V3.16.55-R1",
+            "V3.16.57-R1",
         },
 
         status:
@@ -8445,7 +8474,7 @@ app.get("/shopify/products", async (req, res) => {
     }
 
     console.log(
-      "ARTBOOST SHOPIFY BACKEND NORMALIZED THUMBNAILS V31655",
+      "ARTBOOST SHOPIFY STOREFRONT CDN THUMBNAILS V31657",
       {
         store: connection.shop_domain,
         pages: pageCount,
