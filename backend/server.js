@@ -6953,6 +6953,10 @@ app.delete("/shopify/connection", async (req, res) => {
   }
 });
 
+// ARTBOOST_SHOPIFY_THUMBNAIL_GRAPHQL_FIX_V31643_R3
+const SHOPIFY_THUMBNAIL_FIX_VERSION =
+  "V3.16.43-R3";
+
 function pickShopifyProductImage(
   node,
   existingImageUrl = null
@@ -7132,8 +7136,7 @@ app.get("/shopify/products", async (req, res) => {
                     inventoryQuantity
 
                     media(
-                      first: 5,
-                      query: "media_type:IMAGE"
+                      first: 5
                     ) {
                       nodes {
                         ... on MediaImage {
@@ -7215,14 +7218,26 @@ app.get("/shopify/products", async (req, res) => {
           shopifyResult.errors
         );
 
+        const graphQLErrorMessage =
+          shopifyResult.errors
+            .map(
+              (item) =>
+                item?.message ||
+                "Unknown Shopify GraphQL error."
+            )
+            .join("; ");
+
         return res
           .status(400)
           .json({
             success: false,
             error:
+              graphQLErrorMessage ||
               "Shopify returned a GraphQL error.",
             details:
               shopifyResult.errors,
+            fixVersion:
+              SHOPIFY_THUMBNAIL_FIX_VERSION,
           });
       }
 
@@ -7490,6 +7505,8 @@ app.get("/shopify/products", async (req, res) => {
 
     res.json({
       success: true,
+      fixVersion:
+        SHOPIFY_THUMBNAIL_FIX_VERSION,
       store:
         connection.shop_domain,
       total:
