@@ -8410,7 +8410,7 @@ app.get("/shopify/products", async (req, res) => {
         updated_at:
           syncedAt,
       });
-    });
+    }
 
     let savedProducts = [];
     const batchSize = 100;
