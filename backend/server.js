@@ -7857,9 +7857,10 @@ app.get("/shopify/products", async (req, res) => {
       });
     }
 
-    // ORIGINAL WORKING FOUNDATION:
-    // use the same Shopify connection source and the same direct
-    // featuredImage -> products.image_url mapping that worked before.
+    // ARTBOOST_SHOPIFY_ORIGINAL_FOUNDATION_NULL_ONLY_RECOVERY_V31649
+    // The original working path remains authoritative:
+    // featuredImage -> products.image_url -> frontend direct <Image>.
+    // Additional sources are consulted ONLY when featuredImage is null.
     const { data: connection, error: connectionError } =
       await supabase
         .from("social_connections")
@@ -7883,7 +7884,7 @@ app.get("/shopify/products", async (req, res) => {
     }
 
     const query = `
-      query ArtBoostOriginalShopifyProducts(
+      query ArtBoostOriginalShopifyProductsV31649(
         $after: String
       ) {
         shop {
@@ -7915,13 +7916,27 @@ app.get("/shopify/products", async (req, res) => {
                 url
               }
 
-              images(first: 1) {
+              images(first: 20) {
                 nodes {
                   url
                 }
               }
 
-              variants(first: 1) {
+              media(
+                first: 20,
+                query: "media_type:IMAGE",
+                sortKey: POSITION
+              ) {
+                nodes {
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
+                }
+              }
+
+              variants(first: 100) {
                 edges {
                   node {
                     id
@@ -8019,82 +8034,172 @@ app.get("/shopify/products", async (req, res) => {
 
     const syncedAt = new Date().toISOString();
 
-    // Preserve the original working rule:
-    // Shopify is authoritative. Use the live image Shopify returns now.
-    // featuredImage is primary exactly as before.
-    // Product.images and Variant.image are only null fallbacks for products
-    // that genuinely do not have a featuredImage.
-    const productsToSave =
-      allProductEdges.map(({ node }) => {
-        const firstVariant =
-          node.variants?.edges?.[0]?.node || null;
+    let featuredImageCount = 0;
+    let productImagesFallbackCount = 0;
+    let productMediaFallbackCount = 0;
+    let variantImageFallbackCount = 0;
+    let publicProductFallbackCount = 0;
+    let withoutImagesCount = 0;
 
-        const imageUrl =
-          node.featuredImage?.url ||
-          node.images?.nodes?.[0]?.url ||
-          firstVariant?.image?.url ||
-          null;
+    const productsToSave = [];
 
-        return {
-          user_id: userId,
-          store_type: "shopify",
-          store_name: connection.shop_domain,
-          store_connection_id: connection.id,
+    for (const { node } of allProductEdges) {
+      const variants =
+        node.variants?.edges || [];
 
-          external_product_id: node.id,
-          external_variant_id: firstVariant?.id || null,
+      const firstVariant =
+        variants[0]?.node || null;
 
-          title: node.title || "",
-          description: node.description || "",
-          image_url: imageUrl,
-          product_url:
-            `https://${connection.shop_domain}/products/${node.handle}`,
+      const featuredImageUrl =
+        normalizeShopifyImageUrl(
+          node.featuredImage?.url
+        );
 
-          price: firstVariant?.price
-            ? Number(firstVariant.price)
-            : null,
+      const productImagesUrl =
+        normalizeShopifyImageUrl(
+          Array.isArray(node.images?.nodes)
+            ? node.images.nodes.find(
+                (item) => item?.url
+              )?.url
+            : null
+        );
 
-          currency,
+      const productMediaUrl =
+        normalizeShopifyImageUrl(
+          Array.isArray(node.media?.nodes)
+            ? node.media.nodes.find(
+                (item) => item?.image?.url
+              )?.image?.url
+            : null
+        );
 
-          tags: node.tags || [],
+      const variantImageUrl =
+        normalizeShopifyImageUrl(
+          variants.find(
+            (edge) =>
+              edge?.node?.image?.url
+          )?.node?.image?.url
+        );
 
-          categories: node.productType
-            ? [node.productType]
-            : [],
+      let imageUrl =
+        featuredImageUrl;
 
-          metadata: {
-            handle: node.handle,
-            inventoryQuantity:
-              firstVariant?.inventoryQuantity ?? null,
-            shopifyStatus: node.status,
-            shopifyImageSource:
-              node.featuredImage?.url
-                ? "featuredImage"
-                : node.images?.nodes?.[0]?.url
-                ? "productImages"
-                : firstVariant?.image?.url
-                ? "variantImage"
-                : "missing",
-            shopifyImageFoundation:
-              "original-direct",
-          },
+      let shopifyImageSource =
+        featuredImageUrl
+          ? "featuredImage"
+          : null;
 
-          status:
-            String(node.status || "").toLowerCase() ===
-              "active"
-              ? "active"
-              : "inactive",
+      if (featuredImageUrl) {
+        featuredImageCount += 1;
+      }
 
-          last_synced_at: syncedAt,
-          source_created_at: node.createdAt || null,
-          source_updated_at: node.updatedAt || null,
-          updated_at: syncedAt,
-        };
+      // Null-only recovery. Never replace a valid original featuredImage.
+      if (
+        !imageUrl &&
+        productImagesUrl
+      ) {
+        imageUrl =
+          productImagesUrl;
+        shopifyImageSource =
+          "productImages";
+        productImagesFallbackCount += 1;
+      }
+
+      if (
+        !imageUrl &&
+        productMediaUrl
+      ) {
+        imageUrl =
+          productMediaUrl;
+        shopifyImageSource =
+          "productMedia";
+        productMediaFallbackCount += 1;
+      }
+
+      if (
+        !imageUrl &&
+        variantImageUrl
+      ) {
+        imageUrl =
+          variantImageUrl;
+        shopifyImageSource =
+          "variantImage";
+        variantImageFallbackCount += 1;
+      }
+
+      if (!imageUrl) {
+        const publicFallback =
+          await getShopifyPublicProductImage(
+            connection.shop_domain,
+            node.handle
+          );
+
+        if (publicFallback) {
+          imageUrl =
+            publicFallback;
+          shopifyImageSource =
+            "publicProductJson";
+          publicProductFallbackCount += 1;
+        }
+      }
+
+      if (!imageUrl) {
+        withoutImagesCount += 1;
+        shopifyImageSource =
+          "missing";
+      }
+
+      productsToSave.push({
+        user_id: userId,
+        store_type: "shopify",
+        store_name: connection.shop_domain,
+        store_connection_id: connection.id,
+
+        external_product_id: node.id,
+        external_variant_id: firstVariant?.id || null,
+
+        title: node.title || "",
+        description: node.description || "",
+        image_url: imageUrl,
+        product_url:
+          `https://${connection.shop_domain}/products/${node.handle}`,
+
+        price: firstVariant?.price
+          ? Number(firstVariant.price)
+          : null,
+
+        currency,
+
+        tags: node.tags || [],
+
+        categories: node.productType
+          ? [node.productType]
+          : [],
+
+        metadata: {
+          handle: node.handle,
+          inventoryQuantity:
+            firstVariant?.inventoryQuantity ?? null,
+          shopifyStatus: node.status,
+          shopifyImageSource,
+          shopifyImageFoundation:
+            "original-direct-null-only-recovery",
+        },
+
+        status:
+          String(node.status || "").toLowerCase() ===
+            "active"
+            ? "active"
+            : "inactive",
+
+        last_synced_at: syncedAt,
+        source_created_at: node.createdAt || null,
+        source_updated_at: node.updatedAt || null,
+        updated_at: syncedAt,
       });
+    }
 
     let savedProducts = [];
-
-    // Preserve original direct upsert semantics, only batching for full catalog.
     const batchSize = 100;
 
     for (
@@ -8135,13 +8240,8 @@ app.get("/shopify/products", async (req, res) => {
       );
     }
 
-    const imageCount =
-      productsToSave.filter(
-        (item) => Boolean(item.image_url)
-      ).length;
-
     console.log(
-      "ARTBOOST SHOPIFY ORIGINAL IMAGE FOUNDATION",
+      "ARTBOOST SHOPIFY ORIGINAL FOUNDATION V31649",
       {
         store: connection.shop_domain,
         pages: pageCount,
@@ -8149,32 +8249,49 @@ app.get("/shopify/products", async (req, res) => {
           allProductEdges.length,
         saved:
           savedProducts.length,
-        withImages:
-          imageCount,
+        featuredImage:
+          featuredImageCount,
+        productImagesFallback:
+          productImagesFallbackCount,
+        productMediaFallback:
+          productMediaFallbackCount,
+        variantImageFallback:
+          variantImageFallbackCount,
+        publicProductFallback:
+          publicProductFallbackCount,
         withoutImages:
-          productsToSave.length -
-          imageCount,
+          withoutImagesCount,
       }
     );
 
     res.json({
       success: true,
       fixVersion:
-        "V3.16.48-R1",
+        "V3.16.49-R1",
       store: connection.shop_domain,
       total: savedProducts.length,
       pages: pageCount,
       imageSummary: {
-        withImages:
-          imageCount,
+        featuredImage:
+          featuredImageCount,
+        productImagesFallback:
+          productImagesFallbackCount,
+        productMediaFallback:
+          productMediaFallbackCount,
+        variantImageFallback:
+          variantImageFallbackCount,
+        publicProductFallback:
+          publicProductFallbackCount,
         withoutImages:
-          productsToSave.length -
-          imageCount,
+          withoutImagesCount,
       },
       products: savedProducts,
     });
   } catch (err) {
-    console.error("Shopify products route error:", err);
+    console.error(
+      "Shopify products route error:",
+      err
+    );
 
     res.status(500).json({
       success: false,
