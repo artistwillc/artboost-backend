@@ -83,6 +83,7 @@ function platformLabel(value: string) {
 }
 
 export default function StoreProductsScreen() {
+  // ARTBOOST_SHOPIFY_ORIGINAL_PRODUCTS_REFRESH_BUTTON_V31651
   // ARTBOOST_SHOPIFY_ORIGINAL_FRONTEND_IMAGE_FOUNDATION_V31648
 
   const params = useLocalSearchParams<{
@@ -465,6 +466,20 @@ export default function StoreProductsScreen() {
             {storeName}
           </Text>
         </View>
+
+        <Pressable
+          style={styles.headerButton}
+          onPress={() =>
+            loadProducts(true)
+          }
+          disabled={refreshing}
+        >
+          <Ionicons
+            name="refresh"
+            size={23}
+            color="#ffffff"
+          />
+        </Pressable>
 
         <Pressable
           style={styles.headerButton}
