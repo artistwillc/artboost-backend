@@ -92,7 +92,9 @@ export default function ConsultantScreen() {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // ARTBOOST_CONSULTANT_PHYSICAL_INPUT_HARDENING_V13_10_1
 
   useEffect(() => {
     let active = true;
@@ -176,6 +178,7 @@ export default function ConsultantScreen() {
   }
 
   function chooseAttachment() {
+    if (busy || recording || voiceProcessing) return;
     Alert.alert("Add to Consultant", "Choose an image source.", [
       { text: "Take Photo", onPress: () => attachImage("camera") },
       { text: "Choose Photo", onPress: () => attachImage("library") },
@@ -185,7 +188,7 @@ export default function ConsultantScreen() {
   }
 
   async function toggleVoice() {
-    if (busy) return;
+    if (busy || voiceProcessing) return;
     try {
       if (!recording) {
         const permission = await AudioModule.requestRecordingPermissionsAsync();
@@ -201,6 +204,8 @@ export default function ConsultantScreen() {
       }
       await audioRecorder.stop();
       setRecording(false);
+      setVoiceProcessing(true);
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       const uri = audioRecorder.uri;
       if (!uri) throw new Error("No voice recording was captured.");
       const { data: { session } } = await supabase.auth.getSession();
@@ -217,7 +222,12 @@ export default function ConsultantScreen() {
       setInput(String(data.text || ""));
     } catch (error: any) {
       setRecording(false);
+      try {
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      } catch {}
       Alert.alert("Voice Input", error?.message || "Unable to process voice input.");
+    } finally {
+      setVoiceProcessing(false);
     }
   }
 
@@ -302,6 +312,10 @@ export default function ConsultantScreen() {
           severity: data.severity || "info",
         },
       ]);
+      if (imageDataUrl || imageUri) {
+        setImageDataUrl(null);
+        setImageUri(null);
+      }
     } catch (error: any) {
       setMessages((current) => [
         ...current,
@@ -339,8 +353,8 @@ export default function ConsultantScreen() {
             size={66}
             label={consultantName}
             compact
-            active={busy}
-            state={busy ? "thinking" : "idle"}
+            active={busy || recording || voiceProcessing}
+            state={recording ? "listening" : voiceProcessing ? "working" : busy ? "thinking" : "idle"}
           />
         </View>
 
@@ -480,7 +494,13 @@ export default function ConsultantScreen() {
           </View>
         ) : null}
         <View style={styles.composer}>
-          <Pressable onPress={chooseAttachment} style={styles.composerIcon} accessibilityLabel="Add image or ArtBoost Library item">
+          <Pressable
+            onPress={chooseAttachment}
+            disabled={busy || recording || voiceProcessing}
+            style={[styles.composerIcon, (busy || recording || voiceProcessing) && styles.composerIconDisabled]}
+            accessibilityLabel="Add image or ArtBoost Library item"
+            testID="artboost-consultant-add-image"
+          >
             <Ionicons name="add" size={24} color="#fff" />
           </Pressable>
           <TextInput
@@ -491,15 +511,22 @@ export default function ConsultantScreen() {
             multiline
             style={styles.input}
           />
-          <Pressable onPress={toggleVoice} style={[styles.composerIcon, recording && styles.recording]} accessibilityLabel={recording ? "Stop voice recording" : "Start voice input"}>
-            <Ionicons name={recording ? "stop" : "mic"} size={20} color="#fff" />
+          <Pressable
+            onPress={toggleVoice}
+            disabled={busy || voiceProcessing}
+            style={[styles.composerIcon, recording && styles.recording, voiceProcessing && styles.composerIconDisabled]}
+            accessibilityLabel={recording ? "Stop voice recording" : voiceProcessing ? "Processing voice input" : "Start voice input"}
+            testID="artboost-consultant-voice"
+          >
+            <Ionicons name={recording ? "stop" : voiceProcessing ? "hourglass-outline" : "mic"} size={20} color="#fff" />
           </Pressable>
           <Pressable
             onPress={() => send()}
-            disabled={busy || !input.trim()}
+            disabled={busy || recording || voiceProcessing || !input.trim()}
+            testID="artboost-consultant-send"
             style={[
               styles.send,
-              (busy || !input.trim()) && styles.sendDisabled,
+              (busy || recording || voiceProcessing || !input.trim()) && styles.sendDisabled,
             ]}
           >
             <Ionicons name="arrow-up" size={20} color="#fff" />
@@ -710,6 +737,7 @@ const styles = StyleSheet.create({
   },
   sendDisabled: { opacity: 0.35 },
   composerIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#242039", alignItems: "center", justifyContent: "center" },
+  composerIconDisabled: { opacity: 0.45 },
   recording: { backgroundColor: "#7b2432" },
   attachmentPreview: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: "rgba(12,11,24,0.97)", borderTopWidth: 1, borderTopColor: "#242039" },
   attachmentImage: { width: 42, height: 42, borderRadius: 8 },

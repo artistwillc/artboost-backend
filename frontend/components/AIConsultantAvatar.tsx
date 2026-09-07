@@ -343,8 +343,11 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "visible",
     flexShrink: 0,
+    flexGrow: 0,
+    aspectRatio: 1,
     zIndex: 2,
   },
+  // ARTBOOST_AVATAR_LOCKED_ASPECT_V13_10_1
   glow: {
     position: "absolute",
     backgroundColor: "#6d28d9",
