@@ -1,3 +1,4 @@
+// ARTBOOST_ARTWORK_APPRAISAL_V14
 // ARTBOOST_CREATOR_TOOLS_ENABLEMENT_V31614
 // ARTBOOST_UNIFIED_AI_CONSULTANT_SUPPORT_V3160
 // ARTBOOST_AI_CONSULTANT_CONTEXT_PROPAGATION_V3159
@@ -68,6 +69,7 @@ type Message = {
 };
 
 const STARTERS = [
+  "Appraise an artwork photo and help me price it.",
   "What should I promote today?",
   "Create an Instagram post for my newest product.",
   "Show me what needs attention and help me fix it.",

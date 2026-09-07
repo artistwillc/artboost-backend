@@ -1,3 +1,4 @@
+// ARTBOOST_CONSULTANT_INTELLIGENCE_V14
 // ARTBOOST_LAUNCH_HARDENING_V13_8
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
@@ -115,7 +116,7 @@ function questionCorpus(question, conversation = []) {
 export function isConsultantQuestionInScope({ question, conversation = [], hasImage = false } = {}) {
   const q = questionCorpus(question, conversation);
 
-  const domain = /\b(?:artboost|social(?:\s+media)?|marketing|market|promotion|promote|post|posting|published|publishing|caption|hashtag|cta|campaign|schedule|automation|audience|follower|engagement|reach|content|store|shop|shopify|etsy|redbubble|artpal|gumroad|fine\s+art\s+america|amazon|ebay|society6|big\s+cartel|squarespace|wix|woocommerce|printify|printful|marketplace|product|listing|catalog|inventory|order|sale|selling|sell|price|pricing|profit|pinterest|facebook|instagram|threads|linkedin|twitter|tiktok|\bx\b|meta|library|studio|creator\s+tool|subscription|billing|connect|connection|reconnect|disconnect|sync|import|scanner|video|artwork|artist|design|photograph|photography|print\s+on\s+demand|\bpod\b)\b/i;
+  const domain = /\b(?:artboost|social(?:\s+media)?|marketing|market|promotion|promote|post|posting|published|publishing|caption|hashtag|cta|campaign|schedule|automation|audience|follower|engagement|reach|content|store|shop|shopify|etsy|redbubble|artpal|gumroad|fine\s+art\s+america|amazon|ebay|society6|big\s+cartel|squarespace|wix|woocommerce|printify|printful|marketplace|product|listing|catalog|inventory|order|sale|selling|sell|price|pricing|profit|pinterest|facebook|instagram|threads|linkedin|twitter|tiktok|\bx\b|meta|library|studio|creator\s+tool|subscription|billing|connect|connection|reconnect|disconnect|sync|import|scanner|video|app|artboost app|referral|refer|share|appraisal|appraise|valuation|value|provenance|medium|dimensions|artwork|artist|design|photograph|photography|print\s+on\s+demand|\bpod\b)\b/i;
 
   if (domain.test(q)) return true;
 
@@ -1514,12 +1515,14 @@ function connectionHealthAnswer(question, accountContext) {
     }
   }
 
-  const working = [...confirmed.values()].filter((p) => p.accountConnected || p.schedulerConfirmed);
-  const unverified = [...confirmed.values()].filter((p) => !p.accountConnected && !p.schedulerConfirmed);
+  // V14: current connection questions are current-state only.
+  // Historical scheduler success is evidence of a past publish, never a current connection.
+  const working = [...confirmed.values()].filter((p) => p.accountConnected === true);
+  const unverified = [...confirmed.values()].filter((p) => p.accountConnected !== true);
   const stores = arr(accountContext?.connectedStores);
 
   const workingText = working.length
-    ? working.map((p) => `${p.name}${p.schedulerConfirmed ? " (scheduler-confirmed)" : ""}`).join(", ")
+    ? working.map((p) => p.name).join(", ")
     : "none I can verify";
   const unverifiedText = unverified.length
     ? unverified.map((p) => p.name).join(", ")

@@ -1,3 +1,4 @@
+// ARTBOOST_CONSULTANT_RESPONSE_FALLBACK_V14
 // ARTBOOST_AI_CONSULTANT_FUNCTIONAL_INTEGRITY_V3159
 import express from "express";
 import OpenAI from "openai";
@@ -793,10 +794,32 @@ function extractJson(text) {
   const match = raw.match(/\{[\s\S]*\}/);
 
   if (!match) {
-    throw new Error("The AI assistant returned an invalid response.");
+    // V14: never expose an internal structured-output failure as the Consultant's answer.
+    // If the model returned useful plain text, preserve it as a safe answer.
+    const fallbackAnswer = cleanString(raw, 6000);
+    return {
+      answer: fallbackAnswer || "I couldn't format that response correctly. Please ask me again and I'll answer using verified ArtBoost information.",
+      steps: [],
+      actions: [],
+      followUps: [],
+      usedAccountData: false,
+      severity: "info",
+    };
   }
 
-  return JSON.parse(match[0]);
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    const fallbackAnswer = cleanString(raw, 6000);
+    return {
+      answer: fallbackAnswer || "I couldn't format that response correctly. Please ask me again and I'll answer using verified ArtBoost information.",
+      steps: [],
+      actions: [],
+      followUps: [],
+      usedAccountData: false,
+      severity: "info",
+    };
+  }
 }
 
 function validateActions(actions) {
