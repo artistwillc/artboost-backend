@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_PLATFORM_SCOPE_V13_6
+// ARTBOOST_CONSULTANT_REMEDIATION_V13_7
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -72,6 +72,29 @@ function displayPlatformName(value) {
   if (v === "tiktok") return "TikTok";
   if (v === "linkedin") return "LinkedIn";
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Platform";
+}
+
+function displayStoreTypeName(value) {
+  const v = platformName(value);
+  const known = {
+    shopify: "Shopify",
+    etsy: "Etsy",
+    redbubble: "Redbubble",
+    artpal: "ArtPal",
+    gumroad: "Gumroad",
+    fine_art_america: "Fine Art America",
+    fineartamerica: "Fine Art America",
+    amazon: "Amazon",
+    ebay: "eBay",
+    society6: "Society6",
+    big_cartel: "Big Cartel",
+    squarespace: "Squarespace",
+    wix: "Wix",
+    woocommerce: "WooCommerce",
+    printify: "Printify",
+    printful: "Printful",
+  };
+  return known[v] || (v ? v.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "");
 }
 
 function parseJson(value) {
@@ -445,8 +468,10 @@ function logBelongsToStore(log, store) {
 function storeLabel(store) {
   const name = text(store?.name || store?.storeName, 180);
   const type = platformName(store?.type || store?.storeType);
-  if (name && type && name.toLowerCase() !== type.toLowerCase()) return `${type} (${name})`;
-  return name || type || "Connected Store";
+  const displayType = displayStoreTypeName(type);
+  if (name && type && name.toLowerCase() !== type.toLowerCase()) return `${displayType || type} (${name})`;
+  if (name && type && name.toLowerCase() === type.toLowerCase()) return displayType || name;
+  return name || displayType || type || "Connected Store";
 }
 
 function storeMention(question, stores) {
@@ -1010,6 +1035,268 @@ function schedulerDiagnosticAnswer(question, accountContext, requestedDateRange)
   };
 }
 
+
+function remediationIntent(question) {
+  const q = text(question, 1600).toLowerCase();
+  const fixLanguage =
+    /\b(?:fix|fixing|resolve|resolving|repair|correct|recover|remedy|remediate|what\s+(?:do|should)\s+i\s+(?:do|check)|how\s+(?:do|can|should)\s+i|help\s+me\s+(?:fix|resolve)|what\s+needs?\s+to\s+be\s+fixed)\b/.test(q);
+  const failureLanguage =
+    /\b(?:fail|fails|failed|failure|failures|error|errors|skip|skips|skipped|issue|issues|problem|problems|post|posts|posting|publish|published|publishing|scheduler|automation)\b/.test(q);
+  return fixLanguage && failureLanguage;
+}
+
+function failureLikeLog(log) {
+  return Boolean(
+    log?.event_type === "post_failed" ||
+    log?.status === "failed" ||
+    log?.event_type === "post_skipped" ||
+    log?.status === "skipped" ||
+    logFailedPlatforms(log).length ||
+    logSkippedPlatforms(log).length
+  );
+}
+
+function remediationCause(reason) {
+  const raw = text(reason, 320);
+  const q = raw.toLowerCase();
+
+  if (!raw) {
+    return {
+      key: "unknown",
+      title: "Recorded failure without a detailed reason",
+      advice: "Open the matching Publishing History record first. ArtBoost should not guess at the cause when the scheduler did not store a specific error.",
+      actions: ["history"],
+    };
+  }
+
+  if (/\b(?:could not fetch|cannot fetch|can't fetch|unable to fetch|image.*fetch|fetch.*image|image url|image unavailable|invalid image|media.*unavailable)\b/.test(q)) {
+    return {
+      key: "image_fetch",
+      title: "Image could not be fetched",
+      advice: "Check the source product image in ArtBoost Library and make sure the image URL is still valid and publicly reachable. After the image is available, retry the post.",
+      actions: ["library", "history"],
+    };
+  }
+
+  if (/\bno eligible product found\b/.test(q)) {
+    return {
+      key: "no_eligible_product",
+      title: "No eligible product was available",
+      advice: "Check that the store still has imported active products eligible for rotation, then review the automation's product-selection and repeat-delay settings before the next run.",
+      actions: ["library", "schedule"],
+    };
+  }
+
+  if (/\b(?:unauthori[sz]ed|forbidden|access token|token expired|expired token|invalid token|not connected|reconnect|authentication|oauth|permission|permissions)\b/.test(q)) {
+    return {
+      key: "connection_auth",
+      title: "Connection or authorization problem",
+      advice: "Open Connections and verify that the affected social account is still connected and authorized. Reconnect it if ArtBoost shows an expired or invalid authorization, then retry.",
+      actions: ["connections", "history"],
+    };
+  }
+
+  if (/\b(?:rate limit|rate-limit|too many requests|429)\b/.test(q)) {
+    return {
+      key: "rate_limit",
+      title: "Provider rate limit",
+      advice: "Do not repeatedly retry immediately. Review the failed record, allow the provider limit to clear, then retry the post later.",
+      actions: ["history", "schedule"],
+    };
+  }
+
+  if (/\b(?:caption|description|text|hashtag|character|too long|invalid input|invalid parameter|invalid request|validation)\b/.test(q)) {
+    return {
+      key: "content_validation",
+      title: "Post content was rejected",
+      advice: "Review the generated post content and the platform's recorded validation error, correct the rejected field, then retry the post.",
+      actions: ["history"],
+    };
+  }
+
+  if (/\b(?:timeout|timed out|temporar|service unavailable|503|502|gateway|network|connection reset)\b/.test(q)) {
+    return {
+      key: "temporary_provider",
+      title: "Temporary provider or network failure",
+      advice: "Review the recorded error and retry after the provider is reachable again. If it repeats, check the affected connection before the next scheduled run.",
+      actions: ["history", "connections"],
+    };
+  }
+
+  return {
+    key: `recorded:${q.slice(0, 80)}`,
+    title: "Recorded platform error",
+    advice: `Review the exact recorded error before retrying: ${raw}. I will not invent a more specific fix than the scheduler evidence supports.`,
+    actions: ["history"],
+  };
+}
+
+function remediationWindow(question, requestedDateRange, accountContext) {
+  const timeZone = timezoneFor(accountContext);
+  const explicit = resolveWindow(question, requestedDateRange, timeZone);
+  if (explicit) return { window: explicit, defaulted: false };
+  return { window: resolveWindow("today", "", timeZone), defaulted: true };
+}
+
+function remediationAnswer(question, accountContext, requestedDateRange) {
+  if (!remediationIntent(question)) return null;
+
+  const { window: initialWindow, defaulted } = remediationWindow(
+    question,
+    requestedDateRange,
+    accountContext
+  );
+  const stores = arr(accountContext?.connectedStores);
+  const allLogs = arr(accountContext?.automationLogs);
+
+  let relevant = allLogs
+    .filter((log) => inWindow(log?.created_at, initialWindow))
+    .filter(failureLikeLog);
+
+  let fallbackToMostRecent = false;
+  if (defaulted && !relevant.length) {
+    const recent = allLogs
+      .filter(failureLikeLog)
+      .sort((a, b) =>
+        new Date(b?.created_at || 0).getTime() -
+        new Date(a?.created_at || 0).getTime()
+      );
+    if (recent.length) {
+      relevant = [recent[0]];
+      fallbackToMostRecent = true;
+    }
+  }
+
+  if (!relevant.length) {
+    return {
+      answer: `I do not see a failed or skipped ArtBoost scheduler record ${initialWindow.label} that needs remediation.`,
+      steps: [],
+      actions: [publishingHistoryAction({ window: initialWindow, failures: true })],
+      followUps: ["Check my social connections.", "Review my schedule."],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  const incidents = [];
+  for (const log of relevant) {
+    const store = failureStoreForLog(log, stores);
+    const failed = logFailedPlatforms(log);
+    const skipped = logSkippedPlatforms(log);
+
+    for (const platform of failed) {
+      incidents.push({
+        status: "failed",
+        platform,
+        platformLabel: displayPlatformName(platform),
+        storeLabel: store ? storeLabel(store) : "Unattributed scheduler record",
+        reason: logDiagnosticReason(log, platform),
+        createdAt: log?.created_at || null,
+      });
+    }
+
+    for (const platform of skipped) {
+      incidents.push({
+        status: "skipped",
+        platform,
+        platformLabel: displayPlatformName(platform),
+        storeLabel: store ? storeLabel(store) : "Unattributed scheduler record",
+        reason: logDiagnosticReason(log, platform),
+        createdAt: log?.created_at || null,
+      });
+    }
+
+    if (!failed.length && !skipped.length) {
+      const status =
+        log?.event_type === "post_skipped" || log?.status === "skipped"
+          ? "skipped"
+          : "failed";
+      incidents.push({
+        status,
+        platform: null,
+        platformLabel: "Unattributed platform",
+        storeLabel: store ? storeLabel(store) : "Unattributed scheduler record",
+        reason: logDiagnosticReason(log),
+        createdAt: log?.created_at || null,
+      });
+    }
+  }
+
+  incidents.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "failed" ? -1 : 1;
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
+
+  const groups = new Map();
+  for (const incident of incidents) {
+    const cause = remediationCause(incident.reason);
+    const key = `${incident.status}:${cause.key}`;
+    const current = groups.get(key) || {
+      status: incident.status,
+      cause,
+      incidents: [],
+    };
+    current.incidents.push(incident);
+    groups.set(key, current);
+  }
+
+  const orderedGroups = [...groups.values()].sort((a, b) => {
+    if (a.status !== b.status) return a.status === "failed" ? -1 : 1;
+    return b.incidents.length - a.incidents.length;
+  });
+
+  const failedCount = incidents.filter((item) => item.status === "failed").length;
+  const skippedCount = incidents.filter((item) => item.status === "skipped").length;
+
+  const recommendations = orderedGroups.slice(0, 5).map((group, index) => {
+    const examples = unique(group.incidents.map((item) =>
+      `${item.storeLabel}${item.platform ? ` / ${item.platformLabel}` : ""}`
+    ));
+    const exampleText = examples.slice(0, 3).join(", ");
+    const extra = examples.length > 3 ? ` and ${examples.length - 3} more` : "";
+    const statusLabel = group.status === "failed" ? "Failed" : "Skipped";
+    return `${index + 1}. ${statusLabel} — ${group.cause.title}: ${exampleText}${extra}. ${group.cause.advice}`;
+  });
+
+  const actionKinds = new Set(["history"]);
+  for (const group of orderedGroups.slice(0, 5)) {
+    for (const action of group.cause.actions) actionKinds.add(action);
+  }
+
+  const actions = [
+    publishingHistoryAction({
+      window: fallbackToMostRecent ? null : initialWindow,
+      failures: true
+    }),
+  ];
+  if (actionKinds.has("connections")) actions.push(SAFE_ACTIONS.connections);
+  if (actionKinds.has("library")) actions.push(SAFE_ACTIONS.library);
+  if (actionKinds.has("schedule")) actions.push(SAFE_ACTIONS.schedule);
+
+  const intro = fallbackToMostRecent
+    ? "There are no failed or skipped scheduler records today, so I used the most recent problem I can verify."
+    : defaulted
+      ? "I prioritized today's scheduler problems instead of your lifetime history."
+      : "I used the requested scheduler time window.";
+
+  const scopeLabel = fallbackToMostRecent
+    ? "in the most recent problem"
+    : initialWindow.label;
+
+  return {
+    answer: `${intro} I found ${failedCount} failed and ${skippedCount} skipped platform outcome${failedCount + skippedCount === 1 ? "" : "s"} ${scopeLabel}. Here's what to fix first: ${recommendations.join(" ")}`,
+    steps: [],
+    actions,
+    followUps: [
+      "Which problem should I fix first?",
+      "Check my social connections.",
+      "Show me today's failed or skipped posts.",
+    ],
+    usedAccountData: true,
+    severity: failedCount ? "warning" : "info",
+  };
+}
+
 function failuresAnswer(question, accountContext, requestedDateRange) {
   const q = text(question, 1600).toLowerCase();
   if (!/\b(?:fail|fails|failed|failure|failures|error|errors|skip|skips|skipped|issue|issues|problem|problems)\b/.test(q)) return null;
@@ -1248,6 +1535,7 @@ export function buildConsultantOperationalAnswer({
     oneStorePostingAnswer(question, accountContext, dateRange) ||
     platformScopedSchedulerAnswer(question, accountContext, dateRange) ||
     allStorePostingAnswer(question, accountContext, dateRange) ||
+    remediationAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
     productRecommendationAnswer(question, accountContext) ||
     connectionHealthAnswer(question, accountContext) ||
