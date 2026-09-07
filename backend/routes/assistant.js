@@ -14,6 +14,11 @@ import {
   loadConsultantExternalContext,
   mergeConsultantExternalContext,
 } from "../services/consultantLaunchAuthority.js";
+import {
+  isLaunchSmokeTestQuestion,
+  runStrictAuthLaunchSmokeTest,
+} from "../services/launchSmokeTestService.js";
+// ARTBOOST_STRICT_AUTH_LAUNCH_SMOKE_TEST_V13_9
 // ARTBOOST_CONSULTANT_LAUNCH_AUTHORITY_V13
 
 const router = express.Router();
@@ -1954,6 +1959,7 @@ router.post("/assistant", async (req, res) => {
 
     if (
       isConsultant &&
+      !isLaunchSmokeTestQuestion(question) &&
       !isConsultantQuestionInScope({
         question,
         conversation,
@@ -1978,6 +1984,25 @@ router.post("/assistant", async (req, res) => {
         connectedStores: accountContext.connectedStores,
       });
       mergeConsultantExternalContext(accountContext, externalContext);
+    }
+
+    if (
+      isConsultant &&
+      verifiedUser?.id &&
+      accountContext?.authenticated &&
+      isLaunchSmokeTestQuestion(question)
+    ) {
+      const smokeTest = await runStrictAuthLaunchSmokeTest({
+        question,
+        authorizationHeader: cleanString(req.headers.authorization, 5000),
+        userId: verifiedUser.id,
+        accountContext,
+      });
+
+      return res.json({
+        success: true,
+        ...smokeTest,
+      });
     }
 
     const operationalAnswer = isConsultant
