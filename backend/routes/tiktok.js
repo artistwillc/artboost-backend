@@ -699,6 +699,28 @@ router.get(
   }
 );
 
+// ARTBOOST_TIKTOK_ASSET_LINKS_V11
+const ARTBOOST_ANDROID_PACKAGE = "com.artboostai.app";
+const ARTBOOST_ANDROID_SHA256 = "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C";
+
+router.get("/.well-known/assetlinks.json", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=300");
+  return res.status(200).json([
+    {
+      relation: [
+        "delegate_permission/common.handle_all_urls"
+      ],
+      target: {
+        namespace: "android_app",
+        package_name: ARTBOOST_ANDROID_PACKAGE,
+        sha256_cert_fingerprints: [
+          ARTBOOST_ANDROID_SHA256
+        ],
+      },
+    },
+  ]);
+});
+
 router.get("/auth/tiktok", async (req, res) => {
   try {
     const { userId } = req.query;
