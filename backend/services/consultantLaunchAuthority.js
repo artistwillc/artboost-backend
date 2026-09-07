@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_SCHEDULER_VERIFICATION_V13_2
+// ARTBOOST_CONSULTANT_ACCEPTANCE_HARDENING_V13_3
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -638,32 +638,175 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
   };
 }
 
+function failureStoreForLog(log, stores) {
+  const id = text(log?.store_id, 160);
+  if (id) {
+    const byId = arr(stores).find((store) => text(store?.id, 160) === id);
+    if (byId) return byId;
+  }
+  return null;
+}
+
 function failuresAnswer(question, accountContext, requestedDateRange) {
   const q = text(question, 1600).toLowerCase();
-  if (!/\b(?:fail|failed|failure|error|skip|skipped|issue|problem)\b/.test(q)) return null;
-  if (!/\b(?:post|posting|publish|automation|store|platform)\b/.test(q)) return null;
+  if (!/\b(?:fail|fails|failed|failure|failures|error|errors|skip|skips|skipped|issue|issues|problem|problems)\b/.test(q)) return null;
+  if (!/\b(?:post|posts|posting|publish|published|publishing|automation|automations|store|stores|platform|platforms|attempt|attempts)\b/.test(q)) return null;
 
   const timeZone = timezoneFor(accountContext);
   const window = resolveWindow(question, requestedDateRange, timeZone);
   const logs = arr(accountContext?.automationLogs).filter((log) => !window || inWindow(log?.created_at, window));
-  const failedPlatforms = unique(logs.flatMap(logFailedPlatforms));
-  const skippedPlatforms = unique(logs.flatMap(logSkippedPlatforms));
-  const failedLogs = logs.filter((log) => log?.event_type === "post_failed" || log?.status === "failed" || logFailedPlatforms(log).length);
-  const skippedLogs = logs.filter((log) => log?.event_type === "post_skipped" || log?.status === "skipped");
+  const stores = arr(accountContext?.connectedStores);
 
-  const label = window?.label || "in the available ArtBoost publishing history";
-  const evidence = [
-    failedPlatforms.length ? `failed platforms: ${failedPlatforms.join(", ")}` : "",
-    skippedPlatforms.length ? `skipped platforms: ${skippedPlatforms.join(", ")}` : "",
-  ].filter(Boolean).join("; ");
+  const relevant = logs.filter((log) =>
+    log?.event_type === "post_failed" ||
+    log?.status === "failed" ||
+    log?.event_type === "post_skipped" ||
+    log?.status === "skipped" ||
+    logFailedPlatforms(log).length ||
+    logSkippedPlatforms(log).length
+  );
+
+  const byStore = new Map();
+  let failedAttemptCount = 0;
+  let skippedAttemptCount = 0;
+
+  for (const log of relevant) {
+    const failed = logFailedPlatforms(log);
+    const skipped = logSkippedPlatforms(log);
+    if (failed.length || log?.event_type === "post_failed" || log?.status === "failed") failedAttemptCount += 1;
+    if (skipped.length || log?.event_type === "post_skipped" || log?.status === "skipped") skippedAttemptCount += 1;
+
+    const store = failureStoreForLog(log, stores);
+    const key = store ? storeKey(store) : `unattributed:${text(log?.store_id, 160) || "unknown"}`;
+    const current = byStore.get(key) || {
+      label: store ? storeLabel(store) : "Unattributed scheduler record",
+      failed: [],
+      skipped: [],
+      messages: [],
+    };
+    current.failed = unique([...current.failed, ...failed]);
+    current.skipped = unique([...current.skipped, ...skipped]);
+    const msg = text(log?.error_message || log?.message, 180);
+    if (msg && current.messages.length < 2) current.messages.push(msg);
+    byStore.set(key, current);
+  }
+
+  const label = window?.label || "in the available ArtBoost scheduler history";
+  const details = [...byStore.values()].map((item) => {
+    const parts = [];
+    if (item.failed.length) parts.push(`failed: ${item.failed.join(", ")}`);
+    if (item.skipped.length) parts.push(`skipped: ${item.skipped.join(", ")}`);
+    if (!parts.length) parts.push("failure/skip recorded without platform attribution");
+    return `${item.label} — ${parts.join("; ")}`;
+  });
+
+  if (!relevant.length) {
+    return {
+      answer: `No — I found no failed or skipped ArtBoost scheduler attempts ${label}.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.history],
+      followUps: ["Which platforms posted successfully?", "Did all my stores post?"],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
 
   return {
-    answer: `${failedLogs.length || skippedLogs.length ? "Yes" : "No"} — I found ${failedLogs.length} failed and ${skippedLogs.length} skipped ArtBoost scheduler ${failedLogs.length + skippedLogs.length === 1 ? "attempt" : "attempts"} ${label}${evidence ? `. ${evidence}` : ""}.`,
+    answer: `Yes — I found ${failedAttemptCount} failed and ${skippedAttemptCount} skipped ArtBoost scheduler ${failedAttemptCount + skippedAttemptCount === 1 ? "attempt" : "attempts"} ${label}. ${details.join("; ")}.`,
     steps: [],
     actions: [SAFE_ACTIONS.reviewHistory],
-    followUps: ["Which store had the problem?", "Check my social connections."],
+    followUps: ["Which store should I fix first?", "Check my social connections."],
     usedAccountData: true,
-    severity: failedLogs.length ? "warning" : "info",
+    severity: failedAttemptCount ? "warning" : "info",
+  };
+}
+
+function productMatchesStore(product, store) {
+  if (!store) return true;
+  const productType = platformName(product?.store_type || product?.storeType);
+  const productName = text(product?.store_name || product?.storeName, 180).toLowerCase();
+  const storeType = platformName(store?.type || store?.storeType);
+  const storeName = text(store?.name || store?.storeName, 180).toLowerCase();
+
+  return Boolean(
+    (storeType && productType && storeType === productType) ||
+    (storeName && productName && storeName === productName)
+  );
+}
+
+function productRecommendationAnswer(question, accountContext) {
+  const q = text(question, 1600).toLowerCase();
+  const asksRecommendation =
+    /\b(?:which|what|recommend|recommendation|recommendations|choose|pick|should)\b/.test(q) &&
+    /\b(?:product|products|artwork|artworks|listing|listings|design|designs)\b/.test(q) &&
+    /\b(?:promote|promotion|market|marketing|post|feature|push|next|today)\b/.test(q);
+
+  if (!asksRecommendation) return null;
+
+  const namedStore = storeMention(question, accountContext?.connectedStores);
+  let candidates = arr(accountContext?.products).filter((product) => productMatchesStore(product, namedStore));
+
+  // Ignore obviously inactive/archived products when status is supplied.
+  candidates = candidates.filter((product) => {
+    const status = text(product?.status, 80).toLowerCase();
+    return !["deleted", "archived", "inactive"].includes(status);
+  });
+
+  if (!candidates.length) {
+    const scope = namedStore ? ` for ${storeLabel(namedStore)}` : "";
+    return {
+      answer: `Unable to verify — I do not have an imported product record${scope} that I can rank from the current ArtBoost account data.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.library],
+      followUps: ["Open my Library.", "Which stores have imported products?"],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
+  const ranked = [...candidates].sort((a, b) => {
+    const aTimes = Number(a?.times_posted ?? a?.timesPosted ?? 0);
+    const bTimes = Number(b?.times_posted ?? b?.timesPosted ?? 0);
+    const aUnposted = aTimes === 0 ? 1 : 0;
+    const bUnposted = bTimes === 0 ? 1 : 0;
+    if (aUnposted !== bUnposted) return bUnposted - aUnposted;
+
+    const at = a?.last_posted_at || a?.lastPostedAt;
+    const bt = b?.last_posted_at || b?.lastPostedAt;
+    const aTime = at ? new Date(at).getTime() : 0;
+    const bTime = bt ? new Date(bt).getTime() : 0;
+    if (aTime !== bTime) return aTime - bTime;
+
+    const ac = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const bc = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return bc - ac;
+  });
+
+  const picks = ranked.slice(0, Math.min(3, ranked.length));
+  const details = picks.map((product, index) => {
+    const title = text(product?.title || "Untitled artwork", 220);
+    const times = Number(product?.times_posted ?? product?.timesPosted ?? 0);
+    const last = product?.last_posted_at || product?.lastPostedAt || null;
+
+    let reason;
+    if (times === 0) {
+      reason = "has no recorded ArtBoost post yet";
+    } else if (!last) {
+      reason = `has only ${times} recorded ArtBoost ${times === 1 ? "post" : "posts"} and no recent-post timestamp I can verify`;
+    } else {
+      reason = `has ${times} recorded ArtBoost ${times === 1 ? "post" : "posts"} and is among the least recently promoted products`;
+    }
+    return `${index + 1}. ${title} — ${reason}`;
+  });
+
+  const scope = namedStore ? ` from ${storeLabel(namedStore)}` : "";
+  return {
+    answer: `I recommend these verified ArtBoost products${scope} next: ${details.join("; ")}. I ranked them by unposted-first, then least-recently-posted history. I am not inventing sales, reach, or engagement data.`,
+    steps: [],
+    actions: [SAFE_ACTIONS.library],
+    followUps: ["Create an Instagram post for the first product.", "Why did you rank these products this way?"],
+    usedAccountData: true,
+    severity: "success",
   };
 }
 
@@ -732,10 +875,16 @@ export function buildConsultantOperationalAnswer({
 } = {}) {
   if (!accountContext?.authenticated) return null;
 
+  // Intent precedence is deliberate:
+  // 1) an explicitly named store always stays inside that store boundary;
+  // 2) account-wide store questions run only when no named-store answer matched;
+  // 3) time-scoped scheduler failures/skips outrank legacy lifetime summaries;
+  // 4) product recommendations are grounded in verified imported product history.
   return (
-    allStorePostingAnswer(question, accountContext, dateRange) ||
     oneStorePostingAnswer(question, accountContext, dateRange) ||
+    allStorePostingAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
+    productRecommendationAnswer(question, accountContext) ||
     connectionHealthAnswer(question, accountContext) ||
     null
   );
