@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_ACTION_ROUTING_V13_4
+// ARTBOOST_CONSULTANT_DIAGNOSTICS_V13_5
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -673,6 +673,165 @@ function failureStoreForLog(log, stores) {
   return null;
 }
 
+
+function platformMention(question) {
+  const q = text(question, 1600).toLowerCase();
+  const aliases = [
+    ["facebook", ["facebook", "fb"]],
+    ["instagram", ["instagram", "ig"]],
+    ["threads", ["threads"]],
+    ["pinterest", ["pinterest"]],
+    ["tiktok", ["tiktok", "tik tok"]],
+    ["linkedin", ["linkedin", "linked in"]],
+    ["x", [" x ", "twitter"]],
+  ];
+  const padded = ` ${q} `;
+  for (const [platform, names] of aliases) {
+    if (names.some((name) => padded.includes(` ${name} `))) return platform;
+  }
+  return null;
+}
+
+function diagnosticIntent(question) {
+  const q = text(question, 1600).toLowerCase();
+  const asksWhy =
+    /\b(?:why|reason|cause|caused|what\s+happened|what\s+went\s+wrong|explain)\b/.test(q);
+  const asksFailure =
+    /\b(?:fail|failed|failure|error|skip|skipped|issue|problem)\b/.test(q);
+  return asksWhy && asksFailure;
+}
+
+function logDiagnosticReason(log, requestedPlatform = null) {
+  const result = parseJson(log?.publish_result);
+  const results = arr(result?.results);
+
+  if (requestedPlatform) {
+    const platformRow = results.find((item) =>
+      platformName(item?.platform || item?.name) === requestedPlatform &&
+      item?.success === false
+    );
+    const platformReason = text(
+      platformRow?.error ||
+      platformRow?.error_message ||
+      platformRow?.message ||
+      platformRow?.details ||
+      platformRow?.reason,
+      260
+    );
+    if (platformReason) return platformReason;
+  }
+
+  const resultReason = results
+    .filter((item) => item?.success === false)
+    .map((item) => text(
+      item?.error ||
+      item?.error_message ||
+      item?.message ||
+      item?.details ||
+      item?.reason,
+      260
+    ))
+    .find(Boolean);
+  if (resultReason) return resultReason;
+
+  return text(
+    log?.error_message ||
+    log?.message ||
+    result?.error ||
+    result?.message ||
+    result?.details ||
+    result?.reason,
+    320
+  );
+}
+
+function schedulerDiagnosticAnswer(question, accountContext, requestedDateRange) {
+  if (!diagnosticIntent(question)) return null;
+
+  const stores = arr(accountContext?.connectedStores);
+  const store = storeMention(question, stores);
+  if (!store) return null;
+
+  const q = text(question, 1600).toLowerCase();
+  const wantsSkip = /\b(?:skip|skipped)\b/.test(q);
+  const wantsFailure = /\b(?:fail|failed|failure|error|issue|problem)\b/.test(q);
+  const requestedPlatform = platformMention(question);
+  const timeZone = timezoneFor(accountContext);
+  const explicitWindow = resolveWindow(question, requestedDateRange, timeZone);
+  const window = explicitWindow || null;
+
+  let logs = arr(accountContext?.automationLogs)
+    .filter((log) => logBelongsToStore(log, store))
+    .filter((log) => !window || inWindow(log?.created_at, window));
+
+  logs = logs.filter((log) => {
+    const failed = logFailedPlatforms(log);
+    const skipped = logSkippedPlatforms(log);
+    if (requestedPlatform && !failed.includes(requestedPlatform) && !skipped.includes(requestedPlatform)) {
+      return false;
+    }
+    if (wantsSkip && !wantsFailure) return skipped.length > 0 || log?.event_type === "post_skipped" || log?.status === "skipped";
+    if (wantsFailure && !wantsSkip) return failed.length > 0 || log?.event_type === "post_failed" || log?.status === "failed";
+    return failed.length > 0 || skipped.length > 0 ||
+      log?.event_type === "post_failed" || log?.status === "failed" ||
+      log?.event_type === "post_skipped" || log?.status === "skipped";
+  });
+
+  logs.sort((a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime());
+
+  const label = storeLabel(store);
+  const timeLabel = window?.label || "in the most recent scheduler record I can verify";
+
+  if (!logs.length) {
+    return {
+      answer: `Unable to verify — I do not see a matching failed or skipped ArtBoost scheduler record for ${label} ${timeLabel}.`,
+      steps: [],
+      actions: [publishingHistoryAction({ window, store, failures: true }), SAFE_ACTIONS.schedule],
+      followUps: ["Show me this store's publishing history.", "Review this store's schedule."],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
+  const log = logs[0];
+  const failed = logFailedPlatforms(log);
+  const skipped = logSkippedPlatforms(log);
+  const reason = logDiagnosticReason(log, requestedPlatform);
+  const affected = requestedPlatform
+    ? [requestedPlatform]
+    : unique([
+        ...(wantsSkip && !wantsFailure ? skipped : []),
+        ...(wantsFailure && !wantsSkip ? failed : []),
+        ...(!wantsSkip || wantsFailure ? failed : []),
+        ...(!wantsFailure || wantsSkip ? skipped : []),
+      ]);
+
+  const eventKind =
+    skipped.length && (!failed.length || wantsSkip && !wantsFailure) ? "skipped" :
+    failed.length && (!skipped.length || wantsFailure && !wantsSkip) ? "failed" :
+    "failed or skipped";
+
+  const affectedText = affected.length
+    ? ` Affected platform${affected.length === 1 ? "" : "s"}: ${affected.join(", ")}.`
+    : "";
+
+  const reasonText = reason
+    ? ` The recorded reason was: ${reason}.`
+    : " ArtBoost recorded the scheduler outcome, but that record does not contain a more detailed reason, so I will not invent one.";
+
+  return {
+    answer: `${label} ${eventKind} ${timeLabel}.${affectedText}${reasonText}`,
+    steps: [],
+    actions: [publishingHistoryAction({ window, store, failures: true }), SAFE_ACTIONS.schedule],
+    followUps: [
+      "Show me the matching scheduler record.",
+      "What should I check before the next scheduled run?"
+    ],
+    usedAccountData: true,
+    severity: "warning",
+  };
+}
+
 function failuresAnswer(question, accountContext, requestedDateRange) {
   const q = text(question, 1600).toLowerCase();
   if (!/\b(?:fail|fails|failed|failure|failures|error|errors|skip|skips|skipped|issue|issues|problem|problems)\b/.test(q)) return null;
@@ -738,7 +897,7 @@ function failuresAnswer(question, accountContext, requestedDateRange) {
   }
 
   return {
-    answer: `Yes — I found ${failedAttemptCount} failed and ${skippedAttemptCount} skipped ArtBoost scheduler ${failedAttemptCount + skippedAttemptCount === 1 ? "attempt" : "attempts"} ${label}. ${details.join("; ")}.`,
+    answer: `Yes — I found ${failedAttemptCount} failed and ${skippedAttemptCount} skipped ArtBoost scheduler ${failedAttemptCount + skippedAttemptCount === 1 ? "attempt" : "attempts"} ${label}. ${details.join("; ")}. These are scheduler-attempt counts; Publishing History can show a larger number of failed or skipped platform outcomes because one store attempt may include several platforms.`,
     steps: [],
     actions: [publishingHistoryAction({ window, failures: true })],
     followUps: ["Which store should I fix first?", "Check my social connections."],
@@ -907,6 +1066,7 @@ export function buildConsultantOperationalAnswer({
   // 3) time-scoped scheduler failures/skips outrank legacy lifetime summaries;
   // 4) product recommendations are grounded in verified imported product history.
   return (
+    schedulerDiagnosticAnswer(question, accountContext, dateRange) ||
     oneStorePostingAnswer(question, accountContext, dateRange) ||
     allStorePostingAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
