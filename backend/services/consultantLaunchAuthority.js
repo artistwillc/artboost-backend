@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_ACCEPTANCE_HARDENING_V13_3
+// ARTBOOST_CONSULTANT_ACTION_ROUTING_V13_4
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -17,10 +17,36 @@ const PLATFORM_PROBES = [
 const SAFE_ACTIONS = {
   connections: { id: "open_connections", label: "Open Connections", route: "/(tabs)/connections" },
   library: { id: "open_library", label: "Open Library", route: "/(tabs)/products" },
-  history: { id: "view_publishing_history", label: "View Today's Posts", route: "/history" },
-  reviewHistory: { id: "review_publishing_history", label: "Review Failed or Skipped Posts", route: "/history" },
-  schedule: { id: "review_schedule", label: "Review Schedule", route: "/schedule" },
+  schedule: { id: "review_schedule", label: "Review Schedule", route: "/(tabs)/schedule" },
 };
+
+function publishingRangeToken(window) {
+  const label = text(window?.label, 80).toLowerCase();
+  if (label === "today") return "today";
+  if (label === "yesterday") return "yesterday";
+  if (label === "this week") return "this_week";
+  if (label === "this month") return "this_month";
+  if (label === "the last 7 days") return "last_7_days";
+  if (label === "the last 30 days") return "last_30_days";
+  return "all";
+}
+
+function publishingHistoryAction({ window = null, store = null, failures = false } = {}) {
+  const params = [
+    `range=${encodeURIComponent(publishingRangeToken(window))}`,
+    failures ? "status=failed_skipped" : "status=all",
+  ];
+  const storeId = text(store?.id, 160);
+  if (storeId) params.push(`storeId=${encodeURIComponent(storeId)}`);
+
+  return {
+    id: failures ? "review_publishing_history" : "view_publishing_history",
+    label: failures ? "Review Failed or Skipped Posts" : (
+      publishingRangeToken(window) === "today" ? "View Today's Posts" : "View Publishing History"
+    ),
+    route: `/publishing-history?${params.join("&")}`,
+  };
+}
 
 function arr(value) {
   return Array.isArray(value) ? value : [];
@@ -513,7 +539,7 @@ function allStorePostingAnswer(question, accountContext, requestedDateRange) {
       return {
         answer: `No — ${noSuccess.length} scheduled ${noSuccess.length === 1 ? "store has" : "stores have"} no confirmed successful scheduler post ${window.label}. ${detail}${unscheduled.length ? `. Not scheduled: ${unscheduled.map((i) => storeLabel(i.store)).join(", ")}` : ""}.`,
         steps: [],
-        actions: [SAFE_ACTIONS.history],
+        actions: [publishingHistoryAction({ window })],
         followUps: ["Which posts failed or were skipped?", "Which store should I fix first?"],
         usedAccountData: true,
         severity: "warning",
@@ -523,7 +549,7 @@ function allStorePostingAnswer(question, accountContext, requestedDateRange) {
     return {
       answer: `Yes — every store with an active ArtBoost automation has at least one confirmed successful scheduler post ${window.label}. ${detail}${unscheduled.length ? `. Not scheduled: ${unscheduled.map((i) => storeLabel(i.store)).join(", ")}` : ""}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.history],
+      actions: [publishingHistoryAction({ window })],
       followUps: ["Did every scheduled platform complete?", "Were any posts skipped?"],
       usedAccountData: true,
       severity: "success",
@@ -540,7 +566,7 @@ function allStorePostingAnswer(question, accountContext, requestedDateRange) {
     return {
       answer: `No — not every scheduled store/platform combination has a confirmed successful scheduler result ${window.label}. ${detail}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.reviewHistory],
+      actions: [publishingHistoryAction({ window, failures: true })],
       followUps: ["Which posts failed or were skipped?", "Which platforms have no scheduler record?"],
       usedAccountData: true,
       severity: "warning",
@@ -550,7 +576,7 @@ function allStorePostingAnswer(question, accountContext, requestedDateRange) {
   return {
     answer: `Yes — every expected scheduler platform for every scheduled store has a confirmed successful result ${window.label}. ${detail}.`,
     steps: [],
-    actions: [SAFE_ACTIONS.history],
+    actions: [publishingHistoryAction({ window })],
     followUps: ["Were any posts skipped?", "Show me today's successful platforms."],
     usedAccountData: true,
     severity: "success",
@@ -588,7 +614,7 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
       return {
         answer: `Yes — ${label} has a confirmed successful ArtBoost scheduler post ${window.label} on ${item.succeeded.join(", ")}.${item.failedPlatforms.length ? ` Failed: ${item.failedPlatforms.join(", ")}.` : ""}${item.skippedPlatforms.length ? ` Skipped: ${item.skippedPlatforms.join(", ")}.` : ""}${item.noSchedulerRecord.length ? ` No scheduler record yet: ${item.noSchedulerRecord.join(", ")}.` : ""}`,
         steps: [],
-        actions: [SAFE_ACTIONS.history],
+        actions: [publishingHistoryAction({ window, store })],
         followUps: ["Did every scheduled platform complete?", "Were any posts skipped?"],
         usedAccountData: true,
         severity: "success",
@@ -599,7 +625,7 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
       return {
         answer: `No — ${label} has no confirmed successful scheduler post ${window.label}. ${schedulerEvidenceSummary(item)}.`,
         steps: [],
-        actions: [SAFE_ACTIONS.reviewHistory],
+        actions: [publishingHistoryAction({ window, store, failures: true })],
         followUps: ["Why did it fail?", "Check my social connections."],
         usedAccountData: true,
         severity: "warning",
@@ -609,7 +635,7 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
     return {
       answer: `Unable to verify — I do not see a completed scheduler attempt for ${label} ${window.label}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.history],
+      actions: [publishingHistoryAction({ window, store })],
       followUps: ["Open today's publishing history.", "Review my schedule."],
       usedAccountData: true,
       severity: "info",
@@ -621,7 +647,7 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
     return {
       answer: `Yes — ${label} has confirmed successful scheduler results on every expected platform ${window.label}: ${item.succeeded.join(", ")}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.history],
+      actions: [publishingHistoryAction({ window, store })],
       followUps: ["Were any posts skipped?", "Show me my other stores."],
       usedAccountData: true,
       severity: "success",
@@ -631,7 +657,7 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
   return {
     answer: `No — ${label} did not complete every expected scheduler platform ${window.label}. ${schedulerEvidenceSummary(item)}.`,
     steps: [],
-    actions: [SAFE_ACTIONS.reviewHistory],
+    actions: [publishingHistoryAction({ window, store, failures: true })],
     followUps: ["Why did a platform fail or skip?", "Check my social connections."],
     usedAccountData: true,
     severity: "warning",
@@ -704,7 +730,7 @@ function failuresAnswer(question, accountContext, requestedDateRange) {
     return {
       answer: `No — I found no failed or skipped ArtBoost scheduler attempts ${label}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.history],
+      actions: [publishingHistoryAction({ window, failures: true })],
       followUps: ["Which platforms posted successfully?", "Did all my stores post?"],
       usedAccountData: true,
       severity: "success",
@@ -714,7 +740,7 @@ function failuresAnswer(question, accountContext, requestedDateRange) {
   return {
     answer: `Yes — I found ${failedAttemptCount} failed and ${skippedAttemptCount} skipped ArtBoost scheduler ${failedAttemptCount + skippedAttemptCount === 1 ? "attempt" : "attempts"} ${label}. ${details.join("; ")}.`,
     steps: [],
-    actions: [SAFE_ACTIONS.reviewHistory],
+    actions: [publishingHistoryAction({ window, failures: true })],
     followUps: ["Which store should I fix first?", "Check my social connections."],
     usedAccountData: true,
     severity: failedAttemptCount ? "warning" : "info",

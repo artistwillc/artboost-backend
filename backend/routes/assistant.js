@@ -1734,6 +1734,138 @@ function deterministicAccountAnswer(question, accountContext) {
 }
 
 // ARTBOOST_CONSULTANT_NAMING_V3166
+// ARTBOOST_PUBLISHING_HISTORY_API_V13_4
+function publishingHistoryDateKey(date, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const values = {};
+    for (const part of parts) if (part.type !== "literal") values[part.type] = part.value;
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+function publishingHistoryRangeMatch(createdAt, range, timeZone) {
+  if (!range || range === "all") return true;
+  const created = new Date(createdAt || 0);
+  if (Number.isNaN(created.getTime())) return false;
+  const now = new Date();
+  const todayKey = publishingHistoryDateKey(now, timeZone);
+  const createdKey = publishingHistoryDateKey(created, timeZone);
+
+  if (range === "today") return createdKey === todayKey;
+
+  const todayUtc = new Date(`${todayKey}T00:00:00.000Z`);
+  if (range === "yesterday") {
+    const y = new Date(todayUtc.getTime() - 86400000).toISOString().slice(0,10);
+    return createdKey === y;
+  }
+  if (range === "last_7_days") return created.getTime() >= now.getTime() - 7 * 86400000;
+  if (range === "last_30_days") return created.getTime() >= now.getTime() - 30 * 86400000;
+  if (range === "this_month") return createdKey.slice(0,7) === todayKey.slice(0,7);
+  if (range === "this_week") {
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(now);
+    const index = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(weekday);
+    const start = new Date(todayUtc.getTime() - Math.max(index,0) * 86400000).toISOString().slice(0,10);
+    return createdKey >= start && createdKey <= todayKey;
+  }
+  return true;
+}
+
+function publishingHistoryResultState(log) {
+  const parsed = parseJsonValue(log?.publish_result);
+  const results = safeArray(parsed?.results);
+  const hasSuccess = results.some((item) => item?.success === true) ||
+    log?.event_type === "post_success" || log?.status === "success";
+  const hasFailed = results.some((item) => item?.success === false) ||
+    log?.event_type === "post_failed" || log?.status === "failed";
+  const hasSkipped = log?.event_type === "post_skipped" || log?.status === "skipped";
+  return { hasSuccess, hasFailed, hasSkipped };
+}
+
+router.get("/publishing-history", async (req, res) => {
+  try {
+    const user = await verifyRequestUser(req);
+    if (!user?.id) {
+      return res.status(401).json({ success:false, error:"Sign in to review publishing history." });
+    }
+
+    const range = cleanString(req.query?.range || "all", 40).toLowerCase();
+    const statusFilter = cleanString(req.query?.status || "all", 40).toLowerCase();
+    const storeId = cleanString(req.query?.storeId || "", 160);
+
+    const storeResult = await loadStores(user.id);
+    const stores = safeArray(storeResult?.rows);
+    const storeIds = stores.map((store) => store?.id).filter(Boolean);
+    const automationResult = await loadAutomations({ userId:user.id, storeIds });
+    const timezone = safeArray(automationResult?.rows)
+      .map((item) => cleanString(item?.timezone,100))
+      .find(Boolean) || "America/Chicago";
+
+    const { data, error } = await supabase
+      .from("store_automation_logs")
+      .select("user_id,store_id,event_type,status,product_title,platforms,publish_result,message,error_message,created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending:false })
+      .limit(1000);
+
+    if (error) throw error;
+
+    const storeMap = new Map(stores.map((store) => [String(store.id), store]));
+    let rows = safeArray(data).filter((row) =>
+      publishingHistoryRangeMatch(row?.created_at, range, timezone)
+    );
+
+    if (storeId) rows = rows.filter((row) => String(row?.store_id || "") === storeId);
+
+    if (statusFilter !== "all") {
+      rows = rows.filter((row) => {
+        const state = publishingHistoryResultState(row);
+        if (statusFilter === "failed_skipped") return state.hasFailed || state.hasSkipped;
+        if (statusFilter === "failed") return state.hasFailed;
+        if (statusFilter === "skipped") return state.hasSkipped;
+        if (statusFilter === "success") return state.hasSuccess;
+        return true;
+      });
+    }
+
+    const records = rows.map((row) => {
+      const store = storeMap.get(String(row?.store_id || "")) || null;
+      return {
+        storeId: row?.store_id || null,
+        storeName: store?.storeName || store?.name || null,
+        storeType: store?.storeType || store?.type || null,
+        productTitle: row?.product_title || null,
+        eventType: row?.event_type || null,
+        status: row?.status || null,
+        platforms: safeArray(row?.platforms),
+        publishResult: parseJsonValue(row?.publish_result),
+        message: cleanString(row?.message,500) || null,
+        errorMessage: cleanString(row?.error_message,500) || null,
+        createdAt: row?.created_at || null,
+      };
+    });
+
+    return res.json({
+      success:true,
+      timezone,
+      range,
+      status:statusFilter,
+      records,
+      attributionBasis:"ArtBoost store scheduler logs",
+    });
+  } catch (error) {
+    console.error("Publishing history read failed:", error);
+    return res.status(500).json({ success:false, error:"Unable to load scheduler publishing history." });
+  }
+});
+
 router.get("/consultant-preferences", async (req, res) => {
   try {
     const user = await verifyRequestUser(req);

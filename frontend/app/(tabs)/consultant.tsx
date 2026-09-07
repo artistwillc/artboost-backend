@@ -1,3 +1,4 @@
+// ARTBOOST_CREATOR_TOOLS_ENABLEMENT_V31614
 // ARTBOOST_UNIFIED_AI_CONSULTANT_SUPPORT_V3160
 // ARTBOOST_AI_CONSULTANT_CONTEXT_PROPAGATION_V3159
 // ARTBOOST_VISUAL_PARITY_V3153
@@ -34,6 +35,25 @@ type AssistantAction = {
   id: string;
   label?: string;
   route?: string;
+};
+
+// ARTBOOST_CONSULTANT_CANONICAL_ACTION_ROUTING_V13_4
+const CANONICAL_ACTION_BASES: Record<string, string> = {
+  open_connections: "/(tabs)/connections",
+  open_library: "/(tabs)/products",
+  open_campaign_manager: "/campaign-manager",
+  open_campaign_history: "/(tabs)/history",
+  open_studio: "/video-studio",
+  open_created_videos: "/created-videos",
+  open_marketing_consultant: "/(tabs)/brand",
+  open_creator_tools: "/(tabs)/explore",
+  open_schedule: "/(tabs)/schedule",
+  review_schedule: "/(tabs)/schedule",
+  view_publishing_history: "/publishing-history",
+  review_publishing_history: "/publishing-history",
+  open_faq: "/faq",
+  open_subscription: "/(tabs)/pro",
+  open_consultant_settings: "/consultant-settings",
 };
 
 type Message = {
@@ -97,7 +117,7 @@ export default function ConsultantScreen() {
       id: "welcome",
       role: "assistant",
       text:
-        "I’m your ArtBoost AI Consultant. Ask me anything about ArtBoost or your art business—or tell me what you’d like to get done. I can analyze your verified ArtBoost data, recommend what to do next, and help manage your products, stores, social connections, campaigns, content, scheduling, automations, analytics, videos, marketing, and business growth. Ask a question, get advice, or give me a task.",
+        "I’m your ArtBoost AI Consultant. Ask me anything about ArtBoost or your art business—or tell me what you’d like to get done. I can analyze your verified ArtBoost data, recommend what to do next, and help manage your products, stores, social connections, campaigns, content, scheduling, automations, publishing history, videos, marketing, and business growth. Ask a question, get advice, or give me a task.",
       severity: "info",
     },
   ]);
@@ -120,8 +140,16 @@ export default function ConsultantScreen() {
   }
 
   function openAction(action: AssistantAction) {
-    if (!action?.route) return;
-    router.push(action.route as any);
+    const canonicalBase = CANONICAL_ACTION_BASES[action?.id];
+    if (!canonicalBase) return;
+    const supplied = String(action?.route || "").trim();
+    const suppliedBase = supplied.split("?")[0];
+    let destination = canonicalBase;
+    if (supplied && suppliedBase === canonicalBase) destination = supplied;
+    if (action.id === "review_publishing_history" && !destination.includes("?")) {
+      destination += "?range=all&status=failed_skipped";
+    }
+    router.push(destination as any);
   }
 
   async function attachImage(source: "camera" | "library") {
@@ -261,7 +289,12 @@ export default function ConsultantScreen() {
           role: "assistant",
           text: String(data.answer || "").trim(),
           steps: Array.isArray(data.steps) ? data.steps : [],
-          actions: Array.isArray(data.actions) ? data.actions : [],
+          actions: Array.isArray(data.actions)
+            ? data.actions.filter((action: any) => {
+                const route = String(action?.route || "").toLowerCase();
+                return !route.startsWith("/analytics");
+              })
+            : [],
           followUps: Array.isArray(data.followUps)
             ? data.followUps
             : [],

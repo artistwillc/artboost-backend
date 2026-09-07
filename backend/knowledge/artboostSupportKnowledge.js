@@ -32,7 +32,7 @@ PRIMARY APP AREAS
 - Connect: social-platform and store connections, connection status, reconnect/disconnect controls, and connected-store management.
 - Campaign Manager: create, edit, post, save, schedule, and manage campaigns.
 - Schedule: review and manage scheduled campaigns and automations.
-- Campaign History: review publishing history, including evidence useful for failed/skipped post troubleshooting.
+- Campaign History: review Campaign Manager records only. Store scheduler publishing evidence is reviewed in Publishing History.
 - Creator Tools: launch creator utilities.
 - Subscription/Studio: plan and billing management.
 - AI Consultant: unified product support + business/marketing guidance with authenticated account context.
@@ -122,7 +122,7 @@ PUBLISHING EVIDENCE
 - If every expected platform has success evidence for every applicable connected store: answer Yes.
 - If one or more expected platform/store combinations are missing or failed: answer No.
 - If store attribution/expected platforms cannot be established: answer Unable to verify rather than guessing.
-- Useful follow-up actions should point to publishing history, schedule, connections, or Library—not the deferred Analytics dashboard.
+- Useful follow-up actions must match their evidence source: scheduler results -> Publishing History; automation configuration -> Schedule; connection state -> Connections; products -> Library; Campaign Manager records -> Campaign History/Campaign Manager. Never send scheduler evidence to Campaign History. Never send anything to the deferred Analytics dashboard.
 
 COMMON FAILURES TO CHECK
 - Expired or disconnected social authorization.
@@ -205,28 +205,36 @@ export const ALLOWED_ASSISTANT_ACTIONS = {
     route: "/campaign-manager",
   },
   open_studio: {
-    label: "Open Studio",
-    route: "/(tabs)/pro",
+    label: "Open Video Studio",
+    route: "/video-studio",
   },
   open_marketing_consultant: {
     label: "Open AI Marketing Consultant",
-    route: "/brand",
+    route: "/(tabs)/brand",
+  },
+  open_created_videos: {
+    label: "Open Created Videos",
+    route: "/created-videos",
+  },
+  open_campaign_history: {
+    label: "Open Campaign History",
+    route: "/(tabs)/history",
   },
   open_creator_tools: {
     label: "Open Creator Tools",
-    route: "/explore",
+    route: "/(tabs)/explore",
   },
   open_schedule: {
     label: "Review Schedule",
-    route: "/schedule",
+    route: "/(tabs)/schedule",
   },
   view_publishing_history: {
-    label: "View Today's Posts",
-    route: "/history",
+    label: "View Publishing History",
+    route: "/publishing-history",
   },
   review_publishing_history: {
     label: "Review Failed or Skipped Posts",
-    route: "/history",
+    route: "/publishing-history?status=failed_skipped",
   },
   open_faq: {
     label: "Open Help & FAQ",
