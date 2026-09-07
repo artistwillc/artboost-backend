@@ -7,6 +7,14 @@ import {
   ALLOWED_ASSISTANT_ACTIONS,
   ARTBOOST_SUPPORT_KNOWLEDGE,
 } from "../knowledge/artboostSupportKnowledge.js";
+import {
+  CONSULTANT_SCOPE_REFUSAL,
+  buildConsultantOperationalAnswer,
+  isConsultantQuestionInScope,
+  loadConsultantExternalContext,
+  mergeConsultantExternalContext,
+} from "../services/consultantLaunchAuthority.js";
+// ARTBOOST_CONSULTANT_LAUNCH_AUTHORITY_V13
 
 const router = express.Router();
 
@@ -709,6 +717,7 @@ async function loadAccountContext(userId) {
       ).length,
     },
     connectedStores: connectedStores.map((store) => ({
+      id: store.id,
       type: store.storeType,
       name: store.storeName,
       productCount: Number(store.productCount || 0),
@@ -1800,11 +1809,49 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
+    if (
+      isConsultant &&
+      !isConsultantQuestionInScope({
+        question,
+        conversation,
+        hasImage: Boolean(req.body?.imageDataUrl),
+      })
+    ) {
+      return res.json({
+        success: true,
+        ...CONSULTANT_SCOPE_REFUSAL,
+      });
+    }
+
     const accountContext = await loadAccountContext(verifiedUser?.id || null);
     const consultantName = cleanString(
       verifiedUser?.user_metadata?.consultant_name || "ArtBoost AI Consultant",
       40
     );
+
+    if (isConsultant && verifiedUser?.id && accountContext?.authenticated) {
+      const externalContext = await loadConsultantExternalContext({
+        userId: verifiedUser.id,
+        connectedStores: accountContext.connectedStores,
+      });
+      mergeConsultantExternalContext(accountContext, externalContext);
+    }
+
+    const operationalAnswer = isConsultant
+      ? buildConsultantOperationalAnswer({
+          question,
+          accountContext,
+          storeId: cleanString(req.body?.storeId, 120),
+          dateRange: cleanString(req.body?.dateRange, 80),
+        })
+      : null;
+
+    if (operationalAnswer) {
+      return res.json({
+        success: true,
+        ...operationalAnswer,
+      });
+    }
 
     const redbubbleAnswer = redbubbleSupportAnswer(
       question,
@@ -1841,7 +1888,16 @@ router.post("/assistant", async (req, res) => {
 
 Your configured in-app display name for this authenticated user is "${consultantName}". Use that name naturally when identifying yourself, but do not pretend it changes your capabilities.
 
-You are both the user's ArtBoost product expert/support agent and their art-business/marketing consultant. You can also analyze an image attached by the user as visual context for artwork critique, pricing guidance, listing optimization, marketing, or troubleshooting. The Help/Customer Service entry point and the Consultant entry point use this same authoritative intelligence. Answer any legitimate question about ArtBoost, its workflows, stores, social integrations, analytics, campaigns, schedules, automations, subscriptions, troubleshooting, or marketing/business use accurately and practically.
+You are both the user's ArtBoost product expert/support agent and their art-business/marketing consultant.
+
+STRICT CONSULTANT SCOPE — LAUNCH V13:
+- You may answer only questions about ArtBoost AI, social media platforms, connected stores/marketplaces, and using those systems to market, publish, manage, price, or sell the user's creative work.
+- Do not answer unrelated general-knowledge, entertainment, politics, health, legal, travel, coding, weather, sports, or other off-topic questions.
+- Read-only live platform/store status in LIVE ACCOUNT CONTEXT may be used as evidence. Never convert a provider health check into a user connection unless authenticated account context supports it.
+- The standalone Analytics dashboard is deferred from the launch build. Never suggest Open Analytics or any /analytics route.
+- For today/yesterday/this week/last 7 days/month questions, honor the supplied account/store automation timezone and requested time window.
+- For "Did all my stores post today?" and similar questions, answer Yes / No / Unable to verify first and evaluate every connected store separately.
+- Prefer publishing history, schedule, connections, and Library actions for evidence and troubleshooting. You can also analyze an image attached by the user as visual context for artwork critique, pricing guidance, listing optimization, marketing, or troubleshooting. The Help/Customer Service entry point and the Consultant entry point use this same authoritative intelligence. Answer any legitimate question about ArtBoost, its workflows, stores, social integrations, analytics, campaigns, schedules, automations, subscriptions, troubleshooting, or marketing/business use accurately and practically.
 
 Use the official product knowledge and live account context below. Never invent a feature, route, connection, error, metric, account fact, store behavior, platform behavior, button, or workflow.
 
