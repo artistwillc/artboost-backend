@@ -243,6 +243,26 @@ export async function publishToPlatform({
     normalizedPlatform ===
     "pinterest"
   ) {
+    // ARTBOOST_PINTEREST_STABLE_MEDIA_V13_8
+    // Pinterest fetches the image remotely. Cache storefront artwork on
+    // ArtBoost Cloudinary first so provider-side fetches receive a stable URL.
+    const pinterestImageUrl =
+      await ensurePublishableImageUrl(
+        cleanImageUrl
+      );
+
+    console.log(
+      "Pinterest automation image prepared:",
+      {
+        originalHost: (() => {
+          try { return new URL(cleanImageUrl).hostname; } catch { return null; }
+        })(),
+        preparedHost: (() => {
+          try { return new URL(pinterestImageUrl).hostname; } catch { return null; }
+        })(),
+      }
+    );
+
     return publishPinterest({
       boardId,
       title: cleanTitle,
@@ -254,7 +274,7 @@ export async function publishToPlatform({
       link:
         cleanProductLink,
       imageUrl:
-        cleanImageUrl,
+        pinterestImageUrl,
       userId,
     });
   }

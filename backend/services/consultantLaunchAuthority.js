@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_REMEDIATION_V13_7
+// ARTBOOST_LAUNCH_HARDENING_V13_8
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -1102,6 +1102,27 @@ function remediationCause(reason) {
       title: "Provider rate limit",
       advice: "Do not repeatedly retry immediately. Review the failed record, allow the provider limit to clear, then retry the post later.",
       actions: ["history", "schedule"],
+    };
+  }
+
+  if (/\b(?:credits? depleted|credits? exhausted|insufficient credits?|out of credits?|quota depleted|quota exhausted)\b/.test(q)) {
+    return {
+      key: "provider_credits",
+      title: "Provider publishing credits are depleted",
+      advice: "The recorded provider response says publishing credits or quota are depleted. This is a provider/API capacity issue, not a problem with the product itself. Restore or renew the affected provider credits or wait until quota is available, then retry. Reconnecting the social account will not necessarily fix depleted credits.",
+      actions: ["history"],
+    };
+  }
+
+  if (
+    /\btiktok\b/.test(q) &&
+    /\b(?:privacy choice|privacy level|saved privacy|posting settings|review and confirm|creator.*confirm|consent)\b/.test(q)
+  ) {
+    return {
+      key: "tiktok_privacy",
+      title: "TikTok posting settings need confirmation",
+      advice: "Open Review Schedule, open the affected automation, choose and save the TikTok privacy level and required posting/consent settings, then retry the post.",
+      actions: ["schedule", "history"],
     };
   }
 
