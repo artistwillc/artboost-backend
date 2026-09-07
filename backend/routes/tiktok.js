@@ -497,6 +497,208 @@ async function ensureFreshConnection(userId) {
   return connection;
 }
 
+// ARTBOOST_TIKTOK_NATIVE_LOGIN_V9
+const TIKTOK_ANDROID_REDIRECT_URI = String(
+  process.env.TIKTOK_ANDROID_REDIRECT_URI ||
+    "https://artboost-ai.onrender.com/auth/tiktok/native-callback"
+).trim();
+
+function nativeConfigured() {
+  return Boolean(
+    configured() &&
+      TIKTOK_ANDROID_REDIRECT_URI &&
+      TIKTOK_CLIENT_KEY &&
+      TIKTOK_CLIENT_SECRET
+  );
+}
+
+async function exchangeNativeCode(
+  code,
+  codeVerifier,
+  redirectUri
+) {
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+    },
+    body: new URLSearchParams({
+      client_key: TIKTOK_CLIENT_KEY,
+      client_secret: TIKTOK_CLIENT_SECRET,
+      code: String(code),
+      grant_type: "authorization_code",
+      redirect_uri: String(redirectUri),
+      code_verifier: String(codeVerifier),
+    }),
+  });
+
+  const data = await parseJson(response);
+
+  if (!response.ok || !data?.access_token) {
+    throw new Error(
+      data?.error_description ||
+        data?.error?.message ||
+        data?.error ||
+        "TikTok native access token could not be created."
+    );
+  }
+
+  return data;
+}
+
+router.get("/tiktok/native-health", (_req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+
+  return res.status(200).json({
+    ok: true,
+    native: true,
+    configured: nativeConfigured(),
+    redirectUri: TIKTOK_ANDROID_REDIRECT_URI,
+    scopes: TIKTOK_SCOPES,
+    version: "V9",
+  });
+});
+
+router.get("/tiktok/native-config", (_req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+
+  if (!nativeConfigured()) {
+    return res.status(503).json({
+      configured: false,
+      native: true,
+      error:
+        "TikTok native login is not configured on the ArtBoost server.",
+      redirectUri: TIKTOK_ANDROID_REDIRECT_URI,
+      scopes: TIKTOK_SCOPES,
+      version: "V9",
+    });
+  }
+
+  return res.status(200).json({
+    configured: true,
+    native: true,
+    clientKey: TIKTOK_CLIENT_KEY,
+    redirectUri: TIKTOK_ANDROID_REDIRECT_URI,
+    scopes: TIKTOK_SCOPES,
+    version: "V9",
+  });
+});
+
+router.post(
+  "/auth/tiktok/native-exchange",
+  async (req, res) => {
+    res.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate"
+    );
+
+    try {
+      const {
+        userId,
+        code,
+        codeVerifier,
+        redirectUri,
+      } = req.body || {};
+
+      if (!nativeConfigured()) {
+        return res.status(503).json({
+          success: false,
+          error:
+            "TikTok native login is not configured on the ArtBoost server.",
+        });
+      }
+
+      if (!userId || !code || !codeVerifier) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Missing TikTok native authorization information.",
+        });
+      }
+
+      const finalRedirectUri = String(
+        redirectUri || TIKTOK_ANDROID_REDIRECT_URI
+      ).trim();
+
+      if (
+        finalRedirectUri !== TIKTOK_ANDROID_REDIRECT_URI
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "TikTok native redirect URI mismatch.",
+        });
+      }
+
+      const tokenData = await exchangeNativeCode(
+        code,
+        codeVerifier,
+        finalRedirectUri
+      );
+
+      await saveConnection({
+        userId: String(userId),
+        tokenData,
+      });
+
+      let profile = {};
+
+      try {
+        profile = await getUserInfo(
+          tokenData.access_token
+        );
+      } catch (profileError) {
+        console.warn(
+          "TikTok native profile lookup warning:",
+          profileError
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        connected: true,
+        displayName:
+          profile?.display_name || null,
+        openId:
+          profile?.open_id ||
+          tokenData?.open_id ||
+          null,
+        scopes:
+          tokenData?.scope || TIKTOK_SCOPES,
+        version: "V9",
+      });
+    } catch (error) {
+      console.error(
+        "TikTok native exchange error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "TikTok native authorization failed.",
+      });
+    }
+  }
+);
+
+router.get(
+  "/auth/tiktok/native-callback",
+  (_req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    return res
+      .status(200)
+      .type("text/plain")
+      .send(
+        "TikTok authorization returned to ArtBoost. Return to the ArtBoost app to finish connecting."
+      );
+  }
+);
+
 router.get("/auth/tiktok", async (req, res) => {
   try {
     const { userId } = req.query;
