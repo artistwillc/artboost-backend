@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_ACTION_ROUTING_V13_4
+// ARTBOOST_CONSULTANT_PLATFORM_SCOPE_V13_6
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -129,10 +129,12 @@ export default function PublishingHistoryScreen() {
     range?: string;
     status?: string;
     storeId?: string;
+    platform?: string;
   }>();
   const range = String(params.range || "all");
   const requestedStatus = String(params.status || "all");
   const storeId = String(params.storeId || "");
+  const platform = cleanPlatform(params.platform || "");
 
   const [records, setRecords] = useState<PublishingRecord[]>([]);
   const [activeFilter, setActiveFilter] = useState(
@@ -156,6 +158,7 @@ export default function PublishingHistoryScreen() {
         status: requestedStatus,
       });
       if (storeId) query.set("storeId", storeId);
+      if (platform) query.set("platform", platform);
 
       const response = await fetch(`${BACKEND_URL}/ai/publishing-history?${query.toString()}`, {
         headers: {
@@ -177,32 +180,36 @@ export default function PublishingHistoryScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [range, requestedStatus, storeId]);
+  }, [range, requestedStatus, storeId, platform]);
 
   useEffect(() => { load(false); }, [load]);
 
   const filtered = useMemo(() => {
-    if (activeFilter === "all") return records;
     return records.filter((record) => {
-      const statuses = recordStatuses(record);
+      const results = platformResults(record).filter((item) =>
+        !platform || item.platform === platform
+      );
+      if (!results.length) return false;
+      if (activeFilter === "all") return true;
+      const statuses = new Set(results.map((item) => item.status));
       if (activeFilter === "failed_skipped") {
         return statuses.has("failed") || statuses.has("skipped");
       }
       return statuses.has(activeFilter as any);
     });
-  }, [records, activeFilter]);
+  }, [records, activeFilter, platform]);
 
   const summary = useMemo(() => {
     let success = 0, failed = 0, skipped = 0;
     for (const record of records) {
-      for (const result of platformResults(record)) {
+      for (const result of platformResults(record).filter((item) => !platform || item.platform === platform)) {
         if (result.status === "success") success += 1;
         if (result.status === "failed") failed += 1;
         if (result.status === "skipped") skipped += 1;
       }
     }
     return { success, failed, skipped };
-  }, [records]);
+  }, [records, platform]);
 
   const visibleFilters = requestedStatus === "failed_skipped"
     ? [{ label: "Failed + Skipped", value: "failed_skipped" }, ...FILTERS]
@@ -233,7 +240,7 @@ export default function PublishingHistoryScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Publishing History</Text>
             <Text style={styles.subtitle}>
-              {rangeLabel(range)} · Scheduler evidence · {timezone}
+              {rangeLabel(range)}{platform ? ` · ${pretty(platform)}` : ""} · Scheduler evidence · {timezone}
             </Text>
           </View>
         </View>
@@ -267,13 +274,13 @@ export default function PublishingHistoryScreen() {
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No matching scheduler records</Text>
             <Text style={styles.muted}>
-              ArtBoost does not have a scheduler publishing record matching this store, date range, and status filter.
+              ArtBoost does not have a scheduler publishing record matching this store, platform, date range, and status filter.
             </Text>
           </View>
         ) : null}
 
         {filtered.map((record, index) => {
-          const results = platformResults(record);
+          const results = platformResults(record).filter((item) => !platform || item.platform === platform);
           const detail = record.errorMessage || record.message || "";
           return (
             <View key={`${record.createdAt || "record"}-${index}`} style={styles.card}>

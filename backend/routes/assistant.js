@@ -1799,6 +1799,7 @@ router.get("/publishing-history", async (req, res) => {
     const range = cleanString(req.query?.range || "all", 40).toLowerCase();
     const statusFilter = cleanString(req.query?.status || "all", 40).toLowerCase();
     const storeId = cleanString(req.query?.storeId || "", 160);
+    const platformFilter = cleanString(req.query?.platform || "", 80).toLowerCase(); // ARTBOOST_PUBLISHING_HISTORY_PLATFORM_FILTER_V13_6
 
     const storeResult = await loadStores(user.id);
     const stores = safeArray(storeResult?.rows);
@@ -1823,6 +1824,15 @@ router.get("/publishing-history", async (req, res) => {
     );
 
     if (storeId) rows = rows.filter((row) => String(row?.store_id || "") === storeId);
+
+    if (platformFilter) {
+      rows = rows.filter((row) => {
+        const parsed = parseJsonValue(row?.publish_result);
+        const resultPlatforms = safeArray(parsed?.results).map((item) => cleanString(item?.platform || item?.name,80).toLowerCase()).map((value)=>value==="twitter"?"x":value);
+        const rowPlatforms = safeArray(row?.platforms).map((value)=>cleanString(value,80).toLowerCase()).map((value)=>value==="twitter"?"x":value);
+        return resultPlatforms.includes(platformFilter) || rowPlatforms.includes(platformFilter);
+      });
+    }
 
     if (statusFilter !== "all") {
       rows = rows.filter((row) => {
@@ -1857,6 +1867,7 @@ router.get("/publishing-history", async (req, res) => {
       timezone,
       range,
       status:statusFilter,
+      platform:platformFilter || null,
       records,
       attributionBasis:"ArtBoost store scheduler logs",
     });

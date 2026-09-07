@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_DIAGNOSTICS_V13_5
+// ARTBOOST_CONSULTANT_PLATFORM_SCOPE_V13_6
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -31,19 +31,24 @@ function publishingRangeToken(window) {
   return "all";
 }
 
-function publishingHistoryAction({ window = null, store = null, failures = false } = {}) {
+function publishingHistoryAction({ window = null, store = null, platform = null, failures = false } = {}) {
   const params = [
     `range=${encodeURIComponent(publishingRangeToken(window))}`,
     failures ? "status=failed_skipped" : "status=all",
   ];
   const storeId = text(store?.id, 160);
   if (storeId) params.push(`storeId=${encodeURIComponent(storeId)}`);
+  const platformId = platformName(platform);
+  if (platformId) params.push(`platform=${encodeURIComponent(platformId)}`);
 
   return {
     id: failures ? "review_publishing_history" : "view_publishing_history",
-    label: failures ? "Review Failed or Skipped Posts" : (
-      publishingRangeToken(window) === "today" ? "View Today's Posts" : "View Publishing History"
-    ),
+    label: failures
+      ? (platformId ? `Review Failed ${displayPlatformName(platformId)} Posts` : "Review Failed or Skipped Posts")
+      : (platformId
+          ? `View ${publishingRangeToken(window) === "today" ? "Today's " : ""}${displayPlatformName(platformId)} Posts`
+          : (publishingRangeToken(window) === "today" ? "View Today's Posts" : "View Publishing History")
+        ),
     route: `/publishing-history?${params.join("&")}`,
   };
 }
@@ -59,6 +64,14 @@ function text(value, max = 500) {
 function platformName(value) {
   const v = text(value, 80).toLowerCase();
   return v === "twitter" ? "x" : v;
+}
+
+function displayPlatformName(value) {
+  const v = platformName(value);
+  if (v === "x") return "X";
+  if (v === "tiktok") return "TikTok";
+  if (v === "linkedin") return "LinkedIn";
+  return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Platform";
 }
 
 function parseJson(value) {
@@ -745,6 +758,171 @@ function logDiagnosticReason(log, requestedPlatform = null) {
   );
 }
 
+
+function exactPlatformOutcome(log, requestedPlatform) {
+  const p = platformName(requestedPlatform);
+  const results = publishResults(log);
+  const matching = results.filter((item) =>
+    platformName(item?.platform || item?.name) === p
+  );
+
+  if (matching.length) {
+    const success = matching.some((item) => item?.success === true);
+    const failed = matching.some((item) => item?.success === false);
+    const reason = matching
+      .filter((item) => item?.success === false)
+      .map((item) => text(
+        item?.error ||
+        item?.error_message ||
+        item?.message ||
+        item?.details ||
+        item?.reason,
+        320
+      ))
+      .find(Boolean) || "";
+    return { mentioned: true, success, failed, skipped: false, reason };
+  }
+
+  const configured = unique(arr(log?.platforms).map(platformName));
+  if (!configured.includes(p)) {
+    return { mentioned: false, success: false, failed: false, skipped: false, reason: "" };
+  }
+
+  const skipped = log?.event_type === "post_skipped" || log?.status === "skipped";
+  const failed = log?.event_type === "post_failed" || log?.status === "failed";
+  const success = !skipped && !failed &&
+    (log?.event_type === "post_success" || log?.status === "success");
+
+  return {
+    mentioned: true,
+    success,
+    failed,
+    skipped,
+    reason: text(log?.error_message || log?.message, 320),
+  };
+}
+
+function platformScopedSchedulerAnswer(question, accountContext, requestedDateRange) {
+  const requestedPlatform = platformMention(question);
+  if (!requestedPlatform) return null;
+
+  // Named-store questions stay inside the existing named-store handlers.
+  if (storeMention(question, accountContext?.connectedStores)) return null;
+
+  const q = text(question, 1600).toLowerCase();
+  if (!/\b(?:post|posted|posts|posting|publish|published|publishing|fail|fails|failed|failure|failures|error|errors|skip|skips|skipped|success|successful|attempt|attempted|attempts)\b/.test(q)) {
+    return null;
+  }
+
+  const timeZone = timezoneFor(accountContext);
+  const window = resolveWindow(question, requestedDateRange, timeZone);
+  if (!window) return null;
+
+  const stores = arr(accountContext?.connectedStores);
+  const rows = arr(accountContext?.automationLogs)
+    .filter((log) => inWindow(log?.created_at, window))
+    .map((log) => {
+      const outcome = exactPlatformOutcome(log, requestedPlatform);
+      if (!outcome.mentioned) return null;
+      const store = failureStoreForLog(log, stores);
+      return {
+        log,
+        store,
+        label: store ? storeLabel(store) : "Unattributed scheduler record",
+        productTitle: text(log?.product_title || log?.productTitle, 220),
+        ...outcome,
+      };
+    })
+    .filter(Boolean);
+
+  const successful = rows.filter((row) => row.success);
+  const failed = rows.filter((row) => row.failed);
+  const skipped = rows.filter((row) => row.skipped);
+  const asksFailure = /\b(?:fail|fails|failed|failure|failures|error|errors|problem|problems|issue|issues)\b/.test(q);
+  const asksSkip = /\b(?:skip|skips|skipped)\b/.test(q);
+  const asksWhichStores = /\b(?:which|what)\s+(?:store|stores|shop|shops)\b/.test(q);
+  const asksWhatPosted = /\b(?:what|which)\b/.test(q) && /\b(?:post|posted|posts|published)\b/.test(q);
+  const platformLabel = displayPlatformName(requestedPlatform);
+  const timeLabel = window.label;
+
+  if (asksFailure || asksSkip) {
+    const affected = rows.filter((row) =>
+      (asksFailure && row.failed) || (asksSkip && row.skipped)
+    );
+
+    if (!affected.length) {
+      return {
+        answer: `No — I found no ${asksFailure && asksSkip ? "failed or skipped" : asksFailure ? "failed" : "skipped"} ${platformLabel} scheduler outcome ${timeLabel}.`,
+        steps: [],
+        actions: [publishingHistoryAction({ window, platform: requestedPlatform, failures: true })],
+        followUps: [`What posted successfully to ${platformLabel}?`, `Which stores posted to ${platformLabel}?`],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    const detail = affected.map((row) => {
+      const status = row.failed ? "failed" : "skipped";
+      return `${row.label} — ${status}${row.reason ? `: ${row.reason}` : ""}`;
+    }).join("; ");
+
+    return {
+      answer: `Yes — I found ${affected.length} store scheduler ${affected.length === 1 ? "attempt" : "attempts"} with a ${asksFailure && asksSkip ? "failed or skipped" : asksFailure ? "failed" : "skipped"} ${platformLabel} outcome ${timeLabel}. ${detail}.`,
+      steps: [],
+      actions: [publishingHistoryAction({ window, platform: requestedPlatform, failures: true })],
+      followUps: [`Which ${platformLabel} posts succeeded?`, `Why did a ${platformLabel} post fail?`],
+      usedAccountData: true,
+      severity: "warning",
+    };
+  }
+
+  if (!successful.length) {
+    const detail = [...failed, ...skipped].map((row) => {
+      const status = row.failed ? "failed" : "skipped";
+      return `${row.label} — ${status}${row.reason ? `: ${row.reason}` : ""}`;
+    }).join("; ");
+
+    return {
+      answer: `No — I found no confirmed successful ArtBoost scheduler post to ${platformLabel} ${timeLabel}.${detail ? ` ${detail}.` : ""}`,
+      steps: [],
+      actions: [publishingHistoryAction({ window, platform: requestedPlatform, failures: true })],
+      followUps: [`Why did ${platformLabel} fail?`, `Check my ${platformLabel} connection.`],
+      usedAccountData: true,
+      severity: "warning",
+    };
+  }
+
+  const storeNames = unique(successful.map((row) => row.label));
+  const products = unique(successful.map((row) => row.productTitle).filter(Boolean));
+  const productDetail = asksWhatPosted && products.length
+    ? ` Verified products: ${products.slice(0, 5).join("; ")}${products.length > 5 ? ` and ${products.length - 5} more` : ""}.`
+    : "";
+  const problemDetail = failed.length || skipped.length
+    ? ` Also, ${failed.length} store ${failed.length === 1 ? "attempt failed" : "attempts failed"} and ${skipped.length} ${skipped.length === 1 ? "was skipped" : "were skipped"} on ${platformLabel}.`
+    : "";
+
+  const intro = asksWhichStores
+    ? `${storeNames.length} ${storeNames.length === 1 ? "store has" : "stores have"} a confirmed successful ${platformLabel} scheduler result ${timeLabel}: ${storeNames.join(", ")}.`
+    : `Yes — ArtBoost has confirmed successful scheduler posts to ${platformLabel} ${timeLabel} from ${storeNames.length} ${storeNames.length === 1 ? "store" : "stores"}: ${storeNames.join(", ")}.`;
+
+  return {
+    answer: `${intro}${productDetail}${problemDetail}`,
+    steps: [],
+    actions: [
+      publishingHistoryAction({ window, platform: requestedPlatform }),
+      ...(failed.length || skipped.length
+        ? [publishingHistoryAction({ window, platform: requestedPlatform, failures: true })]
+        : []),
+    ],
+    followUps: [
+      `Which stores posted to ${platformLabel}?`,
+      `Did any ${platformLabel} posts fail ${timeLabel}?`,
+    ],
+    usedAccountData: true,
+    severity: failed.length || skipped.length ? "warning" : "success",
+  };
+}
+
 function schedulerDiagnosticAnswer(question, accountContext, requestedDateRange) {
   if (!diagnosticIntent(question)) return null;
 
@@ -1068,6 +1246,7 @@ export function buildConsultantOperationalAnswer({
   return (
     schedulerDiagnosticAnswer(question, accountContext, dateRange) ||
     oneStorePostingAnswer(question, accountContext, dateRange) ||
+    platformScopedSchedulerAnswer(question, accountContext, dateRange) ||
     allStorePostingAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
     productRecommendationAnswer(question, accountContext) ||
