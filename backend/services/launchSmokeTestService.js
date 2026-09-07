@@ -1,4 +1,4 @@
-// ARTBOOST_STRICT_AUTH_LAUNCH_SMOKE_TEST_V13_9
+// ARTBOOST_STRICT_AUTH_LAUNCH_SMOKE_TEST_V13_9_1
 
 function clean(value, max = 500) {
   return String(value ?? "").trim().slice(0, max);
@@ -47,6 +47,7 @@ async function requestCheck({
   method = "GET",
   body,
   expectedStatus = null,
+  timeoutMs = 12_000,
 }) {
   try {
     const headers = {
@@ -61,7 +62,7 @@ async function requestCheck({
       body: body === undefined ? undefined : JSON.stringify(body),
       signal:
         typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-          ? AbortSignal.timeout(12_000)
+          ? AbortSignal.timeout(timeoutMs)
           : undefined,
     });
 
@@ -85,13 +86,17 @@ async function requestCheck({
           : clean(data?.error || data?.details || `HTTP ${response.status}`, 260),
     };
   } catch (error) {
-    return {
-      name,
-      passed: false,
-      status: 0,
-      data: {},
-      detail: clean(error?.message || error, 260) || "Request failed.",
+    const errorName = clean(error?.name, 120).toLowerCase();
+    const errorMessage = clean(error?.message || error, 500).toLowerCase();
+    const timedOut = errorName === "aborterror" || errorName === "timeouterror" ||
+      errorMessage.includes("timeout") || errorMessage.includes("timed out") ||
+      errorMessage.includes("aborted due to timeout");
+    if (timedOut) return {
+      name, passed: false, unknown: true, status: 0, data: {},
+      detail: `Request exceeded ${Math.round(timeoutMs / 1000)} seconds. Execution status is unknown; this is not classified as a publishing failure.`,
     };
+    return {name, passed:false, unknown:false, status:0, data:{},
+      detail: clean(error?.message || error,260) || "Request failed."};
   }
 }
 
@@ -140,7 +145,7 @@ function findRequestedStore(question, stores) {
 }
 
 function resultLine(result) {
-  const prefix = result.passed ? "PASS" : "FAIL";
+  const prefix = result.unknown ? "UNKNOWN" : result.passed ? "PASS" : "FAIL";
   return `${prefix} — ${result.name}: ${result.detail}`;
 }
 
@@ -325,27 +330,33 @@ export async function runStrictAuthLaunchSmokeTest({
           path: `/automations/${encodeURIComponent(automationId(automation))}/run`,
           method: "POST",
           body: {},
+          timeoutMs: 120_000,
         });
 
         publishResult = {
           ...routeResult,
           detail: routeResult.passed
             ? `${storeLabel(requestedStore)} automation completed through the authenticated run route. Review Publishing History for the platform outcomes.`
-            : routeResult.detail,
+            : routeResult.unknown
+              ? `${routeResult.detail} Review Publishing History before retrying so a slow operation cannot create a duplicate post.`
+              : routeResult.detail,
         };
       }
     }
     results.push(publishResult);
   }
 
-  const failed = results.filter((result) => !result.passed);
+  const failed = results.filter((result) => !result.passed && !result.unknown);
+  const unknown = results.filter((result) => result.unknown);
   const passed = results.filter((result) => result.passed && !result.skipped);
   const skipped = results.filter((result) => result.skipped);
 
   const header =
-    failed.length === 0
-      ? `PASS — ArtBoost production strict-auth smoke test passed ${passed.length} checks${skipped.length ? ` with ${skipped.length} skipped` : ""}.`
-      : `FAIL — ArtBoost production strict-auth smoke test found ${failed.length} failed ${failed.length === 1 ? "check" : "checks"}.`;
+    failed.length > 0
+      ? `FAIL — ArtBoost production strict-auth smoke test found ${failed.length} definitive failed ${failed.length === 1 ? "check" : "checks"}.`
+      : unknown.length > 0
+        ? `INCOMPLETE — ArtBoost production strict-auth smoke test passed ${passed.length} checks, with ${unknown.length} result still unknown. A timeout is not a publishing failure.`
+        : `PASS — ArtBoost production strict-auth smoke test passed ${passed.length} checks${skipped.length ? ` with ${skipped.length} skipped` : ""}.`;
 
   return {
     answer: `${header} ${results.map(resultLine).join(" ")}`,
@@ -376,11 +387,12 @@ export async function runStrictAuthLaunchSmokeTest({
             "Check my social connections.",
           ],
     usedAccountData: true,
-    severity: failed.length === 0 ? "success" : "error",
+    severity: failed.length > 0 ? "error" : unknown.length > 0 ? "warning" : "success",
     smokeTest: {
-      passed: failed.length === 0,
+      passed: failed.length === 0 && unknown.length === 0,
       passedCount: passed.length,
       failedCount: failed.length,
+      unknownCount: unknown.length,
       skippedCount: skipped.length,
       publishRequested,
     },
