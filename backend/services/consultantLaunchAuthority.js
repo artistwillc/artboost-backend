@@ -1,4 +1,4 @@
-// ARTBOOST_CONSULTANT_LAUNCH_AUTHORITY_V13
+// ARTBOOST_CONSULTANT_SCHEDULER_VERIFICATION_V13_2
 // Read-only live context + strict scope + time/store publishing verification.
 // This module performs no publish, delete, disconnect, billing, sync, or automation mutations.
 
@@ -338,19 +338,46 @@ function inWindow(value, window) {
   return Number.isFinite(t) && t >= window.start.getTime() && t < window.end.getTime();
 }
 
-function logSuccessPlatforms(log) {
+function publishResults(log) {
   const result = parseJson(log?.publish_result);
-  const fromResults = arr(result?.results)
+  return arr(result?.results);
+}
+
+function logSuccessPlatforms(log) {
+  const fromResults = publishResults(log)
     .filter((r) => r?.success === true)
     .map((r) => platformName(r?.platform || r?.name))
     .filter(Boolean);
 
   if (fromResults.length) return unique(fromResults);
 
+  const result = parseJson(log?.publish_result);
   if (Number(result?.successful) > 0 || log?.event_type === "post_success" || log?.status === "success") {
     return unique(arr(log?.platforms).map(platformName));
   }
 
+  return [];
+}
+
+function logFailedPlatforms(log) {
+  const fromResults = publishResults(log)
+    .filter((r) => r?.success === false)
+    .map((r) => platformName(r?.platform || r?.name))
+    .filter(Boolean);
+
+  if (fromResults.length) return unique(fromResults);
+
+  if (log?.event_type === "post_failed" || log?.status === "failed") {
+    return unique(arr(log?.platforms).map(platformName));
+  }
+
+  return [];
+}
+
+function logSkippedPlatforms(log) {
+  if (log?.event_type === "post_skipped" || log?.status === "skipped") {
+    return unique(arr(log?.platforms).map(platformName));
+  }
   return [];
 }
 
@@ -377,7 +404,10 @@ function logBelongsToStore(log, store) {
 }
 
 function storeLabel(store) {
-  return text(store?.name || store?.storeName || store?.type || store?.storeType, 180) || "Connected Store";
+  const name = text(store?.name || store?.storeName, 180);
+  const type = platformName(store?.type || store?.storeType);
+  if (name && type && name.toLowerCase() !== type.toLowerCase()) return `${type} (${name})`;
+  return name || type || "Connected Store";
 }
 
 function storeMention(question, stores) {
@@ -399,13 +429,10 @@ function evidenceForStore(store, accountContext, window) {
 
   const expected = unique(automations.flatMap((a) => arr(a?.platforms).map(platformName)));
   const succeeded = unique(logs.flatMap(logSuccessPlatforms));
-  const failed = logs.filter((log) => log?.event_type === "post_failed" || log?.status === "failed");
-  const skipped = logs.filter((log) => log?.event_type === "post_skipped" || log?.status === "skipped");
-  const missing = expected.filter((platform) => !succeeded.includes(platform));
-
-  let state = "unverifiable";
-  if (expected.length) state = missing.length === 0 ? "complete" : "incomplete";
-  else if (succeeded.length) state = "complete";
+  const failedPlatforms = unique(logs.flatMap(logFailedPlatforms));
+  const skippedPlatforms = unique(logs.flatMap(logSkippedPlatforms));
+  const attempted = unique([...succeeded, ...failedPlatforms, ...skippedPlatforms]);
+  const noSchedulerRecord = expected.filter((p) => !attempted.includes(p));
 
   return {
     store,
@@ -413,11 +440,30 @@ function evidenceForStore(store, accountContext, window) {
     logs,
     expected,
     succeeded,
-    failed,
-    skipped,
-    missing,
-    state,
+    failedPlatforms,
+    skippedPlatforms,
+    attempted,
+    noSchedulerRecord,
+    hasAnySuccess: succeeded.length > 0,
+    hasAnyAttempt: attempted.length > 0 || logs.length > 0,
   };
+}
+
+function strictCompletionQuestion(q) {
+  return /\b(?:all|every)\s+(?:configured|expected|scheduled)?\s*(?:platform|platforms|post|posts)\b/.test(q) ||
+    /\b(?:complete|completed|finish|finished)\s+(?:all|every)\b/.test(q) ||
+    /\ball\s+scheduled\s+(?:post|posts|publishing)\b/.test(q) ||
+    /\bevery\s+expected\s+(?:post|platform)\b/.test(q);
+}
+
+function schedulerEvidenceSummary(item) {
+  const parts = [];
+  if (item.succeeded.length) parts.push(`successful: ${item.succeeded.join(", ")}`);
+  if (item.failedPlatforms.length) parts.push(`failed: ${item.failedPlatforms.join(", ")}`);
+  if (item.skippedPlatforms.length) parts.push(`skipped: ${item.skippedPlatforms.join(", ")}`);
+  if (item.noSchedulerRecord.length) parts.push(`no scheduler record: ${item.noSchedulerRecord.join(", ")}`);
+  if (!parts.length) parts.push("no scheduler attempt recorded");
+  return parts.join("; ");
 }
 
 function allStorePostingAnswer(question, accountContext, requestedDateRange) {
@@ -444,42 +490,68 @@ function allStorePostingAnswer(question, accountContext, requestedDateRange) {
   const timeZone = timezoneFor(accountContext);
   const window = resolveWindow(question, requestedDateRange, timeZone) || resolveWindow("today", "", timeZone);
   const evidence = stores.map((store) => evidenceForStore(store, accountContext, window));
-  const incomplete = evidence.filter((item) => item.state === "incomplete");
-  const unverifiable = evidence.filter((item) => item.state === "unverifiable");
+  const scheduled = evidence.filter((item) => item.automations.length > 0);
+  const unscheduled = evidence.filter((item) => item.automations.length === 0);
+  const strict = strictCompletionQuestion(q);
 
-  const detail = evidence.map((item) => {
-    const succeeded = item.succeeded.length ? item.succeeded.join(", ") : "no confirmed successful platform post";
-    const missing = item.missing.length ? `; missing: ${item.missing.join(", ")}` : "";
-    return `${storeLabel(item.store)} — ${succeeded}${missing}`;
-  }).join("; ");
-
-  if (incomplete.length) {
+  if (!scheduled.length) {
     return {
-      answer: `No — not all connected stores completed their expected social publishing ${window.label}. ${detail}.`,
+      answer: `Unable to verify — none of the connected stores has an active store automation I can use to verify scheduler publishing ${window.label}.`,
       steps: [],
-      actions: [SAFE_ACTIONS.history],
-      followUps: ["Which posts failed or were skipped?", "Which store should I fix first?"],
-      usedAccountData: true,
-      severity: "warning",
-    };
-  }
-
-  if (unverifiable.length) {
-    return {
-      answer: `Unable to verify — ArtBoost does not have enough store-attributed publishing evidence to confirm every connected store ${window.label}. ${detail}.`,
-      steps: [],
-      actions: [SAFE_ACTIONS.history],
-      followUps: ["Show me the publishing history I can verify.", "Which stores have active automations?"],
+      actions: [SAFE_ACTIONS.schedule],
+      followUps: ["Which stores have automations?", "Open my schedule."],
       usedAccountData: true,
       severity: "info",
     };
   }
 
+  if (!strict) {
+    const noSuccess = scheduled.filter((item) => !item.hasAnySuccess);
+    const detail = scheduled.map((item) => `${storeLabel(item.store)} — ${schedulerEvidenceSummary(item)}`).join("; ");
+
+    if (noSuccess.length) {
+      return {
+        answer: `No — ${noSuccess.length} scheduled ${noSuccess.length === 1 ? "store has" : "stores have"} no confirmed successful scheduler post ${window.label}. ${detail}${unscheduled.length ? `. Not scheduled: ${unscheduled.map((i) => storeLabel(i.store)).join(", ")}` : ""}.`,
+        steps: [],
+        actions: [SAFE_ACTIONS.history],
+        followUps: ["Which posts failed or were skipped?", "Which store should I fix first?"],
+        usedAccountData: true,
+        severity: "warning",
+      };
+    }
+
+    return {
+      answer: `Yes — every store with an active ArtBoost automation has at least one confirmed successful scheduler post ${window.label}. ${detail}${unscheduled.length ? `. Not scheduled: ${unscheduled.map((i) => storeLabel(i.store)).join(", ")}` : ""}.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.history],
+      followUps: ["Did every scheduled platform complete?", "Were any posts skipped?"],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  const incomplete = scheduled.filter((item) =>
+    item.expected.some((p) => !item.succeeded.includes(p))
+  );
+
+  const detail = scheduled.map((item) => `${storeLabel(item.store)} — ${schedulerEvidenceSummary(item)}`).join("; ");
+
+  if (incomplete.length) {
+    return {
+      answer: `No — not every scheduled store/platform combination has a confirmed successful scheduler result ${window.label}. ${detail}.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.reviewHistory],
+      followUps: ["Which posts failed or were skipped?", "Which platforms have no scheduler record?"],
+      usedAccountData: true,
+      severity: "warning",
+    };
+  }
+
   return {
-    answer: `Yes — every connected store with an active ArtBoost publishing plan has confirmed successful publishing ${window.label}. ${detail}.`,
+    answer: `Yes — every expected scheduler platform for every scheduled store has a confirmed successful result ${window.label}. ${detail}.`,
     steps: [],
     actions: [SAFE_ACTIONS.history],
-    followUps: ["Were any posts skipped?", "Which platforms posted successfully?"],
+    followUps: ["Were any posts skipped?", "Show me today's successful platforms."],
     usedAccountData: true,
     severity: "success",
   };
@@ -498,10 +570,56 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
 
   const item = evidenceForStore(store, accountContext, window);
   const label = storeLabel(store);
+  const strict = strictCompletionQuestion(q);
 
-  if (item.state === "complete") {
+  if (!item.automations.length && !item.logs.length) {
     return {
-      answer: `Yes — ${label} has confirmed successful ArtBoost publishing ${window.label}${item.succeeded.length ? ` on ${item.succeeded.join(", ")}` : ""}.`,
+      answer: `Unable to verify — I do not see a scheduler automation or store-attributed scheduler record for ${label} ${window.label}.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.schedule],
+      followUps: ["Does this store have an automation?", "Open my schedule."],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
+  if (!strict) {
+    if (item.hasAnySuccess) {
+      return {
+        answer: `Yes — ${label} has a confirmed successful ArtBoost scheduler post ${window.label} on ${item.succeeded.join(", ")}.${item.failedPlatforms.length ? ` Failed: ${item.failedPlatforms.join(", ")}.` : ""}${item.skippedPlatforms.length ? ` Skipped: ${item.skippedPlatforms.join(", ")}.` : ""}${item.noSchedulerRecord.length ? ` No scheduler record yet: ${item.noSchedulerRecord.join(", ")}.` : ""}`,
+        steps: [],
+        actions: [SAFE_ACTIONS.history],
+        followUps: ["Did every scheduled platform complete?", "Were any posts skipped?"],
+        usedAccountData: true,
+        severity: "success",
+      };
+    }
+
+    if (item.hasAnyAttempt) {
+      return {
+        answer: `No — ${label} has no confirmed successful scheduler post ${window.label}. ${schedulerEvidenceSummary(item)}.`,
+        steps: [],
+        actions: [SAFE_ACTIONS.reviewHistory],
+        followUps: ["Why did it fail?", "Check my social connections."],
+        usedAccountData: true,
+        severity: "warning",
+      };
+    }
+
+    return {
+      answer: `Unable to verify — I do not see a completed scheduler attempt for ${label} ${window.label}.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.history],
+      followUps: ["Open today's publishing history.", "Review my schedule."],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
+  const incomplete = item.expected.filter((p) => !item.succeeded.includes(p));
+  if (!incomplete.length && item.expected.length) {
+    return {
+      answer: `Yes — ${label} has confirmed successful scheduler results on every expected platform ${window.label}: ${item.succeeded.join(", ")}.`,
       steps: [],
       actions: [SAFE_ACTIONS.history],
       followUps: ["Were any posts skipped?", "Show me my other stores."],
@@ -510,24 +628,13 @@ function oneStorePostingAnswer(question, accountContext, requestedDateRange) {
     };
   }
 
-  if (item.state === "incomplete") {
-    return {
-      answer: `No — ${label} did not complete every expected platform post ${window.label}. Confirmed: ${item.succeeded.join(", ") || "none"}. Missing: ${item.missing.join(", ") || "unattributed"}.`,
-      steps: [],
-      actions: [SAFE_ACTIONS.reviewHistory],
-      followUps: ["Why did it fail?", "Check my social connections."],
-      usedAccountData: true,
-      severity: "warning",
-    };
-  }
-
   return {
-    answer: `Unable to verify — I do not have enough store-attributed ArtBoost publishing evidence to confirm whether ${label} posted ${window.label}.`,
+    answer: `No — ${label} did not complete every expected scheduler platform ${window.label}. ${schedulerEvidenceSummary(item)}.`,
     steps: [],
-    actions: [SAFE_ACTIONS.history],
-    followUps: ["Does this store have an active automation?", "Show me my publishing history."],
+    actions: [SAFE_ACTIONS.reviewHistory],
+    followUps: ["Why did a platform fail or skip?", "Check my social connections."],
     usedAccountData: true,
-    severity: "info",
+    severity: "warning",
   };
 }
 
@@ -539,50 +646,81 @@ function failuresAnswer(question, accountContext, requestedDateRange) {
   const timeZone = timezoneFor(accountContext);
   const window = resolveWindow(question, requestedDateRange, timeZone);
   const logs = arr(accountContext?.automationLogs).filter((log) => !window || inWindow(log?.created_at, window));
-  const failed = logs.filter((log) => log?.event_type === "post_failed" || log?.status === "failed");
-  const skipped = logs.filter((log) => log?.event_type === "post_skipped" || log?.status === "skipped");
+  const failedPlatforms = unique(logs.flatMap(logFailedPlatforms));
+  const skippedPlatforms = unique(logs.flatMap(logSkippedPlatforms));
+  const failedLogs = logs.filter((log) => log?.event_type === "post_failed" || log?.status === "failed" || logFailedPlatforms(log).length);
+  const skippedLogs = logs.filter((log) => log?.event_type === "post_skipped" || log?.status === "skipped");
 
   const label = window?.label || "in the available ArtBoost publishing history";
+  const evidence = [
+    failedPlatforms.length ? `failed platforms: ${failedPlatforms.join(", ")}` : "",
+    skippedPlatforms.length ? `skipped platforms: ${skippedPlatforms.join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+
   return {
-    answer: `${failed.length || skipped.length ? "Yes" : "No"} — I found ${failed.length} failed and ${skipped.length} skipped ArtBoost automation ${failed.length + skipped.length === 1 ? "attempt" : "attempts"} ${label}.`,
+    answer: `${failedLogs.length || skippedLogs.length ? "Yes" : "No"} — I found ${failedLogs.length} failed and ${skippedLogs.length} skipped ArtBoost scheduler ${failedLogs.length + skippedLogs.length === 1 ? "attempt" : "attempts"} ${label}${evidence ? `. ${evidence}` : ""}.`,
     steps: [],
     actions: [SAFE_ACTIONS.reviewHistory],
     followUps: ["Which store had the problem?", "Check my social connections."],
     usedAccountData: true,
-    severity: failed.length ? "warning" : "info",
+    severity: failedLogs.length ? "warning" : "info",
   };
 }
 
 function connectionHealthAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
   const asks =
-    /\b(?:connect|connected|connection|status|review|check|health)\b/.test(q) &&
+    /\b(?:connect|connected|connection|status|review|check|health|permission|permissions)\b/.test(q) &&
     /\b(?:social|platform|store|stores|pinterest|facebook|instagram|threads|linkedin|tiktok|twitter|\bx\b|shopify|etsy|redbubble|artpal|gumroad)\b/.test(q);
 
   if (!asks) return null;
 
   const platforms = arr(accountContext?.publishingConnections);
-  const connected = platforms.filter((p) => p?.connected === true);
-  const disconnected = platforms.filter((p) => p?.connected !== true);
+  const schedulerSuccessful = unique(arr(accountContext?.automationLogs).flatMap(logSuccessPlatforms));
+  const confirmed = new Map();
+
+  for (const p of platforms) {
+    const name = platformName(p?.platform);
+    if (!name) continue;
+    confirmed.set(name, {
+      name,
+      accountConnected: p?.connected === true,
+      providerReachable: p?.providerReachable !== false,
+      schedulerConfirmed: schedulerSuccessful.includes(name),
+    });
+  }
+  for (const name of schedulerSuccessful) {
+    if (!confirmed.has(name)) {
+      confirmed.set(name, {
+        name,
+        accountConnected: false,
+        providerReachable: true,
+        schedulerConfirmed: true,
+      });
+    }
+  }
+
+  const working = [...confirmed.values()].filter((p) => p.accountConnected || p.schedulerConfirmed);
+  const unverified = [...confirmed.values()].filter((p) => !p.accountConnected && !p.schedulerConfirmed);
   const stores = arr(accountContext?.connectedStores);
 
-  const platformText = connected.length
-    ? connected.map((p) => `${platformName(p.platform)}${p?.providerReachable === false ? " (provider check unavailable)" : ""}`).join(", ")
+  const workingText = working.length
+    ? working.map((p) => `${p.name}${p.schedulerConfirmed ? " (scheduler-confirmed)" : ""}`).join(", ")
     : "none I can verify";
-  const disconnectedText = disconnected.length
-    ? disconnected.map((p) => platformName(p.platform)).filter(Boolean).join(", ")
+  const unverifiedText = unverified.length
+    ? unverified.map((p) => p.name).join(", ")
     : "none";
   const storeText = stores.length
     ? stores.map((s) => `${storeLabel(s)} (${Number(s?.productCount || 0)} products in ArtBoost)`).join(", ")
     : "none";
 
   return {
-    answer: `Connected social platforms I can verify: ${platformText}. Not currently verified as connected: ${disconnectedText}. Connected stores: ${storeText}.`,
+    answer: `Social platforms with a verified ArtBoost connection or successful scheduler evidence: ${workingText}. Not currently verified: ${unverifiedText}. Connected stores: ${storeText}. A successful scheduler result is treated as proof that ArtBoost had a working publish permission path for that platform at the time of the post.`,
     steps: [],
     actions: [SAFE_ACTIONS.connections],
     followUps: ["Which connection needs attention?", "Did all my stores post today?"],
     usedAccountData: true,
-    severity: disconnected.length ? "warning" : "success",
+    severity: unverified.length ? "warning" : "success",
   };
 }
 
