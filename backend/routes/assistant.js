@@ -1,3 +1,4 @@
+// ARTBOOST_SOL_CONSULTANT_RESEARCH_FIX_V15_2_1
 // ARTBOOST_OPENAI_MODEL_ROUTER_V15_2
 // ARTBOOST_CONSULTANT_CORRECTION_V15_1
 // ARTBOOST_PERSONAL_MARKETING_AGENT_V15
@@ -2071,7 +2072,13 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
-    const operationalAnswer = isConsultant
+    // V15.2.1: classify high-level intelligence intent BEFORE deterministic/support shortcuts.
+    // This prevents market-comparison questions from being intercepted by generic store/support answers.
+    const visualSimilarityIntent = /\b(?:similar|similarity|look(?:s|ed)?\s+(?:like|similar)|resembl|like\s+this|same\s+style|same\s+look|how\s+many.*(?:like|similar))\b/i.test(question) &&
+      /\b(?:listing|listings|product|products|artwork|artworks|design|designs|painting|paintings|image|images|photo|photos|library)\b/i.test(question);
+    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales))\b/i.test(question);
+
+    const operationalAnswer = isConsultant && !marketResearchIntent && !visualSimilarityIntent
       ? buildConsultantOperationalAnswer({
           question,
           accountContext,
@@ -2093,10 +2100,12 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
-    const redbubbleAnswer = redbubbleSupportAnswer(
-      question,
-      accountContext
-    );
+    const redbubbleAnswer = (!marketResearchIntent && !visualSimilarityIntent)
+      ? redbubbleSupportAnswer(
+          question,
+          accountContext
+        )
+      : null;
     if (redbubbleAnswer) {
       return res.json({
         success: true,
@@ -2112,9 +2121,6 @@ router.post("/assistant", async (req, res) => {
 
     // Answer direct account-fact questions from ArtBoost data before calling the model.
     // This prevents malformed model JSON from breaking factual account queries.
-    const visualSimilarityIntent = /\b(?:similar|similarity|look(?:s|ed)?\s+(?:like|similar)|resembl|like\s+this|same\s+style|same\s+look|how\s+many.*(?:like|similar))\b/i.test(question) &&
-      /\b(?:listing|listings|product|products|artwork|artworks|design|designs|painting|paintings|image|images|photo|photos|library)\b/i.test(question);
-    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales))\b/i.test(question);
 
     // V15: similarity and current-market questions must reach the intelligence model.
     // Do not let a generic product-count/account shortcut hijack the user's intent.
@@ -2139,7 +2145,7 @@ router.post("/assistant", async (req, res) => {
     );
 
     const useWebResearch = isConsultant && marketResearchIntent;
-    const response = await openai.responses.create({
+    const openAIRequest = {
       model: isConsultant
         ? process.env.OPENAI_CONSULTANT_MODEL || "gpt-5.6-sol"
         : process.env.OPENAI_SUPPORT_MODEL ||
@@ -2191,7 +2197,7 @@ ACCOUNT-AWARE BEHAVIOR:
 - ACTIVE ARTWORK CONTEXT: if the current user message includes an input_image, that image is the active artwork. Resolve "this", "it", "this painting", "the photo I attached", "the image I attached", "them", "similar to this", and comparable follow-ups against that active image unless the user clearly changes subjects. Never claim you cannot see the image when it is included in the current request.
 - CURRENT MARKET RESEARCH: when web search is enabled for this request, use it for current/time-sensitive market claims. Distinguish public asking/list prices from verified completed sales. Never convert listing availability, search prominence, or asking prices into proven demand or sales.
 - SIMILAR LIBRARY QUESTIONS: answer the similarity question itself. Use the active image plus the user's imported product titles/store metadata in LIVE ACCOUNT CONTEXT as available evidence. Do not substitute total product/unposted counts. If exact visual comparison across every Library image cannot be verified, say that clearly and provide the strongest metadata-supported match/count you can defend instead of inventing a precise visual count.
-- SALES-EFFECTIVENESS QUESTIONS: distinguish creative/marketing rationale from measured sales evidence. Do not say a color, style, or tactic will increase sales unless verified performance data supports it.
+- SALES-EFFECTIVENESS QUESTIONS: distinguish creative/marketing rationale from measured sales evidence. Describe unverified changes as potentially increasing visual impact, attention, contrast, or click appeal — not sales. Do not say a color, style, or tactic increases, improves, boosts, or is more effective for sales unless verified performance data supports that claim.
 - COMBINED INTELLIGENCE: for questions such as "Should I make more work like this?", combine artwork analysis, verified ArtBoost performance, and current market research when relevant.
 - Do not dump raw records. Summarize only the facts needed to answer.
 
@@ -2261,7 +2267,51 @@ ${JSON.stringify(accountContext)}`,
             : question,
         },
       ],
-    });
+    };
+
+    let response;
+    let marketResearchUsed = false;
+    let webResearchUnavailable = false;
+
+    try {
+      response = await openai.responses.create(openAIRequest);
+      marketResearchUsed = useWebResearch;
+    } catch (error) {
+      if (!useWebResearch) throw error;
+
+      webResearchUnavailable = true;
+      console.error(
+        "AI Consultant web research request failed; retrying safely without web tools:",
+        error?.message || error
+      );
+
+      // Never turn a web-tool/provider error into a 500 when the base Consultant can still answer.
+      // Retry with Sol but explicitly prohibit unsupported current-market claims.
+      const {
+        tools: _tools,
+        tool_choice: _toolChoice,
+        include: _include,
+        ...fallbackRequest
+      } = openAIRequest;
+
+      response = await openai.responses.create({
+        ...fallbackRequest,
+        input: [
+          {
+            role: "system",
+            content:
+              "CURRENT WEB RESEARCH IS TEMPORARILY UNAVAILABLE FOR THIS REQUEST. " +
+              "Do not claim current demand, current trends, best marketplace, current comparable sales, " +
+              "or verified sold prices from general knowledge. If the question requires those facts, begin with " +
+              "'Unable to verify current market conditions right now.' You may still provide clearly labeled general guidance.",
+          },
+          ...fallbackRequest.input,
+        ],
+      });
+      marketResearchUsed = false;
+    }
+
+
 
     const parsed = extractJson(response.output_text);
     const aiActions = validateActions(parsed?.actions);
@@ -2293,7 +2343,7 @@ ${JSON.stringify(accountContext)}`,
       )
         ? cleanString(parsed?.confidence, 40).toLowerCase()
         : null,
-      marketResearchUsed: useWebResearch,
+      marketResearchUsed,
       severity: ["info", "success", "warning", "error"].includes(
         parsed?.severity
       )
@@ -2303,6 +2353,17 @@ ${JSON.stringify(accountContext)}`,
         ? accountContext.summary
         : null,
     };
+
+    if (webResearchUnavailable) {
+      payload.intelligenceSources = safeArray(payload.intelligenceSources).filter(
+        (value) => value !== "web"
+      );
+      payload.evidenceNote =
+        "Current web research was unavailable for this request; current-market claims could not be verified.";
+      if (marketResearchIntent && payload.confidence === "high") {
+        payload.confidence = "unknown";
+      }
+    }
 
     return res.json({ success: true, ...payload });
   } catch (error) {
