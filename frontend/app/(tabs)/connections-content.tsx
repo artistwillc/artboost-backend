@@ -17,6 +17,8 @@ import {
   Alert,
   Linking,
   Modal,
+  NativeModules,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -306,9 +308,7 @@ export default function ConnectionsScreen() {
     useState<string | null>(null);
 
   const connectedStores = useMemo(() => {
-    const visibleStores = stores.filter(
-      store => store.connected !== false
-    );
+    const visibleStores = stores;
 
     if (!requestedStoreId) {
       return visibleStores;
@@ -372,7 +372,7 @@ export default function ConnectionsScreen() {
   const loadStores = useCallback(
   async (userId: string) => {
     const response = await fetch(
-      `${BACKEND_URL}/stores?userId=${encodeURIComponent(
+      `${BACKEND_URL}/api/v2/store-connections?userId=${encodeURIComponent(
         userId
       )}`
     );
@@ -447,55 +447,373 @@ export default function ConnectionsScreen() {
         null,
     }));
 
-    const etsyIndex = mappedStores.findIndex(
-      (store: any) =>
-        String(store.storeType || "")
-          .trim()
-          .toLowerCase() === "etsy"
-    );
+    let etsySummary: any = null;
+    let shopifyStatus: any = null;
 
-    if (etsyIndex >= 0) {
-      try {
-        const etsyResponse = await fetch(
-          `${BACKEND_URL}/etsy/store-summary?userId=${encodeURIComponent(
-            userId
-          )}`
+    await Promise.all([
+      (async () => {
+        try {
+          const etsyResponse =
+            await fetch(
+              `${BACKEND_URL}/etsy/store-summary?userId=${encodeURIComponent(
+                userId
+              )}`
+            );
+
+          const etsyText =
+            await etsyResponse.text();
+
+          let etsyData: any = {};
+
+          try {
+            etsyData =
+              etsyText
+                ? JSON.parse(etsyText)
+                : {};
+          } catch {
+            etsyData = {};
+          }
+
+          if (
+            etsyResponse.ok &&
+            etsyData?.success &&
+            etsyData?.connected
+          ) {
+            etsySummary =
+              etsyData;
+          }
+        } catch (error) {
+          console.log(
+            "Etsy store summary load failed:",
+            error
+          );
+        }
+      })(),
+      (async () => {
+        try {
+          const shopifyResponse =
+            await fetch(
+              `${BACKEND_URL}/shopify/status?userId=${encodeURIComponent(
+                userId
+              )}`
+            );
+
+          const shopifyText =
+            await shopifyResponse.text();
+
+          let shopifyData: any = {};
+
+          try {
+            shopifyData =
+              shopifyText
+                ? JSON.parse(
+                    shopifyText
+                  )
+                : {};
+          } catch {
+            shopifyData = {};
+          }
+
+          if (
+            shopifyResponse.ok &&
+            shopifyData?.connected &&
+            shopifyData?.shopDomain
+          ) {
+            shopifyStatus =
+              shopifyData;
+
+            console.log(
+              "ARTBOOST SHOPIFY STORE SUMMARY",
+              {
+                shopDomain:
+                  shopifyData.shopDomain,
+                productCount:
+                  Number(
+                    shopifyData.productCount
+                  ) || 0,
+                liveProductCount:
+                  Number(
+                    shopifyData.liveProductCount
+                  ) || 0,
+                localProductCount:
+                  Number(
+                    shopifyData.localProductCount
+                  ) || 0,
+                precision:
+                  shopifyData.productCountPrecision ||
+                  null,
+              }
+            );
+          }
+        } catch (error) {
+          console.log(
+            "Shopify store status load failed:",
+            error
+          );
+        }
+      })(),
+    ]);
+
+    if (etsySummary) {
+      const etsyIndex =
+        mappedStores.findIndex(
+          (store: any) =>
+            String(
+              store.storeType || ""
+            )
+              .trim()
+              .toLowerCase() ===
+            "etsy"
         );
 
-        const etsyText = await etsyResponse.text();
-        let etsyData: any = {};
+      const etsyStore: ConnectedStore = {
+        id:
+          String(
+            etsySummary.connectionId ||
+              etsySummary.shopId ||
+              "etsy"
+          ),
+        storeType: "etsy",
+        storeName:
+          etsySummary.shopName ||
+          "Etsy",
+        storeUrl:
+          etsySummary.shopName
+            ? `https://www.etsy.com/shop/${encodeURIComponent(
+                String(
+                  etsySummary.shopName
+                )
+              )}`
+            : "https://www.etsy.com",
+        hostname:
+          "www.etsy.com",
+        connectionMethod:
+          "live_sync",
+        connected: true,
+        productCount:
+          Number(
+            etsySummary.productCount
+          ) || 0,
+        updatedAt:
+          etsySummary.lastSyncAt ||
+          null,
+      };
 
-        try {
-          etsyData = etsyText
-            ? JSON.parse(etsyText)
-            : {};
-        } catch {}
-
-        if (
-          etsyResponse.ok &&
-          etsyData?.success
-        ) {
-          mappedStores[etsyIndex] = {
-            ...mappedStores[etsyIndex],
-            productCount:
-              Number(etsyData.productCount) || 0,
-            storeName:
-              etsyData.shopName ||
-              mappedStores[etsyIndex].storeName,
-            updatedAt:
-              etsyData.lastSyncAt ||
-              mappedStores[etsyIndex].updatedAt,
-          };
-        }
-      } catch (error) {
-        console.log(
-          "Etsy store summary load failed:",
-          error
+      if (etsyIndex >= 0) {
+        mappedStores[etsyIndex] = {
+          ...mappedStores[etsyIndex],
+          ...etsyStore,
+        };
+      } else {
+        mappedStores.push(
+          etsyStore
         );
       }
     }
 
-    setStores(mappedStores);
+    if (shopifyStatus) {
+      const shopifyIndex =
+        mappedStores.findIndex(
+          (store: any) =>
+            String(
+              store.storeType || ""
+            )
+              .trim()
+              .toLowerCase() ===
+            "shopify"
+        );
+
+      const shopDomain =
+        String(
+          shopifyStatus.shopDomain ||
+            ""
+        ).trim();
+
+      const shopifyStore: ConnectedStore = {
+        id:
+          String(
+            shopifyStatus.connectionId ||
+              `shopify:${shopDomain}`
+          ),
+        storeType:
+          "shopify",
+        storeName:
+          shopDomain ||
+          "Shopify",
+        storeUrl:
+          shopDomain
+            ? `https://${shopDomain}`
+            : null,
+        hostname:
+          shopDomain || null,
+        connectionMethod:
+          "live_sync",
+        connected: true,
+        productCount:
+          Number(
+            shopifyStatus.productCount
+          ) || 0,
+        connectedAt:
+          shopifyStatus.connectedAt ||
+          null,
+      };
+
+      if (shopifyIndex >= 0) {
+        mappedStores[shopifyIndex] = {
+          ...mappedStores[
+            shopifyIndex
+          ],
+          ...shopifyStore,
+        };
+      } else {
+        mappedStores.push(
+          shopifyStore
+        );
+      }
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const authHeaders =
+      session?.access_token
+        ? {
+            Authorization:
+              `Bearer ${session.access_token}`,
+          }
+        : ({} as Record<string, string>);
+
+    const reconciledStores =
+      await Promise.all(
+        mappedStores.map(
+          async (
+            store: ConnectedStore
+          ) => {
+            const normalizedType =
+              String(
+                store.storeType || ""
+              )
+                .trim()
+                .toLowerCase();
+
+            if (
+              normalizedType ===
+                "etsy" &&
+              etsySummary
+            ) {
+              return {
+                ...store,
+                productCount:
+                  Number(
+                    etsySummary.productCount
+                  ) || 0,
+              };
+            }
+
+            if (
+              normalizedType ===
+                "shopify" &&
+              shopifyStatus
+            ) {
+              return {
+                ...store,
+                productCount:
+                  Number(
+                    shopifyStatus.productCount
+                  ) || 0,
+              };
+            }
+
+            try {
+              const query =
+                new URLSearchParams({
+                  userId,
+                  storeType:
+                    String(
+                      store.storeType ||
+                        "custom_store"
+                    )
+                      .trim()
+                      .toLowerCase(),
+                  storeId:
+                    String(
+                      store.id
+                    ),
+                  limit: "1",
+                  offset: "0",
+                });
+
+              const productResponse =
+                await fetch(
+                  `${BACKEND_URL}/products?${query.toString()}`,
+                  {
+                    headers:
+                      authHeaders,
+                  }
+                );
+
+              const productText =
+                await productResponse.text();
+
+              let productData: any = {};
+
+              try {
+                productData =
+                  productText
+                    ? JSON.parse(
+                        productText
+                      )
+                    : {};
+              } catch {
+                productData = {};
+              }
+
+              if (
+                productResponse.ok &&
+                productData?.success
+              ) {
+                const rows =
+                  Array.isArray(
+                    productData.products
+                  )
+                    ? productData.products
+                    : [];
+
+                const authoritativeCount =
+                  Number.isFinite(
+                    Number(
+                      productData.total
+                    )
+                  )
+                    ? Number(
+                        productData.total
+                      )
+                    : rows.length;
+
+                return {
+                  ...store,
+                  productCount:
+                    Math.max(
+                      0,
+                      authoritativeCount
+                    ),
+                };
+              }
+            } catch (error) {
+              console.log(
+                "Store product count reconciliation failed:",
+                store.id,
+                error
+              );
+            }
+
+            return store;
+          }
+        )
+      );
+
+    setStores(reconciledStores);
   },
   []
 );
@@ -557,7 +875,11 @@ export default function ConnectionsScreen() {
         await Promise.all([
           checkSimpleStatus(
             "Pinterest",
-            "/pinterest/status"
+            userId
+              ? `/pinterest/status?userId=${encodeURIComponent(
+                  userId
+                )}`
+              : "/pinterest/status"
           ),
           checkSimpleStatus(
             "Facebook",
@@ -652,14 +974,189 @@ export default function ConnectionsScreen() {
     ])
   );
 
+  // ARTBOOST_TIKTOK_NATIVE_LOGIN_V9
+  async function readArtBoostJsonResponse(
+    response: Response,
+    label: string
+  ) {
+    const responseText = await response.text();
+    let data: any = {};
+
+    if (responseText.trim()) {
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        const looksLikeHtml = /^\s*</.test(responseText);
+
+        if (looksLikeHtml) {
+          throw new Error(
+            `${label} is not live on the ArtBoost server yet (HTTP ${response.status}). Wait for the backend deploy to finish, then try again.`
+          );
+        }
+
+        throw new Error(
+          `${label} returned an invalid server response (HTTP ${response.status}).`
+        );
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          data?.details ||
+          `${label} failed with HTTP ${response.status}.`
+      );
+    }
+
+    return data;
+  }
+
+  async function connectTikTokThroughInstalledApp(userId: string) {
+    if (Platform.OS !== "android") {
+      Alert.alert(
+        "TikTok App Login",
+        "Native TikTok app authorization is currently enabled for Android. Use the existing TikTok authorization flow on iPhone."
+      );
+      return;
+    }
+
+    const nativeLogin = (NativeModules as any).ArtBoostTikTokLogin;
+
+    if (!nativeLogin?.authorize) {
+      Alert.alert(
+        "Android Rebuild Required",
+        "This ArtBoost Android build does not contain the TikTok native bridge. Reinstall the already-built V8 APK, then try again."
+      );
+      return;
+    }
+
+    const healthResponse = await fetch(
+      `${BACKEND_URL}/tiktok/native-health?ts=${Date.now()}`,
+      {
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+      }
+    );
+
+    const health = await readArtBoostJsonResponse(
+      healthResponse,
+      "TikTok native backend"
+    );
+
+    if (!health?.native || !health?.configured) {
+      throw new Error(
+        health?.error ||
+          "TikTok native login is not configured on the ArtBoost server."
+      );
+    }
+
+    const configResponse = await fetch(
+      `${BACKEND_URL}/tiktok/native-config?ts=${Date.now()}`,
+      {
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+      }
+    );
+
+    const config = await readArtBoostJsonResponse(
+      configResponse,
+      "TikTok native configuration"
+    );
+
+    if (
+      !config?.configured ||
+      !config?.clientKey ||
+      !config?.redirectUri
+    ) {
+      throw new Error(
+        config?.error ||
+          "TikTok native login is not configured on the ArtBoost server."
+      );
+    }
+
+    const result = await nativeLogin.authorize(
+      String(config.clientKey),
+      String(
+        config.scopes ||
+          "user.info.basic,video.publish,video.upload"
+      ),
+      String(config.redirectUri)
+    );
+
+    if (!result?.code || !result?.codeVerifier) {
+      throw new Error(
+        "TikTok did not return a usable native authorization code."
+      );
+    }
+
+    const exchangeResponse = await fetch(
+      `${BACKEND_URL}/auth/tiktok/native-exchange`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+        body: JSON.stringify({
+          userId,
+          code: result.code,
+          codeVerifier: result.codeVerifier,
+          redirectUri: config.redirectUri,
+        }),
+      }
+    );
+
+    const exchange = await readArtBoostJsonResponse(
+      exchangeResponse,
+      "TikTok native token exchange"
+    );
+
+    if (!exchange?.success) {
+      throw new Error(
+        exchange?.error ||
+          "ArtBoost could not finish the TikTok native login."
+      );
+    }
+
+    await refreshAllStatuses();
+
+    Alert.alert(
+      "TikTok Connected",
+      exchange?.displayName
+        ? `Connected to TikTok as ${exchange.displayName}.`
+        : "TikTok was connected through the installed TikTok app."
+    );
+  }
+
   async function connectSocialPlatform(
   platform: string
 ) {
   console.log("Platform pressed:", JSON.stringify(platform));
 
   if (platform === "Pinterest") {
+    const { data: sessionData } =
+      await supabase.auth.getSession();
+
+    const userId =
+      sessionData.session?.user?.id;
+
+    if (!userId) {
+      Alert.alert(
+        "Login Required",
+        "Please log in before connecting Pinterest."
+      );
+      return;
+    }
+
     await Linking.openURL(
-      `${BACKEND_URL}/auth/pinterest`
+      `${BACKEND_URL}/auth/pinterest?userId=${encodeURIComponent(
+        userId
+      )}`
     );
 
     Alert.alert(
@@ -709,12 +1206,38 @@ export default function ConnectionsScreen() {
 
       return;
     }
+    if (platform === "TikTok") {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        Alert.alert(
+          "Login Required",
+          "Please log in before connecting TikTok."
+        );
+        return;
+      }
+
+      try {
+        await connectTikTokThroughInstalledApp(userId);
+      } catch (error: any) {
+        Alert.alert(
+          "TikTok Connection Failed",
+          error?.message || "TikTok app authorization could not be completed."
+        );
+      }
+
+      return;
+    }
+
 
     if (
       platform === "Threads" ||
       platform === "LinkedIn" ||
-      platform === "X" ||
-      platform === "TikTok"
+      platform === "X"
     ) {
       const { data: sessionData } =
         await supabase.auth.getSession();
@@ -734,7 +1257,6 @@ export default function ConnectionsScreen() {
         Threads: "/auth/threads",
         LinkedIn: "/auth/linkedin",
         X: "/auth/x",
-        TikTok: "/auth/tiktok",
       };
 
       await Linking.openURL(
@@ -754,6 +1276,146 @@ export default function ConnectionsScreen() {
     Alert.alert(
       `${platform} Connection`,
       `${platform} is currently configured through the ArtBoost server.`
+    );
+  }
+
+// ARTBOOST_CONNECT_DISCONNECT_UI_FIX_20260907
+  async function disconnectSocialPlatform(
+    platform: string
+  ) {
+    try {
+      const { data: sessionData } =
+        await supabase.auth.getSession();
+
+      const userId =
+        sessionData.session?.user?.id;
+
+      if (!userId) {
+        throw new Error(
+          `Please log in before disconnecting ${platform}.`
+        );
+      }
+
+      const endpointMap: Record<
+        string,
+        { path: string; method: "DELETE" | "POST" }
+      > = {
+        Threads: {
+          path: "/threads/disconnect",
+          method: "DELETE",
+        },
+        LinkedIn: {
+          path: "/linkedin/disconnect",
+          method: "DELETE",
+        },
+        X: {
+          path: "/x/disconnect",
+          method: "DELETE",
+        },
+        TikTok: {
+          path: "/tiktok/disconnect",
+          method: "POST",
+        },
+      };
+
+      const endpoint = endpointMap[platform];
+      const isSpecificEndpoint = Boolean(endpoint);
+      const method = endpoint?.method || "POST";
+      const endpointPath =
+        endpoint?.path || "/disconnect-platform";
+      const url =
+        method === "DELETE"
+          ? `${BACKEND_URL}${endpointPath}?userId=${encodeURIComponent(
+              userId
+            )}`
+          : `${BACKEND_URL}${endpointPath}`;
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body:
+          method === "POST"
+            ? JSON.stringify({
+                userId,
+                platform,
+              })
+            : undefined,
+      });
+
+      const responseText = await response.text();
+      let data: any = {};
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = {};
+        }
+      }
+
+      if (
+        !response.ok ||
+        data?.success === false
+      ) {
+        throw new Error(
+          data?.error ||
+            data?.details ||
+            `Unable to disconnect ${platform}.`
+        );
+      }
+
+      await updateStoredConnection(
+        platform,
+        false
+      );
+      await refreshAllStatuses();
+
+      Alert.alert(
+        `${platform} Disconnected`,
+        `${platform} was disconnected successfully.`
+      );
+
+      if (!isSpecificEndpoint) {
+        console.log(
+          `${platform} disconnected through the ArtBoost generic platform endpoint.`
+        );
+      }
+    } catch (error: any) {
+      console.log(
+        `${platform} disconnect failed:`,
+        error
+      );
+
+      Alert.alert(
+        "Disconnect Failed",
+        error?.message ||
+          `Unable to disconnect ${platform}.`
+      );
+    }
+  }
+
+  function confirmSocialDisconnect(
+    platform: string
+  ) {
+    Alert.alert(
+      `Disconnect ${platform}?`,
+      `ArtBoost will stop posting to this ${platform} account until you connect it again.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: () =>
+            void disconnectSocialPlatform(
+              platform
+            ),
+        },
+      ]
     );
   }
 
@@ -824,14 +1486,37 @@ export default function ConnectionsScreen() {
         );
       }
 
-      const response = await fetch(
-        `${BACKEND_URL}/api/v2/store-connections/${encodeURIComponent(
-          store.id
-        )}?userId=${encodeURIComponent(userId)}`,
-        {
-          method: "DELETE",
-        }
-      );
+      const normalizedStoreType =
+        String(
+          store.storeType || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const disconnectUrl =
+        normalizedStoreType ===
+        "etsy"
+          ? `${BACKEND_URL}/etsy/connection?userId=${encodeURIComponent(
+              userId
+            )}`
+          : normalizedStoreType ===
+            "shopify"
+          ? `${BACKEND_URL}/shopify/connection?userId=${encodeURIComponent(
+              userId
+            )}`
+          : `${BACKEND_URL}/api/v2/store-connections/${encodeURIComponent(
+              store.id
+            )}?userId=${encodeURIComponent(
+              userId
+            )}`;
+
+      const response =
+        await fetch(
+          disconnectUrl,
+          {
+            method: "DELETE",
+          }
+        );
 
       const responseText =
         await response.text();
@@ -964,29 +1649,59 @@ export default function ConnectionsScreen() {
                 : "Not Connected"}
             </Text>
           </View>
-
+          {/* ARTBOOST_SOCIAL_CONNECT_RECONNECT_DISCONNECT_UI_FIX_V3_20260907 */}
           <View style={styles.socialButtonColumn}>
-            <Pressable
-              style={[
-                styles.button,
-                connected
-                  ? styles.reconnectButton
-                  : styles.connectButton,
-              ]}
-              onPress={() =>
-                connectSocialPlatform(
-                  platform.name
-                )
-              }
-            >
-              <Text
-                style={styles.buttonText}
+            {connected ? (
+              <>
+                <Pressable
+                  style={[
+                    styles.button,
+                    styles.reconnectButton,
+                  ]}
+                  onPress={() =>
+                    void connectSocialPlatform(
+                      platform.name
+                    )
+                  }
+                >
+                  <Text style={styles.buttonText}>
+                    Reconnect
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.button,
+                    styles.disconnectButton,
+                  ]}
+                  onPress={() =>
+                    confirmSocialDisconnect(
+                      platform.name
+                    )
+                  }
+                >
+                  <Text style={styles.buttonText}>
+                    Disconnect
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.connectButton,
+                ]}
+                onPress={() =>
+                  void connectSocialPlatform(
+                    platform.name
+                  )
+                }
               >
-                {connected
-                  ? "Reconnect"
-                  : "Connect"}
-              </Text>
-            </Pressable>
+                <Text style={styles.buttonText}>
+                  Connect
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
       </View>
@@ -1093,9 +1808,15 @@ export default function ConnectionsScreen() {
               </Text>
 
               <Text
-                style={styles.connectedText}
+                style={
+                  store.connected
+                    ? styles.connectedText
+                    : styles.storeMetric
+                }
               >
-                Connected
+                {store.connected
+                  ? "Connected"
+                  : "Saved Store"}
               </Text>
             </View>
           </View>
@@ -1888,6 +2609,7 @@ const styles = StyleSheet.create({
 
   socialButtonColumn: {
     width: 100,
+    gap: 10,
   },
 
   titleRow: {

@@ -5528,6 +5528,12 @@ app.get("/auth/pinterest", (req, res) => {
       ? String(req.query.userId)
       : null;
 
+    if (!userId) {
+      return res.status(400).send(
+        "Missing ArtBoost userId. Update ArtBoost and try connecting Pinterest again."
+      );
+    }
+
     const scopes = [
       "boards:read",
       "boards:write",
@@ -8720,16 +8726,22 @@ app.get("/pinterest/status", async (req, res) => {
       ? String(req.query.userId)
       : null;
 
-    let connection = null;
-
-    if (userId) {
-      connection = await loadUserSocialConnection({
-        userId,
-        platform: "pinterest",
+    if (!userId) {
+      return res.status(400).json({
+        configured: Boolean(
+          PINTEREST_CLIENT_ID &&
+            PINTEREST_CLIENT_SECRET
+        ),
+        connected: false,
+        error:
+          "Pinterest status requires an ArtBoost userId.",
       });
-    } else {
-      connection = await loadPinterestConnection();
     }
+
+    const connection =
+      await getValidPinterestConnection(
+        String(userId)
+      );
 
     res.json({
       configured: Boolean(PINTEREST_CLIENT_ID && PINTEREST_CLIENT_SECRET),
@@ -8752,31 +8764,26 @@ app.get("/pinterest/boards", async (req, res) => {
       ? String(req.query.userId)
       : null;
 
-    let pinterestToken = null;
-
-    if (userId) {
-      const userConnection = await loadUserSocialConnection({
-        userId,
-        platform: "pinterest",
+    if (!userId) {
+      return res.status(400).json({
+        error:
+          "Pinterest boards require an ArtBoost userId.",
       });
-
-      if (userConnection?.connected && userConnection?.access_token) {
-        pinterestToken = userConnection.access_token;
-      }
     }
 
-    if (!pinterestToken) {
-      if (!pinterestConnection.connected || !pinterestConnection.token) {
-        await loadPinterestConnection();
-      }
+    const userConnection =
+      await getValidPinterestConnection(
+        String(userId)
+      );
 
-      pinterestToken = pinterestConnection.connected
-        ? pinterestConnection.token
-        : null;
-    }
+    const pinterestToken =
+      userConnection?.access_token || null;
 
     if (!pinterestToken) {
-      return res.status(401).json({ error: "Pinterest is not connected." });
+      return res.status(401).json({
+        error:
+          "Pinterest is not connected for this ArtBoost account.",
+      });
     }
 
     const boardsResponse = await fetch(`${PINTEREST_API_BASE}/v5/boards`, {
@@ -8833,6 +8840,138 @@ async function loadUserSocialConnection({
   return data || null;
 }
 
+
+async function refreshPinterestConnectionForUser({
+  userId,
+  connection,
+}) {
+  if (!userId) {
+    throw new Error(
+      "Pinterest token refresh requires an ArtBoost userId."
+    );
+  }
+
+  const refreshToken =
+    connection?.refresh_token || null;
+
+  if (!refreshToken) {
+    throw new Error(
+      "Pinterest authorization expired. Reconnect Pinterest and try again."
+    );
+  }
+
+  if (
+    connection?.refresh_token_expires_at &&
+    new Date(connection.refresh_token_expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error(
+      "Pinterest authorization expired. Reconnect Pinterest and try again."
+    );
+  }
+
+  const basicAuth = Buffer.from(
+    `${PINTEREST_CLIENT_ID}:${PINTEREST_CLIENT_SECRET}`
+  ).toString("base64");
+
+  const response = await fetch(
+    `${PINTEREST_API_BASE}/v5/oauth/token`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        "Content-Type":
+          "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    }
+  );
+
+  const tokenData = await response.json();
+
+  if (!response.ok || !tokenData?.access_token) {
+    const message =
+      tokenData?.message ||
+      tokenData?.error_description ||
+      tokenData?.error ||
+      "Pinterest token refresh failed.";
+
+    throw new Error(
+      `Pinterest authorization refresh failed: ${message}`
+    );
+  }
+
+  await savePinterestConnection(
+    tokenData,
+    String(userId)
+  );
+
+  const refreshed =
+    await loadUserSocialConnection({
+      userId: String(userId),
+      platform: "pinterest",
+    });
+
+  if (
+    !refreshed?.connected ||
+    !refreshed?.access_token
+  ) {
+    throw new Error(
+      "Pinterest refreshed its token but ArtBoost could not reload the saved connection."
+    );
+  }
+
+  console.log(
+    `Pinterest access token refreshed for user ${userId}.`
+  );
+
+  return refreshed;
+}
+
+async function getValidPinterestConnection(
+  userId,
+  { forceRefresh = false } = {}
+) {
+  if (!userId) return null;
+
+  let connection =
+    await loadUserSocialConnection({
+      userId: String(userId),
+      platform: "pinterest",
+    });
+
+  if (
+    !connection?.connected ||
+    !connection?.access_token
+  ) {
+    return null;
+  }
+
+  const expiresAt =
+    connection.expires_at
+      ? new Date(connection.expires_at).getTime()
+      : null;
+
+  const refreshWindowMs = 5 * 60 * 1000;
+
+  const needsRefresh =
+    forceRefresh ||
+    (Number.isFinite(expiresAt) &&
+      expiresAt <= Date.now() + refreshWindowMs);
+
+  if (needsRefresh) {
+    connection =
+      await refreshPinterestConnectionForUser({
+        userId: String(userId),
+        connection,
+      });
+  }
+
+  return connection;
+}
+
 async function publishPinterestPin({
   boardId,
   title,
@@ -8841,33 +8980,23 @@ async function publishPinterestPin({
   imageUrl,
   userId = null,
 }) {
-  const userConnection =
-    await loadUserSocialConnection({
-      userId,
-      platform: "pinterest",
-    });
+  if (!userId) {
+    throw new Error(
+      "Pinterest publishing requires an ArtBoost userId."
+    );
+  }
+
+  let userConnection =
+    await getValidPinterestConnection(
+      String(userId)
+    );
 
   let pinterestToken =
-    userConnection?.connected &&
-    userConnection?.access_token
-      ? userConnection.access_token
-      : null;
-
-  // Backward-compatible fallback for existing legacy Pinterest connections.
-  if (!pinterestToken) {
-    if (!pinterestConnection.connected || !pinterestConnection.token) {
-      await loadPinterestConnection();
-    }
-
-    pinterestToken =
-      pinterestConnection.connected
-        ? pinterestConnection.token
-        : null;
-  }
+    userConnection?.access_token || null;
 
   if (!pinterestToken) {
     throw new Error(
-      "Pinterest is not connected. Reconnect Pinterest and try again."
+      "Pinterest is not connected for this ArtBoost account. Reconnect Pinterest and try again."
     );
   }
 
@@ -8897,16 +9026,45 @@ async function publishPinterestPin({
     },
   };
 
-  const pinResponse = await fetch(`${PINTEREST_API_BASE}/v5/pins`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${pinterestToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(pinPayload),
-  });
+  const sendPin = async (token) => {
+    const response = await fetch(
+      `${PINTEREST_API_BASE}/v5/pins`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(pinPayload),
+      }
+    );
 
-  const pinData = await pinResponse.json();
+    const data = await response.json();
+    return { response, data };
+  };
+
+  let { response: pinResponse, data: pinData } =
+    await sendPin(pinterestToken);
+
+  if (
+    !pinResponse.ok &&
+    (pinResponse.status === 401 ||
+      pinResponse.status === 403)
+  ) {
+    userConnection =
+      await getValidPinterestConnection(
+        String(userId),
+        { forceRefresh: true }
+      );
+
+    pinterestToken =
+      userConnection?.access_token || null;
+
+    if (pinterestToken) {
+      ({ response: pinResponse, data: pinData } =
+        await sendPin(pinterestToken));
+    }
+  }
 
   if (!pinResponse.ok) {
     const pinterestMessage =
@@ -8914,8 +9072,18 @@ async function publishPinterestPin({
       pinData?.error?.message ||
       JSON.stringify(pinData);
 
-    throw new Error(`Pinterest publish failed: ${pinterestMessage}`);
+    throw new Error(
+      `Pinterest publish failed: ${pinterestMessage}`
+    );
   }
+
+  console.log("Pinterest post published:", {
+    userId: String(userId),
+    pinId: pinData?.id || null,
+    boardId: resolvedBoardId,
+    hasImage: true,
+    hasProductLink: Boolean(link),
+  });
 
   return {
     ...pinData,
