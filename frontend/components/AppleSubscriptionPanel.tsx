@@ -26,18 +26,24 @@ const PRODUCTS = [
     label: "Starter",
     sku: "com.artistwill.artboostai.starter.monthly",
     standardPrice: "$19.99",
+    monthlyVideoAllowance: "5 AI product videos/month",
+    summary: "For creators building a consistent marketing routine.",
   },
   {
     tier: "pro",
     label: "Pro",
     sku: "com.artistwill.artboostai.pro.monthly",
     standardPrice: "$39.99",
+    monthlyVideoAllowance: "15 AI product videos/month",
+    summary: "The complete ArtBoost experience for serious artists and POD sellers.",
   },
   {
     tier: "business",
     label: "Business",
     sku: "com.artistwill.artboostai.business.monthly",
     standardPrice: "$79.99",
+    monthlyVideoAllowance: "30 AI product videos/month",
+    summary: "For high-volume sellers and growing creative businesses.",
   },
 ] as const;
 
@@ -398,14 +404,11 @@ export default function AppleSubscriptionPanel({
             {isExpanded ? (
               <View style={styles.details}>
                 <Text style={styles.detailTitle}>{item.label} plan</Text>
+                <Text style={styles.detailText}>{item.summary}</Text>
+                <Text style={styles.detailText}>{item.monthlyVideoAllowance}</Text>
                 <Text style={styles.detailText}>Monthly subscription: {displayPrice}</Text>
                 <Text style={styles.detailText}>
                   Billing cadence: monthly until changed or canceled.
-                </Text>
-                <Text style={styles.detailText}>
-                  {liveDisplayPrice
-                    ? "Price shown above was returned by the Apple App Store for this device."
-                    : "Standard U.S. price shown. Apple-localized pricing will replace it when StoreKit returns the catalog."}
                 </Text>
                 {isCurrent ? (
                   <Text style={styles.currentDetail}>This is your current ArtBoost plan.</Text>
