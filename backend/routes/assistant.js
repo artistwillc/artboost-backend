@@ -1,3 +1,4 @@
+// ARTBOOST_PERSONAL_MARKETING_AGENT_V15
 // ARTBOOST_CONSULTANT_RESPONSE_FALLBACK_V14
 // ARTBOOST_AI_CONSULTANT_FUNCTIONAL_INTEGRITY_V3159
 import express from "express";
@@ -2057,7 +2058,15 @@ router.post("/assistant", async (req, res) => {
 
     // Answer direct account-fact questions from ArtBoost data before calling the model.
     // This prevents malformed model JSON from breaking factual account queries.
-    const directAnswer = deterministicAccountAnswer(question, accountContext);
+    const visualSimilarityIntent = /\b(?:similar|similarity|look(?:s|ed)?\s+(?:like|similar)|resembl|like\s+this|same\s+style|same\s+look|how\s+many.*(?:like|similar))\b/i.test(question) &&
+      /\b(?:listing|listings|product|products|artwork|artworks|design|designs|painting|paintings|image|images|photo|photos|library)\b/i.test(question);
+    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|best\s+(?:marketplace|site|platform).*sell)\b/i.test(question);
+
+    // V15: similarity and current-market questions must reach the intelligence model.
+    // Do not let a generic product-count/account shortcut hijack the user's intent.
+    const directAnswer = (!visualSimilarityIntent && !marketResearchIntent)
+      ? deterministicAccountAnswer(question, accountContext)
+      : null;
     if (directAnswer) {
       return res.json({
         success: true,
@@ -2069,9 +2078,20 @@ router.post("/assistant", async (req, res) => {
       ([id, action]) => ({ id, ...action })
     );
 
+    const useWebResearch = isConsultant && marketResearchIntent;
     const response = await openai.responses.create({
-      model: process.env.OPENAI_SUPPORT_MODEL || "gpt-4.1-mini",
+      model:
+        process.env.OPENAI_CONSULTANT_MODEL ||
+        process.env.OPENAI_SUPPORT_MODEL ||
+        "gpt-4.1-mini",
       temperature: 0.15,
+      ...(useWebResearch
+        ? {
+            tools: [{ type: "web_search_preview", search_context_size: "medium" }],
+            tool_choice: "auto",
+            include: ["web_search_call.action.sources"],
+          }
+        : {}),
       input: [
         {
           role: "system",
@@ -2081,9 +2101,10 @@ Your configured in-app display name for this authenticated user is "${consultant
 
 You are both the user's ArtBoost product expert/support agent and their art-business/marketing consultant.
 
-STRICT CONSULTANT SCOPE — LAUNCH V13:
-- You may answer only questions about ArtBoost AI, social media platforms, connected stores/marketplaces, and using those systems to market, publish, manage, price, or sell the user's creative work.
-- Do not answer unrelated general-knowledge, entertainment, politics, health, legal, travel, coding, weather, sports, or other off-topic questions.
+STRICT CONSULTANT SCOPE — PERSONAL AI MARKETING AGENT V15:
+- You may answer any legitimate question about art, art-making, art presentation, art history/style/movements, marketing, branding, the art market, art-business strategy, social platforms, creative marketplaces/stores, pricing/appraisal guidance, ecommerce/POD, and ArtBoost itself.
+- You are the artist's personal AI marketing agent, not merely an ArtBoost support chatbot.
+- Do not answer unrelated entertainment, politics, health, legal, travel, coding, weather, sports, or other clearly off-topic questions.
 - Read-only live platform/store status in LIVE ACCOUNT CONTEXT may be used as evidence. Never convert a provider health check into a user connection unless authenticated account context supports it.
 - The standalone Analytics dashboard is deferred from the launch build. Never suggest Open Analytics or any /analytics route.
 - For today/yesterday/this week/last 7 days/month questions, honor the supplied account/store automation timezone and requested time window.
@@ -2106,6 +2127,11 @@ ACCOUNT-AWARE BEHAVIOR:
 - For subscription questions, state the user's current tier/status when available.
 - For product or marketing questions, use product count, unpromoted product count, newest products, campaign totals, and platform post counts when relevant.
 - If authenticated=false, clearly provide general guidance without claiming to see the user's account.
+- ACTIVE ARTWORK CONTEXT: if the current user message includes an input_image, that image is the active artwork. Resolve "this", "it", "this painting", "the photo I attached", "the image I attached", "them", "similar to this", and comparable follow-ups against that active image unless the user clearly changes subjects. Never claim you cannot see the image when it is included in the current request.
+- CURRENT MARKET RESEARCH: when web search is enabled for this request, use it for current/time-sensitive market claims. Distinguish public asking/list prices from verified completed sales. Never convert listing availability, search prominence, or asking prices into proven demand or sales.
+- SIMILAR LIBRARY QUESTIONS: answer the similarity question itself. Use the active image plus the user's imported product titles/store metadata in LIVE ACCOUNT CONTEXT as available evidence. Do not substitute total product/unposted counts. If exact visual comparison across every Library image cannot be verified, say that clearly and provide the strongest metadata-supported match/count you can defend instead of inventing a precise visual count.
+- SALES-EFFECTIVENESS QUESTIONS: distinguish creative/marketing rationale from measured sales evidence. Do not say a color, style, or tactic will increase sales unless verified performance data supports it.
+- COMBINED INTELLIGENCE: for questions such as "Should I make more work like this?", combine artwork analysis, verified ArtBoost performance, and current market research when relevant.
 - Do not dump raw records. Summarize only the facts needed to answer.
 
 REDBUBBLE SUPPORT RULES:
@@ -2125,6 +2151,9 @@ Return ONLY valid JSON with this exact structure:
   "actions": [{"id": "one_allowed_action_id"}],
   "followUps": ["Optional related question", "Optional related question"],
   "usedAccountData": true,
+  "intelligenceSources": ["artboost", "artwork", "web", "general"],
+  "evidenceNote": "Short provenance/limitation note when useful",
+  "confidence": "high",
   "severity": "info"
 }
 
@@ -2134,6 +2163,9 @@ Rules:
 - actions: only IDs from ALLOWED ACTIONS.
 - followUps: at most 3 short questions.
 - usedAccountData=true only when the response mentions or relies on live account facts.
+- intelligenceSources: use only artboost, artwork, web, or general; include only sources actually used.
+- evidenceNote: optional, concise, and specific. Use it to distinguish asking prices vs completed sales, metadata similarity vs visual comparison, or general guidance vs measured performance.
+- confidence: high, moderate, preliminary, or unknown.
 - severity: info, success, warning, or error.
 - Never expose access tokens, secrets, credentials, internal IDs, or raw database objects.
 - For third-party orders, fulfillment, shipping, refunds, returns, taxes, or disputes, explain that the applicable store/provider must handle them.
@@ -2189,6 +2221,18 @@ ${JSON.stringify(accountContext)}`,
         .slice(0, 3),
       usedAccountData:
         accountContext.authenticated === true && Boolean(parsed?.usedAccountData),
+      intelligenceSources: safeArray(parsed?.intelligenceSources)
+        .map((value) => cleanString(value, 40).toLowerCase())
+        .filter((value) => ["artboost", "artwork", "web", "general"].includes(value))
+        .filter((value, index, all) => all.indexOf(value) === index)
+        .slice(0, 4),
+      evidenceNote: cleanString(parsed?.evidenceNote, 700) || null,
+      confidence: ["high", "moderate", "preliminary", "unknown"].includes(
+        cleanString(parsed?.confidence, 40).toLowerCase()
+      )
+        ? cleanString(parsed?.confidence, 40).toLowerCase()
+        : null,
+      marketResearchUsed: useWebResearch,
       severity: ["info", "success", "warning", "error"].includes(
         parsed?.severity
       )

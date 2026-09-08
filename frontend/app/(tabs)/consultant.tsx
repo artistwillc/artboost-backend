@@ -1,3 +1,4 @@
+// ARTBOOST_PERSONAL_MARKETING_AGENT_V15
 // ARTBOOST_ARTWORK_APPRAISAL_V14
 // ARTBOOST_CREATOR_TOOLS_ENABLEMENT_V31614
 // ARTBOOST_UNIFIED_AI_CONSULTANT_SUPPORT_V3160
@@ -65,6 +66,10 @@ type Message = {
   actions?: AssistantAction[];
   followUps?: string[];
   usedAccountData?: boolean;
+  intelligenceSources?: string[];
+  evidenceNote?: string | null;
+  confidence?: "high" | "moderate" | "preliminary" | "unknown" | null;
+  marketResearchUsed?: boolean;
   severity?: "info" | "success" | "warning" | "error";
 };
 
@@ -121,7 +126,7 @@ export default function ConsultantScreen() {
       id: "welcome",
       role: "assistant",
       text:
-        "I’m your ArtBoost AI Consultant. Ask me anything about ArtBoost or your art business—or tell me what you’d like to get done. I can analyze your verified ArtBoost data, recommend what to do next, and help manage your products, stores, social connections, campaigns, content, scheduling, automations, publishing history, videos, marketing, and business growth. Ask a question, get advice, or give me a task.",
+        "I’m your personal ArtBoost AI marketing agent. Ask me anything about art, marketing, the art market, your ArtBoost business, or how the app works. Attach artwork and keep asking follow-up questions—I’ll keep that artwork active until you clear or replace it.",
       severity: "info",
     },
   ]);
@@ -311,13 +316,15 @@ export default function ConsultantScreen() {
             ? data.followUps
             : [],
           usedAccountData: Boolean(data.usedAccountData),
+          intelligenceSources: Array.isArray(data.intelligenceSources) ? data.intelligenceSources : [],
+          evidenceNote: data.evidenceNote ? String(data.evidenceNote) : null,
+          confidence: data.confidence || null,
+          marketResearchUsed: Boolean(data.marketResearchUsed),
           severity: data.severity || "info",
         },
       ]);
-      if (imageDataUrl || imageUri) {
-        setImageDataUrl(null);
-        setImageUri(null);
-      }
+      // V15: keep the latest attached artwork active across follow-up turns.
+      // The user can explicitly clear it with the X button or replace it by attaching another image.
     } catch (error: any) {
       setMessages((current) => [
         ...current,
@@ -378,8 +385,8 @@ export default function ConsultantScreen() {
             </Pressable>
           </View>
           <Text style={styles.subtitle}>
-            Ask a question, get advice, attach an image, use voice, or give me a task.
-            Answers and actions are grounded in your verified account.
+            Your personal AI marketing agent for art, marketing, current art-market research, and ArtBoost.
+            Attach artwork once and keep asking follow-up questions.
           </Text>
 
           <View style={styles.starterWrap}>
@@ -468,10 +475,24 @@ export default function ConsultantScreen() {
               ) : null}
 
               {message.role === "assistant" &&
-              message.usedAccountData ? (
-                <Text style={styles.accountContext}>
-                  Based on your ArtBoost account data
-                </Text>
+              (message.usedAccountData || message.intelligenceSources?.length || message.evidenceNote || message.confidence) ? (
+                <View style={styles.intelligenceWrap}>
+                  {message.intelligenceSources?.length ? (
+                    <Text style={styles.accountContext}>
+                      Intelligence: {message.intelligenceSources.map((source) =>
+                        source === "artboost" ? "ArtBoost" : source === "artwork" ? "Artwork" : source === "web" ? "Current market" : "Expert guidance"
+                      ).join(" + ")}
+                    </Text>
+                  ) : message.usedAccountData ? (
+                    <Text style={styles.accountContext}>Based on your ArtBoost account data</Text>
+                  ) : null}
+                  {message.confidence ? (
+                    <Text style={styles.confidenceText}>Confidence: {message.confidence}</Text>
+                  ) : null}
+                  {message.evidenceNote ? (
+                    <Text style={styles.evidenceText}>{message.evidenceNote}</Text>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           ))}
@@ -489,7 +510,7 @@ export default function ConsultantScreen() {
         {imageUri ? (
           <View style={styles.attachmentPreview}>
             <Image source={{ uri: imageUri }} style={styles.attachmentImage} />
-            <Text style={styles.attachmentText}>Image attached</Text>
+            <Text style={styles.attachmentText}>Active artwork • stays with this conversation until cleared or replaced</Text>
             <Pressable onPress={() => { setImageUri(null); setImageDataUrl(null); }} style={styles.attachmentRemove}>
               <Ionicons name="close" size={18} color="#fff" />
             </Pressable>
@@ -694,11 +715,25 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
   },
+  intelligenceWrap: {
+    marginTop: 10,
+    gap: 4,
+  },
   accountContext: {
     color: "#7fe9ad",
-    marginTop: 10,
     fontSize: 10,
     fontWeight: "700",
+  },
+  confidenceText: {
+    color: "#c9c1e8",
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  evidenceText: {
+    color: "#aaa2c8",
+    fontSize: 10,
+    lineHeight: 14,
   },
   thinking: {
     flexDirection: "row",
