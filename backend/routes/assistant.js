@@ -1,3 +1,4 @@
+// ARTBOOST_SOL_COST_RATE_LIMIT_RESILIENCE_V15_2_3
 // ARTBOOST_SOL_TEMPERATURE_COMPAT_FIX_V15_2_2
 // ARTBOOST_SOL_CONSULTANT_RESEARCH_FIX_V15_2_1
 // ARTBOOST_OPENAI_MODEL_ROUTER_V15_2
@@ -48,12 +49,79 @@ function cleanString(value, maxLength = 500) {
 
 function trimConversation(history) {
   return safeArray(history)
-    .slice(-12)
+    .slice(-8)
     .map((message) => ({
       role: message?.role === "assistant" ? "assistant" : "user",
-      content: cleanString(message?.content, 1800),
+      content: cleanString(message?.content, 1200),
     }))
     .filter((message) => message.content);
+}
+
+function buildModelAccountContext(accountContext, { visualSimilarityIntent = false } = {}) {
+  if (!accountContext || typeof accountContext !== "object") return accountContext;
+
+  const compactProducts = visualSimilarityIntent
+    ? safeArray(accountContext.products).slice(0, 500).map((product) => ({
+        title: cleanString(product?.title, 220),
+        storeType: cleanString(product?.store_type, 80) || null,
+        storeName: cleanString(product?.store_name, 120) || null,
+        timesPosted: Number(product?.times_posted || 0),
+        lastPostedAt: product?.last_posted_at || null,
+      }))
+    : undefined;
+
+  return {
+    authenticated: accountContext.authenticated === true,
+    profile: accountContext.profile || null,
+    summary: accountContext.summary || {},
+    connectedStores: safeArray(accountContext.connectedStores),
+    publishingConnections: safeArray(accountContext.publishingConnections),
+    connectedPlatforms: safeArray(accountContext.connectedPlatforms),
+    publishingAnalytics: accountContext.publishingAnalytics || {},
+    recentFailedCampaigns: safeArray(accountContext.recentFailedCampaigns).slice(0, 10),
+    recentCampaigns: safeArray(accountContext.recentCampaigns).slice(0, 8),
+    activeAutomations: safeArray(accountContext.activeAutomations).slice(0, 10),
+    failedAutomations: safeArray(accountContext.failedAutomations).slice(0, 10),
+    recentNotifications: safeArray(accountContext.recentNotifications).slice(0, 8),
+    newestProducts: safeArray(accountContext.newestProducts).slice(0, 20),
+    contextSources: accountContext.contextSources || {},
+    ...(compactProducts ? { products: compactProducts } : {}),
+  };
+}
+
+function isTransientOpenAIRateLimit(error) {
+  return Number(error?.status) === 429 &&
+    (error?.code === "rate_limit_exceeded" ||
+      error?.error?.code === "rate_limit_exceeded" ||
+      error?.error?.type === "tokens");
+}
+
+function openAIRetryDelayMs(error) {
+  const headers = error?.headers;
+  const retryMs = Number(headers?.get?.("retry-after-ms"));
+  if (Number.isFinite(retryMs) && retryMs > 0) return Math.min(retryMs + 750, 30000);
+
+  const retrySeconds = Number(headers?.get?.("retry-after"));
+  if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+    return Math.min(retrySeconds * 1000 + 750, 30000);
+  }
+  return 5000;
+}
+
+async function createResponseWithTransientRateLimitRetry(request, label) {
+  try {
+    return await openai.responses.create(request);
+  } catch (error) {
+    if (!isTransientOpenAIRateLimit(error)) throw error;
+
+    const delayMs = openAIRetryDelayMs(error);
+    console.warn(
+      "AI Consultant transient Sol rate limit during " + label +
+      "; retrying once in " + delayMs + "ms."
+    );
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return await openai.responses.create(request);
+  }
 }
 
 async function safeQuery(label, queryPromise, fallback) {
@@ -2146,6 +2214,9 @@ router.post("/assistant", async (req, res) => {
     );
 
     const useWebResearch = isConsultant && marketResearchIntent;
+    const modelAccountContext = buildModelAccountContext(accountContext, {
+      visualSimilarityIntent,
+    });
     const openAIRequest = {
       model: isConsultant
         ? process.env.OPENAI_CONSULTANT_MODEL || "gpt-5.6-sol"
@@ -2153,6 +2224,7 @@ router.post("/assistant", async (req, res) => {
           process.env.OPENAI_MARKETING_MODEL ||
           "gpt-5.6-terra",
       // V15.2.2: GPT-5.6 Sol rejects the Responses API temperature parameter.
+      max_output_tokens: 4000,
       ...(useWebResearch
         ? {
             tools: [{ type: "web_search", search_context_size: "medium" }],
@@ -2255,7 +2327,7 @@ ${JSON.stringify({
 })}
 
 LIVE ACCOUNT CONTEXT:
-${JSON.stringify(accountContext)}`,
+${JSON.stringify(modelAccountContext)}`,
         },
         ...conversation,
         {
@@ -2275,7 +2347,10 @@ ${JSON.stringify(accountContext)}`,
     let webResearchUnavailable = false;
 
     try {
-      response = await openai.responses.create(openAIRequest);
+      response = await createResponseWithTransientRateLimitRetry(
+        openAIRequest,
+        useWebResearch ? "web research" : "consultant response"
+      );
       marketResearchUsed = useWebResearch;
     } catch (error) {
       if (!useWebResearch) throw error;
@@ -2295,7 +2370,7 @@ ${JSON.stringify(accountContext)}`,
         ...fallbackRequest
       } = openAIRequest;
 
-      response = await openai.responses.create({
+      response = await createResponseWithTransientRateLimitRetry({
         ...fallbackRequest,
         input: [
           {
@@ -2308,7 +2383,7 @@ ${JSON.stringify(accountContext)}`,
           },
           ...fallbackRequest.input,
         ],
-      });
+      }, "safe no-web fallback");
       marketResearchUsed = false;
     }
 
