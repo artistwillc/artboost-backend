@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@apple/app-store-server-library": "3.1.0",
     "@supabase/supabase-js": "^2.105.4",
     "body-parser": "^2.3.0",
     "cloudinary": "^2.10.0",

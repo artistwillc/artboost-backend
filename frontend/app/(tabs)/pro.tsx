@@ -16,9 +16,11 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
+import AppleSubscriptionPanel from "@/components/AppleSubscriptionPanel";
 
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_API_URL ||
@@ -524,17 +526,26 @@ export default function ProScreen() {
         </Pressable>
       </View>
 
-      <Pressable
-        style={styles.billingButton}
-        onPress={openBillingPortal}
-        disabled={openingBilling}
-      >
-        <Text style={styles.billingButtonText}>
-          {openingBilling
-            ? "Opening Billing..."
-            : "Manage Subscription"}
-        </Text>
-      </Pressable>
+      {Platform.OS === "ios" ? (
+        <AppleSubscriptionPanel
+          userId={session?.user?.id || ""}
+          currentTier={profile?.subscription_tier || "free"}
+          currentPlan={profile?.plan || "free"}
+          onEntitlementChanged={loadDashboard}
+        />
+      ) : (
+        <Pressable
+          style={styles.billingButton}
+          onPress={openBillingPortal}
+          disabled={openingBilling}
+        >
+          <Text style={styles.billingButtonText}>
+            {openingBilling
+              ? "Opening Billing..."
+              : "Manage Subscription"}
+          </Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }

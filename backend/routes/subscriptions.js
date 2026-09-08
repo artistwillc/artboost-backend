@@ -20,6 +20,257 @@ const SITE_URL =
 const processedStripeWebhookEvents = new Map();
 const MAX_WEBHOOK_EVENT_CACHE = 2000;
 
+const APPLE_BUNDLE_ID = "com.artistwill.artboostai";
+const APPLE_APP_ID = 6784803136;
+const APPLE_PRODUCT_TIERS = new Map([
+  ["com.artistwill.artboostai.starter.monthly", "starter"],
+  ["com.artistwill.artboostai.pro.monthly", "pro"],
+  ["com.artistwill.artboostai.business.monthly", "business"],
+]);
+const APPLE_ENTITLED_STATUSES = new Set([1, 4]); // active, billing grace period
+
+function decodeAppleJwsPayload(jws) {
+  const parts = String(jws || "").split(".");
+  if (parts.length !== 3) {
+    throw new Error("Invalid Apple signed transaction.");
+  }
+  return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+}
+
+async function appleServerClient(environment) {
+  const { AppStoreServerAPIClient, Environment } = await import(
+    "@apple/app-store-server-library"
+  );
+  const key = String(process.env.APPLE_IAP_PRIVATE_KEY || "")
+    .replace(/\\n/g, "\n")
+    .trim();
+  const keyId = String(process.env.APPLE_IAP_KEY_ID || "").trim();
+  const issuerId = String(process.env.APPLE_IAP_ISSUER_ID || "").trim();
+
+  if (!key || !keyId || !issuerId) {
+    throw new Error("Apple IAP server credentials are not configured.");
+  }
+
+  const env =
+    environment === "Sandbox"
+      ? Environment.SANDBOX
+      : Environment.PRODUCTION;
+
+  return new AppStoreServerAPIClient(
+    key,
+    keyId,
+    issuerId,
+    APPLE_BUNDLE_ID,
+    env
+  );
+}
+
+function validateAppleContainer({ bundleId, appAppleId, environment }) {
+  if (bundleId && String(bundleId) !== APPLE_BUNDLE_ID) {
+    throw new Error("Apple subscription bundle mismatch.");
+  }
+  if (
+    environment === "Production" &&
+    appAppleId &&
+    Number(appAppleId) !== APPLE_APP_ID
+  ) {
+    throw new Error("Apple app identifier mismatch.");
+  }
+}
+
+function appleTransactionCandidate(signedTransactionInfo, status, environment) {
+  const payload = decodeAppleJwsPayload(signedTransactionInfo);
+  validateAppleContainer({
+    bundleId: payload.bundleId,
+    appAppleId: payload.appAppleId,
+    environment,
+  });
+
+  const tier = APPLE_PRODUCT_TIERS.get(String(payload.productId || ""));
+  if (!tier) return null;
+
+  return {
+    payload,
+    tier,
+    status: Number(status || 0),
+    environment,
+    signedTransactionInfo,
+  };
+}
+
+async function lookupAppleSubscription(anyTransactionId) {
+  const transactionId = String(anyTransactionId || "").trim();
+  if (!transactionId) {
+    throw new Error("Missing Apple transaction identifier.");
+  }
+
+  let lastError = null;
+
+  for (const environment of ["Production", "Sandbox"]) {
+    try {
+      const client = await appleServerClient(environment);
+      const response = await client.getAllSubscriptionStatuses(transactionId);
+
+      validateAppleContainer({
+        bundleId: response?.bundleId,
+        appAppleId: response?.appAppleId,
+        environment,
+      });
+
+      const candidates = [];
+      for (const group of response?.data || []) {
+        for (const item of group?.lastTransactions || []) {
+          const signed = String(item?.signedTransactionInfo || "").trim();
+          if (!signed) continue;
+          const candidate = appleTransactionCandidate(
+            signed,
+            item?.status,
+            environment
+          );
+          if (candidate) candidates.push(candidate);
+        }
+      }
+
+      const entitled = candidates
+        .filter((candidate) => {
+          if (!APPLE_ENTITLED_STATUSES.has(candidate.status)) return false;
+          if (candidate.payload?.revocationDate) return false;
+          return true;
+        })
+        .sort(
+          (a, b) =>
+            Number(b.payload?.expiresDate || b.payload?.purchaseDate || 0) -
+            Number(a.payload?.expiresDate || a.payload?.purchaseDate || 0)
+        )[0];
+
+      if (entitled) {
+        return {
+          active: true,
+          ...entitled,
+        };
+      }
+
+      // An immediately completed purchase can appear in Get Transaction Info
+      // before the subscription-status endpoint has fully propagated it.
+      try {
+        const transactionResponse = await client.getTransactionInfo(transactionId);
+        const signed = String(transactionResponse?.signedTransactionInfo || "").trim();
+        if (signed) {
+          const candidate = appleTransactionCandidate(signed, 1, environment);
+          const expiresMs = Number(candidate?.payload?.expiresDate || 0);
+          if (
+            candidate &&
+            !candidate.payload?.revocationDate &&
+            expiresMs > Date.now()
+          ) {
+            return { active: true, ...candidate };
+          }
+        }
+      } catch (transactionInfoError) {
+        console.warn(
+          "Apple transaction-info fallback after inactive status failed:",
+          transactionInfoError?.message || transactionInfoError
+        );
+      }
+
+      return {
+        active: false,
+        environment,
+        candidates,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  // Immediate post-purchase fallback: Get Transaction Info can become
+  // available before subscription status propagation completes.
+  for (const environment of ["Production", "Sandbox"]) {
+    try {
+      const client = await appleServerClient(environment);
+      const response = await client.getTransactionInfo(transactionId);
+      const signed = String(response?.signedTransactionInfo || "").trim();
+      if (!signed) throw new Error("Apple returned no signed transaction.");
+      const candidate = appleTransactionCandidate(signed, 1, environment);
+      if (!candidate) {
+        throw new Error("This Apple product is not an ArtBoost subscription.");
+      }
+      const expiresMs = Number(candidate.payload?.expiresDate || 0);
+      if (
+        candidate.payload?.revocationDate ||
+        !expiresMs ||
+        expiresMs <= Date.now()
+      ) {
+        return { active: false, environment, candidates: [candidate] };
+      }
+      return { active: true, ...candidate };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Apple subscription could not be verified.");
+}
+
+async function grantAppleEntitlement({ userId, transactionId }) {
+  const lookup = await lookupAppleSubscription(transactionId);
+  if (!lookup.active) {
+    throw new Error("This Apple subscription is not currently active.");
+  }
+
+  const payload = lookup.payload;
+  const appAccountToken = String(payload?.appAccountToken || "")
+    .trim()
+    .toLowerCase();
+  if (!appAccountToken || appAccountToken !== String(userId).toLowerCase()) {
+    throw new Error("This Apple subscription belongs to a different ArtBoost account.");
+  }
+
+  const expiresMs = Number(payload?.expiresDate || 0);
+  const originalTransactionId = String(
+    payload?.originalTransactionId || payload?.transactionId || transactionId
+  );
+
+  const updateData = {
+    is_pro: true,
+    subscription_status: lookup.status === 4 ? "grace_period" : "active",
+    subscription_tier: lookup.tier,
+    plan: `apple_${lookup.tier}:${originalTransactionId}`,
+    current_period_end: expiresMs
+      ? new Date(expiresMs).toISOString()
+      : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update(updateData)
+    .eq("id", userId);
+
+  if (error) {
+    throw new Error(`Unable to save Apple entitlement: ${error.message}`);
+  }
+
+  return {
+    active: true,
+    tier: lookup.tier,
+    tierLabel:
+      lookup.tier.charAt(0).toUpperCase() + lookup.tier.slice(1),
+    status: updateData.subscription_status,
+    originalTransactionId,
+    expiresAt: updateData.current_period_end,
+    environment: lookup.environment,
+  };
+}
+
+function appleOriginalTransactionIdFromPlan(plan) {
+  const value = String(plan || "").trim();
+  if (!value.startsWith("apple_")) return "";
+  const separator = value.indexOf(":");
+  return separator >= 0 ? value.slice(separator + 1).trim() : "";
+}
+
+
 function webhookAlreadyProcessed(eventId) {
   const id = String(eventId || "").trim();
   return Boolean(id && processedStripeWebhookEvents.has(id));
@@ -1590,6 +1841,123 @@ router.post(
   }
 );
 
+
+router.post(
+  "/apple-iap/verify",
+  express.json({ limit: "1mb" }),
+  async (req, res) => {
+    try {
+      const user = await authenticatedWebsiteUser(req);
+      const transactionId = String(req.body?.transactionId || "").trim();
+      if (!transactionId) {
+        return res.status(400).json({ error: "Missing Apple transaction data." });
+      }
+
+      const result = await grantAppleEntitlement({
+        userId: user.id,
+        transactionId,
+      });
+
+      return res.json({ success: true, provider: "apple", changed: true, ...result });
+    } catch (error) {
+      console.error("Apple IAP verification error:", error);
+      return res.status(400).json({
+        error: error?.message || "Apple subscription verification failed.",
+      });
+    }
+  }
+);
+
+router.post(
+  "/apple-iap/sync",
+  express.json({ limit: "64kb" }),
+  async (req, res) => {
+    try {
+      const user = await authenticatedWebsiteUser(req);
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("plan,subscription_tier,subscription_status,current_period_end")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        throw new Error(`Unable to load ArtBoost profile: ${profileError.message}`);
+      }
+
+      const originalTransactionId = appleOriginalTransactionIdFromPlan(profile?.plan);
+      if (!originalTransactionId) {
+        return res.json({
+          success: true,
+          provider: "apple",
+          active: false,
+          changed: false,
+          status: "no_apple_subscription",
+        });
+      }
+
+      try {
+        const result = await grantAppleEntitlement({
+          userId: user.id,
+          transactionId: originalTransactionId,
+        });
+        return res.json({
+          success: true,
+          provider: "apple",
+          changed: true,
+          ...result,
+        });
+      } catch (appleError) {
+        // If Apple access ended, preserve a valid Stripe or complimentary
+        // entitlement when one exists; otherwise retire the stale Apple tier.
+        const stripeResult = await syncStripeSubscriptionForUser({
+          userId: user.id,
+          email: user.email,
+        });
+
+        if (stripeResult?.active === true || stripeResult?.complimentary) {
+          return res.json({
+            success: true,
+            provider: stripeResult?.complimentary ? "complimentary" : "stripe",
+            changed: true,
+            ...stripeResult,
+          });
+        }
+
+        if (stripeResult?.active === null && stripeResult?.profilePreserved) {
+          const { error: downgradeError } = await supabase
+            .from("profiles")
+            .update({
+              is_pro: false,
+              subscription_tier: "free",
+              subscription_status: "expired",
+              plan: "free",
+              current_period_end: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", user.id);
+          if (downgradeError) {
+            throw new Error(`Unable to expire Apple entitlement: ${downgradeError.message}`);
+          }
+        }
+
+        return res.json({
+          success: true,
+          provider: "apple",
+          active: false,
+          changed: true,
+          status: "expired",
+          reason: appleError?.message || "Apple subscription is not active.",
+        });
+      }
+    } catch (error) {
+      console.error("Apple IAP sync error:", error);
+      return res.status(400).json({
+        error: error?.message || "Apple subscription sync failed.",
+      });
+    }
+  }
+);
+
 /*
  * ============================================================
  * SUBSCRIPTION SYNC
@@ -1617,6 +1985,31 @@ router.post(
             error:
               "Missing email.",
           });
+      }
+
+      const { data: currentProfile } = await supabase
+        .from("profiles")
+        .select("plan")
+        .eq("id", userId)
+        .maybeSingle();
+
+      const appleOriginalTransactionId =
+        appleOriginalTransactionIdFromPlan(currentProfile?.plan);
+
+      if (appleOriginalTransactionId) {
+        try {
+          const appleResult = await grantAppleEntitlement({
+            userId,
+            transactionId: appleOriginalTransactionId,
+          });
+          return res.json({
+            success: true,
+            provider: "apple",
+            ...appleResult,
+          });
+        } catch (error) {
+          console.warn("Apple entitlement refresh before Stripe sync failed:", error?.message || error);
+        }
       }
 
       const result =
