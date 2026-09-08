@@ -1222,11 +1222,22 @@ export default function ConnectionsScreen() {
       }
 
       try {
-        await connectTikTokThroughInstalledApp(userId);
+        if (Platform.OS === "android") {
+          await connectTikTokThroughInstalledApp(userId);
+        } else {
+          await Linking.openURL(
+            `${BACKEND_URL}/auth/tiktok?userId=${encodeURIComponent(userId)}`
+          );
+
+          Alert.alert(
+            "TikTok Login Opened",
+            "Complete the TikTok authorization, return to ArtBoost, and refresh the connection status."
+          );
+        }
       } catch (error: any) {
         Alert.alert(
           "TikTok Connection Failed",
-          error?.message || "TikTok app authorization could not be completed."
+          error?.message || "TikTok authorization could not be completed."
         );
       }
 
