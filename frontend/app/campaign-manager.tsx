@@ -1,3 +1,4 @@
+// ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_V3142_FINAL_CLEANUP_ICONS
 // ARTBOOST_WHITE_TEXT_AUDIT_V3141
@@ -39,7 +40,10 @@ import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
 import { readApiJson } from "@/lib/apiJson";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 export default function CampaignManagerScreen() {
   // ARTBOOST_PAID_TIER_ACCESS_V1

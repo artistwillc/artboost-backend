@@ -1,12 +1,12 @@
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_WHITE_TEXT_AUDIT_V3141
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -22,7 +22,10 @@ import * as Sharing from "expo-sharing";
 import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
 
-const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "https://artboost-ai.onrender.com";
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 type Product = {
   id: string;
@@ -664,7 +667,7 @@ export default function VideoStudioScreen() {
             {filteredProducts.map((product) => {
               const active = product.id === selectedProductId;
               return <Pressable key={product.id} onPress={() => { setSelectedProductId(product.id); setJob(null); }} style={[styles.productCard, active && styles.activeCard]}>
-                {product.imageUrl ? <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#9b94b7" /></View>}
+                {product.imageUrl ? <ArtBoostRemoteImage uri={product.imageUrl} style={styles.productImage} contentFit="cover" alt={product.title} /> : <View style={[styles.productImage, styles.placeholder]}><Ionicons name="image-outline" size={30} color="#9b94b7" /></View>}
                 <Text style={styles.productTitle} numberOfLines={2}>{product.title}</Text>
                 <Text style={styles.storeText} numberOfLines={1}>{product.storeName || product.storeType || "Imported listing"}</Text>
                 {active ? <View style={styles.check}><Ionicons name="checkmark" size={14} color="#fff" /></View> : null}

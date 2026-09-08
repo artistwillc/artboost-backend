@@ -17,7 +17,13 @@ import {
 import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "../lib/supabase";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL = (
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com"
+)
+  .trim()
+  .replace(/\/+$/, "");
 
 type AnalyticsData = {
   totalCampaigns: number;
@@ -35,8 +41,8 @@ type AnalyticsData = {
   facebookPosts: number;
   instagramPosts: number;
   xPosts: number;
-  upcoming: any | null;
-  topArtwork?: { title?: string; confirmedPosts?: number } | null;
+  upcoming: { title?: string; scheduledAt?: string; publish_at?: string; platform?: string; storeName?: string; platforms?: string[]; type?: string } | null;
+  topArtwork?: { title?: string; productId?: string | null; confirmedPosts?: number } | null;
   attentionCount?: number;
 };
 
@@ -117,17 +123,18 @@ export default function AnalyticsScreen() {
       if (!response.ok) throw new Error(data.error || "Failed to load analytics.");
       if (requestId !== analyticsRequestSerial.current) return;
       setAnalytics({
-        totalCampaigns: data.totalCampaigns || 0,
-        scheduled: data.scheduled || 0,
-        published: data.published || 0,
-        failed: data.failed || 0,
-        saved: data.saved || 0,
-        ended: data.ended || 0,
-        active: data.active || 0,
-        paused: data.paused || 0,
-        totalPosts: data.totalPosts || 0,
-        successRate: data.successRate || 0,
-        averagePostsPerCampaign: data.averagePostsPerCampaign || 0,
+        // ARTBOOST_ANALYTICS_RESPONSE_COMPAT_V31613
+        totalCampaigns: Number(data.totalCampaigns ?? data.campaigns?.total ?? 0),
+        scheduled: Number(data.scheduled ?? data.campaigns?.scheduled ?? 0),
+        published: Number(data.published ?? data.postsPublished ?? data.campaigns?.published ?? 0),
+        failed: Number(data.failed ?? data.campaigns?.failed ?? 0),
+        saved: Number(data.saved ?? data.campaigns?.saved ?? 0),
+        ended: Number(data.ended ?? 0),
+        active: Number(data.active ?? data.activeAutomations ?? 0),
+        paused: Number(data.paused ?? data.pausedAutomations ?? 0),
+        totalPosts: Number(data.totalPosts ?? data.postsPublished ?? 0),
+        successRate: Number(data.successRate ?? 0),
+        averagePostsPerCampaign: Number(data.averagePostsPerCampaign ?? 0),
         pinterestPosts: data.pinterestPosts || 0,
         facebookPosts: data.facebookPosts || 0,
         instagramPosts: data.instagramPosts || 0,
@@ -171,9 +178,9 @@ export default function AnalyticsScreen() {
   function openSummary(label: string, _value: number | string) {
     const kindMap: Record<string, string> = {
       "Posts Published": "published",
-      "Active Automations": "automation-active",
-      "Success Rate": "attempts",
-      "Total Posts": "published",
+      "Active Campaigns": "active",
+      "Success Rate": "all",
+      "Total Posts": "all",
       "Scheduled": "scheduled",
       "Paused": "paused",
       "Failed": "failed",
@@ -260,7 +267,7 @@ export default function AnalyticsScreen() {
           <Text style={styles.sectionTitle}>Business Performance</Text>
           <View style={styles.grid}>
             <StatCard label="Posts Published" value={analytics?.published || 0} onPress={() => openSummary("Posts Published", analytics?.published || 0)} />
-            <StatCard label="Active Automations" value={analytics?.active || 0} onPress={() => openSummary("Active Automations", analytics?.active || 0)} />
+            <StatCard label="Active Campaigns" value={analytics?.active || 0} onPress={() => openSummary("Active Campaigns", analytics?.active || 0)} />
             <StatCard label="Success Rate" value={`${analytics?.successRate || 0}%`} onPress={() => openSummary("Success Rate", `${analytics?.successRate || 0}%`)} />
             <StatCard label="Total Posts" value={analytics?.totalPosts || 0} onPress={() => openSummary("Total Posts", analytics?.totalPosts || 0)} />
           </View>
@@ -289,16 +296,22 @@ export default function AnalyticsScreen() {
 
           <Pressable style={styles.upcomingCard} onPress={() => setDetail({ title: "Next Scheduled Post", rows: analytics?.upcoming ? [
             { label: "Campaign", value: analytics.upcoming.title || "Scheduled campaign" },
-            { label: "Publish time", value: formatDate(analytics.upcoming.publish_at) },
+            { label: "Publish time", value: formatDate(analytics.upcoming.scheduledAt || analytics.upcoming.publish_at) },
           ] : [{ label: "Status", value: "No upcoming campaign found" }] })}>
             <Text style={styles.upcomingLabel}>NEXT SCHEDULED POST</Text>
             <Text style={styles.upcomingTitle}>{analytics?.upcoming ? analytics.upcoming.title : "No upcoming campaign found"}</Text>
-            <Text style={styles.upcomingText}>{analytics?.upcoming ? formatDate(analytics.upcoming.publish_at) : "Create or schedule a campaign to see it here."}</Text>
+            <Text style={styles.upcomingText}>{analytics?.upcoming ? formatDate(analytics.upcoming.scheduledAt || analytics.upcoming.publish_at) : "Create or schedule a campaign to see it here."}</Text>
             <Text style={styles.tapHint}>Tap for details</Text>
           </Pressable>
 
           <Text style={styles.sectionTitle}>Top Performers</Text>
-          <Pressable style={styles.insightCard} onPress={() => setDetail({ title: "Top Artwork", rows: analytics?.topArtwork ? [{ label: "Artwork", value: analytics.topArtwork.title || "Artwork" }, { label: "Confirmed posts", value: Number(analytics.topArtwork.confirmedPosts || 0), note: "Based on ArtBoost first-party publishing history for the selected store and date range." }] : [{ label: "Status", value: "No confirmed publishing history in this selection" }] })}>
+          <Pressable style={styles.insightCard} onPress={() => {
+            if (analytics?.topArtwork?.productId) {
+              router.push({ pathname: "/analytics-records" as any, params: { kind: "all", title: `${analytics.topArtwork.title || "Listing"} Analytics`, productId: String(analytics.topArtwork.productId), productTitle: analytics.topArtwork.title || "", range, storeId, storeName, storeType } });
+            } else {
+              setDetail({ title: "Top Artwork", rows: analytics?.topArtwork ? [{ label: "Artwork", value: analytics.topArtwork.title || "Artwork" }, { label: "Confirmed posts", value: Number(analytics.topArtwork.confirmedPosts || 0), note: "Based on ArtBoost first-party publishing history for the selected store and date range." }] : [{ label: "Status", value: "No confirmed publishing history in this selection" }] });
+            }
+          }}>
             <Text style={styles.insightLabel}>TOP ARTWORK</Text><Text style={styles.insightTitle}>{analytics?.topArtwork?.title || "Not enough data yet"}</Text><Text style={styles.insightText}>{analytics?.topArtwork ? `${Number(analytics.topArtwork.confirmedPosts || 0)} confirmed published post${Number(analytics.topArtwork.confirmedPosts || 0) === 1 ? "" : "s"} in this selection.` : "ArtBoost will identify your top artwork from first-party publishing history as records accumulate."}</Text>
           </Pressable>
           <Pressable style={styles.insightCard} onPress={() => setDetail({ title: "Best Platform", rows: [{ label: "Current leader", value: getBestPlatform(analytics) }, { label: "Basis", value: "Published post volume" }] })}>

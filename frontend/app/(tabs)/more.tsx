@@ -10,7 +10,6 @@ const items: MoreItem[] = [
   { title: "Help & FAQ", icon: "help-circle", route: "/faq", testId: "artboost-more-help-faq" },
   { title: "Campaign Manager", icon: "megaphone", route: "/campaign-manager", testId: "artboost-more-campaign-manager" },
   { testId: "artboost-more-schedule", title: "Schedule", icon: "calendar", route: "/schedule" },
-  { title: "Analytics", icon: "bar-chart", route: "/analytics", testId: "artboost-more-analytics" },
   { testId: "artboost-more-saved", title: "Saved Campaigns", icon: "bookmark", route: "/saved" },
   { testId: "artboost-more-ai-marketing-consultant", title: "AI Marketing Consultant", icon: "sparkles", route: "/brand" },
   { testId: "artboost-more-campaign-history", title: "Campaign History", icon: "time", route: "/history" },
@@ -38,7 +37,7 @@ export default function MoreToolsScreen() {
       child tool buttons remain individually discoverable. */}
       <View style={styles.header}>
         <Text style={styles.title}>More Tools</Text>
-        <Text style={styles.subtitle}>Manage campaigns, analytics, brand tools, help, and settings.</Text>
+        <Text style={styles.subtitle}>Manage campaigns, brand tools, help, and settings.</Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}

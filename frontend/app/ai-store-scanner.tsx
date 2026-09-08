@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import {
   router,
   Stack,
@@ -14,7 +15,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -72,9 +72,11 @@ type ScannerMessage = {
     alt?: string;
   }>;
   htmlSnippet?: string;
-    scannedCount?: number;
+  scannedCount?: number;
   scrollStep?: number;
   maxScrollSteps?: number;
+  elapsedMs?: number;
+  pageNumber?: number;
 };
 
 function cleanText(value: unknown) {
@@ -98,6 +100,81 @@ function normalizeUrl(
       input,
       baseUrl || undefined
     ).toString();
+  } catch {
+    return "";
+  }
+}
+
+function getRedbubbleArtworkId(
+  value: unknown
+) {
+  const text = String(value || "");
+
+  const match =
+    text.match(
+      /\/shop\/ap\/(\d+)/i
+    ) ||
+    text.match(
+      /\/i\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/i
+    );
+
+  return match?.[1] || "";
+}
+
+function getRedbubbleExplorePageUrl(
+  value: unknown,
+  page: number
+) {
+  try {
+    const parsed =
+      new URL(String(value || ""));
+
+    const host =
+      parsed.hostname
+        .toLowerCase()
+        .replace(/^www\./, "");
+
+    if (
+      host !== "redbubble.com" &&
+      !host.endsWith(".redbubble.com")
+    ) {
+      return "";
+    }
+
+    const usernameMatch =
+      parsed.pathname.match(
+        /\/people\/([^/]+)/i
+      );
+
+    if (!usernameMatch?.[1]) {
+      return "";
+    }
+
+    const username =
+      decodeURIComponent(
+        usernameMatch[1]
+      );
+
+    const next =
+      new URL(
+        `https://www.redbubble.com/people/${encodeURIComponent(
+          username
+        )}/explore`
+      );
+
+    next.searchParams.set(
+      "page",
+      String(
+        Math.max(1, Math.floor(page))
+      )
+    );
+
+    next.searchParams.set(
+      "sortOrder",
+      "recent"
+    );
+
+    return next.toString();
   } catch {
     return "";
   }
@@ -145,18 +222,178 @@ const SCAN_PAGE_SCRIPT = `
       }
     };
 
+    const imageCandidate = function (image) {
+      if (!image) {
+        return "";
+      }
+
+      const srcset =
+        image.getAttribute("srcset") ||
+        image.getAttribute("data-srcset") ||
+        "";
+
+      const srcsetFirst =
+        srcset
+          .split(",")
+          .map(function (part) {
+            return cleanText(part).split(" ")[0] || "";
+          })
+          .filter(Boolean)[0] || "";
+
+      return (
+        image.getAttribute("data-original") ||
+        image.getAttribute("data-src") ||
+        image.getAttribute("data-lazy-src") ||
+        image.currentSrc ||
+        image.getAttribute("src") ||
+        srcsetFirst ||
+        ""
+      );
+    };
+
+    const nearbyImage = function (link) {
+      let image = link.querySelector("img");
+
+      if (image) {
+        return image;
+      }
+
+      let node = link.parentElement;
+      let depth = 0;
+
+      while (node && depth < 6) {
+        image = node.querySelector
+          ? node.querySelector("img")
+          : null;
+
+        if (image) {
+          return image;
+        }
+
+        node = node.parentElement;
+        depth += 1;
+      }
+
+      return null;
+    };
+
+    const redbubbleInfo = function (rawHref) {
+      try {
+        const url = new URL(
+          String(rawHref || ""),
+          window.location.href
+        );
+
+        if (
+          !/(^|\\.)redbubble\\.com$/i.test(
+            url.hostname
+          )
+        ) {
+          return null;
+        }
+
+        const parts = url.pathname
+          .split("/")
+          .filter(Boolean);
+
+        const iIndex = parts.findIndex(function (part) {
+          return part.toLowerCase() === "i";
+        });
+
+        if (
+          iIndex < 0 ||
+          parts.length < iIndex + 5
+        ) {
+          return null;
+        }
+
+        const designId =
+          parts[iIndex + 3] || "";
+
+        if (!/^\\d+$/.test(designId)) {
+          return null;
+        }
+
+        const slug =
+          decodeURIComponent(
+            parts[iIndex + 2] || ""
+          );
+
+        const byIndex =
+          slug.toLowerCase().lastIndexOf("-by-");
+
+        const titleFromSlug =
+          cleanText(
+            (byIndex > 0
+              ? slug.slice(0, byIndex)
+              : slug
+            ).replace(/[-_]+/g, " ")
+          );
+
+        url.search = "";
+        url.hash = "";
+
+        return {
+          productUrl: url.toString(),
+          designId,
+          titleFromSlug
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const cleanRedbubbleTitle = function (
+      rawTitle,
+      fallbackTitle
+    ) {
+      const clean =
+        cleanText(rawTitle || "");
+
+      const itemPreview =
+        clean.match(
+          /^Item preview,\\s*(.*?)\\s+designed and sold by\\b/i
+        );
+
+      if (itemPreview?.[1]) {
+        return cleanText(
+          itemPreview[1]
+        );
+      }
+
+      if (
+        !clean ||
+        /<\\/?(?:img|svg|div|span|a)\\b/i.test(clean) ||
+        /data-testid=/i.test(clean)
+      ) {
+        return cleanText(
+          fallbackTitle || ""
+        );
+      }
+
+      return clean;
+    };
+
     const products = [];
     const seen = {};
 
-    /*
-     * ArtPal artwork cards use:
-     * <a class="iCg" href="?i=37279-174">
-     */
-    const artPalCards = Array.from(
-      document.querySelectorAll("a.iCg[href]")
-    );
+    const addProduct = function (product, key) {
+      if (
+        !product ||
+        !product.productUrl ||
+        !product.imageUrl ||
+        seen[key || product.productUrl]
+      ) {
+        return;
+      }
 
-    artPalCards.forEach(function (card) {
+      seen[key || product.productUrl] = true;
+      products.push(product);
+    };
+
+    Array.from(
+      document.querySelectorAll("a.iCg[href]")
+    ).forEach(function (card) {
       const rawHref =
         card.getAttribute("href") || "";
 
@@ -165,8 +402,7 @@ const SCAN_PAGE_SCRIPT = `
 
       if (
         !productUrl ||
-        !rawHref.includes("?i=") ||
-        seen[productUrl]
+        !rawHref.includes("?i=")
       ) {
         return;
       }
@@ -174,22 +410,8 @@ const SCAN_PAGE_SCRIPT = `
       const image =
         card.querySelector("img");
 
-      if (!image) {
-        return;
-      }
-
-      /*
-       * ArtPal uses data-original for artwork that
-       * has not yet been lazy-loaded.
-       */
-      const rawImageUrl =
-        image.getAttribute("data-original") ||
-        image.currentSrc ||
-        image.getAttribute("src") ||
-        "";
-
       const imageUrl =
-        absoluteUrl(rawImageUrl);
+        absoluteUrl(imageCandidate(image));
 
       if (
         !imageUrl ||
@@ -201,24 +423,111 @@ const SCAN_PAGE_SCRIPT = `
       const titleElement =
         card.querySelector("strong");
 
-      const title =
-        cleanText(
-          titleElement?.textContent ||
-          image.getAttribute("alt") ||
-          "ArtPal Artwork"
+      addProduct(
+        {
+          title:
+            cleanText(
+              titleElement?.textContent ||
+              image?.getAttribute("alt") ||
+              "ArtPal Artwork"
+            ),
+          description: "",
+          productUrl,
+          imageUrl,
+          price: null,
+          currency: "USD"
+        },
+        productUrl
+      );
+    });
+
+    Array.from(
+      document.querySelectorAll("a[href]")
+    ).forEach(function (link) {
+      const info =
+        redbubbleInfo(
+          link.getAttribute("href") || ""
         );
 
-      seen[productUrl] = true;
+      if (!info) {
+        return;
+      }
 
-      products.push({
-        title,
-        description: "",
-        productUrl,
-        imageUrl,
-        price: null,
-        currency: "USD"
-      });
+      const image =
+        nearbyImage(link);
+
+      const imageUrl =
+        absoluteUrl(
+          imageCandidate(image)
+        );
+
+      if (!imageUrl) {
+        return;
+      }
+
+      const title =
+        cleanRedbubbleTitle(
+          image?.getAttribute("alt") ||
+            link.getAttribute("aria-label") ||
+            link.textContent,
+          info.titleFromSlug ||
+            "Redbubble Artwork"
+        );
+
+      addProduct(
+        {
+          title:
+            title ||
+            info.titleFromSlug ||
+            "Redbubble Artwork",
+          description: "",
+          productUrl:
+            info.productUrl,
+          imageUrl,
+          price: null,
+          currency: "USD"
+        },
+        "redbubble:" + info.designId
+      );
     });
+
+    const sampleLinks =
+      Array.from(
+        document.querySelectorAll("a[href]")
+      )
+        .slice(0, 25)
+        .map(function (link) {
+          return {
+            href:
+              absoluteUrl(
+                link.getAttribute("href") || ""
+              ),
+            text:
+              cleanText(
+                link.textContent ||
+                link.getAttribute("aria-label") ||
+                ""
+              ).slice(0, 140)
+          };
+        });
+
+    const sampleImages =
+      Array.from(
+        document.querySelectorAll("img")
+      )
+        .slice(0, 20)
+        .map(function (image) {
+          return {
+            src:
+              absoluteUrl(
+                imageCandidate(image)
+              ),
+            alt:
+              cleanText(
+                image.getAttribute("alt") || ""
+              ).slice(0, 140)
+          };
+        });
 
     window.ReactNativeWebView.postMessage(
       JSON.stringify({
@@ -229,7 +538,19 @@ const SCAN_PAGE_SCRIPT = `
         totalLinks:
           document.querySelectorAll("a[href]").length,
         totalImages:
-          document.querySelectorAll("img").length
+          document.querySelectorAll("img").length,
+        sampleLinks,
+        sampleImages,
+        htmlSnippet:
+          String(
+            document.body?.innerHTML || ""
+          ).slice(0, 2500),
+        pageNumber:
+          Number(
+            new URL(
+              window.location.href
+            ).searchParams.get("page") || 1
+          ) || 1
       })
     );
   } catch (error) {
@@ -251,11 +572,17 @@ const SCAN_PAGE_SCRIPT = `
 const FULL_STORE_SCAN_SCRIPT = `
 (function () {
   try {
-    var MAX_STEPS = 60;
-    var WAIT_MS = 850;
+    var MAX_STEPS = 90;
+    var WAIT_MS = 650;
+    var MAX_RUNTIME_MS = 70000;
+    var scanStartedAt = Date.now();
     var stableRounds = 0;
     var previousHeight = 0;
+    var previousCount = 0;
     var currentStep = 0;
+    var accumulated = {};
+    var accumulatedOrder = [];
+    var finished = false;
 
     function cleanText(value) {
       return String(value || "")
@@ -274,15 +601,179 @@ const FULL_STORE_SCAN_SCRIPT = `
       }
     }
 
-    function collectProducts() {
-      var products = [];
-      var seen = {};
+    function imageCandidate(image) {
+      if (!image) {
+        return "";
+      }
 
-      var cards = Array.from(
-        document.querySelectorAll("a.iCg[href]")
+      var srcset =
+        image.getAttribute("srcset") ||
+        image.getAttribute("data-srcset") ||
+        "";
+
+      var srcsetFirst =
+        srcset
+          .split(",")
+          .map(function (part) {
+            return cleanText(part).split(" ")[0] || "";
+          })
+          .filter(Boolean)[0] || "";
+
+      return (
+        image.getAttribute("data-original") ||
+        image.getAttribute("data-src") ||
+        image.getAttribute("data-lazy-src") ||
+        image.currentSrc ||
+        image.getAttribute("src") ||
+        srcsetFirst ||
+        ""
       );
+    }
 
-      cards.forEach(function (card) {
+    function nearbyImage(link) {
+      var image = link.querySelector("img");
+
+      if (image) {
+        return image;
+      }
+
+      var node = link.parentElement;
+      var depth = 0;
+
+      while (node && depth < 6) {
+        image = node.querySelector
+          ? node.querySelector("img")
+          : null;
+
+        if (image) {
+          return image;
+        }
+
+        node = node.parentElement;
+        depth += 1;
+      }
+
+      return null;
+    }
+
+    function redbubbleInfo(rawHref) {
+      try {
+        var url = new URL(
+          String(rawHref || ""),
+          window.location.href
+        );
+
+        if (
+          !/(^|\\.)redbubble\\.com$/i.test(
+            url.hostname
+          )
+        ) {
+          return null;
+        }
+
+        var parts = url.pathname
+          .split("/")
+          .filter(Boolean);
+
+        var iIndex = parts.findIndex(function (part) {
+          return part.toLowerCase() === "i";
+        });
+
+        if (
+          iIndex < 0 ||
+          parts.length < iIndex + 5
+        ) {
+          return null;
+        }
+
+        var designId =
+          parts[iIndex + 3] || "";
+
+        if (!/^\\d+$/.test(designId)) {
+          return null;
+        }
+
+        var slug =
+          decodeURIComponent(
+            parts[iIndex + 2] || ""
+          );
+
+        var byIndex =
+          slug.toLowerCase().lastIndexOf("-by-");
+
+        var titleFromSlug =
+          cleanText(
+            (byIndex > 0
+              ? slug.slice(0, byIndex)
+              : slug
+            ).replace(/[-_]+/g, " ")
+          );
+
+        url.search = "";
+        url.hash = "";
+
+        return {
+          productUrl: url.toString(),
+          designId: designId,
+          titleFromSlug: titleFromSlug
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function cleanRedbubbleTitle(
+      rawTitle,
+      fallbackTitle
+    ) {
+      var clean =
+        cleanText(rawTitle || "");
+
+      var itemPreview =
+        clean.match(
+          /^Item preview,\\s*(.*?)\\s+designed and sold by\\b/i
+        );
+
+      if (
+        itemPreview &&
+        itemPreview[1]
+      ) {
+        return cleanText(
+          itemPreview[1]
+        );
+      }
+
+      if (
+        !clean ||
+        /<\\/?(?:img|svg|div|span|a)\\b/i.test(clean) ||
+        /data-testid=/i.test(clean)
+      ) {
+        return cleanText(
+          fallbackTitle || ""
+        );
+      }
+
+      return clean;
+    }
+
+    function addAccumulated(product, key) {
+      if (
+        !product ||
+        !product.productUrl ||
+        !product.imageUrl ||
+        accumulated[key]
+      ) {
+        return;
+      }
+
+      accumulated[key] = product;
+      accumulatedOrder.push(key);
+    }
+
+    function collectProducts() {
+      Array.from(
+        document.querySelectorAll("a.iCg[href]")
+      ).forEach(function (card) {
         var rawHref =
           card.getAttribute("href") || "";
 
@@ -293,30 +784,16 @@ const FULL_STORE_SCAN_SCRIPT = `
         var productUrl =
           absoluteUrl(rawHref);
 
-        if (
-          !productUrl ||
-          seen[productUrl]
-        ) {
-          return;
-        }
-
         var image =
           card.querySelector("img");
 
-        if (!image) {
-          return;
-        }
-
-        var rawImageUrl =
-          image.getAttribute("data-original") ||
-          image.currentSrc ||
-          image.getAttribute("src") ||
-          "";
-
         var imageUrl =
-          absoluteUrl(rawImageUrl);
+          absoluteUrl(
+            imageCandidate(image)
+          );
 
         if (
+          !productUrl ||
           !imageUrl ||
           imageUrl.includes("/img/c.gif")
         ) {
@@ -326,29 +803,157 @@ const FULL_STORE_SCAN_SCRIPT = `
         var titleElement =
           card.querySelector("strong");
 
-        var title =
-          cleanText(
-            titleElement &&
-              titleElement.textContent
-          ) ||
-          cleanText(
-            image.getAttribute("alt")
-          ) ||
-          "ArtPal Artwork";
-
-        seen[productUrl] = true;
-
-        products.push({
-          title: title,
-          description: "",
-          productUrl: productUrl,
-          imageUrl: imageUrl,
-          price: null,
-          currency: "USD"
-        });
+        addAccumulated(
+          {
+            title:
+              cleanText(
+                titleElement &&
+                  titleElement.textContent
+              ) ||
+              cleanText(
+                image &&
+                  image.getAttribute("alt")
+              ) ||
+              "ArtPal Artwork",
+            description: "",
+            productUrl: productUrl,
+            imageUrl: imageUrl,
+            price: null,
+            currency: "USD"
+          },
+          "artpal:" + productUrl
+        );
       });
 
-      return products;
+      Array.from(
+        document.querySelectorAll("a[href]")
+      ).forEach(function (link) {
+        var info =
+          redbubbleInfo(
+            link.getAttribute("href") || ""
+          );
+
+        if (!info) {
+          return;
+        }
+
+        var image =
+          nearbyImage(link);
+
+        var imageUrl =
+          absoluteUrl(
+            imageCandidate(image)
+          );
+
+        if (!imageUrl) {
+          return;
+        }
+
+        var title =
+          cleanRedbubbleTitle(
+            (image &&
+              image.getAttribute("alt")) ||
+              link.getAttribute("aria-label") ||
+              link.textContent,
+            info.titleFromSlug ||
+              "Redbubble Artwork"
+          );
+
+        addAccumulated(
+          {
+            title:
+              title ||
+              info.titleFromSlug ||
+              "Redbubble Artwork",
+            description: "",
+            productUrl:
+              info.productUrl,
+            imageUrl: imageUrl,
+            price: null,
+            currency: "USD"
+          },
+          "redbubble:" + info.designId
+        );
+      });
+
+      return accumulatedOrder.map(function (key) {
+        return accumulated[key];
+      });
+    }
+
+    function maybeClickLoadMore() {
+      var controls = Array.from(
+        document.querySelectorAll(
+          "button, [role='button'], a[href]"
+        )
+      );
+
+      var button = controls.find(function (item) {
+        var text =
+          cleanText(
+            item.textContent ||
+            item.getAttribute("aria-label") ||
+            ""
+          ).toLowerCase();
+
+        return (
+          text === "load more" ||
+          text === "show more" ||
+          text === "view more" ||
+          text === "load more products" ||
+          text === "show more products"
+        );
+      });
+
+      if (
+        button &&
+        typeof button.click === "function"
+      ) {
+        button.click();
+        return true;
+      }
+
+      return false;
+    }
+
+    function sampleLinks() {
+      return Array.from(
+        document.querySelectorAll("a[href]")
+      )
+        .slice(0, 25)
+        .map(function (link) {
+          return {
+            href:
+              absoluteUrl(
+                link.getAttribute("href") || ""
+              ),
+            text:
+              cleanText(
+                link.textContent ||
+                link.getAttribute("aria-label") ||
+                ""
+              ).slice(0, 140)
+          };
+        });
+    }
+
+    function sampleImages() {
+      return Array.from(
+        document.querySelectorAll("img")
+      )
+        .slice(0, 20)
+        .map(function (image) {
+          return {
+            src:
+              absoluteUrl(
+                imageCandidate(image)
+              ),
+            alt:
+              cleanText(
+                image.getAttribute("alt") || ""
+              ).slice(0, 140)
+          };
+        });
     }
 
     function sendProgress() {
@@ -360,15 +965,27 @@ const FULL_STORE_SCAN_SCRIPT = `
           type: "scan_progress",
           scannedCount: products.length,
           scrollStep: currentStep,
-          maxScrollSteps: MAX_STEPS
+          maxScrollSteps: MAX_STEPS,
+          elapsedMs:
+            Date.now() - scanStartedAt
         })
       );
     }
 
     function finishScan() {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      collectProducts();
+
       window.scrollTo(
         0,
-        document.body.scrollHeight
+        Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight
+        )
       );
 
       setTimeout(function () {
@@ -390,14 +1007,41 @@ const FULL_STORE_SCAN_SCRIPT = `
             totalImages:
               document.querySelectorAll(
                 "img"
-              ).length
+              ).length,
+            sampleLinks:
+              sampleLinks(),
+            sampleImages:
+              sampleImages(),
+            htmlSnippet:
+              String(
+                document.body &&
+                  document.body.innerHTML ||
+                  ""
+              ).slice(0, 2500)
           })
         );
-      }, 500);
+      }, 700);
     }
 
     function scrollAndScan() {
+      if (finished) {
+        return;
+      }
+
+      if (
+        Date.now() - scanStartedAt >=
+        MAX_RUNTIME_MS
+      ) {
+        finishScan();
+        return;
+      }
+
       currentStep += 1;
+
+      var beforeProducts =
+        collectProducts().length;
+
+      maybeClickLoadMore();
 
       var currentHeight =
         Math.max(
@@ -414,6 +1058,9 @@ const FULL_STORE_SCAN_SCRIPT = `
       sendProgress();
 
       setTimeout(function () {
+        var products =
+          collectProducts();
+
         var newHeight =
           Math.max(
             document.body.scrollHeight,
@@ -421,9 +1068,17 @@ const FULL_STORE_SCAN_SCRIPT = `
               .scrollHeight
           );
 
+        var countChanged =
+          products.length > previousCount ||
+          products.length > beforeProducts;
+
+        var heightChanged =
+          newHeight >
+          previousHeight + 10;
+
         if (
-          newHeight <=
-          previousHeight + 10
+          !heightChanged &&
+          !countChanged
         ) {
           stableRounds += 1;
         } else {
@@ -432,10 +1087,14 @@ const FULL_STORE_SCAN_SCRIPT = `
 
         previousHeight =
           newHeight;
+        previousCount =
+          products.length;
 
         if (
-          stableRounds >= 3 ||
-          currentStep >= MAX_STEPS
+          stableRounds >= 5 ||
+          currentStep >= MAX_STEPS ||
+          Date.now() - scanStartedAt >=
+            MAX_RUNTIME_MS
         ) {
           finishScan();
           return;
@@ -451,6 +1110,9 @@ const FULL_STORE_SCAN_SCRIPT = `
         document.documentElement
           .scrollHeight
       );
+
+    previousCount =
+      collectProducts().length;
 
     sendProgress();
     scrollAndScan();
@@ -490,6 +1152,33 @@ export default function AIStoreScannerScreen() {
 
   const autoSyncScanStartedRef =
     useRef(false);
+
+  const redbubblePageScanTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(
+      null
+    );
+
+  const redbubblePagedScanRef =
+    useRef<{
+      active: boolean;
+      page: number;
+      maxPages: number;
+      emptyOrDuplicatePages: number;
+      pageScanRetries: number;
+      lastRequestedUrl: string;
+      products: Map<
+        string,
+        ScannedProduct
+      >;
+    }>({
+      active: false,
+      page: 1,
+      maxPages: 20,
+      emptyOrDuplicatePages: 0,
+      pageScanRetries: 0,
+      lastRequestedUrl: "",
+      products: new Map(),
+    });
 
   const storeId = String(
     params.storeId || ""
@@ -543,6 +1232,64 @@ const [scanProgress, setScanProgress] =
   );
 
   useEffect(() => {
+    return () => {
+      if (
+        redbubblePageScanTimerRef.current
+      ) {
+        clearTimeout(
+          redbubblePageScanTimerRef.current
+        );
+        redbubblePageScanTimerRef.current =
+          null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      storeType !== "redbubble" ||
+      !redbubblePagedScanRef.current.active ||
+      !browserUrl
+    ) {
+      return;
+    }
+
+    if (
+      redbubblePageScanTimerRef.current
+    ) {
+      clearTimeout(
+        redbubblePageScanTimerRef.current
+      );
+    }
+
+    redbubblePageScanTimerRef.current =
+      setTimeout(() => {
+        if (
+          redbubblePagedScanRef.current.active
+        ) {
+          webViewRef.current?.injectJavaScript(
+            SCAN_PAGE_SCRIPT
+          );
+        }
+      }, 1800);
+
+    return () => {
+      if (
+        redbubblePageScanTimerRef.current
+      ) {
+        clearTimeout(
+          redbubblePageScanTimerRef.current
+        );
+        redbubblePageScanTimerRef.current =
+          null;
+      }
+    };
+  }, [
+    browserUrl,
+    storeType,
+  ]);
+
+  useEffect(() => {
     if (
       !autoSync ||
       autoSyncResolvedRef.current
@@ -562,7 +1309,38 @@ const [scanProgress, setScanProgress] =
         if (directUrl) {
           if (active) {
             setStoreUrl(directUrl);
-            setBrowserUrl(directUrl);
+
+            const refreshUrl =
+              storeType === "redbubble"
+                ? getRedbubbleExplorePageUrl(
+                    directUrl,
+                    1
+                  ) || directUrl
+                : directUrl;
+
+            if (storeType === "redbubble") {
+            redbubblePagedScanRef.current = {
+              active: true,
+              page: 1,
+              maxPages: 20,
+              emptyOrDuplicatePages: 0,
+              pageScanRetries: 0,
+              lastRequestedUrl: "",
+              products: new Map(),
+            };
+            setFullStoreScanning(true);
+            setScanProgress(
+              "Refreshing Redbubble — loading page 1..."
+            );
+            autoSyncScanStartedRef.current = true;
+            redbubblePagedScanRef.current.lastRequestedUrl =
+              refreshUrl;
+            scheduleRedbubblePageWatchdog(
+              refreshUrl
+            );
+          }
+
+          setBrowserUrl(refreshUrl);
           }
           return;
         }
@@ -583,9 +1361,8 @@ const [scanProgress, setScanProgress] =
         }
 
         const response = await fetch(
-          `${API_BASE}/stores?userId=${encodeURIComponent(
-            user.id
-          )}`
+          `${API_BASE}/api/v2/store-connections/${encodeURIComponent(storeId)}?userId=${encodeURIComponent(user.id)}&_=${Date.now()}`,
+          { headers: { "Cache-Control": "no-cache" } }
         );
         const responseText = await response.text();
         let data: any;
@@ -606,10 +1383,7 @@ const [scanProgress, setScanProgress] =
           );
         }
 
-        const savedStore = (data.stores || []).find(
-          (item: any) =>
-            String(item.id || "") === storeId
-        );
+        const savedStore = data.connection || null;
 
         const savedUrl = normalizeUrl(
           savedStore?.storeUrl || ""
@@ -623,7 +1397,38 @@ const [scanProgress, setScanProgress] =
 
         if (active) {
           setStoreUrl(savedUrl);
-          setBrowserUrl(savedUrl);
+
+          const refreshUrl =
+            storeType === "redbubble"
+              ? getRedbubbleExplorePageUrl(
+                  savedUrl,
+                  1
+                ) || savedUrl
+              : savedUrl;
+
+          if (storeType === "redbubble") {
+            redbubblePagedScanRef.current = {
+              active: true,
+              page: 1,
+              maxPages: 20,
+              emptyOrDuplicatePages: 0,
+              pageScanRetries: 0,
+              lastRequestedUrl: "",
+              products: new Map(),
+            };
+            setFullStoreScanning(true);
+            setScanProgress(
+              "Refreshing Redbubble — loading page 1..."
+            );
+            autoSyncScanStartedRef.current = true;
+            redbubblePagedScanRef.current.lastRequestedUrl =
+              refreshUrl;
+            scheduleRedbubblePageWatchdog(
+              refreshUrl
+            );
+          }
+
+          setBrowserUrl(refreshUrl);
         }
       } catch (error: any) {
         if (active) {
@@ -645,6 +1450,7 @@ const [scanProgress, setScanProgress] =
     autoSync,
     params.storeUrl,
     storeId,
+    storeType,
   ]);
 
   function openStore() {
@@ -673,6 +1479,107 @@ const [scanProgress, setScanProgress] =
     setStoreUrl(normalized);
     setBrowserUrl(normalized);
     setProducts([]);
+  }
+
+  function scheduleRedbubblePageWatchdog(
+    expectedUrl: string
+  ) {
+    setTimeout(() => {
+      const state =
+        redbubblePagedScanRef.current;
+
+      if (
+        !state.active ||
+        state.lastRequestedUrl !== expectedUrl
+      ) {
+        return;
+      }
+
+      if (state.pageScanRetries >= 2) {
+        state.active = false;
+        state.lastRequestedUrl = "";
+        setFullStoreScanning(false);
+        setScanProgress("");
+
+        Alert.alert(
+          "Redbubble Page Scan Failed",
+          "The Redbubble page loaded, but ArtBoost did not receive the page scan result."
+        );
+        return;
+      }
+
+      state.pageScanRetries += 1;
+
+      setScanProgress(
+        `Refreshing Redbubble — retrying page ${state.page}...`
+      );
+
+      webViewRef.current?.injectJavaScript(
+        SCAN_PAGE_SCRIPT
+      );
+
+      scheduleRedbubblePageWatchdog(
+        expectedUrl
+      );
+    }, 12000);
+  }
+
+  function startRedbubblePagedScan() {
+    const firstPageUrl =
+      getRedbubbleExplorePageUrl(
+        storeUrl || browserUrl,
+        1
+      );
+
+    if (!firstPageUrl) {
+      Alert.alert(
+        "Redbubble Refresh Unavailable",
+        "ArtBoost could not determine the saved Redbubble Explore URL."
+      );
+      return;
+    }
+
+    redbubblePagedScanRef.current = {
+      active: true,
+      page: 1,
+      maxPages: 20,
+      emptyOrDuplicatePages: 0,
+      pageScanRetries: 0,
+      lastRequestedUrl: "",
+      products: new Map(),
+    };
+
+    setProducts([]);
+    setFullStoreScanning(true);
+    setScanProgress(
+      "Refreshing Redbubble — loading page 1..."
+    );
+
+    redbubblePagedScanRef.current.lastRequestedUrl =
+      firstPageUrl;
+
+    scheduleRedbubblePageWatchdog(
+      firstPageUrl
+    );
+
+    if (browserUrl === firstPageUrl) {
+      if (
+        redbubblePageScanTimerRef.current
+      ) {
+        clearTimeout(
+          redbubblePageScanTimerRef.current
+        );
+      }
+
+      redbubblePageScanTimerRef.current =
+        setTimeout(() => {
+          webViewRef.current?.injectJavaScript(
+            SCAN_PAGE_SCRIPT
+          );
+        }, 1800);
+    } else {
+      setBrowserUrl(firstPageUrl);
+    }
   }
 
   function scanVisiblePage() {
@@ -715,6 +1622,11 @@ function scanEntireStore() {
     return;
   }
 
+  if (storeType === "redbubble") {
+    startRedbubblePagedScan();
+    return;
+  }
+
   setProducts([]);
   setFullStoreScanning(true);
   setScanProgress(
@@ -731,15 +1643,99 @@ function scanEntireStore() {
         if (stillScanning) {
           Alert.alert(
             "Full Scan Timed Out",
-            "ArtBoost stopped the scan after 75 seconds. Any products already detected can still be imported."
+            "The storefront did not return final scan results within 100 seconds. Reload the store and try again."
           );
         }
 
         return false;
       }
     );
-  }, 75000);
+  }, 100000);
 }
+
+  async function importCatalogProductsBatch(
+    userId: string,
+    items: ScannedProduct[]
+  ) {
+    if (items.length === 0) {
+      return {
+        importedCount: 0,
+        failed: [] as any[],
+      };
+    }
+
+    const response = await fetch(
+      `${API_BASE}/catalog/import-products-batch`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          storeId:
+            storeId || null,
+          storeName,
+          storeType,
+          products:
+            items.map(
+              (product) => ({
+                title:
+                  product.title,
+                description:
+                  product.description,
+                imageUrl:
+                  product.imageUrl,
+                productUrl:
+                  product.productUrl,
+                price:
+                  product.price,
+                currency:
+                  product.currency,
+                productType:
+                  "Artwork",
+                tags: [],
+              })
+            ),
+        }),
+      }
+    );
+
+    const responseText =
+      await response.text();
+
+    let data: any;
+
+    try {
+      data =
+        JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        `Batch import returned HTTP ${response.status}.`
+      );
+    }
+
+    if (
+      !response.ok ||
+      !data.success
+    ) {
+      throw new Error(
+        data.error ||
+          data.details ||
+          "Batch import failed."
+      );
+    }
+
+    return {
+      importedCount:
+        Number(data.importedCount) || 0,
+      failed:
+        Array.isArray(data.failed)
+          ? data.failed
+          : [],
+    };
+  }
 
   async function syncDiscoveredProducts(
     discoveredProducts: ScannedProduct[]
@@ -805,68 +1801,23 @@ function scanEntireStore() {
           )
       );
 
-      let importedCount = 0;
-      const failed: string[] = [];
+      const batchResult =
+        await importCatalogProductsBatch(
+          user.id,
+          newProducts
+        );
 
-      for (const product of newProducts) {
-        try {
-          const response = await fetch(
-            `${API_BASE}/catalog/import-product`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-              body: JSON.stringify({
-                userId: user.id,
-                storeId: storeId || null,
-                storeName,
-                storeType,
-                title: product.title,
-                description:
-                  product.description,
-                imageUrl: product.imageUrl,
-                productUrl:
-                  product.productUrl,
-                price: product.price,
-                currency: product.currency,
-                productType: "Artwork",
-                tags: [],
-              }),
-            }
-          );
+      const importedCount =
+        batchResult.importedCount;
 
-          const responseText =
-            await response.text();
-          let data: any;
-
-          try {
-            data = JSON.parse(responseText);
-          } catch {
-            throw new Error(
-              `Backend returned HTTP ${response.status}.`
-            );
-          }
-
-          if (!response.ok || !data.success) {
-            throw new Error(
-              data.error ||
-                data.details ||
-                "Import failed."
-            );
-          }
-
-          importedCount += 1;
-        } catch (error: any) {
-          failed.push(
-            `${product.title}: ${
-              error?.message ||
+      const failed =
+        batchResult.failed.map(
+          (item: any) =>
+            `${item.title || "Listing"}: ${
+              item.error ||
               "Import failed"
             }`
-          );
-        }
-      }
+        );
 
       if (storeUrl) {
         try {
@@ -909,7 +1860,7 @@ function scanEntireStore() {
             importedCount === 1 ? "" : "s"
           } added.`,
           failed.length
-            ? `${failed.length} could not be imported.`
+            ? `${failed.length} could not be imported. First error: ${failed[0]}`
             : "Saved store connection reused — no link entry required.",
         ].join("\n"),
         [
@@ -940,6 +1891,51 @@ function scanEntireStore() {
     }
   }
 
+  async function finishRedbubblePagedScan() {
+    const state =
+      redbubblePagedScanRef.current;
+
+    if (!state.active) {
+      return;
+    }
+
+    state.active = false;
+    state.lastRequestedUrl = "";
+
+    const allProducts =
+      Array.from(
+        state.products.values()
+      );
+
+    setProducts(allProducts);
+    setFullStoreScanning(false);
+    setScanProgress("");
+
+    if (allProducts.length === 0) {
+      Alert.alert(
+        "No Products Detected",
+        "ArtBoost could not identify Redbubble designs from the saved Explore pages."
+      );
+      return;
+    }
+
+    if (autoSync) {
+      await syncDiscoveredProducts(
+        allProducts
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Full Scan Complete",
+      `${allProducts.length} unique Redbubble design${
+        allProducts.length === 1
+          ? ""
+          : "s"
+      } detected.`
+    );
+  }
+
   async function handleScannerMessage(
     event: WebViewMessageEvent
   ) {
@@ -956,6 +1952,10 @@ function scanEntireStore() {
   setScanProgress(
     `${message.scannedCount || 0} products found — scanning store section ${
       message.scrollStep || 0
+    }${
+      message.elapsedMs
+        ? ` (${Math.round(message.elapsedMs / 1000)}s)`
+        : ""
     }`
   );
 
@@ -1076,6 +2076,115 @@ function scanEntireStore() {
         });
       }
 
+      if (
+        storeType === "redbubble" &&
+        redbubblePagedScanRef.current.active
+      ) {
+        const state =
+          redbubblePagedScanRef.current;
+
+        state.pageScanRetries = 0;
+        state.lastRequestedUrl = "";
+
+        let newUniqueCount = 0;
+
+        for (const product of mapped) {
+          const artworkId =
+            getRedbubbleArtworkId(
+              product.productUrl
+            );
+
+          const key =
+            artworkId
+              ? `redbubble:${artworkId}`
+              : normalizeUrl(
+                  product.productUrl
+                );
+
+          if (!key) {
+            continue;
+          }
+
+          const existing =
+            state.products.get(key);
+
+          if (!existing) {
+            state.products.set(
+              key,
+              product
+            );
+            newUniqueCount += 1;
+          } else if (
+            !existing.imageUrl &&
+            product.imageUrl
+          ) {
+            state.products.set(
+              key,
+              product
+            );
+          }
+        }
+
+        if (newUniqueCount === 0) {
+          state.emptyOrDuplicatePages += 1;
+        } else {
+          state.emptyOrDuplicatePages = 0;
+        }
+
+        setProducts(
+          Array.from(
+            state.products.values()
+          )
+        );
+
+        setScanProgress(
+          `${state.products.size} unique Redbubble designs found — page ${state.page}`
+        );
+
+        console.log(
+          "ARTBOOST REDBUBBLE PAGE COMPLETE",
+          {
+            page: state.page,
+            browserUrl,
+            discovered: mapped.length,
+            uniqueTotal:
+              state.products.size,
+          }
+        );
+
+        const shouldFinish =
+          state.emptyOrDuplicatePages >= 1 ||
+          state.page >= state.maxPages;
+
+        if (shouldFinish) {
+          await finishRedbubblePagedScan();
+          return;
+        }
+
+        state.page += 1;
+
+        const nextPageUrl =
+          getRedbubbleExplorePageUrl(
+            storeUrl || browserUrl,
+            state.page
+          );
+
+        if (!nextPageUrl) {
+          await finishRedbubblePagedScan();
+          return;
+        }
+
+        state.lastRequestedUrl =
+          nextPageUrl;
+
+        scheduleRedbubblePageWatchdog(
+          nextPageUrl
+        );
+
+        setBrowserUrl(nextPageUrl);
+        return;
+      }
+
       setProducts(mapped);
 
       if (autoSync && mapped.length > 0) {
@@ -1096,7 +2205,9 @@ function scanEntireStore() {
               message.totalImages || 0
             }`,
             "",
-            "Scroll through the store so more artwork loads, then scan again.",
+            fullStoreScanning
+              ? "ArtBoost automatically scrolled the storefront but could not identify supported product links."
+              : "Try Scan Entire Store so ArtBoost can automatically load more storefront listings.",
             "",
             "Inspection details were also printed in the Metro terminal.",
           ].join("\n")
@@ -1119,8 +2230,13 @@ function scanEntireStore() {
       );
     } finally {
       setScanning(false);
-setFullStoreScanning(false);
-setScanProgress("");
+
+      if (
+        !redbubblePagedScanRef.current.active
+      ) {
+        setFullStoreScanning(false);
+        setScanProgress("");
+      }
     }
   }
 
@@ -1191,90 +2307,23 @@ setScanProgress("");
         );
       }
 
-      let importedCount = 0;
-      const failed: string[] = [];
+      const batchResult =
+        await importCatalogProductsBatch(
+          user.id,
+          selectedProducts
+        );
 
-      for (
-        const product of
-        selectedProducts
-      ) {
-        try {
-          const response =
-            await fetch(
-              `${API_BASE}/catalog/import-product`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type":
-                    "application/json",
-                },
-                body:
-                  JSON.stringify({
-                    userId:
-                      user.id,
-                    storeId:
-                      storeId ||
-                      null,
-                    storeName,
-                    storeType,
-                    title:
-                      product.title,
-                    description:
-                      product.description,
-                    imageUrl:
-                      product.imageUrl,
-                    productUrl:
-                      product.productUrl,
-                    price:
-                      product.price,
-                    currency:
-                      product.currency,
-                    productType:
-                      "Artwork",
-                    tags: [],
-                  }),
-              }
-            );
+      const importedCount =
+        batchResult.importedCount;
 
-          const responseText =
-            await response.text();
-
-          let data: any;
-
-          try {
-            data =
-              JSON.parse(
-                responseText
-              );
-          } catch {
-            throw new Error(
-              `Backend returned HTTP ${response.status}.`
-            );
-          }
-
-          if (
-            !response.ok ||
-            !data.success
-          ) {
-            throw new Error(
-              data.error ||
-                data.details ||
-                "Import failed."
-            );
-          }
-
-          importedCount += 1;
-        } catch (
-          error: any
-        ) {
-          failed.push(
-            `${product.title}: ${
-              error?.message ||
+      const failed =
+        batchResult.failed.map(
+          (item: any) =>
+            `${item.title || "Listing"}: ${
+              item.error ||
               "Import failed"
             }`
-          );
-        }
-      }
+        );
 
       if (importedCount === 0) {
         throw new Error(
@@ -1395,9 +2444,22 @@ setScanProgress("");
             style={styles.urlRow}
           >
             <TextInput
-              value={storeUrl}
+              value={
+                storeType === "redbubble" &&
+                autoSync &&
+                browserUrl
+                  ? browserUrl
+                  : storeUrl
+              }
               onChangeText={
                 setStoreUrl
+              }
+              editable={
+                !(
+                  storeType === "redbubble" &&
+                  autoSync &&
+                  fullStoreScanning
+                )
               }
               placeholder="https://www.artpal.com/artistwill"
               placeholderTextColor="#666666"
@@ -1708,16 +2770,7 @@ scanProgress ? (
                     )
                   }
                 >
-                  <Image
-                    source={{
-                      uri:
-                        item.imageUrl,
-                    }}
-                    style={
-                      styles.productImage
-                    }
-                    resizeMode="cover"
-                  />
+                  <ArtBoostRemoteImage uri={item.imageUrl} style={styles.productImage} contentFit="cover" alt={item.title} />
 
                   <View
                     style={[

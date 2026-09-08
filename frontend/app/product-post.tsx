@@ -1,13 +1,13 @@
 // ARTBOOST_PRODUCT_POST_STORE_HANDOFF_V3155
 /* eslint-disable react/no-unescaped-entities */
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,7 +19,10 @@ import {
 } from "react-native";
 import { supabase } from "@/lib/supabase";
 
-const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "https://artboost-ai.onrender.com";
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 const PLATFORMS = ["Instagram", "Facebook", "Pinterest", "X", "Threads", "LinkedIn", "TikTok"] as const;
 type Platform = (typeof PLATFORMS)[number];
 
@@ -139,7 +142,7 @@ export default function ProductPostScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.productCard}>
-          {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="cover" /> : <View style={[styles.image, styles.placeholder]}><Ionicons name="image-outline" size={36} color="#777" /></View>}
+          {imageUrl ? <ArtBoostRemoteImage uri={imageUrl} style={styles.image} contentFit="cover" alt={title || "Imported product"} placeholderIconSize={36} placeholderColor="#777" /> : <View style={[styles.image, styles.placeholder]}><Ionicons name="image-outline" size={36} color="#777" /></View>}
           <View style={{ flex: 1 }}>
             <Text style={styles.productTitle} numberOfLines={2}>{String(params.productTitle || title || "Imported Product")}</Text>
             <Text style={styles.productMeta} numberOfLines={1}>{String(params.storeName || params.storeType || "Imported store")}</Text>

@@ -239,11 +239,33 @@ const syncButtonLabel = useMemo(() => {
       .toLowerCase();
 
     if (type === "shopify") {
-      Alert.alert(
-        "Live Sync Active",
-        "Shopify products are synchronized through the connected Shopify store."
-      );
+      if (syncing) return;
+      try {
+        setSyncing(true);
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!user) throw new Error("Please sign in to ArtBoost before syncing Shopify.");
 
+        const response = await fetch(`${API_BASE}/shopify/products?userId=${encodeURIComponent(user.id)}&_=${Date.now()}`, {
+          headers: { "Cache-Control": "no-cache" },
+        });
+        const text = await response.text();
+        let data: any = {};
+        try { data = text ? JSON.parse(text) : {}; } catch {
+          throw new Error(`ArtBoost received an invalid Shopify sync response (${response.status}).`);
+        }
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.details || data?.error || "Shopify products could not be synchronized.");
+        }
+        const count = Number(data.total ?? data.products?.length ?? 0);
+        if (Number.isFinite(count)) setProductCount(count);
+        setLastSyncedAt(new Date().toISOString());
+        Alert.alert("Shopify Sync Complete", `${count || 0} product${count === 1 ? "" : "s"} synchronized from Shopify.`);
+      } catch (error) {
+        Alert.alert("Shopify Sync Failed", error instanceof Error ? error.message : "Shopify products could not be synchronized.");
+      } finally {
+        setSyncing(false);
+      }
       return;
     }
 
@@ -338,6 +360,25 @@ const syncButtonLabel = useMemo(() => {
         setSyncing(false);
       }
 
+      return;
+    }
+
+    if (
+      type === "redbubble" &&
+      connected
+    ) {
+      router.push({
+        pathname:
+          "/redbubble-import" as any,
+        params: {
+          storeId,
+          storeName,
+          storeType:
+            "redbubble",
+          refreshMode:
+            "true",
+        },
+      });
       return;
     }
 
@@ -619,7 +660,7 @@ const syncButtonLabel = useMemo(() => {
   onPress={() =>
     router.push({
       pathname:
-        "/schedule" as any,
+        "/(tabs)/schedule" as any,
       params: {
         storeId,
         storeName,
@@ -633,32 +674,28 @@ const syncButtonLabel = useMemo(() => {
           icon="analytics-outline"
           title="Analytics"
           description="Track product views, clicks, and social performance."
-          onPress={() => {}}
-          disabled
+          onPress={() => router.push({ pathname: "/analytics" as any, params: { storeId, storeName, storeType } })}
         />
 
         <DashboardAction
           icon="folder-open-outline"
           title="Collections"
-          description="Organize products into categories and campaigns."
-          onPress={() => {}}
-          disabled
+          description="Review products grouped by their imported categories."
+          onPress={() => router.push({ pathname: "/store-collections" as any, params: { storeId, storeName, storeType } })}
         />
 
         <DashboardAction
           icon="search-outline"
           title="SEO Tools"
-          description="Improve titles, descriptions, keywords, and tags."
-          onPress={() => {}}
-          disabled
+          description="Audit listing titles, descriptions, tags, images, and links."
+          onPress={() => router.push({ pathname: "/store-seo" as any, params: { storeId, storeName, storeType } })}
         />
 
         <DashboardAction
           icon="layers-outline"
           title="Inventory"
-          description="Review product availability and listing status."
-          onPress={() => {}}
-          disabled
+          description="Review product availability, listing status, and Shopify quantities."
+          onPress={() => router.push({ pathname: "/store-inventory" as any, params: { storeId, storeName, storeType } })}
         />
 
         <DashboardAction

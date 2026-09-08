@@ -102,25 +102,6 @@ export default function HomeScreen() {
     "home" | "upload"
   >("home");
 
-  const [homeAnalytics, setHomeAnalytics] = useState<any>(null);
-  const [homeAnalyticsLoading, setHomeAnalyticsLoading] = useState(false);
-
-  const loadHomeAnalytics = async () => {
-    try {
-      const { data: { session: activeSession } } = await supabase.auth.getSession();
-      if (!activeSession?.access_token) return;
-      setHomeAnalyticsLoading(true);
-      const response = await fetch(`${BACKEND_URL}/analytics`, {
-        headers: { Authorization: `Bearer ${activeSession.access_token}` },
-      });
-      const data = await response.json();
-      if (response.ok) setHomeAnalytics(data);
-    } catch (error) {
-      console.log("Home overview analytics unavailable:", error);
-    } finally {
-      setHomeAnalyticsLoading(false);
-    }
-  };
 
   useEffect(() => {
     loadSession();
@@ -142,9 +123,6 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- ARTBOOST_V3126 verified existing dependency behavior
   }, []);
 
-  useEffect(() => {
-    if (session?.user?.id) loadHomeAnalytics();
-  }, [session?.user?.id]);
 
   const getTikTokPrivacyLabel = (value: string) => {
     if (value === "PUBLIC_TO_EVERYONE") {
@@ -1225,25 +1203,6 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
 
           {session?.user ? (
             <>
-              <View style={styles.overviewHeader}>
-                <Text style={styles.sectionHeading}>Today’s Overview</Text>
-                <Pressable onPress={loadHomeAnalytics}><Text style={styles.refreshText}>{homeAnalyticsLoading ? "Refreshing…" : "Refresh"}</Text></Pressable>
-              </View>
-              <View style={styles.overviewGrid}>
-                <Pressable style={styles.overviewCard} onPress={() => router.push("/analytics" as any)}>
-                  <Text style={styles.overviewValue}>{homeAnalytics?.postsPublished ?? "—"}</Text>
-                  <Text style={styles.overviewLabel}>Posts Published</Text>
-                </Pressable>
-                <Pressable style={styles.overviewCard} onPress={() => router.push("/schedule" as any)}>
-                  <Text style={styles.overviewValue}>{homeAnalytics?.activeAutomations ?? "—"}</Text>
-                  <Text style={styles.overviewLabel}>Active Automations</Text>
-                </Pressable>
-              </View>
-              <Pressable style={styles.insightCard} onPress={() => router.push("/analytics" as any)}>
-                <Text style={styles.insightKicker}>AI MARKETING SIGNAL</Text>
-                <Text style={styles.insightTitle}>{homeAnalytics?.topArtwork?.title || "Build performance history"}</Text>
-                <Text style={styles.insightText}>{homeAnalytics?.insight || "Keep publishing and ArtBoost will surface your strongest product and platform signals here."}</Text>
-              </Pressable>
               <View style={styles.quickRow}>
                 <Pressable style={styles.quickButton} onPress={() => setHomeMode("upload")}><Text style={styles.quickButtonText}>＋ Create Post</Text></Pressable>
                 <Pressable style={styles.quickButtonSecondary} onPress={() => router.push("/video-studio" as any)}><Text style={styles.quickButtonText}>▶ Create Video</Text></Pressable>
@@ -1424,7 +1383,7 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
             style={styles.actionCard}
             onPress={() =>
               router.push(
-                "/schedule" as any
+                "/(tabs)/schedule" as any
               )
             }
           >

@@ -1,3 +1,4 @@
+// ARTBOOST_CREATOR_TOOLS_ENABLEMENT_V31614
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
 import React, { useMemo, useState } from "react";

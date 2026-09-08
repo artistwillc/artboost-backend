@@ -1,3 +1,15 @@
 {
-  "expo": {}
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "5c4b0c32-ca43-4a35-99c3-558764f5df84"
+      }
+    },
+    "android": {
+      "package": "com.artistwill.backend"
+    },
+    "ios": {
+      "bundleIdentifier": "com.artistwill.artboostai"
+    }
+  }
 }

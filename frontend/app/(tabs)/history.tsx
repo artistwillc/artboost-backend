@@ -1,9 +1,9 @@
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 // ARTBOOST_VISUAL_PARITY_V3153
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -376,7 +376,7 @@ export default function CampaignHistoryScreen() {
         filteredCampaigns.map((campaign) => (
           <View key={campaign.id} style={styles.card}>
             {campaign.imageUrl ? (
-              <Image source={{ uri: campaign.imageUrl }} style={styles.image} />
+              <ArtBoostRemoteImage uri={campaign.imageUrl} style={styles.image} contentFit="cover" alt={campaign.title || "Campaign image"} />
             ) : null}
 
             <View style={styles.cardHeader}>

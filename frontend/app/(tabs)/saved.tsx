@@ -1,3 +1,5 @@
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
+// ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_PRODUCT_FAVORITES_V3162
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -9,7 +11,6 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import { readApiJson } from "../../lib/apiJson";
 
 const API_BASE =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
 type FavoriteProduct = {
@@ -278,12 +280,7 @@ export default function SavedScreen() {
             style={styles.favoriteCard}
           >
             {product.image_url ? (
-              <Image
-                source={{
-                  uri: product.image_url,
-                }}
-                style={styles.favoriteImage}
-              />
+              <ArtBoostRemoteImage uri={product.image_url} style={styles.favoriteImage} contentFit="cover" alt={product.title} />
             ) : null}
 
             <View style={styles.favoriteBody}>
@@ -359,10 +356,7 @@ export default function SavedScreen() {
             key={item.id}
             style={styles.card}
           >
-            <Image
-              source={{ uri: item.image }}
-              style={styles.image}
-            />
+            <ArtBoostRemoteImage uri={item.image} style={styles.image} contentFit="cover" />
 
             <Text style={styles.date}>
               {item.createdAt}

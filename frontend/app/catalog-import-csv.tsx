@@ -1,5 +1,6 @@
 // ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import {
   router,
   useLocalSearchParams,
@@ -119,6 +120,8 @@ export default function CatalogImporterScreen() {
     params.storeType || "store";
 
   const [importingStore, setImportingStore] =
+    useState(false);
+  const [importingCsv, setImportingCsv] =
     useState(false);
 
   const normalizedStoreType = String(storeType)
@@ -313,11 +316,154 @@ export default function CatalogImporterScreen() {
   });
 }
 
-  function showCsvComingSoon() {
-    Alert.alert(
-      "CSV Catalog Import",
-      "CSV catalog importing will be connected in the next step."
-    );
+  async function importCsvCatalog() {
+    try {
+      if (importingCsv) {
+        return;
+      }
+
+      const result =
+        await DocumentPicker.getDocumentAsync({
+          type: [
+            "text/csv",
+            "text/comma-separated-values",
+            "application/vnd.ms-excel",
+            "text/plain",
+          ],
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets?.[0];
+
+      if (!asset?.uri) {
+        throw new Error(
+          "ArtBoost could not read the selected CSV file."
+        );
+      }
+
+      const fileName =
+        asset.name || "artboost-catalog.csv";
+
+      if (
+        !fileName.toLowerCase().endsWith(".csv")
+      ) {
+        throw new Error(
+          "Choose a .csv catalog file."
+        );
+      }
+
+      setImportingCsv(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        throw new Error(
+          "Please sign in before importing a CSV catalog."
+        );
+      }
+
+      const form = new FormData();
+
+      form.append("file", {
+        uri: asset.uri,
+        name: fileName,
+        type:
+          asset.mimeType ||
+          "text/csv",
+      } as any);
+
+      form.append(
+        "storeId",
+        String(storeId || "")
+      );
+      form.append(
+        "storeName",
+        String(storeName || "")
+      );
+      form.append(
+        "storeType",
+        String(storeType || "")
+      );
+
+      const response = await fetch(
+        `${API_BASE}/catalog/import-csv`,
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: form,
+        }
+      );
+
+      const responseText =
+        await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          "ArtBoost received an invalid response while importing the CSV catalog."
+        );
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data?.error ||
+            "CSV catalog import failed."
+        );
+      }
+
+      Alert.alert(
+        "CSV Import Complete",
+        [
+          `${Number(data.validRows) || 0} valid products processed.`,
+          `${Number(data.imported) || 0} new products imported.`,
+          `${Number(data.updated) || 0} existing products refreshed.`,
+          `${Number(data.pendingImages) || 0} products still need an image.`,
+          `${Number(data.skipped) || 0} rows skipped.`,
+        ].join("\n"),
+        [
+          {
+            text: "View Products",
+            onPress: () =>
+              router.replace({
+                pathname:
+                  "/store-products" as any,
+                params: {
+                  storeId,
+                  storeName,
+                  storeType,
+                  connected: "true",
+                },
+              }),
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.log(
+        "CSV catalog import failed:",
+        error
+      );
+
+      Alert.alert(
+        "CSV Import Failed",
+        error?.message ||
+          "ArtBoost could not import this CSV catalog."
+      );
+    } finally {
+      setImportingCsv(false);
+    }
   }
 
   return (
@@ -524,9 +670,14 @@ export default function CatalogImporterScreen() {
 
         <ImportOption
           icon="document-text-outline"
-          title="CSV Catalog"
-          description="Upload a spreadsheet containing product titles, URLs, images, prices, and descriptions."
-          onPress={showCsvComingSoon}
+          title={
+            importingCsv
+              ? "Importing CSV..."
+              : "CSV Catalog"
+          }
+          description="Upload a CSV containing product titles and product URLs, with optional images, prices, descriptions, currency, and store fields."
+          onPress={importCsvCatalog}
+          disabled={importingCsv}
         />
 
         <ImportOption

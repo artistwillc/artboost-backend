@@ -86,9 +86,9 @@ export default function CreatedVideosScreen() {
         {jobs.map(job => {
           const snapshot = job.source_snapshot || {};
           const name = snapshot?.product_title || snapshot?.title || "ArtBoost Video";
-          const quality = job.output_width && job.output_height ? `${job.output_width}Ã—${job.output_height}` : String(snapshot?.video_output_quality || "").toUpperCase();
+          const quality = job.output_width && job.output_height ? `${job.output_width}×${job.output_height}` : String(snapshot?.video_output_quality || "").toUpperCase();
           return <View key={job.id} style={styles.card}>
-            <View style={styles.cardTop}><View style={{flex:1}}><Text style={styles.cardTitle}>{name}</Text><Text style={styles.meta}>{[job.status, quality, job.duration_seconds ? `${job.duration_seconds}s` : "", job.completed_at ? new Date(job.completed_at).toLocaleString() : job.created_at ? new Date(job.created_at).toLocaleString() : ""].filter(Boolean).join(" â€¢ ")}</Text></View><Ionicons name={job.status === "completed" ? "checkmark-circle-outline" : job.status === "failed" ? "warning-outline" : "time-outline"} size={24} color={job.status === "completed" ? "#86efac" : "#fbbf24"} /></View>
+            <View style={styles.cardTop}><View style={{flex:1}}><Text style={styles.cardTitle}>{name}</Text><Text style={styles.meta}>{[job.status, quality, job.duration_seconds ? `${job.duration_seconds}s` : "", job.completed_at ? new Date(job.completed_at).toLocaleString() : job.created_at ? new Date(job.created_at).toLocaleString() : ""].filter(Boolean).join(" • ")}</Text></View><Ionicons name={job.status === "completed" ? "checkmark-circle-outline" : job.status === "failed" ? "warning-outline" : "time-outline"} size={24} color={job.status === "completed" ? "#86efac" : "#fbbf24"} /></View>
             {job.error_message ? <Text style={styles.error}>{job.error_message}</Text> : null}
             <View style={styles.actions}>
               {job.video_url ? <Pressable style={styles.button} onPress={() => router.push({ pathname:"/video-studio" as any, params:{ jobId:job.id }})}><Ionicons name="play-outline" size={17} color="#fff" /><Text style={styles.buttonText}>Open</Text></Pressable> : null}

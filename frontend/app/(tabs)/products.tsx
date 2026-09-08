@@ -299,9 +299,9 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
       "Choose how you want to add artwork or products.",
       [
         {
-          text: "Upload Artwork",
+          text: "Add Product Manually",
           onPress: () =>
-            router.push("/product-create" as any),
+            router.push("/product-import-wizard" as any),
         },
         {
           text: "Connect Store",
@@ -705,7 +705,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
                 style={styles.sourceCard}
                 onPress={() =>
                   router.push(
-                    "/product-create" as any
+                    "/product-import-wizard" as any
                   )
                 }
               >

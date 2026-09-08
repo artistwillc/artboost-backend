@@ -48,7 +48,8 @@ export default function AnalyticsIssueScreen() {
       return;
     }
 
-    router.replace("/analytics" as any);
+    // Keep failed records actionable even when an older log row lacks a store/automation id.
+    router.push("/(tabs)/schedule" as any);
   };
 
   return (
@@ -94,7 +95,7 @@ export default function AnalyticsIssueScreen() {
 
           <Pressable style={styles.action} onPress={openRelevantTool}>
             <Text style={styles.actionText}>
-              {type === "campaign" ? "Open Campaign Manager" : "Open Automation"}
+              {type === "campaign" ? "Open Campaign Manager" : (String(p.automationId || p.storeId || "").trim() ? "Open Automation" : "Open Schedule")}
             </Text>
             <Ionicons name="arrow-forward" size={19} color="#fff" />
           </Pressable>

@@ -1,3 +1,4 @@
+// ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -28,6 +29,8 @@ import {
 import { supabase } from "../../lib/supabase";
 
 const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
 type Automation = {

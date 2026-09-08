@@ -1,6 +1,7 @@
 // ARTBOOST_NAVIGATION_UX_INTEGRITY_V31510
 // ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import {
   router,
   Stack,
@@ -16,7 +17,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -1409,16 +1409,7 @@ scanProgress ? (
                     )
                   }
                 >
-                  <Image
-                    source={{
-                      uri:
-                        item.imageUrl,
-                    }}
-                    style={
-                      styles.productImage
-                    }
-                    resizeMode="cover"
-                  />
+                  <ArtBoostRemoteImage uri={item.imageUrl} style={styles.productImage} contentFit="cover" alt={item.title} />
 
                   <View
                     style={[

@@ -29,6 +29,7 @@ import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 
 const REDBUBBLE_EXTRACTION_SCRIPT = `

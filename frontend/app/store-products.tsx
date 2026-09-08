@@ -1,6 +1,7 @@
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_WHITE_TEXT_AUDIT_V3141
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   router,
@@ -15,7 +16,6 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -54,6 +54,8 @@ type Product = {
 function normalize(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
+
+// ARTBOOST_UNIVERSAL_REMOTE_IMAGE_RENDER_V31663_R2
 
 function platformLabel(value: string) {
   const clean = normalize(value);
@@ -462,6 +464,7 @@ export default function StoreProductsScreen() {
     }, [loadProducts])
   );
 
+
   function openProduct(product: Product) {
     router.push({
       pathname: "/product-details" as any,
@@ -749,10 +752,12 @@ export default function StoreProductsScreen() {
                 onPress={() => openProduct(product)}
               >
                 {product.imageUrl ? (
-                  <Image
-                    source={{ uri: product.imageUrl }}
+                  <ArtBoostRemoteImage
+                    uri={product.imageUrl}
                     style={styles.productImage}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    alt={product.title}
+                    testID={`artboost-product-image-${product.id}`}
                   />
                 ) : (
                   <View style={[styles.productImage, styles.imagePlaceholder]}>

@@ -2,7 +2,7 @@ const LIVE_ACCOUNT_TERMS =
   /\b(?:how many|count|total|currently|do i have|have i|my next|next run|scheduled to run|which platforms will|connected|connection status|need attention|expired|fail|fails|failed|failure|failures|error|errors|skipped|published|posts have i|active automations?|upcoming campaigns?)\b/;
 
 const HELP_TERMS =
-  /\b(?:what is|what does|what can|what are|which tools|how does|how do i|how can i|explain|help|used for|use it|available|include|included|features|work|works|set up|setup)\b/;
+  /\b(?:what is|what does|what can|what are|which tools|which platforms|supported|how does|how do i|how can i|explain|help|used for|use it|available|include|included|features|work|works|set up|setup)\b/;
 
 export const ARTBOOST_FEATURE_CATALOG = [
   {
@@ -10,7 +10,7 @@ export const ARTBOOST_FEATURE_CATALOG = [
     names: ["campaign manager", "marketing campaign", "campaigns"],
     action: "open_campaign_manager",
     answer:
-      "Campaign Manager lets you create marketing campaigns for artwork and products, choose where they publish, post immediately or schedule them for later, and manage publishing status from one place.",
+      "Campaign Manager lets you create marketing campaigns for artwork and products and publish through Pinterest, Facebook, Instagram, Threads, LinkedIn, X, and TikTok when the required connection, media type, destination settings, permissions, and plan access are available. Posting and scheduling capabilities vary by platform and media type.",
     steps: [
       "Open Campaign Manager.",
       "Choose or enter the artwork or product content.",
@@ -252,11 +252,39 @@ export const ARTBOOST_FEATURE_CATALOG = [
     ],
   },
   {
+    id: "social_platforms",
+    names: [
+      "social platforms",
+      "supported social platforms",
+      "publishing platforms",
+      "available platforms",
+      "what platforms are available",
+      "which platforms are supported",
+      "platforms are supported",
+      "threads",
+      "linkedin",
+      "tiktok",
+    ],
+    action: "open_connections",
+    answer:
+      "This ArtBoost build exposes Pinterest, Facebook Pages, Instagram Business/professional accounts, Threads, LinkedIn, X, and TikTok as available social connections. Campaign Manager can target these platforms when the required connection, media type, destination settings, permissions, and plan access are available. Video support is platform-specific; LinkedIn and Pinterest are not enabled as Video Studio video destinations in the current Campaign Manager.",
+    steps: [
+      "Open Connections.",
+      "Choose Social Platforms.",
+      "Connect or reconnect the platform you want to use.",
+      "Return to Campaign Manager and use the publishing options available for that platform and media type.",
+    ],
+    followUps: [
+      "How do I connect a social platform?",
+      "Which platforms support Video Studio videos?",
+    ],
+  },
+  {
     id: "connections",
     names: ["connections", "connect social platform", "connect store", "social connections"],
     action: "open_connections",
     answer:
-      "Connections is where you add, reconnect, review, and remove store and social-platform connections used by ArtBoost.",
+      "Connections is where you add, reconnect, review, and remove store and social-platform connections used by ArtBoost. This build exposes Pinterest, Facebook, Instagram, Threads, LinkedIn, X, and TikTok as available social connections.",
     steps: [
       "Open Connections.",
       "Choose Social Platforms or Stores.",

@@ -1,8 +1,10 @@
+// ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_V3142_FINAL_CLEANUP_ICONS
 // ARTBOOST_WHITE_TEXT_AUDIT_V3141
 /* eslint-disable react/no-unescaped-entities */
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, {
@@ -15,7 +17,6 @@ import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "../lib/supabase";
 import {
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -28,7 +29,10 @@ import {
   View,
 } from "react-native";
 
-const API_BASE = "https://artboost-ai.onrender.com";
+const API_BASE =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com";
 
 type Frequency =
   | "daily"
@@ -4351,15 +4355,7 @@ try {
                   }
                 >
                   {previewProductImage ? (
-                    <Image
-                      source={{
-                        uri: previewProductImage,
-                      }}
-                      style={
-                        styles.previewProductImage
-                      }
-                      resizeMode="cover"
-                    />
+                    <ArtBoostRemoteImage uri={previewProductImage} style={styles.previewProductImage} contentFit="cover" alt={previewProduct?.title || "Store product"} />
                   ) : (
                     <View
                       style={

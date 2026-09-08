@@ -1,3 +1,4 @@
+// ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_NOTIFICATION_SETTINGS_V3154
 // ARTBOOST_VISUAL_PARITY_V3153
 import React, {
@@ -18,6 +19,7 @@ import {
 import { supabase } from "../../lib/supabase";
 
 const BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
   process.env.EXPO_PUBLIC_API_URL ||
   "https://artboost-ai.onrender.com";
 

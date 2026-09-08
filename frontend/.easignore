@@ -1,58 +1,14 @@
-﻿# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# ArtBoost AI EAS upload filter - V13.12
+# Keep actual Expo application source/assets; exclude local development/build debris.
 
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
-.env
-
-# typescript
-*.tsbuildinfo
-
-app-example
-
-# generated native folders
-/ios
-/android
-# ================================================================
-# ArtBoost AI V3.15.11 - EAS archive optimization
-# Added after the validated V3.15.11 RC to reduce upload size only.
-# These rules do NOT exclude application source or runtime assets.
-# ================================================================
-
-# Dependency trees are restored by EAS from package-lock.json.
+# dependencies / package-manager caches
 node_modules/
 **/node_modules/
+.npm/
+.yarn/
+.pnpm-store/
 
-# Expo / Metro / tooling caches.
+# Expo / Metro / tooling caches
 .expo/
 .expo-shared/
 .metro-cache/
@@ -60,25 +16,13 @@ node_modules/
 .parcel-cache/
 .turbo/
 .nx/
+.tmp/
 tmp/
 temp/
-*.tmp
 
-# Test / coverage / local reports.
-coverage/
-.nyc_output/
-reports/
-test-results/
-playwright-report/
-
-# Local logs and debug output.
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Local build output. Native SOURCE directories remain included.
+# generated native/build output
+/ios
+/android
 dist/
 web-build/
 build/
@@ -89,23 +33,84 @@ ios/build/
 ios/DerivedData/
 ios/Pods/
 
-# EAS/local generated build artifacts should never be uploaded as source.
-*.apk
-*.aab
-*.ipa
-*.xcarchive
+# test / reports / coverage
+coverage/
+.nyc_output/
+reports/
+test-results/
+playwright-report/
 
-# Local editor / OS metadata.
+# local editor / OS metadata
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ArtBoost local repair/build output if it exists inside frontend.
-build-logs/
-backups/
-backup/
-repair-backups/
+# secrets/local env
+.env
+.env.*
+!.env.example
+
+# signing / local credentials
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+
+# logs / temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
 *.bak
 *.backup
+*.orig
+*.orig.*
+*.tsbuildinfo
+
+# ArtBoost installer/repair/audit debris
+.artboost-*
+_artboost_backups/
+backups/
+backup/
+build-backups/
+build-handoff/
+build-logs/
+repair-backups/
+rollback/
+runtime-regression-*/
+launch-regression-*/
+pre-browserstack-validation-*/
+artboost-source-collector/
+artboost-analytics-source-collector/
+
+# source snapshots / installers / archives should never be sent to EAS
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.apk
+*.aab
+*.ipa
+*.xcarchive
+
+# local diagnostic/export artifacts
+*.dump
+*.dmp
+*.trace
+*.har
+android/
+android/**
+ios/
+ios/**
+.artboost-android-launch-audit/
+.artboost-ios-launch-audit/

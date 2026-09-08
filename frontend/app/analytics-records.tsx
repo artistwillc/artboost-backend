@@ -14,7 +14,13 @@ import {
 } from "react-native";
 import { supabase } from "../lib/supabase";
 
-const BACKEND_URL = "https://artboost-ai.onrender.com";
+const BACKEND_URL = (
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com"
+)
+  .trim()
+  .replace(/\/+$/, "");
 
 type RecordItem = {
   id?: string | null;
@@ -27,6 +33,7 @@ type RecordItem = {
   storeType?: string | null;
   timestamp?: string | null;
   reason?: string | null;
+  attribution?: { automationId?: string | null; campaignId?: string | null; productId?: string | null; productTitle?: string | null; firstParty?: boolean; externalId?: string | null; externalUrl?: string | null; metricSource?: string | null };
 };
 
 function normalize(value: unknown) {
@@ -49,6 +56,8 @@ export default function AnalyticsRecordsScreen() {
     storeId?: string;
     storeName?: string;
     storeType?: string;
+    productId?: string;
+    productTitle?: string;
   }>();
 
   const kind = normalize(params.kind) || "all";
@@ -57,6 +66,8 @@ export default function AnalyticsRecordsScreen() {
   const storeId = String(params.storeId || "").trim();
   const storeName = String(params.storeName || "").trim();
   const storeType = String(params.storeType || "").trim();
+  const productId = String(params.productId || "").trim();
+  const productTitle = String(params.productTitle || "").trim();
   const scopeQuery = [storeId ? `storeId=${encodeURIComponent(storeId)}` : "", storeName ? `storeName=${encodeURIComponent(storeName)}` : "", storeType ? `storeType=${encodeURIComponent(storeType)}` : ""].filter(Boolean).join("&");
   const range = ["7d", "30d", "90d", "all"].includes(String(params.range))
     ? String(params.range)
@@ -105,19 +116,15 @@ export default function AnalyticsRecordsScreen() {
     const items = records.filter((item) => {
       const status = normalize(item.status);
       const itemPlatform = normalize(item.platform);
+      const itemProductId = String(item.attribution?.productId || "").trim();
+      if (productId && itemProductId !== productId) return false;
 
-      const publishedStatuses = ["published", "success", "post_success"];
-      const failedStatuses = ["failed", "error", "post_failed"];
-      if (kind === "platform") return itemPlatform === platform && publishedStatuses.includes(status);
-      if (kind === "published") return publishedStatuses.includes(status);
-      if (kind === "attempts") return publishedStatuses.includes(status) || failedStatuses.includes(status);
-      if (kind === "failed") return failedStatuses.includes(status);
+      if (kind === "platform") return itemPlatform === platform;
+      if (kind === "published") return ["published", "success", "post_success"].includes(status);
+      if (kind === "failed") return ["failed", "error", "post_failed"].includes(status);
       if (kind === "paused") return ["paused", "disabled", "inactive"].includes(status);
       if (kind === "scheduled") return ["scheduled", "pending", "queued"].includes(status);
       if (kind === "saved") return ["saved", "draft"].includes(status);
-      if (kind === "automation-active") {
-        return normalize(item.source) === "automation" && ["active", "scheduled", "pending", "queued", "running"].includes(status);
-      }
       if (kind === "active") {
         return ["active", "scheduled", "pending", "queued", "running"].includes(status);
       }
@@ -125,7 +132,40 @@ export default function AnalyticsRecordsScreen() {
     });
 
     return items;
-  }, [kind, platform, records]);
+  }, [kind, platform, productId, records]);
+
+  const openRecord = (item: RecordItem) => {
+    router.push({
+      pathname: "/analytics-record-detail" as any,
+      params: {
+        id: String(item.id || ""),
+        source: String(item.source || ""),
+        title: String(item.title || "Analytics record"),
+        status: String(item.status || ""),
+        platform: String(item.platform || ""),
+        storeId: String(item.storeId || ""),
+        storeName: String(item.storeName || ""),
+        storeType: String(item.storeType || ""),
+        timestamp: String(item.timestamp || ""),
+        reason: String(item.reason || ""),
+        automationId: String(item.attribution?.automationId || ""),
+        campaignId: String(item.attribution?.campaignId || ""),
+        productId: String(item.attribution?.productId || ""),
+        productTitle: String(item.attribution?.productTitle || item.title || ""),
+        externalId: String(item.attribution?.externalId || ""),
+        externalUrl: String(item.attribution?.externalUrl || ""),
+        range,
+        originTitle: title,
+        originKind: kind,
+        originPlatform: platform,
+        originProductId: productId,
+        originProductTitle: productTitle,
+        originStoreId: storeId,
+        originStoreName: storeName,
+        originStoreType: storeType,
+      },
+    });
+  };
 
   return (
     <>
@@ -205,10 +245,13 @@ export default function AnalyticsRecordsScreen() {
             ) : null}
 
             {filtered.map((item, index) => (
-              <View
+              <Pressable
                 key={`${item.source || "record"}-${item.id || index}-${item.platform || ""}`}
                 style={styles.card}
                 testID={`artboost-analytics-record-${index}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${item.title || "Analytics record"}`}
+                onPress={() => openRecord(item)}
               >
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
@@ -242,7 +285,11 @@ export default function AnalyticsRecordsScreen() {
                 {item.id ? (
                   <Text style={styles.id}>Record ID: {item.id}</Text>
                 ) : null}
-              </View>
+                <View style={styles.openRow}>
+                  <Text style={styles.openText}>Open record</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#a78bfa" />
+                </View>
+              </Pressable>
             ))}
           </ScrollView>
         )}
@@ -277,4 +324,6 @@ const styles = StyleSheet.create({
   errorBlock: { gap: 10, alignItems: "flex-start" },
   retryButton: { minHeight: 42, paddingHorizontal: 16, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#2d1b4e" },
   retryText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  openRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, marginTop: 10 },
+  openText: { color: "#a78bfa", fontSize: 11, fontWeight: "800" },
 });

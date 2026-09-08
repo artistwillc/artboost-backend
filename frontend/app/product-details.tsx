@@ -1,5 +1,6 @@
 // ARTBOOST_VISUAL_PARITY_V3153
 import { Ionicons } from "@expo/vector-icons";
+import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 import * as Linking from "expo-linking";
 import {
   router,
@@ -9,7 +10,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -315,11 +315,7 @@ export default function ProductDetailsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {imageUrl ? (
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.heroImage}
-            resizeMode="cover"
-          />
+          <ArtBoostRemoteImage uri={imageUrl} style={styles.heroImage} contentFit="cover" alt={title} />
         ) : (
           <View
             style={[
