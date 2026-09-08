@@ -25,3 +25,9 @@ backend/node_modules/
 **/*.bak
 **/*.backup
 **/*.log
+
+# Environment files - NEVER upload local secrets to EAS
+.env
+.env.*
+**/.env
+**/.env.*
