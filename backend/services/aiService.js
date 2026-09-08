@@ -263,8 +263,9 @@ export async function generatePlatformContent({
     const response =
       await openai.responses.create({
         model:
+          process.env.OPENAI_MARKETING_MODEL ||
           process.env.OPENAI_MODEL ||
-          "gpt-4.1-mini",
+          "gpt-5.6-terra",
 
         input: buildPrompt({
           platform:

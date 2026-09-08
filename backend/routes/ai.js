@@ -122,7 +122,7 @@ router.post("/generate-variations", async (req, res) => {
     }
 
     const response = await openai.responses.create({
-      model: process.env.OPENAI_MARKETING_MODEL || "gpt-4.1-mini",
+      model: process.env.OPENAI_MARKETING_MODEL || "gpt-5.6-terra",
       temperature: 0.35,
       input: `You are ArtBoost AI. Generate exactly five marketing variations grounded ONLY in the selected product below.
 

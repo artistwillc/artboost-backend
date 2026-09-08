@@ -1,3 +1,4 @@
+// ARTBOOST_OPENAI_MODEL_ROUTER_V15_2
 // ARTBOOST_CONSULTANT_CORRECTION_V15_1
 // ARTBOOST_PERSONAL_MARKETING_AGENT_V15
 // ARTBOOST_CONSULTANT_RESPONSE_FALLBACK_V14
@@ -2139,10 +2140,11 @@ router.post("/assistant", async (req, res) => {
 
     const useWebResearch = isConsultant && marketResearchIntent;
     const response = await openai.responses.create({
-      model:
-        process.env.OPENAI_CONSULTANT_MODEL ||
-        process.env.OPENAI_SUPPORT_MODEL ||
-        "gpt-4.1-mini",
+      model: isConsultant
+        ? process.env.OPENAI_CONSULTANT_MODEL || "gpt-5.6-sol"
+        : process.env.OPENAI_SUPPORT_MODEL ||
+          process.env.OPENAI_MARKETING_MODEL ||
+          "gpt-5.6-terra",
       temperature: 0.15,
       ...(useWebResearch
         ? {

@@ -14,6 +14,7 @@ import productRoutes from "./routes/products.js";
 import storeRoutes from "./routes/stores.js";
 import catalogCsvRouter from "./routes/catalogCsv.js";
 import automationRoutes from "./routes/automations.js";
+import analyticsAttentionRoutes from "./routes/analyticsAttention.js";
 // ARTBOOST_HASHTAG_INTELLIGENCE_ROUTE_V1
 import hashtagIntelligenceRoutes from "./routes/hashtagIntelligence.js";
 import {
@@ -3053,6 +3054,7 @@ app.use("/api/hashtag-intelligence", generationLimiter, hashtagIntelligenceRoute
 app.use("/stores", storeRoutes);
 app.use("/catalog", importLimiter, catalogCsvRouter);
 app.use("/automations", automationRoutes);
+app.use("/analytics-attention", analyticsAttentionRoutes);
 
 app.use("/ai", generationLimiter, aiRouter);
 app.use("/ai", generationLimiter, assistantRoutes);
@@ -3806,6 +3808,173 @@ app.delete("/notifications/:id", async (req, res) => {
       error: "Notification deletion failed.",
       details: err.message,
     });
+  }
+});
+
+
+// ARTBOOST_ACCURATE_PLATFORM_ANALYTICS_V31664
+app.get("/analytics/platform-metrics", async (req, res) => {
+  try {
+    const authHeader = String(req.headers.authorization || "").trim();
+    const accessToken = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+    if (!accessToken) return res.status(401).json({ error: "Authentication is required." });
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const userId = authData?.user?.id || null;
+    if (authError || !userId) return res.status(401).json({ error: "Your ArtBoost session is no longer valid." });
+
+    const platform = String(req.query.platform || "").trim().toLowerCase();
+    const externalId = String(req.query.externalId || "").trim();
+    if (!platform || !externalId) {
+      return res.json({
+        success: true,
+        available: false,
+        source: "platform",
+        reason: "This ArtBoost publication does not yet have a platform post/media ID.",
+        metrics: {},
+      });
+    }
+
+    const connection = await loadUserSocialConnection({ userId, platform });
+    if (!connection?.connected || !connection?.access_token) {
+      return res.json({
+        success: true,
+        available: false,
+        source: "platform",
+        reason: `${platform} is not connected or the connection has expired.`,
+        metrics: {},
+      });
+    }
+
+    const token = connection.access_token;
+    const numberOrNull = (value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const cleanMetrics = (metrics) =>
+      Object.fromEntries(Object.entries(metrics).filter(([, value]) => value !== null && value !== undefined));
+
+    if (platform === "tiktok") {
+      const response = await fetch(
+        "https://open.tiktokapis.com/v2/video/query/?fields=id,create_time,share_url,like_count,comment_count,share_count,view_count",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ filters: { video_ids: [externalId] } }),
+        }
+      );
+      const body = await response.json();
+      if (!response.ok || body?.error?.code && body.error.code !== "ok") {
+        return res.json({ success: true, available: false, source: "tiktok", reason: body?.error?.message || "TikTok metrics are unavailable for this video.", metrics: {} });
+      }
+      const video = body?.data?.videos?.[0];
+      if (!video) return res.json({ success: true, available: false, source: "tiktok", reason: "TikTok did not return this video. video.list access may be required.", metrics: {} });
+      return res.json({
+        success: true, available: true, source: "tiktok", externalId,
+        metrics: cleanMetrics({
+          views: numberOrNull(video.view_count),
+          likes: numberOrNull(video.like_count),
+          comments: numberOrNull(video.comment_count),
+          shares: numberOrNull(video.share_count),
+        }),
+        externalUrl: video.share_url || null,
+        retrievedAt: new Date().toISOString(),
+      });
+    }
+
+    if (platform === "x" || platform === "twitter") {
+      const response = await fetch(
+        `https://api.x.com/2/tweets/${encodeURIComponent(externalId)}?tweet.fields=public_metrics,created_at`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const body = await response.json();
+      if (!response.ok || !body?.data) {
+        return res.json({ success: true, available: false, source: "x", reason: body?.detail || body?.title || "X metrics are unavailable for this post or API tier.", metrics: {} });
+      }
+      const m = body.data.public_metrics || {};
+      return res.json({
+        success: true, available: true, source: "x", externalId,
+        metrics: cleanMetrics({
+          impressions: numberOrNull(m.impression_count),
+          likes: numberOrNull(m.like_count),
+          replies: numberOrNull(m.reply_count),
+          reposts: numberOrNull(m.retweet_count),
+          quotes: numberOrNull(m.quote_count),
+          bookmarks: numberOrNull(m.bookmark_count),
+        }),
+        retrievedAt: new Date().toISOString(),
+      });
+    }
+
+    if (platform === "pinterest") {
+      const url = `${PINTEREST_API_BASE}/v5/pins/${encodeURIComponent(externalId)}?pin_metrics=true`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await response.json();
+      if (!response.ok) {
+        return res.json({ success: true, available: false, source: "pinterest", reason: body?.message || "Pinterest analytics are unavailable for this Pin.", metrics: {} });
+      }
+      const lifetime = body?.pin_metrics?.lifetime_metrics || body?.pin_metrics?.["90d"] || body?.pin_metrics || {};
+      return res.json({
+        success: true, available: true, source: "pinterest", externalId,
+        metrics: cleanMetrics({
+          impressions: numberOrNull(lifetime.IMPRESSION ?? lifetime.impressions),
+          engagements: numberOrNull(lifetime.ENGAGEMENT ?? lifetime.engagements),
+          saves: numberOrNull(lifetime.SAVE ?? lifetime.saves),
+          pinClicks: numberOrNull(lifetime.PIN_CLICK ?? lifetime.pin_clicks),
+          outboundClicks: numberOrNull(lifetime.OUTBOUND_CLICK ?? lifetime.outbound_clicks),
+          videoViews: numberOrNull(lifetime.VIDEO_MRC_VIEW ?? lifetime.video_views),
+        }),
+        retrievedAt: new Date().toISOString(),
+      });
+    }
+
+    if (platform === "instagram") {
+      const metrics = "views,reach,likes,comments,saved,shares,total_interactions";
+      const response = await fetch(
+        `https://graph.facebook.com/v23.0/${encodeURIComponent(externalId)}/insights?metric=${encodeURIComponent(metrics)}&access_token=${encodeURIComponent(token)}`
+      );
+      const body = await response.json();
+      if (!response.ok) {
+        return res.json({ success: true, available: false, source: "instagram", reason: body?.error?.message || "Instagram Insights are unavailable for this media item.", metrics: {} });
+      }
+      const values = {};
+      for (const metric of body?.data || []) {
+        const value = metric?.values?.[0]?.value ?? metric?.value ?? null;
+        if (value !== null) values[metric.name] = numberOrNull(value);
+      }
+      return res.json({ success: true, available: true, source: "instagram", externalId, metrics: cleanMetrics(values), retrievedAt: new Date().toISOString() });
+    }
+
+    if (platform === "facebook") {
+      const pagesResponse = await fetch(`https://graph.facebook.com/v23.0/me/accounts?access_token=${encodeURIComponent(token)}`);
+      const pagesBody = await pagesResponse.json();
+      const pageToken = Array.isArray(pagesBody?.data)
+        ? pagesBody.data.find((page) => String(externalId).startsWith(`${page.id}_`))?.access_token || pagesBody.data[0]?.access_token
+        : null;
+      if (!pageToken) return res.json({ success: true, available: false, source: "facebook", reason: "A Facebook Page access token is required for post Insights.", metrics: {} });
+      const metricNames = "post_impressions,post_impressions_unique,post_engaged_users";
+      const response = await fetch(
+        `https://graph.facebook.com/v23.0/${encodeURIComponent(externalId)}/insights?metric=${encodeURIComponent(metricNames)}&access_token=${encodeURIComponent(pageToken)}`
+      );
+      const body = await response.json();
+      if (!response.ok) return res.json({ success: true, available: false, source: "facebook", reason: body?.error?.message || "Facebook post Insights are unavailable.", metrics: {} });
+      const values = {};
+      for (const metric of body?.data || []) values[metric.name] = numberOrNull(metric?.values?.[0]?.value ?? metric?.value);
+      return res.json({ success: true, available: true, source: "facebook", externalId, metrics: cleanMetrics(values), retrievedAt: new Date().toISOString() });
+    }
+
+    return res.json({
+      success: true,
+      available: false,
+      source: platform,
+      reason: "ArtBoost does not claim platform-reported metrics for this provider yet.",
+      metrics: {},
+    });
+  } catch (error) {
+    console.error("Platform analytics lookup failed:", error);
+    return res.status(500).json({ success: false, available: false, error: error instanceof Error ? error.message : "Unable to load platform analytics." });
   }
 });
 
@@ -4669,6 +4838,9 @@ app.get("/analytics", async (req, res) => {
           automationId: item?.automationId || null,
           campaignId: item?.campaignId || null,
           firstParty: true,
+          externalId: item?.externalId || null,
+          externalUrl: item?.externalUrl || null,
+          metricSource: item?.externalId ? "platform" : "artboost",
         },
       });
     };
@@ -4718,6 +4890,45 @@ app.get("/analytics", async (req, res) => {
       });
     }
 
+    const analyticsExternalIdentity = (platform, result) => {
+      const raw = result?.result ?? result ?? {};
+      const data = raw?.data ?? {};
+      const normalized = String(platform || "").trim().toLowerCase();
+      const externalId =
+        raw?.id ||
+        raw?.post_id ||
+        raw?.postId ||
+        raw?.media_id ||
+        raw?.mediaId ||
+        raw?.pin_id ||
+        raw?.pinId ||
+        raw?.tweet_id ||
+        raw?.tweetId ||
+        raw?.video_id ||
+        raw?.videoId ||
+        data?.id ||
+        data?.post_id ||
+        data?.media_id ||
+        data?.pin_id ||
+        data?.tweet_id ||
+        data?.video_id ||
+        null;
+      const externalUrl =
+        raw?.url ||
+        raw?.permalink ||
+        raw?.share_url ||
+        raw?.shareUrl ||
+        data?.url ||
+        data?.permalink ||
+        data?.share_url ||
+        null;
+      return {
+        externalId: externalId ? String(externalId) : null,
+        externalUrl: externalUrl ? String(externalUrl) : null,
+        platform: normalized || null,
+      };
+    };
+
     for (const log of automationLogs) {
       const baseStatus =
         log?.status ||
@@ -4762,6 +4973,10 @@ app.get("/analytics", async (req, res) => {
 
       if (publishResults.length) {
         for (const result of publishResults) {
+          const externalIdentity = analyticsExternalIdentity(
+            result?.platform || result?.provider || log?.platform,
+            result
+          );
           analyticsPushRecord({
             id: log?.id,
             source: "automation_run",
@@ -4786,6 +5001,8 @@ app.get("/analytics", async (req, res) => {
               result?.error ||
               result?.message ||
               baseReason,
+            externalId: externalIdentity.externalId,
+            externalUrl: externalIdentity.externalUrl,
           });
         }
       } else {
@@ -10822,7 +11039,7 @@ app.post("/marketing-consultant/profile", async (req, res) => {
 
     const response =
       await openai.responses.create({
-        model: "gpt-4.1-mini",
+        model: process.env.OPENAI_MARKETING_MODEL || "gpt-5.6-terra",
         input: `
 You are the ArtBoost AI Marketing Consultant.
 
@@ -10948,7 +11165,7 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     const hostedImageUrl = cloudinaryUpload.secure_url;
 
     const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
+      model: process.env.OPENAI_MARKETING_MODEL || "gpt-5.6-terra",
       input: [
         {
           role: "user",
@@ -11384,7 +11601,7 @@ app.post("/generate-platform-content", async (req, res) => {
     }
 
     const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
+      model: process.env.OPENAI_MARKETING_MODEL || "gpt-5.6-terra",
       input: `
 You are ArtBoost AI, a platform-specific marketing assistant for artists and print-on-demand sellers.
  
