@@ -1,4 +1,4 @@
-// ARTBOOST_VISUAL_PARITY_V3153
+﻿// ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_IOS_CONNECT_DETERMINISTIC_V3109
 // ARTBOOST_IOS_AI_CONSULTANT_DETERMINISTIC_V3108
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +27,14 @@ import {
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
+
+const BACKEND_URL = (
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://artboost-ai.onrender.com"
+)
+  .trim()
+  .replace(/\/+$/, "");
 
 function formatTierLabel(value?: string | null) {
   const normalized = String(value || "starter")
@@ -75,7 +83,7 @@ function CustomTabBar({
     useCallback(async () => {
       try {
         const response = await fetch(
-          `https://artboost-ai.onrender.com/notifications/all?refresh=${Date.now()}`,
+          `${BACKEND_URL}/notifications/me?refresh=${Date.now()}`,
           {
             headers: {
               "Cache-Control": "no-cache",
@@ -262,12 +270,6 @@ function CustomTabBar({
       title: "Schedule",
       icon: "calendar",
       route: "/schedule",
-    },
-    {
-      title: "Analytics",
-      testId: "artboost-more-analytics",
-      icon: "bar-chart",
-      route: "/analytics",
     },
     {
       title: "Saved Campaigns",
@@ -467,8 +469,7 @@ function CustomTabBar({
                     styles.moreSubtitle
                   }
                 >
-                  Manage campaigns, analytics,
-                  brand tools, and settings.
+                  Manage campaigns, brand tools, and settings.
                 </Text>
 
                 <ScrollView

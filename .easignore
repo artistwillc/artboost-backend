@@ -1,0 +1,27 @@
+# ArtBoost AI - EAS repository archive exclusions
+node_modules/
+**/node_modules/
+frontend/node_modules/
+frontend/android/
+frontend/android/**
+frontend/ios/
+frontend/ios/**
+frontend/.expo/
+frontend/.artboost-android-launch-audit/
+frontend/.artboost-ios-launch-audit/
+backend/node_modules/
+.git/
+**/*.zip
+**/*.7z
+**/*.rar
+**/*.tar
+**/*.tgz
+**/*.apk
+**/*.aab
+**/*.ipa
+**/backups/
+**/backup/
+**/build-logs/
+**/*.bak
+**/*.backup
+**/*.log
