@@ -532,6 +532,7 @@ export default function ProScreen() {
           currentTier={profile?.subscription_tier || "free"}
           currentPlan={profile?.plan || "free"}
           onEntitlementChanged={loadDashboard}
+          onManageExternalSubscription={openBillingPortal}
         />
       ) : (
         <Pressable
