@@ -215,7 +215,9 @@ async function lookupAppleSubscription(anyTransactionId) {
 async function grantAppleEntitlement({ userId, transactionId }) {
   const lookup = await lookupAppleSubscription(transactionId);
   if (!lookup.active) {
-    throw new Error("This Apple subscription is not currently active.");
+    const error = new Error("This Apple subscription is not currently active.");
+    error.code = "APPLE_SUBSCRIPTION_INACTIVE";
+    throw error;
   }
 
   const payload = lookup.payload;
@@ -989,14 +991,20 @@ function isComplimentaryBusinessProfile(profile) {
   const status = String(profile.subscription_status || "")
     .trim()
     .toLowerCase();
+  const tier = String(profile.subscription_tier || "")
+    .trim()
+    .toLowerCase();
+  const isActive = profile.is_pro === true &&
+    (status === "active" || status === "complimentary_active");
 
   return (
-    profile.subscription_tier === "business" &&
+    tier === "business" &&
     (
       plan === "complimentary_business" ||
       plan === "tester_business" ||
       plan === "internal_business" ||
-      status === "complimentary_active"
+      status === "complimentary_active" ||
+      (isActive && plan === "business" && !profile.stripe_subscription_id)
     )
   );
 }
@@ -1924,20 +1932,49 @@ router.post(
         }
 
         if (stripeResult?.active === null && stripeResult?.profilePreserved) {
-          const { error: downgradeError } = await supabase
-            .from("profiles")
-            .update({
-              is_pro: false,
-              subscription_tier: "free",
-              subscription_status: "expired",
-              plan: "free",
-              current_period_end: null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", user.id);
-          if (downgradeError) {
-            throw new Error(`Unable to expire Apple entitlement: ${downgradeError.message}`);
-          }
+          // A failed Apple verification plus an inconclusive Stripe lookup is
+          // NOT authoritative evidence that the account should be downgraded.
+          // Preserve the last verified ArtBoost entitlement and report the
+          // verification problem so the client can retry/restore safely.
+          return res.json({
+            success: true,
+            provider: "profile",
+            active: null,
+            changed: false,
+            status: "verification_unavailable",
+            profilePreserved: true,
+            reason: appleError?.message || "Apple subscription verification is temporarily unavailable.",
+          });
+        }
+
+        // Only retire an Apple-managed entitlement when Apple explicitly
+        // reported that the subscription is inactive. Network/configuration
+        // errors must never silently convert a paid account to Free.
+        if (appleError?.code !== "APPLE_SUBSCRIPTION_INACTIVE") {
+          return res.json({
+            success: true,
+            provider: "profile",
+            active: null,
+            changed: false,
+            status: "verification_unavailable",
+            profilePreserved: true,
+            reason: appleError?.message || "Apple subscription verification is temporarily unavailable.",
+          });
+        }
+
+        const { error: downgradeError } = await supabase
+          .from("profiles")
+          .update({
+            is_pro: false,
+            subscription_tier: "free",
+            subscription_status: "expired",
+            plan: "free",
+            current_period_end: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+        if (downgradeError) {
+          throw new Error(`Unable to expire Apple entitlement: ${downgradeError.message}`);
         }
 
         return res.json({
