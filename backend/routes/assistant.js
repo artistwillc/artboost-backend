@@ -1,3 +1,4 @@
+// ARTBOOST_SOL_TEMPERATURE_COMPAT_FIX_V15_2_2
 // ARTBOOST_SOL_CONSULTANT_RESEARCH_FIX_V15_2_1
 // ARTBOOST_OPENAI_MODEL_ROUTER_V15_2
 // ARTBOOST_CONSULTANT_CORRECTION_V15_1
@@ -2151,7 +2152,7 @@ router.post("/assistant", async (req, res) => {
         : process.env.OPENAI_SUPPORT_MODEL ||
           process.env.OPENAI_MARKETING_MODEL ||
           "gpt-5.6-terra",
-      temperature: 0.15,
+      // V15.2.2: GPT-5.6 Sol rejects the Responses API temperature parameter.
       ...(useWebResearch
         ? {
             tools: [{ type: "web_search", search_context_size: "medium" }],
