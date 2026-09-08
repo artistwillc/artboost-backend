@@ -1,3 +1,4 @@
+// ARTBOOST_CONSULTANT_CORRECTION_V15_1
 // ARTBOOST_PERSONAL_MARKETING_AGENT_V15
 // ARTBOOST_CONSULTANT_RESPONSE_FALLBACK_V14
 // ARTBOOST_AI_CONSULTANT_FUNCTIONAL_INTEGRITY_V3159
@@ -1951,6 +1952,46 @@ router.post("/consultant-preferences", async (req, res) => {
   }
 });
 
+
+function consultantEvidence(payload, {
+  defaultSources = [],
+  evidenceNote = null,
+  confidence = null,
+  marketResearchUsed = false,
+} = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+
+  const sources = safeArray(payload.intelligenceSources)
+    .map((value) => cleanString(value, 40).toLowerCase())
+    .filter((value) => ["artboost", "artwork", "web", "general"].includes(value));
+
+  for (const source of safeArray(defaultSources)) {
+    const normalized = cleanString(source, 40).toLowerCase();
+    if (normalized && !sources.includes(normalized)) sources.push(normalized);
+  }
+
+  if (payload.usedAccountData === true && !sources.includes("artboost")) {
+    sources.unshift("artboost");
+  }
+
+  return {
+    ...payload,
+    intelligenceSources: [...new Set(sources)].slice(0, 4),
+    evidenceNote:
+      cleanString(payload.evidenceNote, 700) ||
+      cleanString(evidenceNote, 700) ||
+      null,
+    confidence:
+      ["high", "moderate", "preliminary", "unknown"].includes(
+        cleanString(payload.confidence, 40).toLowerCase()
+      )
+        ? cleanString(payload.confidence, 40).toLowerCase()
+        : confidence,
+    marketResearchUsed:
+      payload.marketResearchUsed === true || marketResearchUsed === true,
+  };
+}
+
 router.post("/assistant", async (req, res) => {
   try {
     const question = cleanString(req.body?.question, 1200);
@@ -2041,7 +2082,13 @@ router.post("/assistant", async (req, res) => {
     if (operationalAnswer) {
       return res.json({
         success: true,
-        ...operationalAnswer,
+        ...consultantEvidence(operationalAnswer, {
+          defaultSources: operationalAnswer?.usedAccountData ? ["artboost"] : [],
+          evidenceNote: operationalAnswer?.usedAccountData
+            ? "Based on authenticated ArtBoost first-party publishing/store data."
+            : null,
+          confidence: operationalAnswer?.usedAccountData ? "high" : "moderate",
+        }),
       });
     }
 
@@ -2052,7 +2099,13 @@ router.post("/assistant", async (req, res) => {
     if (redbubbleAnswer) {
       return res.json({
         success: true,
-        ...redbubbleAnswer,
+        ...consultantEvidence(redbubbleAnswer, {
+          defaultSources: redbubbleAnswer?.usedAccountData ? ["artboost"] : ["general"],
+          evidenceNote: redbubbleAnswer?.usedAccountData
+            ? "Based on authenticated ArtBoost connection/catalog data plus ArtBoost product guidance."
+            : "ArtBoost product/workflow guidance.",
+          confidence: redbubbleAnswer?.usedAccountData ? "high" : "moderate",
+        }),
       });
     }
 
@@ -2060,7 +2113,7 @@ router.post("/assistant", async (req, res) => {
     // This prevents malformed model JSON from breaking factual account queries.
     const visualSimilarityIntent = /\b(?:similar|similarity|look(?:s|ed)?\s+(?:like|similar)|resembl|like\s+this|same\s+style|same\s+look|how\s+many.*(?:like|similar))\b/i.test(question) &&
       /\b(?:listing|listings|product|products|artwork|artworks|design|designs|painting|paintings|image|images|photo|photos|library)\b/i.test(question);
-    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|best\s+(?:marketplace|site|platform).*sell)\b/i.test(question);
+    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales))\b/i.test(question);
 
     // V15: similarity and current-market questions must reach the intelligence model.
     // Do not let a generic product-count/account shortcut hijack the user's intent.
@@ -2070,7 +2123,13 @@ router.post("/assistant", async (req, res) => {
     if (directAnswer) {
       return res.json({
         success: true,
-        ...directAnswer,
+        ...consultantEvidence(directAnswer, {
+          defaultSources: directAnswer?.usedAccountData ? ["artboost"] : ["general"],
+          evidenceNote: directAnswer?.usedAccountData
+            ? "Based on authenticated ArtBoost first-party account data."
+            : null,
+          confidence: directAnswer?.usedAccountData ? "high" : "moderate",
+        }),
       });
     }
 
@@ -2087,7 +2146,7 @@ router.post("/assistant", async (req, res) => {
       temperature: 0.15,
       ...(useWebResearch
         ? {
-            tools: [{ type: "web_search_preview", search_context_size: "medium" }],
+            tools: [{ type: "web_search", search_context_size: "medium" }],
             tool_choice: "auto",
             include: ["web_search_call.action.sources"],
           }
