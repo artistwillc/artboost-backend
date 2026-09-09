@@ -348,6 +348,7 @@ function formatDateForStorage(
   return `${year}-${month}-${day}`;
 }
 
+// ARTBOOST_AUTOMATION_DATE_PICKER_V3_1
 function formatDateForDisplay(
   value: string
 ) {
@@ -365,6 +366,33 @@ function formatDateForDisplay(
 }
 
 // ARTBOOST_STORE_AUTOMATION_WARNING_CLEANUP_V3102
+
+function normalizeAutomationStartDateForLaunch(value: string | null | undefined) {
+  if (!value) return value ?? null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+
+  const selected = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    12, 0, 0, 0
+  );
+  if (Number.isNaN(selected.getTime())) return value;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const max = new Date(today);
+  max.setFullYear(max.getFullYear() + 1);
+
+  const safe = selected < today ? today : selected > max ? max : selected;
+  const yyyy = safe.getFullYear();
+  const mm = String(safe.getMonth() + 1).padStart(2, "0");
+  const dd = String(safe.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function StoreAutomationScreen() {
   const params = useLocalSearchParams<{
     automationId?: string;
@@ -2771,32 +2799,80 @@ try {
 </Pressable>
 
 {showDatePicker ? (
-  <DateTimePicker
-    value={startDateToDate(startDate)}
-    mode="date"
-    display={
-      Platform.OS === "ios"
-        ? "spinner"
-        : "default"
-    }
-    minimumDate={new Date()}
-    onChange={(event, selectedDate) => {
-      setShowDatePicker(false);
-
-      if (
-        event.type === "dismissed" ||
-        !selectedDate
-      ) {
-        return;
+  <View>
+    <DateTimePicker
+      value={startDateToDate(startDate)}
+      mode="date"
+      textColor="#f8f7ff"
+      themeVariant="dark"
+      display={
+        Platform.OS === "ios"
+          ? "spinner"
+          : "default"
       }
-
-      setStartDate(
-        formatDateForStorage(
-          selectedDate
+      minimumDate={new Date()}
+      maximumDate={
+        new Date(
+          new Date().setFullYear(
+            new Date().getFullYear() + 1
+          )
         )
-      );
-    }}
-  />
+      }
+      onChange={(event, selectedDate) => {
+        if (
+          event.type === "dismissed" ||
+          !selectedDate
+        ) {
+          if (Platform.OS !== "ios") {
+            setShowDatePicker(false);
+          }
+          return;
+        }
+
+        setStartDate(
+          formatDateForStorage(
+            selectedDate
+          )
+        );
+
+        if (Platform.OS !== "ios") {
+          setShowDatePicker(false);
+        }
+      }}
+    />
+
+    {Platform.OS === "ios" ? (
+      <Pressable
+        // ARTBOOST_DATE_PICKER_DONE_V3_1
+        onPress={() =>
+          setShowDatePicker(false)
+        }
+        style={{
+          alignSelf: "flex-end",
+          marginTop: 4,
+          marginBottom: 10,
+          marginRight: 6,
+          minWidth: 84,
+          minHeight: 42,
+          paddingHorizontal: 18,
+          borderRadius: 12,
+          backgroundColor: "#6d3df5",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text
+          style={{
+            color: "#ffffff",
+            fontSize: 15,
+            fontWeight: "900",
+          }}
+        >
+          Done
+        </Text>
+      </Pressable>
+    ) : null}
+  </View>
 ) : null}
 
 <Text style={styles.fieldLabel}>
