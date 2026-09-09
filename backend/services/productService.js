@@ -854,26 +854,107 @@ export async function getNextAutomationProduct({
     return null;
   }
 
-  // ARTBOOST_REPEAT_DELAY_TRUE_POST_HISTORY_20260909
-  // A product is inside the repeat-delay window only when ArtBoost has a
-  // real successful-post history for that individual product. Older imports
-  // can contain a last_posted_at value even though times_posted is still 0.
-  // Treat those rows as never posted instead of excluding the whole catalog.
+  // ARTBOOST_REPEAT_DELAY_AUTHORITATIVE_HISTORY_20260909
+  // Repeat-delay eligibility is based only on confirmed successful ArtBoost
+  // automation history. Imported/stale products.times_posted and
+  // products.last_posted_at are not authoritative enough to block a product.
+  const availableProductIds = new Set(
+    availableProducts
+      .map((product) =>
+        product?.id != null
+          ? String(product.id)
+          : ""
+      )
+      .filter(Boolean)
+  );
+
+  let historyQuery = supabase
+    .from("store_automation_logs")
+    .select(
+      "product_id,event_type,status,created_at"
+    )
+    .eq("user_id", String(userId))
+    .in("event_type", [
+      "post_success",
+      "post_partial_success",
+    ]);
+
+  if (storeId) {
+    historyQuery = historyQuery.eq(
+      "store_id",
+      String(storeId)
+    );
+  }
+
+  const {
+    data: successfulAutomationLogs,
+    error: historyError,
+  } = await historyQuery;
+
+  if (historyError) {
+    throw new Error(
+      `Unable to verify automation post history: ${historyError.message}`
+    );
+  }
+
+  const authoritativePostHistory = new Map();
+
+  for (const log of successfulAutomationLogs || []) {
+    const productId =
+      log?.product_id != null
+        ? String(log.product_id)
+        : "";
+
+    if (
+      !productId ||
+      !availableProductIds.has(productId)
+    ) {
+      continue;
+    }
+
+    const postedAt = log?.created_at
+      ? new Date(log.created_at)
+      : null;
+
+    if (
+      !postedAt ||
+      Number.isNaN(postedAt.getTime())
+    ) {
+      continue;
+    }
+
+    const existing =
+      authoritativePostHistory.get(productId);
+
+    if (!existing) {
+      authoritativePostHistory.set(productId, {
+        lastPostedAt: postedAt.toISOString(),
+        timesPosted: 1,
+      });
+      continue;
+    }
+
+    existing.timesPosted += 1;
+
+    if (
+      postedAt.getTime() >
+      new Date(existing.lastPostedAt).getTime()
+    ) {
+      existing.lastPostedAt =
+        postedAt.toISOString();
+    }
+  }
+
   const eligibleProducts =
     availableProducts.filter((product) => {
-      const timesPosted =
-        Math.max(
-          Number(product.times_posted) || 0,
-          0
+      const history =
+        authoritativePostHistory.get(
+          String(product.id)
         );
 
-      const trueLastPostedAt =
-        timesPosted > 0
-          ? product.last_posted_at
-          : null;
-
       return isAutomationProductEligibleByRepeatDelay({
-        lastPostedAt: trueLastPostedAt,
+        lastPostedAt:
+          history?.lastPostedAt || null,
         repeatDelayDays: parsedRepeatDelayDays,
         timeZone: timezone,
         now: new Date(),
@@ -899,13 +980,21 @@ export async function getNextAutomationProduct({
   const sortedProducts = [
     ...eligibleProducts,
   ].sort((productA, productB) => {
+    const productAHistory =
+      authoritativePostHistory.get(
+        String(productA.id)
+      );
+
+    const productBHistory =
+      authoritativePostHistory.get(
+        String(productB.id)
+      );
+
     const productANeverPosted =
-      (Number(productA.times_posted) || 0) <= 0 ||
-      !productA.last_posted_at;
+      !productAHistory;
 
     const productBNeverPosted =
-      (Number(productB.times_posted) || 0) <= 0 ||
-      !productB.last_posted_at;
+      !productBHistory;
 
     /*
      * Never-posted products always come first.
@@ -925,10 +1014,10 @@ export async function getNextAutomationProduct({
     }
 
     const productATimesPosted =
-      Number(productA.times_posted) || 0;
+      productAHistory?.timesPosted || 0;
 
     const productBTimesPosted =
-      Number(productB.times_posted) || 0;
+      productBHistory?.timesPosted || 0;
 
     /*
      * For never-posted products, prioritize the
@@ -955,12 +1044,12 @@ export async function getNextAutomationProduct({
 
     const productALastPostedTime =
       new Date(
-        productA.last_posted_at
+        productAHistory.lastPostedAt
       ).getTime();
 
     const productBLastPostedTime =
       new Date(
-        productB.last_posted_at
+        productBHistory.lastPostedAt
       ).getTime();
 
     /*
@@ -1042,4 +1131,5 @@ export async function markProductAsPosted({
 
   return updatedProduct;
 }
+
 
