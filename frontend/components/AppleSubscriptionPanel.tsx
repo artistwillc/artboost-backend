@@ -1,3 +1,4 @@
+// ARTBOOST_RC_V4_PINTEREST_SUBSCRIPTION_20260908
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -240,7 +241,7 @@ export default function AppleSubscriptionPanel({
   useEffect(() => {
     if (!catalogAttempted || productBySku.size > 0 || catalogError) return;
     setCatalogError(
-      "Live App Store pricing has not been returned yet. Standard U.S. monthly prices are shown below."
+      "App Store pricing is still loading. You can review every plan now; subscribe buttons will activate as soon as Apple returns the live catalog."
     );
   }, [catalogAttempted, catalogError, productBySku]);
 
@@ -252,7 +253,7 @@ export default function AppleSubscriptionPanel({
     if (!productBySku.has(sku)) {
       Alert.alert(
         "App Store Unavailable",
-        "Apple has not returned this subscription product yet. The displayed standard price is informational until the App Store catalog becomes available."
+        "Apple is still loading this subscription in the App Store catalog. Tap Refresh App Store Prices and try again in a moment."
       );
       return;
     }
@@ -373,8 +374,8 @@ export default function AppleSubscriptionPanel({
     <View style={styles.card}>
       <Text style={styles.title}>App Store Subscription</Text>
       <Text style={styles.copy}>
-        Tap any tier to view its details. Apple-localized pricing is used when available;
-        the standard U.S. monthly price remains visible while the App Store catalog loads.
+        Choose a plan to see exactly what is included. Billing is monthly through the App Store,
+        and Apple-localized pricing appears automatically when the live catalog is available.
       </Text>
 
       {PRODUCTS.map((item) => {
@@ -429,7 +430,7 @@ export default function AppleSubscriptionPanel({
                     disabled={working || !connected || !available}
                   >
                     <Text style={styles.manageButtonText}>
-                      {available ? `Subscribe to ${item.label}` : "App Store Product Unavailable"}
+                      {available ? `Subscribe to ${item.label}` : "App Store Pricing Loading"}
                     </Text>
                   </Pressable>
                 )}
@@ -443,7 +444,7 @@ export default function AppleSubscriptionPanel({
 
       {!connected ? (
         <Text style={styles.catalogNote}>
-          Connecting to the App Store. Standard U.S. prices remain visible.
+          Connecting to the App Store. Plan details are ready to review while live pricing loads.
         </Text>
       ) : null}
 

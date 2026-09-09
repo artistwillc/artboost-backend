@@ -1012,7 +1012,8 @@ if (
   useEffect(() => {
     let screenIsActive = true;
 
-    async function loadPinterestBoards() {
+    // ARTBOOST_RC_V4_PINTEREST_SUBSCRIPTION_20260908
+  async function loadPinterestBoards() {
       if (
         !selectedPlatforms.includes(
           "pinterest"
@@ -1048,9 +1049,7 @@ if (
         }
 
         const response = await fetch(
-          `${API_BASE}/pinterest/boards?userId=${encodeURIComponent(
-            user.id
-          )}`
+          `${API_BASE}/pinterest/boards?userId=${encodeURIComponent(user.id)}&ts=${Date.now()}`
         );
 
         const responseText =
@@ -1104,6 +1103,12 @@ if (
 
         setPinterestBoards(boards);
 
+        if (boards.length === 0) {
+          setPinterestBoardsError(
+            "Pinterest is connected, but no boards were returned for this Pinterest account."
+          );
+        }
+
         setSelectedPinterestBoardId(
           (current) => {
             if (
@@ -1114,6 +1119,12 @@ if (
               )
             ) {
               return current;
+            }
+
+            if (
+              boards.length === 1
+            ) {
+              return boards[0].id;
             }
 
             return "";
