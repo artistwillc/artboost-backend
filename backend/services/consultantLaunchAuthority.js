@@ -1544,7 +1544,10 @@ function publishingCrossCheckAnswer(question, accountContext, dateRange) {
     };
   }
 
-  const namedPlatform=["instagram","facebook","pinterest","threads","linkedin","tiktok","x"].find((x)=>q.includes(x));
+  // V16.5.3.1: detect a platform only from the user's actual question text.
+  // Context annotations such as "conversation date context" must never manufacture X.
+  const userQuestion = text(question,1600).split("[")[0].trim();
+  const namedPlatform = platformMention(userQuestion);
   if(namedPlatform){
     const matched=rows.filter((r)=>r.platforms.includes(namedPlatform));
     const ok=matched.filter((r)=>r.outcome==="success");
