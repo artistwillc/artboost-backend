@@ -646,6 +646,15 @@ export async function getNextAutomationProduct({
     0
   );
 
+  const automationSelectionDiagnostic = {
+    marker: "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC_20260909",
+    userId: String(userId),
+    storeId: storeId ? String(storeId) : null,
+    requestedStoreType: storeType ? String(storeType) : null,
+    requestedStoreName: storeName ? String(storeName) : null,
+    repeatDelayDays: parsedRepeatDelayDays,
+  };
+
   const rawSelectionMode =
     String(
       selectionMode ||
@@ -788,6 +797,11 @@ export async function getNextAutomationProduct({
       "A storeName is required to select an automation product."
     );
   }
+
+  automationSelectionDiagnostic.resolvedStoreType =
+    canonicalStoreType;
+  automationSelectionDiagnostic.resolvedStoreName =
+    canonicalStoreName;
 
   const fetchProductPages = async ({
     boundStoreId = null,
@@ -1078,6 +1092,71 @@ export async function getNextAutomationProduct({
         }
       );
 
+    const sameTypeUserProducts =
+      allUserProducts.filter(
+        (product) =>
+          normalizeStoreType(
+            product?.store_type
+          ) === canonicalStoreType
+      );
+
+    const nullBoundaryProducts =
+      sameTypeUserProducts.filter(
+        (product) =>
+          product?.store_connection_id == null
+      );
+
+    const staleBoundaryProducts =
+      sameTypeUserProducts.filter(
+        (product) => {
+          const value =
+            product?.store_connection_id != null
+              ? String(product.store_connection_id)
+              : "";
+          return (
+            value &&
+            !activeStoreIds.has(value)
+          );
+        }
+      );
+
+    const protectedOtherActiveProducts =
+      sameTypeUserProducts.filter(
+        (product) => {
+          const value =
+            product?.store_connection_id != null
+              ? String(product.store_connection_id)
+              : "";
+          return (
+            value &&
+            value !== String(storeId) &&
+            activeStoreIds.has(value)
+          );
+        }
+      );
+
+    automationSelectionDiagnostic.catalog = {
+      allActiveUserProducts:
+        allUserProducts.length,
+      sameTypeActiveUserProducts:
+        sameTypeUserProducts.length,
+      strictCurrentStoreProducts:
+        strictProducts.length,
+      nullBoundaryProducts:
+        nullBoundaryProducts.length,
+      staleBoundaryProducts:
+        staleBoundaryProducts.length,
+      protectedOtherActiveProducts:
+        protectedOtherActiveProducts.length,
+      recoverableProducts:
+        recoverableProducts.length,
+      activeConnectedStoreIds:
+        activeStoreIds.size,
+      sameTypeConnectedStoreIds:
+        sameTypeStoreIds.size,
+      onlyConnectedStoreOfType,
+    };
+
     const productsById =
       new Map();
 
@@ -1114,6 +1193,9 @@ export async function getNextAutomationProduct({
 
     products =
       [...productsById.values()];
+
+    automationSelectionDiagnostic.catalog.reconciledProducts =
+      products.length;
 
     // Repair only orphaned rows: either unbound or pointing at a connection
     // ID that is no longer active. Rows owned by any active store are excluded
@@ -1187,6 +1269,14 @@ export async function getNextAutomationProduct({
           ) ===
             canonicalStoreName
       );
+
+    automationSelectionDiagnostic.catalog = {
+      legacyNoStoreId: true,
+      allActiveUserProducts:
+        allUserProducts.length,
+      reconciledProducts:
+        products.length,
+    };
   }
 
   const availableProducts =
@@ -1205,6 +1295,13 @@ export async function getNextAutomationProduct({
   if (
     availableProducts.length === 0
   ) {
+    automationSelectionDiagnostic.availableProducts = 0;
+    automationSelectionDiagnostic.result =
+      "NO_AVAILABLE_PRODUCTS_BEFORE_HISTORY";
+    console.log(
+      "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
+      JSON.stringify(automationSelectionDiagnostic)
+    );
     return null;
   }
 
@@ -1380,6 +1477,49 @@ export async function getNextAutomationProduct({
         });
       }
     );
+
+  const neverPostedCount =
+    availableProducts.reduce(
+      (count, product) =>
+        authoritativePostHistory.has(
+          String(product.id)
+        )
+          ? count
+          : count + 1,
+      0
+    );
+
+  const historyDates =
+    [...authoritativePostHistory.values()]
+      .map((item) => item?.lastPostedAt)
+      .filter(Boolean)
+      .sort();
+
+  automationSelectionDiagnostic.availableProducts =
+    availableProducts.length;
+  automationSelectionDiagnostic.successLogRows =
+    successfulAutomationLogs.length;
+  automationSelectionDiagnostic.productsWithSuccessfulHistory =
+    authoritativePostHistory.size;
+  automationSelectionDiagnostic.neverPostedProducts =
+    neverPostedCount;
+  automationSelectionDiagnostic.eligibleProducts =
+    eligibleProducts.length;
+  automationSelectionDiagnostic.oldestSuccessfulPost =
+    historyDates.length ? historyDates[0] : null;
+  automationSelectionDiagnostic.newestSuccessfulPost =
+    historyDates.length
+      ? historyDates[historyDates.length - 1]
+      : null;
+  automationSelectionDiagnostic.result =
+    eligibleProducts.length > 0
+      ? "ELIGIBLE_PRODUCT_FOUND"
+      : "NO_ELIGIBLE_PRODUCT_AFTER_HISTORY";
+
+  console.log(
+    "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
+    JSON.stringify(automationSelectionDiagnostic)
+  );
 
   if (
     eligibleProducts.length === 0
