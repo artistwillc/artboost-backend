@@ -1,4 +1,4 @@
-﻿// ARTBOOST_AUTOMATION_PRODUCT_STORE_BOUNDARY_V3156
+// ARTBOOST_AUTOMATION_PRODUCT_STORE_BOUNDARY_V3156
 // ARTBOOST_LIBRARY_STORE_INTEGRITY_V3155
 import supabase from "../lib/supabase.js";
 
@@ -578,11 +578,68 @@ export async function getNextAutomationProduct({
   selectionMode = "least_recently_posted",
   timezone = "America/Chicago",
 }) {
+  // ARTBOOST_UNIVERSAL_AUTOMATION_CATALOG_RECONCILIATION_20260909
+  // One store-safe selector for every connected marketplace:
+  // - full-catalog pagination
+  // - conservative recovery of legacy/unbound product rows
+  // - authoritative successful ArtBoost history
+  // - never-posted products remain eligible at any repeat delay
+
   if (!userId) {
     throw new Error(
       "A userId is required to select an automation product."
     );
   }
+
+  const PAGE_SIZE = 500;
+  const REPAIR_BATCH_SIZE = 200;
+
+  const normalizeStoreType = (value) => {
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_")
+      .replace(/_+/g, "_");
+
+    const aliases = {
+      fineartamerica: "fine_art_america",
+      fine_artamerica: "fine_art_america",
+      fineart_america: "fine_art_america",
+      fine_art_america: "fine_art_america",
+      red_bubble: "redbubble",
+      woo_commerce: "woocommerce",
+    };
+
+    return aliases[raw] || raw;
+  };
+
+  const normalizeStoreName = (value) => {
+    let text = String(value || "")
+      .trim()
+      .toLowerCase();
+
+    if (!text) {
+      return "";
+    }
+
+    try {
+      if (/^https?:\/\//i.test(text)) {
+        const parsed = new URL(text);
+        text =
+          `${parsed.hostname}${parsed.pathname}`
+            .replace(/^www\./i, "");
+      }
+    } catch {
+      // Keep the original text if it is not a valid URL.
+    }
+
+    return text
+      .replace(/^www\./i, "")
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
 
   const parsedRepeatDelayDays = Math.max(
     Number(repeatDelayDays) || 0,
@@ -590,14 +647,21 @@ export async function getNextAutomationProduct({
   );
 
   const rawSelectionMode =
-    String(selectionMode || "least_recently_posted");
+    String(
+      selectionMode ||
+        "least_recently_posted"
+    );
 
   const favoritesOnly =
-    rawSelectionMode.startsWith("favorites_");
+    rawSelectionMode.startsWith(
+      "favorites_"
+    );
 
   const requestedSelectionMode =
     favoritesOnly
-      ? rawSelectionMode.slice("favorites_".length)
+      ? rawSelectionMode.slice(
+          "favorites_".length
+        )
       : rawSelectionMode;
 
   const normalizedSelectionMode = [
@@ -608,23 +672,20 @@ export async function getNextAutomationProduct({
     ? requestedSelectionMode
     : "least_recently_posted";
 
-  let resolvedStoreType = storeType
-    ? String(storeType).toLowerCase()
-    : null;
+  let resolvedStoreType =
+    storeType
+      ? String(storeType)
+      : null;
 
-  let resolvedStoreName = storeName
-    ? String(storeName)
-    : null;
+  let resolvedStoreName =
+    storeName
+      ? String(storeName)
+      : null;
 
-  /*
-   * If only storeId is provided, resolve the connected store.
-   * New universal connections live in store_connections.
-   * Shopify and older integrations may still live in
-   * social_connections.
-   */
   if (
     storeId &&
-    (!resolvedStoreType || !resolvedStoreName)
+    (!resolvedStoreType ||
+      !resolvedStoreName)
   ) {
     const {
       data: universalConnection,
@@ -632,16 +693,10 @@ export async function getNextAutomationProduct({
     } = await supabase
       .from("store_connections")
       .select(
-        `
-          id,
-          platform,
-          store_name,
-          store_url,
-          connected
-        `
+        "id,platform,store_name,store_url,connected"
       )
-      .eq("id", storeId)
-      .eq("user_id", userId)
+      .eq("id", String(storeId))
+      .eq("user_id", String(userId))
       .maybeSingle();
 
     if (universalError) {
@@ -651,21 +706,23 @@ export async function getNextAutomationProduct({
     }
 
     if (universalConnection) {
-      if (!universalConnection.connected) {
+      if (
+        universalConnection.connected ===
+        false
+      ) {
         throw new Error(
           "The selected store is not currently connected."
         );
       }
 
-      resolvedStoreType = String(
-        universalConnection.platform || ""
-      ).toLowerCase();
+      resolvedStoreType =
+        universalConnection.platform ||
+        resolvedStoreType;
 
       resolvedStoreName =
         universalConnection.store_name ||
         universalConnection.store_url ||
-        universalConnection.platform ||
-        null;
+        resolvedStoreName;
     } else {
       const {
         data: legacyConnection,
@@ -673,15 +730,10 @@ export async function getNextAutomationProduct({
       } = await supabase
         .from("social_connections")
         .select(
-          `
-            id,
-            platform,
-            shop_domain,
-            connected
-          `
+          "id,platform,shop_domain,connected"
         )
-        .eq("id", storeId)
-        .eq("user_id", userId)
+        .eq("id", String(storeId))
+        .eq("user_id", String(userId))
         .maybeSingle();
 
       if (legacyError) {
@@ -696,241 +748,549 @@ export async function getNextAutomationProduct({
         );
       }
 
-      if (!legacyConnection.connected) {
+      if (
+        legacyConnection.connected ===
+        false
+      ) {
         throw new Error(
           "The selected store is not currently connected."
         );
       }
 
-      resolvedStoreType = String(
-        legacyConnection.platform || ""
-      ).toLowerCase();
+      resolvedStoreType =
+        legacyConnection.platform ||
+        resolvedStoreType;
 
       resolvedStoreName =
         legacyConnection.shop_domain ||
-        legacyConnection.platform ||
-        null;
+        resolvedStoreName;
     }
   }
 
-  if (!resolvedStoreType) {
+  const canonicalStoreType =
+    normalizeStoreType(
+      resolvedStoreType
+    );
+
+  const canonicalStoreName =
+    normalizeStoreName(
+      resolvedStoreName
+    );
+
+  if (!canonicalStoreType) {
     throw new Error(
       "A storeType is required to select an automation product."
     );
   }
 
-  if (!resolvedStoreName) {
+  if (!canonicalStoreName) {
     throw new Error(
       "A storeName is required to select an automation product."
     );
   }
 
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("user_id", userId);
+  const fetchProductPages = async ({
+    boundStoreId = null,
+    unboundOnly = false,
+    allUserProducts = false,
+  } = {}) => {
+    const rows = [];
 
-  // V3.15.6: when an automation has a connected-store ID, that ID is the
-  // authoritative catalog boundary. Platform/name are retained only for
-  // legacy automations that genuinely have no connection ID.
+    for (
+      let offset = 0;
+      ;
+      offset += PAGE_SIZE
+    ) {
+      let query = supabase
+        .from("products")
+        .select("*")
+        .eq(
+          "user_id",
+          String(userId)
+        )
+        .or(
+          "status.is.null,status.eq.active,status.eq.published"
+        );
+
+      if (boundStoreId) {
+        query = query.eq(
+          "store_connection_id",
+          String(boundStoreId)
+        );
+      } else if (unboundOnly) {
+        query = query.is(
+          "store_connection_id",
+          null
+        );
+      } else if (!allUserProducts) {
+        throw new Error(
+          "Invalid automation product pagination request."
+        );
+      }
+
+      const {
+        data: page,
+        error,
+      } = await query
+        .order(
+          "id",
+          { ascending: true }
+        )
+        .range(
+          offset,
+          offset + PAGE_SIZE - 1
+        );
+
+      if (error) {
+        throw new Error(
+          `Unable to load automation products: ${error.message}`
+        );
+      }
+
+      const pageRows =
+        Array.isArray(page)
+          ? page
+          : [];
+
+      rows.push(...pageRows);
+
+      if (
+        pageRows.length <
+        PAGE_SIZE
+      ) {
+        break;
+      }
+    }
+
+    return rows;
+  };
+
+  const fetchConnectionPages =
+    async (
+      table,
+      columns
+    ) => {
+      const rows = [];
+
+      for (
+        let offset = 0;
+        ;
+        offset += PAGE_SIZE
+      ) {
+        const {
+          data: page,
+          error,
+        } = await supabase
+          .from(table)
+          .select(columns)
+          .eq(
+            "user_id",
+            String(userId)
+          )
+          .eq(
+            "connected",
+            true
+          )
+          .order(
+            "id",
+            { ascending: true }
+          )
+          .range(
+            offset,
+            offset + PAGE_SIZE - 1
+          );
+
+        if (error) {
+          throw new Error(
+            `Unable to inspect connected stores: ${error.message}`
+          );
+        }
+
+        const pageRows =
+          Array.isArray(page)
+            ? page
+            : [];
+
+        rows.push(...pageRows);
+
+        if (
+          pageRows.length <
+          PAGE_SIZE
+        ) {
+          break;
+        }
+      }
+
+      return rows;
+    };
+
+  let products = [];
+
   if (storeId) {
-    query = query.eq("store_connection_id", String(storeId));
-  } else {
-    query = query
-      .eq("store_type", resolvedStoreType)
-      .eq("store_name", resolvedStoreName);
-  }
+    const strictProducts =
+      await fetchProductPages({
+        boundStoreId:
+          String(storeId),
+      });
 
-  /*
-   * Only include active products when a status value exists.
-   */
-  query = query.or(
-    "status.is.null,status.eq.active,status.eq.published"
-  );
+    const unboundProducts =
+      await fetchProductPages({
+        unboundOnly: true,
+      });
 
-  let {
-    data: products,
-    error: productsError,
-  } = await query;
+    const [
+      universalConnections,
+      legacyConnections,
+    ] = await Promise.all([
+      fetchConnectionPages(
+        "store_connections",
+        "id,platform,store_name,store_url,connected"
+      ),
+      fetchConnectionPages(
+        "social_connections",
+        "id,platform,shop_domain,connected"
+      ),
+    ]);
 
-  if (productsError) {
-    throw new Error(
-      `Unable to load automation products: ${productsError.message}`
+    const sameTypeStoreIds =
+      new Set();
+
+    for (
+      const connection
+      of universalConnections
+    ) {
+      if (
+        normalizeStoreType(
+          connection?.platform
+        ) ===
+        canonicalStoreType
+      ) {
+        sameTypeStoreIds.add(
+          String(connection.id)
+        );
+      }
+    }
+
+    for (
+      const connection
+      of legacyConnections
+    ) {
+      if (
+        normalizeStoreType(
+          connection?.platform
+        ) ===
+        canonicalStoreType
+      ) {
+        sameTypeStoreIds.add(
+          String(connection.id)
+        );
+      }
+    }
+
+    // Always count the current store, even if a legacy
+    // connection table is temporarily incomplete.
+    sameTypeStoreIds.add(
+      String(storeId)
     );
+
+    const onlyConnectedStoreOfType =
+      sameTypeStoreIds.size === 1;
+
+    const recoverableProducts =
+      unboundProducts.filter(
+        (product) => {
+          if (
+            normalizeStoreType(
+              product?.store_type
+            ) !==
+            canonicalStoreType
+          ) {
+            return false;
+          }
+
+          if (
+            onlyConnectedStoreOfType
+          ) {
+            return true;
+          }
+
+          return (
+            normalizeStoreName(
+              product?.store_name
+            ) ===
+            canonicalStoreName
+          );
+        }
+      );
+
+    const productsById =
+      new Map();
+
+    for (
+      const product
+      of strictProducts
+    ) {
+      if (
+        product?.id != null
+      ) {
+        productsById.set(
+          String(product.id),
+          product
+        );
+      }
+    }
+
+    for (
+      const product
+      of recoverableProducts
+    ) {
+      if (
+        product?.id != null &&
+        !productsById.has(
+          String(product.id)
+        )
+      ) {
+        productsById.set(
+          String(product.id),
+          product
+        );
+      }
+    }
+
+    products =
+      [...productsById.values()];
+
+    // Repair only rows that were unbound and safely attributable
+    // to this store. Never reassign a row already bound elsewhere.
+    const repairIds =
+      recoverableProducts
+        .map(
+          (product) =>
+            product?.id != null
+              ? String(product.id)
+              : ""
+        )
+        .filter(Boolean);
+
+    for (
+      let index = 0;
+      index < repairIds.length;
+      index += REPAIR_BATCH_SIZE
+    ) {
+      const batch =
+        repairIds.slice(
+          index,
+          index +
+            REPAIR_BATCH_SIZE
+        );
+
+      const {
+        error: repairError,
+      } = await supabase
+        .from("products")
+        .update({
+          store_connection_id:
+            String(storeId),
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "user_id",
+          String(userId)
+        )
+        .is(
+          "store_connection_id",
+          null
+        )
+        .in(
+          "id",
+          batch
+        );
+
+      if (repairError) {
+        console.warn(
+          "Universal store-boundary repair warning:",
+          repairError.message
+        );
+      }
+    }
+  } else {
+    // Legacy automation without a connection ID: scan the
+    // user's full active catalog, then match type + store name.
+    // Do not broaden by type alone because multiple stores can exist.
+    const allUserProducts =
+      await fetchProductPages({
+        allUserProducts: true,
+      });
+
+    products =
+      allUserProducts.filter(
+        (product) =>
+          normalizeStoreType(
+            product?.store_type
+          ) ===
+            canonicalStoreType &&
+          normalizeStoreName(
+            product?.store_name
+          ) ===
+            canonicalStoreName
+      );
   }
 
-  // ARTBOOST_FAA_AUTOMATION_REPAIR_20260909
-  // Older Fine Art America imports can exist in Products without the newer
-  // store_connection_id boundary. Recover only this user's FAA rows when the
-  // strict store-scoped query returns nothing, then repair those rows so all
-  // future previews and automation runs use the normal strict path.
-  const normalizedResolvedStoreType =
-    String(resolvedStoreType || "")
-      .trim()
-      .toLowerCase();
+  const availableProducts =
+    products.filter(
+      (product) => {
+        if (!favoritesOnly) {
+          return true;
+        }
 
-  const fineArtAmericaTypes = [
-    "fine_art_america",
-    "fineartamerica",
-    "fine-art-america",
-    "fine art america",
-  ];
-
-  const isFineArtAmericaStore =
-    fineArtAmericaTypes.includes(
-      normalizedResolvedStoreType
+        return productIsFavorite(
+          product
+        );
+      }
     );
 
   if (
-    storeId &&
-    isFineArtAmericaStore &&
-    (!Array.isArray(products) ||
-      products.length === 0)
+    availableProducts.length === 0
   ) {
-    const {
-      data: legacyFaaProducts,
-      error: legacyFaaError,
-    } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", userId)
-      .in("store_type", fineArtAmericaTypes)
-      .or(
-        "status.is.null,status.eq.active,status.eq.published"
-      );
-
-    if (legacyFaaError) {
-      throw new Error(
-        `Unable to recover Fine Art America automation products: ${legacyFaaError.message}`
-      );
-    }
-
-    if (
-      Array.isArray(legacyFaaProducts) &&
-      legacyFaaProducts.length > 0
-    ) {
-      products = legacyFaaProducts;
-
-      const repairIds =
-        legacyFaaProducts
-          .map((product) => product?.id)
-          .filter(Boolean);
-
-      if (repairIds.length > 0) {
-        const {
-          error: repairError,
-        } = await supabase
-          .from("products")
-          .update({
-            store_connection_id:
-              String(storeId),
-            updated_at:
-              new Date().toISOString(),
-          })
-          .eq("user_id", userId)
-          .in("id", repairIds);
-
-        if (repairError) {
-          console.warn(
-            "Fine Art America store boundary repair warning:",
-            repairError.message
-          );
-        }
-      }
-    }
-  }
-
-  const availableProducts = (
-    products || []
-  ).filter((product) => {
-    if (!favoritesOnly) {
-      return true;
-    }
-
-    return productIsFavorite(product);
-  });
-
-  if (availableProducts.length === 0) {
     return null;
   }
 
-  // ARTBOOST_REPEAT_DELAY_AUTHORITATIVE_HISTORY_20260909
-  // Repeat-delay eligibility is based only on confirmed successful ArtBoost
-  // automation history. Imported/stale products.times_posted and
-  // products.last_posted_at are not authoritative enough to block a product.
-  const availableProductIds = new Set(
-    availableProducts
-      .map((product) =>
-        product?.id != null
-          ? String(product.id)
-          : ""
+  const availableProductIds =
+    new Set(
+      availableProducts
+        .map(
+          (product) =>
+            product?.id != null
+              ? String(product.id)
+              : ""
+        )
+        .filter(Boolean)
+    );
+
+  // Product IDs are globally unique inside the user's catalog.
+  // Read all confirmed success logs for the user and keep only
+  // rows whose product_id belongs to this store's reconciled catalog.
+  // This also preserves valid history across old connection-ID repairs.
+  const successfulAutomationLogs =
+    [];
+
+  for (
+    let offset = 0;
+    ;
+    offset += PAGE_SIZE
+  ) {
+    const {
+      data: page,
+      error,
+    } = await supabase
+      .from(
+        "store_automation_logs"
       )
-      .filter(Boolean)
-  );
+      .select(
+        "product_id,event_type,status,created_at"
+      )
+      .eq(
+        "user_id",
+        String(userId)
+      )
+      .in(
+        "event_type",
+        [
+          "post_success",
+          "post_partial_success",
+        ]
+      )
+      .order(
+        "created_at",
+        { ascending: true }
+      )
+      .order(
+        "product_id",
+        { ascending: true }
+      )
+      .range(
+        offset,
+        offset + PAGE_SIZE - 1
+      );
 
-  let historyQuery = supabase
-    .from("store_automation_logs")
-    .select(
-      "product_id,event_type,status,created_at"
-    )
-    .eq("user_id", String(userId))
-    .in("event_type", [
-      "post_success",
-      "post_partial_success",
-    ]);
+    if (error) {
+      throw new Error(
+        `Unable to verify automation post history: ${error.message}`
+      );
+    }
 
-  if (storeId) {
-    historyQuery = historyQuery.eq(
-      "store_id",
-      String(storeId)
+    const pageRows =
+      Array.isArray(page)
+        ? page
+        : [];
+
+    successfulAutomationLogs.push(
+      ...pageRows
     );
+
+    if (
+      pageRows.length <
+      PAGE_SIZE
+    ) {
+      break;
+    }
   }
 
-  const {
-    data: successfulAutomationLogs,
-    error: historyError,
-  } = await historyQuery;
+  const authoritativePostHistory =
+    new Map();
 
-  if (historyError) {
-    throw new Error(
-      `Unable to verify automation post history: ${historyError.message}`
-    );
-  }
-
-  const authoritativePostHistory = new Map();
-
-  for (const log of successfulAutomationLogs || []) {
+  for (
+    const log
+    of successfulAutomationLogs
+  ) {
     const productId =
       log?.product_id != null
-        ? String(log.product_id)
+        ? String(
+            log.product_id
+          )
         : "";
 
     if (
       !productId ||
-      !availableProductIds.has(productId)
+      !availableProductIds.has(
+        productId
+      )
     ) {
       continue;
     }
 
-    const postedAt = log?.created_at
-      ? new Date(log.created_at)
-      : null;
+    const postedAt =
+      log?.created_at
+        ? new Date(
+            log.created_at
+          )
+        : null;
 
     if (
       !postedAt ||
-      Number.isNaN(postedAt.getTime())
+      Number.isNaN(
+        postedAt.getTime()
+      )
     ) {
       continue;
     }
 
     const existing =
-      authoritativePostHistory.get(productId);
+      authoritativePostHistory.get(
+        productId
+      );
 
     if (!existing) {
-      authoritativePostHistory.set(productId, {
-        lastPostedAt: postedAt.toISOString(),
-        timesPosted: 1,
-      });
+      authoritativePostHistory.set(
+        productId,
+        {
+          lastPostedAt:
+            postedAt.toISOString(),
+          timesPosted: 1,
+        }
+      );
+
       continue;
     }
 
@@ -938,152 +1298,162 @@ export async function getNextAutomationProduct({
 
     if (
       postedAt.getTime() >
-      new Date(existing.lastPostedAt).getTime()
+      new Date(
+        existing.lastPostedAt
+      ).getTime()
     ) {
       existing.lastPostedAt =
         postedAt.toISOString();
     }
   }
 
+  const now = new Date();
+
   const eligibleProducts =
-    availableProducts.filter((product) => {
-      const history =
-        authoritativePostHistory.get(
-          String(product.id)
-        );
+    availableProducts.filter(
+      (product) => {
+        const history =
+          authoritativePostHistory.get(
+            String(product.id)
+          );
 
-      return isAutomationProductEligibleByRepeatDelay({
-        lastPostedAt:
-          history?.lastPostedAt || null,
-        repeatDelayDays: parsedRepeatDelayDays,
-        timeZone: timezone,
-        now: new Date(),
-      });
-    });
+        return isAutomationProductEligibleByRepeatDelay({
+          lastPostedAt:
+            history?.lastPostedAt ||
+            null,
+          repeatDelayDays:
+            parsedRepeatDelayDays,
+          timeZone: timezone,
+          now,
+        });
+      }
+    );
 
-  /*
-   * If every product is still inside the repeat-delay
-   * window, do not repeat one early.
-   */
-  if (eligibleProducts.length === 0) {
+  if (
+    eligibleProducts.length === 0
+  ) {
     return null;
   }
 
-  if (normalizedSelectionMode === "random") {
-    const randomIndex = Math.floor(
-      Math.random() * eligibleProducts.length
-    );
+  if (
+    normalizedSelectionMode ===
+    "random"
+  ) {
+    const randomIndex =
+      Math.floor(
+        Math.random() *
+          eligibleProducts.length
+      );
 
-    return eligibleProducts[randomIndex];
+    return (
+      eligibleProducts[
+        randomIndex
+      ] || null
+    );
   }
 
-  const sortedProducts = [
-    ...eligibleProducts,
-  ].sort((productA, productB) => {
-    const productAHistory =
-      authoritativePostHistory.get(
-        String(productA.id)
+  const sortedProducts =
+    [...eligibleProducts]
+      .sort(
+        (
+          productA,
+          productB
+        ) => {
+          const productAHistory =
+            authoritativePostHistory.get(
+              String(productA.id)
+            );
+
+          const productBHistory =
+            authoritativePostHistory.get(
+              String(productB.id)
+            );
+
+          const productANeverPosted =
+            !productAHistory;
+
+          const productBNeverPosted =
+            !productBHistory;
+
+          if (
+            productANeverPosted &&
+            !productBNeverPosted
+          ) {
+            return -1;
+          }
+
+          if (
+            !productANeverPosted &&
+            productBNeverPosted
+          ) {
+            return 1;
+          }
+
+          if (
+            productANeverPosted &&
+            productBNeverPosted
+          ) {
+            return String(
+              productA.id
+            ).localeCompare(
+              String(
+                productB.id
+              )
+            );
+          }
+
+          const productALastPostedTime =
+            new Date(
+              productAHistory.lastPostedAt
+            ).getTime();
+
+          const productBLastPostedTime =
+            new Date(
+              productBHistory.lastPostedAt
+            ).getTime();
+
+          if (
+            productALastPostedTime !==
+            productBLastPostedTime
+          ) {
+            return (
+              productALastPostedTime -
+              productBLastPostedTime
+            );
+          }
+
+          const productATimesPosted =
+            productAHistory.timesPosted ||
+            0;
+
+          const productBTimesPosted =
+            productBHistory.timesPosted ||
+            0;
+
+          if (
+            productATimesPosted !==
+            productBTimesPosted
+          ) {
+            return (
+              productATimesPosted -
+              productBTimesPosted
+            );
+          }
+
+          return String(
+            productA.id
+          ).localeCompare(
+            String(
+              productB.id
+            )
+          );
+        }
       );
 
-    const productBHistory =
-      authoritativePostHistory.get(
-        String(productB.id)
-      );
-
-    const productANeverPosted =
-      !productAHistory;
-
-    const productBNeverPosted =
-      !productBHistory;
-
-    /*
-     * Never-posted products always come first.
-     */
-    if (
-      productANeverPosted &&
-      !productBNeverPosted
-    ) {
-      return -1;
-    }
-
-    if (
-      !productANeverPosted &&
-      productBNeverPosted
-    ) {
-      return 1;
-    }
-
-    const productATimesPosted =
-      productAHistory?.timesPosted || 0;
-
-    const productBTimesPosted =
-      productBHistory?.timesPosted || 0;
-
-    /*
-     * For never-posted products, prioritize the
-     * lowest posting count.
-     */
-    if (
-      productANeverPosted &&
-      productBNeverPosted
-    ) {
-      if (
-        productATimesPosted !==
-        productBTimesPosted
-      ) {
-        return (
-          productATimesPosted -
-          productBTimesPosted
-        );
-      }
-
-      return String(productA.id).localeCompare(
-        String(productB.id)
-      );
-    }
-
-    const productALastPostedTime =
-      new Date(
-        productAHistory.lastPostedAt
-      ).getTime();
-
-    const productBLastPostedTime =
-      new Date(
-        productBHistory.lastPostedAt
-      ).getTime();
-
-    /*
-     * Oldest posted product comes first.
-     */
-    if (
-      productALastPostedTime !==
-      productBLastPostedTime
-    ) {
-      return (
-        productALastPostedTime -
-        productBLastPostedTime
-      );
-    }
-
-    /*
-     * If the dates match, use the lowest posting count.
-     */
-    if (
-      productATimesPosted !==
-      productBTimesPosted
-    ) {
-      return (
-        productATimesPosted -
-        productBTimesPosted
-      );
-    }
-
-    return String(productA.id).localeCompare(
-      String(productB.id)
-    );
-  });
-
-  return sortedProducts[0] || null;
+  return (
+    sortedProducts[0] ||
+    null
+  );
 }
 
 /*
