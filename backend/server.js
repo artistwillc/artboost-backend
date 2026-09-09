@@ -1242,6 +1242,7 @@ app.post("/etsy/sync", async (req, res) => {
       const payload = {
         user_id: String(userId),
         store_type: "etsy",
+        store_connection_id: connection?.id || null, // ARTBOOST_ETSY_FIX_V16_4_STORE_BOUNDARY
         store_name:
           shop?.shop_name ||
           "Etsy",

@@ -278,6 +278,52 @@ export default function CatalogImporterScreen() {
 
   async function importEntireStore() {
     try {
+      // ARTBOOST_ETSY_FIX_V16_4_IMPORT
+      if (normalizedStoreType === "etsy") {
+        const { data: { session: etsySession }, error: etsySessionError } =
+          await supabase.auth.getSession();
+        if (etsySessionError) throw etsySessionError;
+        if (!etsySession?.user?.id || !etsySession?.access_token) {
+          throw new Error("Please sign in to ArtBoost again before importing Etsy.");
+        }
+
+        const etsyResponse = await fetch(`${API_BASE}/etsy/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${etsySession.access_token}`,
+          },
+          body: JSON.stringify({ userId: etsySession.user.id }),
+        });
+
+        const etsyText = await etsyResponse.text();
+        let etsyData: any = {};
+        try { etsyData = etsyText ? JSON.parse(etsyText) : {}; }
+        catch { throw new Error(`ArtBoost received an invalid Etsy import response (${etsyResponse.status}).`); }
+
+        if (!etsyResponse.ok || !etsyData?.success) {
+          throw new Error(etsyData?.details || etsyData?.error || "Etsy listings could not be imported.");
+        }
+
+        Alert.alert(
+          "Store Import Complete",
+          [
+            `${Number(etsyData.discovered) || 0} listings found.`,
+            `${Number(etsyData.imported) || 0} new listings imported.`,
+            `${Number(etsyData.updated) || 0} existing listings refreshed.`,
+            `${Number(etsyData.skipped) || 0} listings skipped.`,
+          ].join("\n"),
+          [{
+            text: "View Products",
+            onPress: () => router.replace({
+              pathname: "/store-products",
+              params: { storeId, storeName, storeType, connected: "true" },
+            }),
+          }]
+        );
+        return;
+      }
+
       setImportingStore(true);
 
       const {

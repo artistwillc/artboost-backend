@@ -234,6 +234,61 @@ const syncButtonLabel = useMemo(() => {
   }
 
   async function syncProducts() {
+    // ARTBOOST_ETSY_FIX_V16_4_DASH
+    const artboostStoreTypeV162 = String(storeType || "").trim().toLowerCase();
+    if (artboostStoreTypeV162 === "etsy") {
+      if (syncing) return;
+      try {
+        setSyncing(true);
+        const { data: { session: etsySession }, error: etsySessionError } =
+          await supabase.auth.getSession();
+        if (etsySessionError) throw etsySessionError;
+        if (!etsySession?.user?.id || !etsySession?.access_token) {
+          throw new Error("Please sign in to ArtBoost again before syncing Etsy.");
+        }
+
+        const response = await fetch(`${API_BASE}/etsy/sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${etsySession.access_token}`,
+          },
+          body: JSON.stringify({ userId: etsySession.user.id }),
+        });
+
+        const responseText = await response.text();
+        let data: any = {};
+        try { data = responseText ? JSON.parse(responseText) : {}; }
+        catch { throw new Error(`ArtBoost received an invalid Etsy sync response (${response.status}).`); }
+
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.details || data?.error || "Etsy listings could not be synchronized.");
+        }
+
+        const count = Number(data.discovered ?? data.total ?? data.products?.length ?? 0);
+        if (Number.isFinite(count)) setProductCount(count);
+        setLastSyncedAt(String(data.syncedAt || new Date().toISOString()));
+
+        Alert.alert(
+          "Etsy Sync Complete",
+          [
+            `${Number(data.discovered) || 0} active listings found.`,
+            `${Number(data.imported) || 0} new listings imported.`,
+            `${Number(data.updated) || 0} existing listings refreshed.`,
+            `${Number(data.skipped) || 0} listings skipped.`,
+          ].join("\n")
+        );
+      } catch (error) {
+        Alert.alert(
+          "Etsy Sync Failed",
+          error instanceof Error ? error.message : "Etsy listings could not be synchronized."
+        );
+      } finally {
+        setSyncing(false);
+      }
+      return;
+    }
+
     const type = String(storeType)
       .trim()
       .toLowerCase();
@@ -266,100 +321,6 @@ const syncButtonLabel = useMemo(() => {
       } finally {
         setSyncing(false);
       }
-      return;
-    }
-
-    if (type === "etsy") {
-      if (syncing) {
-        return;
-      }
-
-      try {
-        setSyncing(true);
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError) {
-          throw userError;
-        }
-
-        if (!user) {
-          throw new Error(
-            "Please sign in to ArtBoost before syncing Etsy listings."
-          );
-        }
-
-        const response = await fetch(
-          `${API_BASE}/etsy/sync`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              userId: user.id,
-            }),
-          }
-        );
-
-        const responseText =
-          await response.text();
-
-        let data: any = {};
-
-        try {
-          data = responseText
-            ? JSON.parse(responseText)
-            : {};
-        } catch {
-          throw new Error(
-            `ArtBoost received an invalid Etsy sync response (${response.status}).`
-          );
-        }
-
-        if (!response.ok || !data?.success) {
-          throw new Error(
-            data?.error ||
-              "Etsy listings could not be synchronized."
-          );
-        }
-
-        const syncedCount =
-          Number(data.discovered);
-
-        if (Number.isFinite(syncedCount)) {
-          setProductCount(syncedCount);
-        }
-
-        if (data.syncedAt) {
-          setLastSyncedAt(
-            String(data.syncedAt)
-          );
-        }
-
-        Alert.alert(
-          "Etsy Sync Complete",
-          [
-            `${Number(data.discovered) || 0} active listings found.`,
-            `${Number(data.imported) || 0} new listings imported.`,
-            `${Number(data.updated) || 0} existing listings refreshed.`,
-            `${Number(data.skipped) || 0} listings skipped.`,
-          ].join("\n")
-        );
-      } catch (error) {
-        Alert.alert(
-          "Etsy Sync Failed",
-          error instanceof Error
-            ? error.message
-            : "Etsy listings could not be synchronized."
-        );
-      } finally {
-        setSyncing(false);
-      }
-
       return;
     }
 

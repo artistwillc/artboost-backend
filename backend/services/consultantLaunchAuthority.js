@@ -1486,6 +1486,71 @@ function productRecommendationAnswer(question, accountContext) {
 
 function connectionHealthAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
+  // ARTBOOST_ETSY_FIX_V16_4_CONSULTANT
+  const namedStoreTypeV162 = [
+    "etsy","shopify","redbubble","artpal","gumroad","fine_art_america","fineartamerica"
+  ].find((type) => {
+    const display = displayStoreTypeName(type).toLowerCase();
+    return q.includes(type.replace(/_/g, " ")) || (display && q.includes(display));
+  });
+  const asksListingHealthV162 =
+    /\b(?:listing|listings|product|products|catalog|inventory)\b/.test(q) &&
+    /\b(?:good|healthy|health|ok|okay|active|working|status|all|verify|check)\b/.test(q);
+
+  if (namedStoreTypeV162 && asksListingHealthV162) {
+    const target = namedStoreTypeV162 === "fineartamerica" ? "fine_art_america" : namedStoreTypeV162;
+    const stores = arr(accountContext?.connectedStores);
+    const liveStores = arr(accountContext?.externalLive?.storeSignals);
+    const normalizeStoreType = (value) => {
+      const t = platformName(value);
+      return t === "fineartamerica" ? "fine_art_america" : t;
+    };
+    const store = stores.find((item) =>
+      normalizeStoreType(item?.type || item?.storeType) === target
+    );
+    const liveStore = liveStores.find((item) =>
+      normalizeStoreType(item?.type || item?.storeType) === target
+    );
+    const label = displayStoreTypeName(target) || "Store";
+
+    if (!store) {
+      return {
+        answer: `Unable to verify — ${label} is not currently present as a connected ArtBoost store for this account.`,
+        steps: [],
+        actions: [SAFE_ACTIONS.connections],
+        followUps: [`Reconnect ${label}`],
+        usedAccountData: true,
+        severity: "warning",
+      };
+    }
+
+    const count = Number(liveStore?.productCount ?? store?.productCount ?? 0);
+    const expectedMatch = q.match(/\b(?:all\s+)?(\d+)\s+(?:listings?|products?)\b/);
+    const expected = expectedMatch ? Number(expectedMatch[1]) : null;
+
+    let answer;
+    let severity = "success";
+
+    if (expected !== null && expected !== count) {
+      answer = `No — ArtBoost currently has ${count} ${label} listing${count === 1 ? "" : "s"} in this connected catalog, not ${expected}.`;
+      severity = "warning";
+    } else if (liveStore?.externalReachable === false) {
+      answer = `Unable to verify every ${label} listing as healthy right now. ArtBoost currently has ${count} listing${count === 1 ? "" : "s"} in the catalog, but the live provider check is unavailable.`;
+      severity = "warning";
+    } else {
+      answer = `${label} is connected and ArtBoost currently has ${count} listing${count === 1 ? "" : "s"} in its catalog.${expected !== null ? ` That matches the ${expected} listings you asked about.` : ""} Connection and count are verified; individual listing health is only claimed when provider listing-state data confirms it.`;
+    }
+
+    return {
+      answer,
+      steps: [],
+      actions: [SAFE_ACTIONS.connections, SAFE_ACTIONS.library],
+      followUps: [`Show my ${label} listings`, `Refresh my ${label} connection`],
+      usedAccountData: true,
+      severity,
+    };
+  }
+
   const asks =
     /\b(?:connect|connected|connection|status|review|check|health|permission|permissions)\b/.test(q) &&
     /\b(?:social|platform|store|stores|pinterest|facebook|instagram|threads|linkedin|tiktok|twitter|\bx\b|shopify|etsy|redbubble|artpal|gumroad)\b/.test(q);
