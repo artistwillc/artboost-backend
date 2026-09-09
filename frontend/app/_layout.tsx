@@ -66,9 +66,8 @@ export default function RootLayout() {
           <Stack.Screen name="customer-service" />
 
           <Stack.Screen name="faq" />
-
-          <Stack.Screen name="analytics" />
-          <Stack.Screen name="store-products" />
+          {/* ARTBOOST_FINAL_LAUNCH_FIX_V1_20260909: Analytics route hidden until post-launch. */}
+<Stack.Screen name="store-products" />
           <Stack.Screen name="store-automation" />
           <Stack.Screen name="product-post" />
           <Stack.Screen name="video-studio" />

@@ -1,3 +1,4 @@
+// ARTBOOST_FINAL_LAUNCH_FIX_V1_20260909
 // ARTBOOST_RC_V4_PINTEREST_SUBSCRIPTION_20260908
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -84,8 +85,7 @@ export default function AppleSubscriptionPanel({
 }) {
   const [working, setWorking] = useState(false);
   const [catalogError, setCatalogError] = useState("");
-  const [catalogAttempted, setCatalogAttempted] = useState(false);
-  const [syncAttempted, setSyncAttempted] = useState(false);
+const [syncAttempted, setSyncAttempted] = useState(false);
   const [expandedTier, setExpandedTier] = useState<Tier | null>(null);
 
   const normalizedCurrentTier = normalizeTier(currentTier);
@@ -199,10 +199,8 @@ export default function AppleSubscriptionPanel({
       setCatalogError(
         error?.message || "Live App Store pricing is temporarily unavailable."
       );
-    } finally {
-      setCatalogAttempted(true);
     }
-  }, [connected, fetchProducts]);
+}, [connected, fetchProducts]);
 
   useEffect(() => {
     if (!connected) return;
@@ -237,15 +235,7 @@ export default function AppleSubscriptionPanel({
     }
     return map;
   }, [subscriptions]);
-
-  useEffect(() => {
-    if (!catalogAttempted || productBySku.size > 0 || catalogError) return;
-    setCatalogError(
-      "App Store pricing is still loading. You can review every plan now; subscribe buttons will activate as soon as Apple returns the live catalog."
-    );
-  }, [catalogAttempted, catalogError, productBySku]);
-
-  const buy = async (sku: string) => {
+const buy = async (sku: string) => {
     if (!userId) {
       Alert.alert("Login Required", "Please sign in before subscribing.");
       return;
@@ -441,14 +431,7 @@ export default function AppleSubscriptionPanel({
       })}
 
       {catalogError ? <Text style={styles.catalogNote}>{catalogError}</Text> : null}
-
-      {!connected ? (
-        <Text style={styles.catalogNote}>
-          Connecting to the App Store. Plan details are ready to review while live pricing loads.
-        </Text>
-      ) : null}
-
-      <View style={styles.actions}>
+<View style={styles.actions}>
         <Pressable style={styles.secondary} onPress={restore} disabled={working}>
           <Text style={styles.secondaryText}>Restore Purchases</Text>
         </Pressable>

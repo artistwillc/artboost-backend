@@ -670,12 +670,8 @@ const syncButtonLabel = useMemo(() => {
   }
 />
 
-        <DashboardAction
-          icon="analytics-outline"
-          title="Analytics"
-          description="Track product views, clicks, and social performance."
-          onPress={() => router.push({ pathname: "/analytics" as any, params: { storeId, storeName, storeType } })}
-        />
+                {/* ARTBOOST_FINAL_LAUNCH_FIX_V1_20260909: Analytics hidden until post-launch. */}
+
 
         <DashboardAction
           icon="folder-open-outline"
