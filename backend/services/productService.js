@@ -577,7 +577,12 @@ export async function getNextAutomationProduct({
   repeatDelayDays = 30,
   selectionMode = "least_recently_posted",
   timezone = "America/Chicago",
+  eligibilityAsOf = null,
 }) {
+  // ARTBOOST_PREVIEW_NEXT_RUN_REPEAT_DELAY_FIX_20260909
+  // Scheduled runs use their actual execution time. Preview may supply the
+  // next scheduled run so the UI answers the question users actually need:
+  // "Will a product be eligible when this automation runs next?"
   // ARTBOOST_UNIVERSAL_AUTOMATION_CATALOG_RECONCILIATION_20260909
   // One store-safe selector for every connected marketplace:
   // - full-catalog pagination
@@ -1456,7 +1461,24 @@ export async function getNextAutomationProduct({
     }
   }
 
-  const now = new Date();
+  const now =
+    eligibilityAsOf
+      ? new Date(eligibilityAsOf)
+      : new Date();
+
+  if (Number.isNaN(now.getTime())) {
+    throw new Error(
+      "Invalid automation eligibility reference time."
+    );
+  }
+
+  if (
+    typeof automationSelectionDiagnostic === "object" &&
+    automationSelectionDiagnostic
+  ) {
+    automationSelectionDiagnostic.eligibilityAsOf =
+      now.toISOString();
+  }
 
   const eligibleProducts =
     availableProducts.filter(

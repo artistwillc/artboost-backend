@@ -713,6 +713,55 @@ router.post(
         });
       }
 
+      // ARTBOOST_PREVIEW_NEXT_RUN_REPEAT_DELAY_FIX_20260909
+      // Preview must evaluate repeat-delay eligibility at the next scheduled
+      // run, not at the instant the screen happens to request a preview.
+      // Example: a product posted Aug 19 with a 22-day delay is correctly
+      // eligible for a Sep 10 run even when previewed on Sep 9.
+      const previewNow = new Date();
+      let previewEligibilityAt = previewNow;
+      let previewTimezone = "America/Chicago";
+      let previewBasis = "current_time";
+
+      const {
+        data: nextScheduledAutomation,
+        error: nextScheduleError,
+      } = await supabase
+        .from("store_automations")
+        .select("next_run_at,timezone")
+        .eq("user_id", String(userId))
+        .eq("store_id", String(storeId))
+        .gte(
+          "next_run_at",
+          previewNow.toISOString()
+        )
+        .order("next_run_at", {
+          ascending: true,
+        })
+        .limit(1)
+        .maybeSingle();
+
+      if (nextScheduleError) {
+        throw new Error(
+          `Unable to resolve next automation preview time: ${nextScheduleError.message}`
+        );
+      }
+
+      if (nextScheduledAutomation?.next_run_at) {
+        const candidate = new Date(
+          nextScheduledAutomation.next_run_at
+        );
+
+        if (!Number.isNaN(candidate.getTime())) {
+          previewEligibilityAt = candidate;
+          previewTimezone = String(
+            nextScheduledAutomation.timezone ||
+              previewTimezone
+          );
+          previewBasis = "next_scheduled_run";
+        }
+      }
+
       const product =
         await getNextAutomationProduct({
           userId: String(userId),
@@ -729,12 +778,18 @@ router.post(
           repeatDelayDays: Number(
             repeatDelayDays
           ),
+          timezone: previewTimezone,
+          eligibilityAsOf:
+            previewEligibilityAt,
         });
 
       return res.json({
         success: true,
         product,
         eligible: Boolean(product),
+        previewEligibilityAt:
+          previewEligibilityAt.toISOString(),
+        previewBasis,
       });
     } catch (error) {
       console.error(
