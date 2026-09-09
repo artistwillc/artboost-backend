@@ -1496,7 +1496,7 @@ function publishingCrossCheckAnswer(question, accountContext, dateRange) {
   const asksCrossStore=/\b(?:all|every|which|what|store|stores|shop|shops|platform|platforms|social|facebook|instagram|pinterest|threads|linkedin|tiktok|\bx\b)\b/.test(q);
   if(!asksPublishing || !asksCrossStore) return null;
 
-  const window=dateRange || resolveDateWindow(question, timezoneFor(accountContext));
+  const window=resolveWindow(question, dateRange, timezoneFor(accountContext));
   if(!window) return null;
 
   const stores=arr(accountContext?.connectedStores);
