@@ -542,8 +542,13 @@ export async function runAutomation({
     ? String(selectionMode)
     : "least_recently_posted";
 
+  const parsedRepeatDelayDays =
+    Number(repeatDelayDays);
+
   const safeRepeatDelayDays = Math.max(
-    Number(repeatDelayDays) || 30,
+    Number.isFinite(parsedRepeatDelayDays)
+      ? parsedRepeatDelayDays
+      : 30,
     0
   );
 
@@ -594,8 +599,11 @@ try {
       storeId,
       storeType,
       storeName,
-      selectionMode,
-      repeatDelayDays,
+      selectionMode: safeSelectionMode,
+      repeatDelayDays: safeRepeatDelayDays,
+      timezone:
+        automation.timezone ||
+        "America/Chicago",
     });
 } catch (error) {
   const message =

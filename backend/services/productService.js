@@ -492,6 +492,73 @@ export async function getStores({
   ];
 }
 
+// ARTBOOST_SCHEDULER_REPEAT_DELAY_CALENDAR_V16_6_3
+function automationDateKey(value, timeZone = "America/Chicago") {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+
+    const map = {};
+    for (const part of parts) {
+      if (part.type !== "literal") {
+        map[part.type] = part.value;
+      }
+    }
+
+    return `${map.year}-${map.month}-${map.day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+function automationCalendarDayDistance(
+  earlier,
+  later = new Date(),
+  timeZone = "America/Chicago"
+) {
+  const a = automationDateKey(earlier, timeZone);
+  const b = automationDateKey(later, timeZone);
+
+  if (!a || !b) return null;
+
+  const aMs = Date.parse(a + "T00:00:00.000Z");
+  const bMs = Date.parse(b + "T00:00:00.000Z");
+
+  return Math.floor((bMs - aMs) / 86400000);
+}
+
+export function isAutomationProductEligibleByRepeatDelay({
+  lastPostedAt,
+  repeatDelayDays = 0,
+  timeZone = "America/Chicago",
+  now = new Date(),
+} = {}) {
+  const delay = Math.max(Number(repeatDelayDays) || 0, 0);
+
+  if (!lastPostedAt || delay === 0) {
+    return true;
+  }
+
+  const days = automationCalendarDayDistance(
+    lastPostedAt,
+    now,
+    timeZone
+  );
+
+  if (days === null) {
+    return true;
+  }
+
+  return days >= delay;
+}
+
 /*
  * Select the next eligible product for store automation.
  *
@@ -509,6 +576,7 @@ export async function getNextAutomationProduct({
   storeName,
   repeatDelayDays = 30,
   selectionMode = "least_recently_posted",
+  timezone = "America/Chicago",
 }) {
   if (!userId) {
     throw new Error(
@@ -705,36 +773,15 @@ export async function getNextAutomationProduct({
     return null;
   }
 
-  const repeatCutoff = new Date();
-
-  repeatCutoff.setDate(
-    repeatCutoff.getDate() - parsedRepeatDelayDays
-  );
-
   const eligibleProducts =
-    parsedRepeatDelayDays === 0
-      ? availableProducts
-      : availableProducts.filter(
-          (product) => {
-            if (!product.last_posted_at) {
-              return true;
-            }
-
-            const lastPostedDate = new Date(
-              product.last_posted_at
-            );
-
-            if (
-              Number.isNaN(
-                lastPostedDate.getTime()
-              )
-            ) {
-              return true;
-            }
-
-            return lastPostedDate < repeatCutoff;
-          }
-        );
+    availableProducts.filter((product) =>
+      isAutomationProductEligibleByRepeatDelay({
+        lastPostedAt: product.last_posted_at,
+        repeatDelayDays: parsedRepeatDelayDays,
+        timeZone: timezone,
+        now: new Date(),
+      })
+    );
 
   /*
    * If every product is still inside the repeat-delay
