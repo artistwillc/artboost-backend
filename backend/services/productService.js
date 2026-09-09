@@ -1,4 +1,4 @@
-// ARTBOOST_AUTOMATION_PRODUCT_STORE_BOUNDARY_V3156
+﻿// ARTBOOST_AUTOMATION_PRODUCT_STORE_BOUNDARY_V3156
 // ARTBOOST_LIBRARY_STORE_INTEGRITY_V3155
 import supabase from "../lib/supabase.js";
 
@@ -748,7 +748,7 @@ export async function getNextAutomationProduct({
     "status.is.null,status.eq.active,status.eq.published"
   );
 
-  const {
+  let {
     data: products,
     error: productsError,
   } = await query;
@@ -757,6 +757,87 @@ export async function getNextAutomationProduct({
     throw new Error(
       `Unable to load automation products: ${productsError.message}`
     );
+  }
+
+  // ARTBOOST_FAA_AUTOMATION_REPAIR_20260909
+  // Older Fine Art America imports can exist in Products without the newer
+  // store_connection_id boundary. Recover only this user's FAA rows when the
+  // strict store-scoped query returns nothing, then repair those rows so all
+  // future previews and automation runs use the normal strict path.
+  const normalizedResolvedStoreType =
+    String(resolvedStoreType || "")
+      .trim()
+      .toLowerCase();
+
+  const fineArtAmericaTypes = [
+    "fine_art_america",
+    "fineartamerica",
+    "fine-art-america",
+    "fine art america",
+  ];
+
+  const isFineArtAmericaStore =
+    fineArtAmericaTypes.includes(
+      normalizedResolvedStoreType
+    );
+
+  if (
+    storeId &&
+    isFineArtAmericaStore &&
+    (!Array.isArray(products) ||
+      products.length === 0)
+  ) {
+    const {
+      data: legacyFaaProducts,
+      error: legacyFaaError,
+    } = await supabase
+      .from("products")
+      .select("*")
+      .eq("user_id", userId)
+      .in("store_type", fineArtAmericaTypes)
+      .or(
+        "status.is.null,status.eq.active,status.eq.published"
+      );
+
+    if (legacyFaaError) {
+      throw new Error(
+        `Unable to recover Fine Art America automation products: ${legacyFaaError.message}`
+      );
+    }
+
+    if (
+      Array.isArray(legacyFaaProducts) &&
+      legacyFaaProducts.length > 0
+    ) {
+      products = legacyFaaProducts;
+
+      const repairIds =
+        legacyFaaProducts
+          .map((product) => product?.id)
+          .filter(Boolean);
+
+      if (repairIds.length > 0) {
+        const {
+          error: repairError,
+        } = await supabase
+          .from("products")
+          .update({
+            store_connection_id:
+              String(storeId),
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq("user_id", userId)
+          .in("id", repairIds);
+
+        if (repairError) {
+          console.warn(
+            "Fine Art America store boundary repair warning:",
+            repairError.message
+          );
+        }
+      }
+    }
   }
 
   const availableProducts = (
