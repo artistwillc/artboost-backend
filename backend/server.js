@@ -78,6 +78,93 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ARTBOOST_SOCIAL_LAUNCH_REPAIR_V1_20260908
+const SOCIAL_DB_RETRY_DELAYS_MS = [250, 750, 1500];
+
+function isTransientSocialDbError(error) {
+  const message = String(
+    error?.message ||
+      error?.details ||
+      error?.hint ||
+      error ||
+      ""
+  ).toLowerCase();
+
+  const status = Number(
+    error?.status ||
+      error?.statusCode ||
+      error?.code
+  );
+
+  return (
+    [502, 503, 504].includes(status) ||
+    /gateway timeout|bad gateway|service unavailable|upstream|timeout|timed out|fetch failed|econnreset|etimedout/.test(
+      message
+    )
+  );
+}
+
+async function withSocialDbRetry(label, operation) {
+  let lastResult = null;
+
+  for (
+    let attempt = 0;
+    attempt <= SOCIAL_DB_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    try {
+      const result = await operation();
+      lastResult = result;
+
+      if (!result?.error) {
+        return result;
+      }
+
+      if (
+        !isTransientSocialDbError(result.error) ||
+        attempt >= SOCIAL_DB_RETRY_DELAYS_MS.length
+      ) {
+        return result;
+      }
+
+      const delayMs =
+        SOCIAL_DB_RETRY_DELAYS_MS[attempt];
+
+      console.warn(
+        label + " transient Supabase failure; retrying in " + delayMs + "ms:",
+        result.error.message || result.error
+      );
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delayMs)
+      );
+    } catch (error) {
+      if (
+        !isTransientSocialDbError(error) ||
+        attempt >= SOCIAL_DB_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+
+      const delayMs =
+        SOCIAL_DB_RETRY_DELAYS_MS[attempt];
+
+      console.warn(
+        label + " transient Supabase exception; retrying in " + delayMs + "ms:",
+        error instanceof Error
+          ? error.message
+          : error
+      );
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delayMs)
+      );
+    }
+  }
+
+  return lastResult;
+}
+
 const PINTEREST_API_BASE =
   process.env.PINTEREST_API_BASE || "https://api-sandbox.pinterest.com";
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
@@ -2581,7 +2668,17 @@ async function refreshXConnectionToken(connection) {
 
 async function getValidXConnection(userId) {
   if (!userId) throw new Error("X publishing requires an ArtBoost userId.");
-  const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+  const { data: connection, error } =
+    await withSocialDbRetry(
+      "Load X publishing connection",
+      () =>
+        supabase
+          .from("social_connections")
+          .select("*")
+          .eq("user_id", String(userId))
+          .eq("platform", "x")
+          .maybeSingle()
+    );
   if (error) throw new Error(`Unable to load X connection: ${error.message}`);
   if (!connection?.connected || !connection?.access_token) throw new Error("X is not connected. Connect X in ArtBoost before posting.");
   const expiresSoon = Boolean(connection.expires_at && new Date(connection.expires_at).getTime() <= Date.now() + 5 * 60 * 1000);
@@ -2652,7 +2749,20 @@ app.get("/x/status", async (req, res) => {
   try {
     const { userId } = req.query;
     if (!userId) return res.status(400).json({ configured: Boolean(X_CLIENT_ID && X_CLIENT_SECRET), connected: false, error: "Missing userId." });
-    const { data: connection, error } = await supabase.from("social_connections").select("*").eq("user_id", String(userId)).eq("platform", "x").maybeSingle();
+    const { data: connection, error } =
+      await withSocialDbRetry(
+        "X status",
+        () =>
+          supabase
+            .from("social_connections")
+            .select("*")
+            .eq(
+              "user_id",
+              String(userId)
+            )
+            .eq("platform", "x")
+            .maybeSingle()
+      );
     if (error) throw new Error(`Unable to load X connection: ${error.message}`);
     const pd = connection?.platform_data && typeof connection.platform_data === "object" ? connection.platform_data : {};
     const expired = Boolean(connection?.expires_at && new Date(connection.expires_at).getTime() <= Date.now());
@@ -8819,15 +8929,22 @@ async function loadUserSocialConnection({
     return null;
   }
 
-  const { data, error } = await supabase
-    .from("social_connections")
-    .select("*")
-    .eq("user_id", String(userId))
-    .eq(
-      "platform",
-      String(platform).trim().toLowerCase()
-    )
-    .maybeSingle();
+  const { data, error } =
+    await withSocialDbRetry(
+      "Load " + platform + " connection",
+      () =>
+        supabase
+          .from("social_connections")
+          .select("*")
+          .eq("user_id", String(userId))
+          .eq(
+            "platform",
+            String(platform)
+              .trim()
+              .toLowerCase()
+          )
+          .maybeSingle()
+    );
 
   if (error) {
     console.error(

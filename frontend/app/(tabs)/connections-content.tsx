@@ -1,3 +1,4 @@
+// ARTBOOST_SOCIAL_LAUNCH_REPAIR_V1_20260908
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_WHITE_TEXT_AUDIT_V3141
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -840,13 +841,38 @@ export default function ConnectionsScreen() {
             data = {};
           }
 
+          if (
+            !response.ok ||
+            typeof data.connected !==
+              "boolean"
+          ) {
+            await updateStoredConnection(
+              platform,
+              false
+            );
+
+            console.log(
+              `${platform} status could not be verified:`,
+              data?.error ||
+                data?.details ||
+                `HTTP ${response.status}`
+            );
+
+            return;
+          }
+
           await updateStoredConnection(
             platform,
-            Boolean(data.connected)
+            data.connected
           );
         } catch (error) {
+          await updateStoredConnection(
+            platform,
+            false
+          );
+
           console.log(
-            `${platform} status check failed:`,
+            `${platform} status check failed closed:`,
             error
           );
         }

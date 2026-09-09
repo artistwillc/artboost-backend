@@ -40,6 +40,90 @@ const PHOTO_POST_URL =
 const POST_STATUS_URL =
   "https://open.tiktokapis.com/v2/post/publish/status/fetch/";
 
+// ARTBOOST_SOCIAL_LAUNCH_REPAIR_V1_20260908
+const TIKTOK_DB_RETRY_DELAYS_MS = [250, 750, 1500];
+
+function isTransientTikTokDbError(error) {
+  const message = String(
+    error?.message ||
+      error?.details ||
+      error ||
+      ""
+  ).toLowerCase();
+
+  const status = Number(
+    error?.status ||
+      error?.statusCode ||
+      error?.code
+  );
+
+  return (
+    [502, 503, 504].includes(status) ||
+    /gateway timeout|bad gateway|service unavailable|upstream|timeout|timed out|fetch failed|econnreset|etimedout/.test(
+      message
+    )
+  );
+}
+
+async function withTikTokDbRetry(label, operation) {
+  let lastResult = null;
+
+  for (
+    let attempt = 0;
+    attempt <= TIKTOK_DB_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    try {
+      const result = await operation();
+      lastResult = result;
+
+      if (!result?.error) return result;
+
+      if (
+        !isTransientTikTokDbError(result.error) ||
+        attempt >= TIKTOK_DB_RETRY_DELAYS_MS.length
+      ) {
+        return result;
+      }
+
+      const delayMs =
+        TIKTOK_DB_RETRY_DELAYS_MS[attempt];
+
+      console.warn(
+        label + " transient Supabase failure; retrying in " + delayMs + "ms:",
+        result.error.message || result.error
+      );
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delayMs)
+      );
+    } catch (error) {
+      if (
+        !isTransientTikTokDbError(error) ||
+        attempt >= TIKTOK_DB_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+
+      const delayMs =
+        TIKTOK_DB_RETRY_DELAYS_MS[attempt];
+
+      console.warn(
+        label + " transient Supabase exception; retrying in " + delayMs + "ms:",
+        error instanceof Error
+          ? error.message
+          : error
+      );
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delayMs)
+      );
+    }
+  }
+
+  return lastResult;
+}
+
 function configured() {
   return Boolean(
     TIKTOK_CLIENT_KEY &&
@@ -385,14 +469,19 @@ async function fetchPostStatus(accessToken, publishId) {
 }
 
 async function findConnection(userId) {
-  const { data, error } = await supabase
-    .from("social_connections")
-    .select(
-      "id,user_id,platform,connected,access_token,refresh_token,expires_in,expires_at,scopes,connected_at,updated_at"
-    )
-    .eq("user_id", String(userId))
-    .eq("platform", "tiktok")
-    .maybeSingle();
+  const { data, error } =
+    await withTikTokDbRetry(
+      "TikTok connection status",
+      () =>
+        supabase
+          .from("social_connections")
+          .select(
+            "id,user_id,platform,connected,access_token,refresh_token,expires_in,expires_at,scopes,connected_at,updated_at"
+          )
+          .eq("user_id", String(userId))
+          .eq("platform", "tiktok")
+          .maybeSingle()
+    );
 
   if (error) {
     throw new Error(

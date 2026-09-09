@@ -1,3 +1,4 @@
+// ARTBOOST_SOCIAL_LAUNCH_REPAIR_V1_20260908
 // ARTBOOST_RUNTIME_ENDPOINT_RELIABILITY_V31615
 // ARTBOOST_VISUAL_PARITY_V3153
 // ARTBOOST_V3142_FINAL_CLEANUP_ICONS
@@ -102,12 +103,6 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     id: "linkedin",
     label: "LinkedIn",
     icon: "logo-linkedin",
-    available: true,
-  },
-  {
-    id: "tiktok",
-    label: "TikTok",
-    icon: "logo-tiktok",
     available: true,
   },
   {
@@ -718,7 +713,13 @@ if (savedStartDate) {
           )
         ) {
           setSelectedPlatforms(
-            automation.platforms
+            automation.platforms.filter(
+              (platform: string) =>
+                String(platform)
+                  .trim()
+                  .toLowerCase() !==
+                "tiktok"
+            )
           );
         }
 
@@ -1029,8 +1030,27 @@ if (
         setLoadingPinterestBoards(true);
         setPinterestBoardsError("");
 
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError) {
+          throw new Error(
+            userError.message
+          );
+        }
+
+        if (!user?.id) {
+          throw new Error(
+            "Pinterest boards require a signed-in ArtBoost account."
+          );
+        }
+
         const response = await fetch(
-          `${API_BASE}/pinterest/boards`
+          `${API_BASE}/pinterest/boards?userId=${encodeURIComponent(
+            user.id
+          )}`
         );
 
         const responseText =
