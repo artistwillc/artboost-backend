@@ -1411,8 +1411,9 @@ function productMatchesStore(product, store) {
 function storeListingDetailsAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
   const asksListings =
-    /\b(?:show|list|view|display|see|what|which|review|check)\b/.test(q) &&
+    /\b(?:show|list|view|display|see|what|which|review|check|healthy|health|good|active|status|verify)\b/.test(q) &&
     /\b(?:listing|listings|product|products|catalog|inventory)\b/.test(q);
+  const asksHealth = /\b(?:healthy|health|good|active|status|verify|okay|ok)\b/.test(q);
 
   if (!asksListings) return null;
 
@@ -1472,7 +1473,7 @@ function storeListingDetailsAnswer(question, accountContext) {
     : ` ${activeCount} of ${ordered.length} currently have an active state in the synchronized ArtBoost listing data.`;
 
   return {
-    answer: `${label} has ${ordered.length} imported listing${ordered.length === 1 ? "" : "s"} in ArtBoost. ${details.join("; ")}.${health}${omitted}`,
+    answer: asksHealth ? `${activeCount === ordered.length ? "Yes" : "No"} — ${label} has ${ordered.length} imported listing${ordered.length === 1 ? "" : "s"} in ArtBoost. ${details.join("; ")}.${health} This verifies synchronized listing state in ArtBoost; it does not by itself prove marketplace search ranking, policy standing, sales performance, or public search visibility unless those provider facts are separately available.${omitted}` : `${label} has ${ordered.length} imported listing${ordered.length === 1 ? "" : "s"} in ArtBoost. ${details.join("; ")}.${health}${omitted}`,
     steps: [],
     actions: [SAFE_ACTIONS.library],
     followUps: [

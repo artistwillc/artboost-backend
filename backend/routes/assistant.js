@@ -15,6 +15,11 @@ import {
   ARTBOOST_SUPPORT_KNOWLEDGE,
 } from "../knowledge/artboostSupportKnowledge.js";
 import {
+  CONSULTANT_ROUTE_ACTIONS,
+  findRouteForQuestion,
+  routeRegistryForPrompt,
+} from "../knowledge/artboostRouteRegistry.js";
+import {
   CONSULTANT_SCOPE_REFUSAL,
   buildConsultantOperationalAnswer,
   isConsultantQuestionInScope,
@@ -57,36 +62,16 @@ function trimConversation(history) {
     .filter((message) => message.content);
 }
 
-function buildModelAccountContext(accountContext, { visualSimilarityIntent = false } = {}) {
+function buildModelAccountContext(accountContext, { visualSimilarityIntent = false, deepProductIntent = false } = {}) {
   if (!accountContext || typeof accountContext !== "object") return accountContext;
-
-  const compactProducts = visualSimilarityIntent
-    ? safeArray(accountContext.products).slice(0, 500).map((product) => ({
-        title: cleanString(product?.title, 220),
-        storeType: cleanString(product?.store_type, 80) || null,
-        storeName: cleanString(product?.store_name, 120) || null,
-        timesPosted: Number(product?.times_posted || 0),
-        lastPostedAt: product?.last_posted_at || null,
-      }))
-    : undefined;
-
-  return {
-    authenticated: accountContext.authenticated === true,
-    profile: accountContext.profile || null,
-    summary: accountContext.summary || {},
-    connectedStores: safeArray(accountContext.connectedStores),
-    publishingConnections: safeArray(accountContext.publishingConnections),
-    connectedPlatforms: safeArray(accountContext.connectedPlatforms),
-    publishingAnalytics: accountContext.publishingAnalytics || {},
-    recentFailedCampaigns: safeArray(accountContext.recentFailedCampaigns).slice(0, 10),
-    recentCampaigns: safeArray(accountContext.recentCampaigns).slice(0, 8),
-    activeAutomations: safeArray(accountContext.activeAutomations).slice(0, 10),
-    failedAutomations: safeArray(accountContext.failedAutomations).slice(0, 10),
-    recentNotifications: safeArray(accountContext.recentNotifications).slice(0, 8),
-    newestProducts: safeArray(accountContext.newestProducts).slice(0, 20),
-    contextSources: accountContext.contextSources || {},
-    ...(compactProducts ? { products: compactProducts } : {}),
-  };
+  const includeProducts = visualSimilarityIntent || deepProductIntent;
+  const compactProducts = includeProducts ? safeArray(accountContext.products).slice(0,500).map((product)=>({
+    id:product?.id||null,title:cleanString(product?.title,220),description:deepProductIntent?cleanString(product?.description,700):undefined,
+    storeType:cleanString(product?.store_type,80)||null,storeName:cleanString(product?.store_name,120)||null,storeConnectionId:product?.store_connection_id||null,externalProductId:product?.external_product_id||null,
+    productUrl:deepProductIntent?cleanString(product?.product_url,600)||null:undefined,imageUrl:deepProductIntent?cleanString(product?.image_url,600)||null:undefined,price:product?.price??null,currency:cleanString(product?.currency,20)||null,status:cleanString(product?.status,80)||null,
+    metadata:deepProductIntent?(parseJsonValue(product?.metadata)||product?.metadata||null):undefined,timesPosted:Number(product?.times_posted||0),lastPostedAt:product?.last_posted_at||null,updatedAt:product?.updated_at||null
+  })) : undefined;
+  return {authenticated:accountContext.authenticated===true,profile:accountContext.profile||null,summary:accountContext.summary||{},connectedStores:safeArray(accountContext.connectedStores),publishingConnections:safeArray(accountContext.publishingConnections),connectedPlatforms:safeArray(accountContext.connectedPlatforms),publishingAnalytics:accountContext.publishingAnalytics||{},recentFailedCampaigns:safeArray(accountContext.recentFailedCampaigns).slice(0,10),recentCampaigns:safeArray(accountContext.recentCampaigns).slice(0,8),activeAutomations:safeArray(accountContext.activeAutomations).slice(0,10),failedAutomations:safeArray(accountContext.failedAutomations).slice(0,10),recentNotifications:safeArray(accountContext.recentNotifications).slice(0,8),newestProducts:safeArray(accountContext.newestProducts).slice(0,20),contextSources:accountContext.contextSources||{},...(compactProducts?{products:compactProducts}:{})};
 }
 
 function isTransientOpenAIRateLimit(error) {
@@ -616,7 +601,7 @@ async function loadAccountContext(userId) {
         supabase
           .from("products")
           .select(
-            "id,title,store_type,store_name,status,automation_enabled,times_posted,last_posted_at,created_at"
+            "id,title,description,store_type,store_name,store_connection_id,external_product_id,product_url,image_url,price,currency,status,metadata,automation_enabled,times_posted,last_posted_at,created_at,updated_at"
           )
           .eq("user_id", userId)
           .order("created_at", { ascending: false })
@@ -899,7 +884,7 @@ function validateActions(actions) {
   return safeArray(actions)
     .map((action) => {
       const actionId = cleanString(action?.id, 100);
-      const allowed = ALLOWED_ASSISTANT_ACTIONS[actionId];
+      const allowed = combinedAssistantActions()[actionId];
 
       if (!allowed) return null;
 
@@ -2063,6 +2048,15 @@ function consultantEvidence(payload, {
   };
 }
 
+// ARTBOOST_CONSULTANT_INTELLIGENCE_V16_5
+function combinedAssistantActions(){return {...ALLOWED_ASSISTANT_ACTIONS,...CONSULTANT_ROUTE_ACTIONS};}
+function contextualConsultantQuestion(question,conversation=[],stores=[]){
+  const current=cleanString(question,1200), q=current.toLowerCase();
+  const has=safeArray(stores).some(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&q.includes(n))); if(has)return current;
+  for(const m of safeArray(conversation).slice(-6).reverse()){const body=cleanString(m?.content,1200).toLowerCase();const hit=safeArray(stores).find(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&body.includes(n)));if(hit){const label=cleanString(hit?.name||hit?.type,120);if(label)return current+' [conversation store context: '+label+']';}} return current;
+}
+function routeNavigationAnswer(question){const x=findRouteForQuestion(question);if(!x)return null;return {answer:x.title+': '+x.purpose,steps:[],actions:validateActions([{id:x.actionId}]),followUps:[],usedAccountData:false,intelligenceSources:['artboost'],evidenceNote:'Based on the current ArtBoost app route registry.',confidence:'high',severity:'info'};}
+
 router.post("/assistant", async (req, res) => {
   try {
     const question = cleanString(req.body?.question, 1200);
@@ -2145,11 +2139,16 @@ router.post("/assistant", async (req, res) => {
     // This prevents market-comparison questions from being intercepted by generic store/support answers.
     const visualSimilarityIntent = /\b(?:similar|similarity|look(?:s|ed)?\s+(?:like|similar)|resembl|like\s+this|same\s+style|same\s+look|how\s+many.*(?:like|similar))\b/i.test(question) &&
       /\b(?:listing|listings|product|products|artwork|artworks|design|designs|painting|paintings|image|images|photo|photos|library)\b/i.test(question);
-    const marketResearchIntent = /\b(?:art\s+market|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales))\b/i.test(question);
+    const marketResearchIntent = /\b(?:art\s+market|art\s+marketing|marketing\s+(?:trend|trends|strategy|strategies|ideas)|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices|algorithm|rules|requirements)|latest|recent|right\s+now|this\s+(?:week|month|year)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|seo|hashtags?|algorithm|platform\s+(?:change|changes|update|updates|rules|requirements|best\s+practices)|etsy\s+(?:change|changes|update|updates|seo|trend|trends)|instagram\s+(?:change|changes|update|updates|trend|trends|marketing)|facebook\s+(?:change|changes|update|updates|trend|trends|marketing)|pinterest\s+(?:change|changes|update|updates|trend|trends|marketing)|tiktok\s+(?:change|changes|update|updates|trend|trends|marketing)|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales|market))\b/i.test(question);
+    const deepProductIntent=/\b(?:listing|listings|product|products|catalog|inventory|price|pricing|quantity|stock|image|images|url|link|healthy|health|active|inactive)\b/i.test(question)&&/\b(?:etsy|shopify|redbubble|artpal|gumroad|fine\s+art\s+america|store|shop|listing|product|catalog|inventory|all\s+\d+)\b/i.test(question);
+    const operationalQuestion=contextualConsultantQuestion(question,conversation,accountContext?.connectedStores);
+
+    const navigationAnswer=isConsultant?routeNavigationAnswer(question):null;
+    if(navigationAnswer){return res.json({success:true,...consultantEvidence(navigationAnswer,{defaultSources:['artboost'],evidenceNote:'Based on the current ArtBoost app route registry.',confidence:'high'})});}
 
     const operationalAnswer = isConsultant && !marketResearchIntent && !visualSimilarityIntent
       ? buildConsultantOperationalAnswer({
-          question,
+          question: operationalQuestion,
           accountContext,
           storeId: cleanString(req.body?.storeId, 120),
           dateRange: cleanString(req.body?.dateRange, 80),
@@ -2209,13 +2208,14 @@ router.post("/assistant", async (req, res) => {
       });
     }
 
-    const allowedActions = Object.entries(ALLOWED_ASSISTANT_ACTIONS).map(
+    const allowedActions = Object.entries(combinedAssistantActions()).map(
       ([id, action]) => ({ id, ...action })
     );
 
     const useWebResearch = isConsultant && marketResearchIntent;
     const modelAccountContext = buildModelAccountContext(accountContext, {
       visualSimilarityIntent,
+      deepProductIntent,
     });
     const openAIRequest = {
       model: isConsultant
@@ -2313,6 +2313,16 @@ Rules:
 
 OFFICIAL PRODUCT KNOWLEDGE:
 ${ARTBOOST_SUPPORT_KNOWLEDGE}
+
+CURRENT APP ROUTE REGISTRY:
+${JSON.stringify(routeRegistryForPrompt())}
+
+ROUTING AND EVIDENCE RULES:
+- If the user asks where a feature is or asks to open/navigate to it, use the matching canonical route action.
+- Never invent a route. Use only CURRENT APP ROUTE REGISTRY and ALLOWED ACTIONS.
+- If ArtBoost already has the requested data in LIVE ACCOUNT CONTEXT, answer from it instead of telling the user to manually inspect another screen.
+- Evidence priority: authenticated ArtBoost first-party data, connected provider/live integration data, current web research, then stable general art/marketing knowledge.
+- Preserve the store subject established by recent conversation for shorthand follow-ups such as "all 3", "those listings", "them", or "that store".
 
 ALLOWED ACTIONS:
 ${JSON.stringify(allowedActions)}

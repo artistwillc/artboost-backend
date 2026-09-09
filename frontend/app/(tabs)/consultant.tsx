@@ -56,6 +56,20 @@ const CANONICAL_ACTION_BASES: Record<string, string> = {
   open_faq: "/faq",
   open_subscription: "/(tabs)/pro",
   open_consultant_settings: "/consultant-settings",
+  open_home: "/(tabs)",
+  open_ai_consultant: "/(tabs)/consultant",
+  open_more: "/(tabs)/more",
+  open_connect_store: "/connect-store",
+  open_catalog_importer: "/catalog-importer",
+  open_product_url_import: "/catalog-import-urls",
+  open_csv_import: "/catalog-import-csv",
+  open_store_scanner: "/ai-store-scanner",
+  open_artpal_scanner: "/artpal-store-scanner",
+  open_saved_campaigns: "/saved",
+  open_notifications: "/notifications",
+  open_notification_settings: "/notification-settings",
+  open_store_dashboard: "/(tabs)/store-dashboard",
+  open_store_automation: "/store-automation",
 };
 
 type Message = {
