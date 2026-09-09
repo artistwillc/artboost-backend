@@ -1408,6 +1408,81 @@ function productMatchesStore(product, store) {
   );
 }
 
+function storeListingDetailsAnswer(question, accountContext) {
+  const q = text(question, 1600).toLowerCase();
+  const asksListings =
+    /\b(?:show|list|view|display|see|what|which|review|check)\b/.test(q) &&
+    /\b(?:listing|listings|product|products|catalog|inventory)\b/.test(q);
+
+  if (!asksListings) return null;
+
+  const store = storeMention(question, accountContext?.connectedStores);
+  if (!store) return null;
+
+  const label = storeLabel(store);
+  const products = arr(accountContext?.products)
+    .filter((product) => productMatchesStore(product, store))
+    .filter((product) => {
+      const status = text(product?.status, 80).toLowerCase();
+      return !["deleted", "archived"].includes(status);
+    });
+
+  if (!products.length) {
+    return {
+      answer: `I can verify ${label} is connected, but I do not have listing-level product records for it in the current ArtBoost account context.`,
+      steps: [],
+      actions: [SAFE_ACTIONS.library, SAFE_ACTIONS.connections],
+      followUps: [`Refresh my ${displayStoreTypeName(store?.type || store?.storeType) || "store"} connection.`],
+      usedAccountData: true,
+      severity: "warning",
+    };
+  }
+
+  const ordered = [...products].sort((a, b) =>
+    text(a?.title, 220).localeCompare(text(b?.title, 220))
+  );
+
+  const details = ordered.slice(0, 10).map((product, index) => {
+    const metadata = parseJson(product?.metadata) || product?.metadata || {};
+    const title = text(product?.title || "Untitled listing", 220);
+    const providerState = text(metadata?.state, 80).toLowerCase();
+    const productStatus = text(product?.status, 80).toLowerCase();
+    const state = providerState || productStatus || "status unavailable";
+    const priceValue = product?.price;
+    const currency = text(product?.currency, 20).toUpperCase();
+    const numericPrice = Number(priceValue);
+    const price = Number.isFinite(numericPrice)
+      ? `${currency === "USD" || !currency ? "$" : `${currency} `}${numericPrice.toFixed(2)}`
+      : "";
+    const quantity = metadata?.quantity;
+    const quantityText = Number.isFinite(Number(quantity)) ? `, qty ${Number(quantity)}` : "";
+    return `${index + 1}. ${title} — ${state}${price ? ` — ${price}` : ""}${quantityText}`;
+  });
+
+  const activeCount = ordered.filter((product) => {
+    const metadata = parseJson(product?.metadata) || product?.metadata || {};
+    const providerState = text(metadata?.state, 80).toLowerCase();
+    const productStatus = text(product?.status, 80).toLowerCase();
+    return (providerState || productStatus) === "active";
+  }).length;
+
+  const omitted = ordered.length > 10 ? ` I found ${ordered.length - 10} additional listings; open Library to view the rest.` : "";
+  const health = activeCount === ordered.length
+    ? ` All ${ordered.length} have an active state in the synchronized ArtBoost listing data.`
+    : ` ${activeCount} of ${ordered.length} currently have an active state in the synchronized ArtBoost listing data.`;
+
+  return {
+    answer: `${label} has ${ordered.length} imported listing${ordered.length === 1 ? "" : "s"} in ArtBoost. ${details.join("; ")}.${health}${omitted}`,
+    steps: [],
+    actions: [SAFE_ACTIONS.library],
+    followUps: [
+      `Which ${displayStoreTypeName(store?.type || store?.storeType) || "store"} listing should I promote next?`,
+      `Are all ${ordered.length} listings healthy?`,
+    ],
+    usedAccountData: true,
+    severity: activeCount === ordered.length ? "success" : "warning",
+  };
+}
 function productRecommendationAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
   const asksRecommendation =
@@ -1628,6 +1703,7 @@ export function buildConsultantOperationalAnswer({
     allStorePostingAnswer(question, accountContext, dateRange) ||
     remediationAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
+    storeListingDetailsAnswer(question, accountContext) ||
     productRecommendationAnswer(question, accountContext) ||
     connectionHealthAnswer(question, accountContext) ||
     null
