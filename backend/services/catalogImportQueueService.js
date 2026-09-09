@@ -40,6 +40,32 @@ const IMPORT_POLL_MS = Math.min(
 let workerStarted = false;
 let workerBusy = false;
 
+// ARTBOOST_GATEWAY_RETRY_TIKTOK_VIDEO_STUDIO_V1
+const TRANSIENT_INFRASTRUCTURE_ERROR =
+  /gateway timeout|upstream timeout|timeout|timed out|fetch failed|econnreset|econnrefused|socket hang up|502|503|504/i;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryTransient(label, operation, { attempts = 3, baseDelayMs = 750 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const retryable = TRANSIENT_INFRASTRUCTURE_ERROR.test(message);
+      if (!retryable || attempt >= attempts) throw error;
+      const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), 5000);
+      console.warn(`${label} transient failure (attempt ${attempt}/${attempts}); retrying in ${delayMs}ms: ${message}`);
+      await wait(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 function clean(value) {
   return String(
     value ?? ""
@@ -178,29 +204,29 @@ export async function getCatalogImportJob({
 }
 
 async function claimNextJob() {
-  const {
-    data,
-    error,
-  } = await supabase.rpc(
-    "claim_next_catalog_import_job",
-    {
-      p_worker_id:
-        IMPORT_WORKER_ID,
-      p_lock_seconds:
-        IMPORT_LOCK_SECONDS,
-    }
+  return retryTransient(
+    "Catalog import job claim",
+    async () => {
+      const { data, error } = await supabase.rpc(
+        "claim_next_catalog_import_job",
+        {
+          p_worker_id: IMPORT_WORKER_ID,
+          p_lock_seconds: IMPORT_LOCK_SECONDS,
+        }
+      );
+
+      if (error) {
+        throw new Error(
+          `Unable to claim catalog import job: ${error.message}`
+        );
+      }
+
+      return Array.isArray(data) && data.length > 0
+        ? data[0]
+        : null;
+    },
+    { attempts: 3, baseDelayMs: 750 }
   );
-
-  if (error) {
-    throw new Error(
-      `Unable to claim catalog import job: ${error.message}`
-    );
-  }
-
-  return Array.isArray(data) &&
-    data.length > 0
-    ? data[0]
-    : null;
 }
 
 async function updateJob(

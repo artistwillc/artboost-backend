@@ -32,6 +32,37 @@ const VALID_SELECTION_MODES = new Set([
   "random",
 ]);
 
+// ARTBOOST_GATEWAY_RETRY_TIKTOK_VIDEO_STUDIO_V1
+const TRANSIENT_AUTOMATION_INFRA_ERROR =
+  /gateway timeout|upstream timeout|timeout|timed out|fetch failed|econnreset|econnrefused|socket hang up|502|503|504/i;
+
+function automationWait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryAutomationInfrastructure(label, operation, { attempts = 3, baseDelayMs = 750 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!TRANSIENT_AUTOMATION_INFRA_ERROR.test(message) || attempt >= attempts) throw error;
+      const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), 5000);
+      console.warn(`${label} transient failure (attempt ${attempt}/${attempts}); retrying in ${delayMs}ms: ${message}`);
+      await automationWait(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function scheduledPlatforms(platforms) {
+  return (Array.isArray(platforms) ? platforms : [])
+    .map((platform) => String(platform || "").trim().toLowerCase())
+    .filter((platform) => platform && platform !== "tiktok");
+}
+
 function normalizeAutomation(row) {
   if (!row) {
     return null;
@@ -51,9 +82,9 @@ enabled: Boolean(row.enabled),
     postingTime: row.posting_time || "09:00:00",
     startDate: row.start_date || null,
     timezone: row.timezone || "America/Chicago",
-    platforms: Array.isArray(row.platforms)
-  ? row.platforms
-  : [],
+    // TikTok is intentionally excluded from generic recurring store automations.
+    // TikTok publishing is driven from Video Studio / a completed video.
+    platforms: scheduledPlatforms(row.platforms),
 
 facebookPageId:
   row.facebook_page_id || null,
@@ -451,36 +482,31 @@ export async function getAutomationById({
 export async function getEnabledAutomations({
   userId,
 } = {}) {
-  let query = supabase
-    .from("store_automations")
-    .select("*")
-    .eq("enabled", true)
-    .order("next_run_at", {
-      ascending: true,
-      nullsFirst: true,
-    });
+  const { data } = await retryAutomationInfrastructure(
+    "Load enabled automations",
+    async () => {
+      let query = supabase
+        .from("store_automations")
+        .select("*")
+        .eq("enabled", true)
+        .order("next_run_at", { ascending: true, nullsFirst: true });
 
-  if (userId) {
-    query = query.eq(
-      "user_id",
-      userId
-    );
-  }
+      if (userId) query = query.eq("user_id", userId);
 
-  const {
-    data,
-    error,
-  } = await query;
-
-  if (error) {
-    throw new Error(
-      `Unable to load enabled automations: ${error.message}`
-    );
-  }
-
-  return (data || []).map(
-    normalizeAutomation
+      const result = await query;
+      if (result.error) {
+        throw new Error(
+          `Unable to load enabled automations: ${result.error.message}`
+        );
+      }
+      return result;
+    },
+    { attempts: 3, baseDelayMs: 750 }
   );
+
+  return (data || [])
+    .map(normalizeAutomation)
+    .filter((item) => item && item.platforms.length > 0);
 }
 
 export async function getAutomationsReadyToRun({
@@ -645,17 +671,14 @@ export async function createOrUpdateAutomation({
     );
   }
 
-  const cleanPlatforms = [
-    ...new Set(
-      (platforms || [])
-        .map((platform) =>
-          String(platform)
-            .trim()
-            .toLowerCase()
-        )
-        .filter(Boolean)
-    ),
-  ];
+  const requestedPlatforms = scheduledPlatforms(platforms);
+  const cleanPlatforms = [...new Set(requestedPlatforms)];
+
+  if (enabled && cleanPlatforms.length === 0) {
+    throw new Error(
+      "Select at least one scheduled social platform. TikTok is published from Video Studio and is not part of recurring store automations."
+    );
+  }
 
   const parsedPostingIntervalDays =
     Math.max(
