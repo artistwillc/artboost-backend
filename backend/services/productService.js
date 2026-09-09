@@ -927,21 +927,19 @@ export async function getNextAutomationProduct({
   let products = [];
 
   if (storeId) {
-    const strictProducts =
-      await fetchProductPages({
-        boundStoreId:
-          String(storeId),
-      });
-
-    const unboundProducts =
-      await fetchProductPages({
-        unboundOnly: true,
-      });
-
     const [
+      strictProducts,
+      allUserProducts,
       universalConnections,
       legacyConnections,
     ] = await Promise.all([
+      fetchProductPages({
+        boundStoreId:
+          String(storeId),
+      }),
+      fetchProductPages({
+        allUserProducts: true,
+      }),
       fetchConnectionPages(
         "store_connections",
         "id,platform,store_name,store_url,connected"
@@ -952,6 +950,14 @@ export async function getNextAutomationProduct({
       ),
     ]);
 
+    // ARTBOOST_UNIVERSAL_STALE_STORE_BOUNDARY_REPAIR_20260909
+    // A product can be missing from the current connection even when its
+    // store_connection_id is NOT null. Old reconnect/import flows can leave
+    // rows bound to an inactive/stale connection ID. Treat only IDs belonging
+    // to a currently connected store as protected boundaries.
+    const activeStoreIds =
+      new Set();
+
     const sameTypeStoreIds =
       new Set();
 
@@ -959,6 +965,19 @@ export async function getNextAutomationProduct({
       const connection
       of universalConnections
     ) {
+      const connectionId =
+        connection?.id != null
+          ? String(connection.id)
+          : "";
+
+      if (!connectionId) {
+        continue;
+      }
+
+      activeStoreIds.add(
+        connectionId
+      );
+
       if (
         normalizeStoreType(
           connection?.platform
@@ -966,7 +985,7 @@ export async function getNextAutomationProduct({
         canonicalStoreType
       ) {
         sameTypeStoreIds.add(
-          String(connection.id)
+          connectionId
         );
       }
     }
@@ -975,6 +994,19 @@ export async function getNextAutomationProduct({
       const connection
       of legacyConnections
     ) {
+      const connectionId =
+        connection?.id != null
+          ? String(connection.id)
+          : "";
+
+      if (!connectionId) {
+        continue;
+      }
+
+      activeStoreIds.add(
+        connectionId
+      );
+
       if (
         normalizeStoreType(
           connection?.platform
@@ -982,13 +1014,16 @@ export async function getNextAutomationProduct({
         canonicalStoreType
       ) {
         sameTypeStoreIds.add(
-          String(connection.id)
+          connectionId
         );
       }
     }
 
-    // Always count the current store, even if a legacy
-    // connection table is temporarily incomplete.
+    // Always protect/count the currently selected store.
+    activeStoreIds.add(
+      String(storeId)
+    );
+
     sameTypeStoreIds.add(
       String(storeId)
     );
@@ -997,7 +1032,7 @@ export async function getNextAutomationProduct({
       sameTypeStoreIds.size === 1;
 
     const recoverableProducts =
-      unboundProducts.filter(
+      allUserProducts.filter(
         (product) => {
           if (
             normalizeStoreType(
@@ -1008,6 +1043,26 @@ export async function getNextAutomationProduct({
             return false;
           }
 
+          const productConnectionId =
+            product?.store_connection_id != null
+              ? String(
+                  product.store_connection_id
+                )
+              : "";
+
+          // Never steal a product from any currently connected store,
+          // including another store of the same marketplace.
+          if (
+            productConnectionId &&
+            activeStoreIds.has(
+              productConnectionId
+            )
+          ) {
+            return false;
+          }
+
+          // Null and stale/inactive connection IDs are recoverable only
+          // when attribution is safe.
           if (
             onlyConnectedStoreOfType
           ) {
@@ -1060,8 +1115,9 @@ export async function getNextAutomationProduct({
     products =
       [...productsById.values()];
 
-    // Repair only rows that were unbound and safely attributable
-    // to this store. Never reassign a row already bound elsewhere.
+    // Repair only orphaned rows: either unbound or pointing at a connection
+    // ID that is no longer active. Rows owned by any active store are excluded
+    // above and therefore can never enter this repair set.
     const repairIds =
       recoverableProducts
         .map(
@@ -1098,10 +1154,6 @@ export async function getNextAutomationProduct({
           "user_id",
           String(userId)
         )
-        .is(
-          "store_connection_id",
-          null
-        )
         .in(
           "id",
           batch
@@ -1109,7 +1161,7 @@ export async function getNextAutomationProduct({
 
       if (repairError) {
         console.warn(
-          "Universal store-boundary repair warning:",
+          "Universal stale store-boundary repair warning:",
           repairError.message
         );
       }
