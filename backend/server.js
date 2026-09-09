@@ -1182,7 +1182,7 @@ async function fetchAllActiveEtsyListings(shopId, accessToken) {
   return all;
 }
 
-app.post("/etsy/sync", async (req, res) => {
+app.post("/etsy/sync", express.json({ limit: "10mb" }), async (req, res) => {
   try {
     const userId =
       req.body?.userId ||
