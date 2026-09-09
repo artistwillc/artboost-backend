@@ -1408,9 +1408,174 @@ function productMatchesStore(product, store) {
   );
 }
 
+// ARTBOOST_CONSULTANT_DIAGNOSTICS_V16_5_1
+function compactConsultantListingTitle(value, max = 96) {
+  const raw = text(value || "Untitled listing", 260);
+  if (raw.length <= max) return raw;
+
+  const preview = raw.slice(0, max);
+  const comma = preview.lastIndexOf(", ");
+  const dash = preview.lastIndexOf(" — ");
+  const word = preview.lastIndexOf(" ");
+  const cut = Math.max(comma >= 48 ? comma : -1, dash >= 48 ? dash : -1, word >= 64 ? word : -1);
+  return (cut > 0 ? preview.slice(0, cut) : preview.slice(0, max - 1)).trim() + "…";
+}
+
+function storeDiagnosticMatch(record, store) {
+  if (!record || !store) return false;
+  const storeId = text(store?.id || store?.storeId, 180).toLowerCase();
+  const storeName = text(store?.name || store?.storeName, 180).toLowerCase();
+  const storeType = platformName(store?.type || store?.storeType);
+
+  const recordIds = [
+    record?.store_id,
+    record?.storeId,
+    record?.store_connection_id,
+    record?.storeConnectionId,
+  ].map((value) => text(value, 180).toLowerCase()).filter(Boolean);
+
+  const recordNames = [
+    record?.store_name,
+    record?.storeName,
+    record?.name,
+  ].map((value) => text(value, 180).toLowerCase()).filter(Boolean);
+
+  const recordTypes = [
+    record?.store_type,
+    record?.storeType,
+    record?.type,
+  ].map((value) => platformName(value)).filter(Boolean);
+
+  return Boolean(
+    (storeId && recordIds.includes(storeId)) ||
+    (storeName && recordNames.includes(storeName)) ||
+    (storeType && recordTypes.includes(storeType))
+  );
+}
+
+function storeNeedsAttentionAnswer(question, accountContext) {
+  const q = text(question, 1600).toLowerCase();
+  const asksAttention =
+    /\b(?:store|stores|shop|shops)\b/.test(q) &&
+    /\b(?:attention|issue|issues|problem|problems|wrong|error|errors|failing|failed|failure|health|healthy|unhealthy|needs?\s+attention|need\s+attention)\b/.test(q);
+
+  if (!asksAttention) return null;
+
+  const stores = arr(accountContext?.connectedStores);
+  if (!stores.length) {
+    return {
+      answer: "I do not currently see any connected stores in ArtBoost to diagnose.",
+      steps: [],
+      actions: [SAFE_ACTIONS.connections],
+      followUps: ["Open my Connections."],
+      usedAccountData: true,
+      severity: "info",
+    };
+  }
+
+  const externalSignals = arr(accountContext?.externalLive?.storeSignals);
+  const failedAutomations = arr(accountContext?.failedAutomations);
+  const activeAutomations = arr(accountContext?.activeAutomations);
+  const automationLogs = arr(accountContext?.automationLogs);
+  const recentFailures = arr(accountContext?.recentFailedCampaigns);
+
+  const diagnostics = stores.map((store) => {
+    const reasons = [];
+    const label = storeLabel(store);
+    const productCount = Number(store?.productCount || 0);
+
+    if (productCount === 0) reasons.push("no imported products are currently attributed to this store");
+
+    const signal = externalSignals.find((item) => storeDiagnosticMatch(item, store));
+    if (signal?.externalReachable === false) {
+      reasons.push("the latest provider-specific read-only check was not reachable");
+    }
+
+    const failed = failedAutomations.filter((item) => storeDiagnosticMatch(item, store));
+    for (const item of failed.slice(0, 2)) {
+      const error = text(item?.last_error || item?.error || item?.message, 220);
+      reasons.push(error ? `automation error: ${error}` : "a store automation is marked failed");
+    }
+
+    const activeWithError = activeAutomations.filter(
+      (item) => storeDiagnosticMatch(item, store) && text(item?.last_error, 220)
+    );
+    for (const item of activeWithError.slice(0, 2)) {
+      reasons.push(`automation warning: ${text(item?.last_error, 220)}`);
+    }
+
+    const failedLogs = automationLogs
+      .filter((item) => storeDiagnosticMatch(item, store))
+      .filter((item) => {
+        const status = text(item?.status, 80).toLowerCase();
+        const event = text(item?.event_type, 80).toLowerCase();
+        return ["failed", "error"].includes(status) || ["post_failed", "error"].includes(event);
+      })
+      .slice(0, 2);
+
+    for (const item of failedLogs) {
+      const err = text(item?.error_message || item?.message, 220);
+      reasons.push(err ? `recent publishing failure: ${err}` : "a recent publishing attempt failed");
+    }
+
+    const campaignFailures = recentFailures
+      .filter((item) => storeDiagnosticMatch(item, store))
+      .slice(0, 1);
+    for (const item of campaignFailures) {
+      const err = text(item?.error, 220);
+      reasons.push(err ? `campaign failure: ${err}` : "a recent campaign failed");
+    }
+
+    return { store, label, reasons: unique(reasons) };
+  });
+
+  const needingAttention = diagnostics.filter((item) => item.reasons.length > 0);
+
+  if (!needingAttention.length) {
+    return {
+      answer:
+        "None of your connected stores currently has a verified ArtBoost store-specific problem in the diagnostic data available to me. I checked connected-store catalog state, provider-specific store signals where available, store automation errors, and recent store-attributed publishing failures. This does not prove that every marketplace account has no external policy, search-ranking, sales, or visibility issue that ArtBoost cannot read.",
+      steps: [],
+      actions: [SAFE_ACTIONS.connections],
+      followUps: [
+        "Did all my stores post today?",
+        "Which social connection needs attention?",
+      ],
+      usedAccountData: true,
+      severity: "success",
+    };
+  }
+
+  const ranked = needingAttention
+    .sort((a, b) => b.reasons.length - a.reasons.length)
+    .slice(0, 6);
+
+  const summary = ranked
+    .map((item, index) => `${index + 1}. ${item.label}: ${item.reasons.join("; ")}`)
+    .join(" ");
+
+  return {
+    answer:
+      `These connected stores currently need attention based on verified ArtBoost store-specific signals: ${summary}`,
+    steps: [],
+    actions: [SAFE_ACTIONS.connections],
+    followUps: [
+      `What should I fix first for ${ranked[0].label}?`,
+      "Did all my stores post today?",
+    ],
+    usedAccountData: true,
+    severity: "warning",
+  };
+}
+
 function storeListingDetailsAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
+  const asksRecommendation =
+    /\b(?:which|what|recommend|recommendation|recommendations|choose|pick|should)\b/.test(q) &&
+    /\b(?:product|products|artwork|artworks|listing|listings|design|designs)\b/.test(q) &&
+    /\b(?:promote|promotion|market|marketing|post|feature|push|next|today)\b/.test(q);
   const asksListings =
+    !asksRecommendation &&
     /\b(?:show|list|view|display|see|what|which|review|check|healthy|health|good|active|status|verify)\b/.test(q) &&
     /\b(?:listing|listings|product|products|catalog|inventory)\b/.test(q);
   const asksHealth = /\b(?:healthy|health|good|active|status|verify|okay|ok)\b/.test(q);
@@ -1445,7 +1610,7 @@ function storeListingDetailsAnswer(question, accountContext) {
 
   const details = ordered.slice(0, 10).map((product, index) => {
     const metadata = parseJson(product?.metadata) || product?.metadata || {};
-    const title = text(product?.title || "Untitled listing", 220);
+    const title = compactConsultantListingTitle(product?.title || "Untitled listing");
     const providerState = text(metadata?.state, 80).toLowerCase();
     const productStatus = text(product?.status, 80).toLowerCase();
     const state = providerState || productStatus || "status unavailable";
@@ -1704,8 +1869,9 @@ export function buildConsultantOperationalAnswer({
     allStorePostingAnswer(question, accountContext, dateRange) ||
     remediationAnswer(question, accountContext, dateRange) ||
     failuresAnswer(question, accountContext, dateRange) ||
-    storeListingDetailsAnswer(question, accountContext) ||
+    storeNeedsAttentionAnswer(question, accountContext) ||
     productRecommendationAnswer(question, accountContext) ||
+    storeListingDetailsAnswer(question, accountContext) ||
     connectionHealthAnswer(question, accountContext) ||
     null
   );
