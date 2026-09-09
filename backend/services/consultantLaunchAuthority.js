@@ -1453,6 +1453,135 @@ function storeDiagnosticMatch(record, store) {
   );
 }
 
+// ARTBOOST_PUBLISHING_INTELLIGENCE_V16_5_2
+function logTime(log) {
+  const value = log?.created_at || log?.createdAt || log?.published_at || log?.publishedAt || null;
+  const d = value ? new Date(value) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.getTime() : null;
+}
+
+function logInRange(log, window) {
+  const t = logTime(log);
+  if (!t || !window?.start || !window?.end) return false;
+  return t >= window.start.getTime() && t < window.end.getTime();
+}
+
+function logPlatforms(log) {
+  const result = parseJson(log?.publish_result) || log?.publish_result || {};
+  const raw = [
+    ...arr(log?.platforms),
+    ...arr(result?.results).map((r) => r?.platform),
+    log?.platform,
+  ];
+  return unique(raw.map(platformName));
+}
+
+function publishingOutcome(log) {
+  const status = text(log?.status,80).toLowerCase();
+  const event = text(log?.event_type,80).toLowerCase();
+  const result = parseJson(log?.publish_result) || log?.publish_result || {};
+  if (event === "post_success" || status === "success" || Number(result?.successful) > 0) return "success";
+  if (event === "post_failed" || status === "failed" || status === "error") return "failed";
+  if (event === "post_skipped" || status === "skipped") return "skipped";
+  return "other";
+}
+
+function storeForLog(log, stores) {
+  return arr(stores).find((store) => storeDiagnosticMatch(log,store)) || null;
+}
+
+function publishingCrossCheckAnswer(question, accountContext, dateRange) {
+  const q=text(question,1600).toLowerCase();
+  const asksPublishing=/\b(?:post|posts|posted|posting|publish|published|publishing|failed|failure|failures|skipped|success|successful)\b/.test(q);
+  const asksCrossStore=/\b(?:all|every|which|what|store|stores|shop|shops|platform|platforms|social|facebook|instagram|pinterest|threads|linkedin|tiktok|\bx\b)\b/.test(q);
+  if(!asksPublishing || !asksCrossStore) return null;
+
+  const window=dateRange || resolveDateWindow(question, timezoneFor(accountContext));
+  if(!window) return null;
+
+  const stores=arr(accountContext?.connectedStores);
+  const logs=arr(accountContext?.automationLogs).filter((log)=>logInRange(log,window));
+  const rows=logs.map((log)=>({
+    log,
+    outcome:publishingOutcome(log),
+    platforms:logPlatforms(log),
+    store:storeForLog(log,stores),
+  }));
+
+  const successes=rows.filter((r)=>r.outcome==="success");
+  const failures=rows.filter((r)=>r.outcome==="failed");
+  const skipped=rows.filter((r)=>r.outcome==="skipped");
+
+  const asksAllStores=/\b(?:all|every)\s+(?:of\s+my\s+)?(?:connected\s+)?(?:store|stores|shop|shops)\b/.test(q) ||
+    /\bdid\s+all\s+my\s+stores\b/.test(q);
+
+  if(asksAllStores){
+    const perStore=stores.map((store)=>{
+      const matched=rows.filter((r)=>r.store && text(r.store?.id,160)===text(store?.id,160));
+      return {
+        store,
+        success:matched.some((r)=>r.outcome==="success"),
+        failed:matched.some((r)=>r.outcome==="failed"),
+        skipped:matched.some((r)=>r.outcome==="skipped"),
+        matched:matched.length,
+      };
+    });
+    const posted=perStore.filter((r)=>r.success);
+    const notVerified=perStore.filter((r)=>!r.success);
+    const answerPrefix=notVerified.length===0 && stores.length ? "Yes" : "No";
+    const postedText=posted.length?posted.map((r)=>storeLabel(r.store)).join(", "):"none";
+    const missingText=notVerified.length?notVerified.map((r)=>{
+      const reason=r.failed?"failed publishing evidence":r.skipped?"skipped publishing evidence":"no successful ArtBoost publishing record";
+      return `${storeLabel(r.store)} (${reason})`;
+    }).join("; "):"none";
+    return {
+      answer:`${answerPrefix} — for ${window.label}, successful ArtBoost publishing is verified for: ${postedText}. Not verified as successfully posted: ${missingText}. I checked the authenticated store automation/publishing records inside the requested time window; I am not treating a connected social account by itself as proof that a store posted.`,
+      steps:[],
+      actions:[publishingHistoryAction({window,failures:notVerified.length>0})],
+      followUps:["Show the failed or skipped posts.","Which platforms posted successfully?"],
+      usedAccountData:true,
+      severity:notVerified.length?"warning":"success",
+    };
+  }
+
+  const namedPlatform=["instagram","facebook","pinterest","threads","linkedin","tiktok","x"].find((x)=>q.includes(x));
+  if(namedPlatform){
+    const matched=rows.filter((r)=>r.platforms.includes(namedPlatform));
+    const ok=matched.filter((r)=>r.outcome==="success");
+    const bad=matched.filter((r)=>r.outcome==="failed"||r.outcome==="skipped");
+    return {
+      answer:`${ok.length?"Yes":"Unable to verify"} — for ${window.label}, ArtBoost has ${ok.length} successful ${displayPlatformName(namedPlatform)} publishing record${ok.length===1?"":"s"} and ${bad.length} failed/skipped record${bad.length===1?"":"s"} in the authenticated publishing log.`,
+      steps:[],
+      actions:[publishingHistoryAction({window,platform:namedPlatform,failures:bad.length>0})],
+      followUps:["Which stores produced those posts?","Show the failed or skipped posts."],
+      usedAccountData:true,
+      severity:bad.length?"warning":ok.length?"success":"info",
+    };
+  }
+
+  if(/\b(?:failed|failures|skipped|failure)\b/.test(q)){
+    const bad=[...failures,...skipped].sort((a,b)=>(logTime(b.log)||0)-(logTime(a.log)||0));
+    if(!bad.length) return {
+      answer:`I found no failed or skipped ArtBoost automation publishing records for ${window.label}.`,
+      steps:[],actions:[publishingHistoryAction({window,failures:true})],
+      followUps:["Did all my stores post in that period?"],usedAccountData:true,severity:"success"
+    };
+    const details=bad.slice(0,8).map((r,i)=>{
+      const store=r.store?storeLabel(r.store):"Unattributed store";
+      const plats=r.platforms.length?r.platforms.map(displayPlatformName).join("/"):"platform unavailable";
+      const msg=text(r.log?.error_message||r.log?.message,150)||r.outcome;
+      return `${i+1}. ${store} → ${plats}: ${msg}`;
+    }).join(" ");
+    return {
+      answer:`For ${window.label}, I found ${failures.length} failed and ${skipped.length} skipped ArtBoost publishing record${failures.length+skipped.length===1?"":"s"}. ${details}`,
+      steps:[],actions:[publishingHistoryAction({window,failures:true})],
+      followUps:["What should I fix first?","Which stores posted successfully?"],usedAccountData:true,severity:"warning"
+    };
+  }
+
+  return null;
+}
+
 function storeNeedsAttentionAnswer(question, accountContext) {
   const q = text(question, 1600).toLowerCase();
   const asksAttention =
@@ -1863,6 +1992,7 @@ export function buildConsultantOperationalAnswer({
   // 3) time-scoped scheduler failures/skips outrank legacy lifetime summaries;
   // 4) product recommendations are grounded in verified imported product history.
   return (
+    publishingCrossCheckAnswer(question, accountContext, dateRange) ||
     schedulerDiagnosticAnswer(question, accountContext, dateRange) ||
     oneStorePostingAnswer(question, accountContext, dateRange) ||
     platformScopedSchedulerAnswer(question, accountContext, dateRange) ||
