@@ -854,15 +854,31 @@ export async function getNextAutomationProduct({
     return null;
   }
 
+  // ARTBOOST_REPEAT_DELAY_TRUE_POST_HISTORY_20260909
+  // A product is inside the repeat-delay window only when ArtBoost has a
+  // real successful-post history for that individual product. Older imports
+  // can contain a last_posted_at value even though times_posted is still 0.
+  // Treat those rows as never posted instead of excluding the whole catalog.
   const eligibleProducts =
-    availableProducts.filter((product) =>
-      isAutomationProductEligibleByRepeatDelay({
-        lastPostedAt: product.last_posted_at,
+    availableProducts.filter((product) => {
+      const timesPosted =
+        Math.max(
+          Number(product.times_posted) || 0,
+          0
+        );
+
+      const trueLastPostedAt =
+        timesPosted > 0
+          ? product.last_posted_at
+          : null;
+
+      return isAutomationProductEligibleByRepeatDelay({
+        lastPostedAt: trueLastPostedAt,
         repeatDelayDays: parsedRepeatDelayDays,
         timeZone: timezone,
         now: new Date(),
-      })
-    );
+      });
+    });
 
   /*
    * If every product is still inside the repeat-delay
@@ -884,9 +900,11 @@ export async function getNextAutomationProduct({
     ...eligibleProducts,
   ].sort((productA, productB) => {
     const productANeverPosted =
+      (Number(productA.times_posted) || 0) <= 0 ||
       !productA.last_posted_at;
 
     const productBNeverPosted =
+      (Number(productB.times_posted) || 0) <= 0 ||
       !productB.last_posted_at;
 
     /*
@@ -1024,3 +1042,4 @@ export async function markProductAsPosted({
 
   return updatedProduct;
 }
+
