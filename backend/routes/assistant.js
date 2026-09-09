@@ -2052,8 +2052,40 @@ function consultantEvidence(payload, {
 function combinedAssistantActions(){return {...ALLOWED_ASSISTANT_ACTIONS,...CONSULTANT_ROUTE_ACTIONS};}
 function contextualConsultantQuestion(question,conversation=[],stores=[]){
   const current=cleanString(question,1200), q=current.toLowerCase();
-  const has=safeArray(stores).some(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&q.includes(n))); if(has)return current;
-  for(const m of safeArray(conversation).slice(-6).reverse()){const body=cleanString(m?.content,1200).toLowerCase();const hit=safeArray(stores).find(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&body.includes(n)));if(hit){const label=cleanString(hit?.name||hit?.type,120);if(label)return current+' [conversation store context: '+label+']';}} return current;
+  const recent=safeArray(conversation).slice(-8);
+  const explicitStore=safeArray(stores).some(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&q.includes(n)));
+
+  let inheritedStore="";
+  if(!explicitStore){
+    for(const m of [...recent].reverse()){
+      const body=cleanString(m?.content,1200).toLowerCase();
+      const hit=safeArray(stores).find(s=>[s?.name,s?.type].map(x=>cleanString(x,120).toLowerCase()).filter(Boolean).some(n=>n.length>=3&&body.includes(n)));
+      if(hit){inheritedStore=cleanString(hit?.name||hit?.type,120);break;}
+    }
+  }
+
+  const explicitWindow=/\b(?:today|yesterday|this\s+week|last\s+7\s+days|past\s+7\s+days|this\s+month|last\s+30\s+days|past\s+30\s+days|all\s+time)\b/i.test(current);
+  const followUpLike=/^(?:show|which|what|why|how|did|were|was|are|review|check|open|fix|create|promote)\b/i.test(current) ||
+    /\b(?:those|them|that|the\s+failed|the\s+skipped|failed\s+or\s+skipped|these)\b/i.test(current);
+
+  let inheritedWindow="";
+  if(!explicitWindow && followUpLike){
+    for(const m of [...recent].reverse()){
+      if(m?.role!=="user") continue;
+      const body=cleanString(m?.content,1200).toLowerCase();
+      if(/\btoday\b/.test(body)){inheritedWindow="today";break;}
+      if(/\byesterday\b/.test(body)){inheritedWindow="yesterday";break;}
+      if(/\bthis\s+week\b/.test(body)){inheritedWindow="this week";break;}
+      if(/\b(?:last|past)\s+7\s+days\b/.test(body)){inheritedWindow="last 7 days";break;}
+      if(/\bthis\s+month\b/.test(body)){inheritedWindow="this month";break;}
+      if(/\b(?:last|past)\s+30\s+days\b/.test(body)){inheritedWindow="last 30 days";break;}
+    }
+  }
+
+  const annotations=[];
+  if(inheritedStore) annotations.push("conversation store context: "+inheritedStore);
+  if(inheritedWindow) annotations.push("conversation date context: "+inheritedWindow);
+  return annotations.length ? current+" ["+annotations.join("; ")+"]" : current;
 }
 function routeNavigationAnswer(question){const x=findRouteForQuestion(question);if(!x)return null;return {answer:x.title+': '+x.purpose,steps:[],actions:validateActions([{id:x.actionId}]),followUps:[],usedAccountData:false,intelligenceSources:['artboost'],evidenceNote:'Based on the current ArtBoost app route registry.',confidence:'high',severity:'info'};}
 
@@ -2142,6 +2174,8 @@ router.post("/assistant", async (req, res) => {
     const marketResearchIntent = /\b(?:art\s+market|art\s+marketing|marketing\s+(?:trend|trends|strategy|strategies|ideas)|market\s+(?:look|demand|trend|trends|outlook)|current\s+(?:market|trend|trends|demand|pricing|prices|algorithm|rules|requirements)|latest|recent|right\s+now|this\s+(?:week|month|year)|trending|trend|buyer\s+demand|buyers\s+(?:want|buying)|selling\s+(?:now|right\s+now)|what\s+(?:is|s)\s+selling|comparable(?:s|\s+sales|\s+prices)?|marketplace\s+opportunit|seo|hashtags?|algorithm|platform\s+(?:change|changes|update|updates|rules|requirements|best\s+practices)|etsy\s+(?:change|changes|update|updates|seo|trend|trends)|instagram\s+(?:change|changes|update|updates|trend|trends|marketing)|facebook\s+(?:change|changes|update|updates|trend|trends|marketing)|pinterest\s+(?:change|changes|update|updates|trend|trends|marketing)|tiktok\s+(?:change|changes|update|updates|trend|trends|marketing)|(?:best|what|which)\s+(?:marketplace|site|platform).*(?:sell|sale|sales|market))\b/i.test(question);
     const deepProductIntent=/\b(?:listing|listings|product|products|catalog|inventory|price|pricing|quantity|stock|image|images|url|link|healthy|health|active|inactive)\b/i.test(question)&&/\b(?:etsy|shopify|redbubble|artpal|gumroad|fine\s+art\s+america|store|shop|listing|product|catalog|inventory|all\s+\d+)\b/i.test(question);
     const operationalQuestion=contextualConsultantQuestion(question,conversation,accountContext?.connectedStores);
+    const inheritedDateMatch=operationalQuestion.match(/\[.*conversation date context:\s*([^;\]]+)/i);
+    const operationalDateRange=cleanString(req.body?.dateRange,80) || cleanString(inheritedDateMatch?.[1],80);
 
     const navigationAnswer=isConsultant?routeNavigationAnswer(question):null;
     if(navigationAnswer){return res.json({success:true,...consultantEvidence(navigationAnswer,{defaultSources:['artboost'],evidenceNote:'Based on the current ArtBoost app route registry.',confidence:'high'})});}
@@ -2151,7 +2185,7 @@ router.post("/assistant", async (req, res) => {
           question: operationalQuestion,
           accountContext,
           storeId: cleanString(req.body?.storeId, 120),
-          dateRange: cleanString(req.body?.dateRange, 80),
+          dateRange: operationalDateRange,
         })
       : null;
 
