@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   ActivityIndicator,
@@ -122,6 +123,78 @@ export default function StoreDashboardScreen() {
 
   const [syncing, setSyncing] =
     useState(false);
+
+  // ARTBOOST_STORE_DASHBOARD_EXACT_COUNT_V16_7
+  // Never trust a route-carried product count as the authoritative dashboard
+  // metric. Refresh the selected store's exact count from the same authenticated
+  // /products endpoint used by Store Products, scoped by storeId + storeType.
+  const refreshExactProductCount = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const user = session?.user || null;
+      if (!user) return;
+
+      const query = new URLSearchParams({
+        userId: user.id,
+        storeType: String(storeType || "").trim().toLowerCase(),
+        limit: "1",
+        offset: "0",
+      });
+
+      if (storeId) {
+        query.set("storeId", storeId);
+      }
+
+      const headers = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : ({} as Record<string, string>);
+
+      const response = await fetch(
+        `${API_BASE}/products?${query.toString()}`,
+        { headers }
+      );
+
+      const responseText = await response.text();
+      let data: any = {};
+
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        console.log(
+          "Store Dashboard exact-count response was not valid JSON:",
+          response.status
+        );
+        return;
+      }
+
+      if (!response.ok || data?.success !== true) {
+        console.log(
+          "Store Dashboard exact-count refresh unavailable:",
+          data?.details || data?.error || response.status
+        );
+        return;
+      }
+
+      const exactCount = Number(data?.total);
+      if (Number.isFinite(exactCount) && exactCount >= 0) {
+        setProductCount(exactCount);
+      }
+    } catch (error) {
+      console.log(
+        "Store Dashboard exact-count refresh failed:",
+        error instanceof Error ? error.message : error
+      );
+    }
+  }, [storeId, storeType]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshExactProductCount();
+    }, [refreshExactProductCount])
+  );
 
   const connected =
     params.connected === undefined ||
