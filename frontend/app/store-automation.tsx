@@ -411,15 +411,89 @@ export default function StoreAutomationScreen() {
   const storeType =
     params.storeType || "store";
 
-  const productCount = useMemo(() => {
-    const count = Number(
-      params.productCount
-    );
-
-    return Number.isNaN(count)
-      ? 0
-      : count;
+  // ARTBOOST_SHARED_IOS_ANDROID_AUTOMATION_FIX_V16_8
+  // Shared Expo/React Native logic for iOS and Android. The route count is
+  // only an initial paint value; authoritative store count comes from the
+  // authenticated, store-scoped products endpoint.
+  const initialProductCount = useMemo(() => {
+    const count = Number(params.productCount);
+    return Number.isNaN(count) ? 0 : count;
   }, [params.productCount]);
+
+  const [productCount, setProductCount] =
+    useState(initialProductCount);
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshStoreProductCount() {
+      if (!storeId) return;
+
+      try {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session?.user?.id) {
+          return;
+        }
+
+        const query = new URLSearchParams({
+          userId: session.user.id,
+          storeType: String(storeType || "").trim().toLowerCase(),
+          limit: "1",
+          offset: "0",
+        });
+        query.set("storeId", storeId);
+
+        const response = await fetch(
+          `${API_BASE}/products?${query.toString()}`,
+          {
+            headers: session.access_token
+              ? {
+                  Authorization:
+                    `Bearer ${session.access_token}`,
+                }
+              : {},
+          }
+        );
+
+        const responseText = await response.text();
+        let data: any = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          return;
+        }
+
+        const exactCount = Number(data?.total);
+        if (
+          active &&
+          response.ok &&
+          data?.success === true &&
+          Number.isFinite(exactCount) &&
+          exactCount >= 0
+        ) {
+          setProductCount(exactCount);
+        }
+      } catch (error) {
+        console.log(
+          "Store Automation product-count refresh failed:",
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+
+    void refreshStoreProductCount();
+
+    return () => {
+      active = false;
+    };
+  }, [storeId, storeType]);
 
   const platformLabel =
     useMemo(
@@ -1059,25 +1133,36 @@ if (
         setLoadingPinterestBoards(true);
         setPinterestBoardsError("");
 
+        // Shared authenticated Pinterest-board path for both iOS and Android.
+        // Use the same Supabase session/user ID and bearer token on both platforms.
         const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-        if (userError) {
-          throw new Error(
-            userError.message
-          );
+        if (sessionError) {
+          throw new Error(sessionError.message);
         }
 
-        if (!user?.id) {
+        const pinterestUserId =
+          session?.user?.id || "";
+
+        if (!pinterestUserId) {
           throw new Error(
             "Pinterest boards require a signed-in ArtBoost account."
           );
         }
 
         const response = await fetch(
-          `${API_BASE}/pinterest/boards?userId=${encodeURIComponent(user.id)}&ts=${Date.now()}`
+          `${API_BASE}/pinterest/boards?userId=${encodeURIComponent(pinterestUserId)}&ts=${Date.now()}`,
+          {
+            headers: session?.access_token
+              ? {
+                  Authorization:
+                    `Bearer ${session.access_token}`,
+                }
+              : {},
+          }
         );
 
         const responseText =
