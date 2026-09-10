@@ -7,13 +7,65 @@ let running = false;
 let timer = null;
 let processing = false;
 
+// ARTBOOST_VIDEO_QUEUE_TRANSIENT_RETRY_20260909
+// Supabase/PostgREST can occasionally return a transient 502/503/504 while
+// the worker is claiming the next job. A claim failure does NOT mean a user's
+// video job failed, so retry locally and leave the job untouched if the
+// infrastructure is temporarily unavailable.
+const TRANSIENT_VIDEO_QUEUE_CLAIM_ERROR =
+  /gateway timeout|upstream timeout|timeout|timed out|fetch failed|econnreset|econnrefused|socket hang up|\b502\b|\b503\b|\b504\b/i;
+
+function videoQueueWait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function claimNextVideoJobWithRetry({
+  attempts = 3,
+  baseDelayMs = 750,
+} = {}) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await claimNextVideoJob();
+    } catch (error) {
+      lastError = error;
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error);
+
+      if (!TRANSIENT_VIDEO_QUEUE_CLAIM_ERROR.test(message)) {
+        throw error;
+      }
+
+      if (attempt < attempts) {
+        const delayMs = Math.min(
+          baseDelayMs * 2 ** (attempt - 1),
+          5000
+        );
+        console.warn(
+          `Video Studio queue claim transient failure (attempt ${attempt}/${attempts}); retrying in ${delayMs}ms: ${message}`
+        );
+        await videoQueueWait(delayMs);
+      }
+    }
+  }
+
+  console.warn(
+    "Video Studio queue claim skipped after transient infrastructure failures; the job remains queued for the next poll:",
+    lastError instanceof Error ? lastError.message : String(lastError)
+  );
+  return null;
+}
+
 async function processOne() {
   if (processing) return;
   processing = true;
   let job = null;
   let heartbeatTimer = null;
   try {
-    job = await claimNextVideoJob();
+    job = await claimNextVideoJobWithRetry();
     if (!job) return;
     videoMemorySnapshot("job_claimed", { jobId: job.id });
     heartbeatTimer = setInterval(() => {

@@ -651,6 +651,12 @@ export async function getNextAutomationProduct({
     0
   );
 
+  // ARTBOOST_AUTOMATION_DIAGNOSTIC_OPT_IN_20260909
+  // Keep the proven diagnostic available for support without emitting user,
+  // store, catalog, and posting-history details on every normal preview.
+  const automationSelectionDiagnosticEnabled =
+    process.env.ARTBOOST_AUTOMATION_SELECTION_DIAGNOSTIC === "true";
+
   const automationSelectionDiagnostic = {
     marker: "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC_20260909",
     userId: String(userId),
@@ -1303,10 +1309,12 @@ export async function getNextAutomationProduct({
     automationSelectionDiagnostic.availableProducts = 0;
     automationSelectionDiagnostic.result =
       "NO_AVAILABLE_PRODUCTS_BEFORE_HISTORY";
-    console.log(
-      "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
-      JSON.stringify(automationSelectionDiagnostic)
-    );
+    if (automationSelectionDiagnosticEnabled) {
+      console.log(
+        "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
+        JSON.stringify(automationSelectionDiagnostic)
+      );
+    }
     return null;
   }
 
@@ -1538,10 +1546,12 @@ export async function getNextAutomationProduct({
       ? "ELIGIBLE_PRODUCT_FOUND"
       : "NO_ELIGIBLE_PRODUCT_AFTER_HISTORY";
 
-  console.log(
-    "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
-    JSON.stringify(automationSelectionDiagnostic)
-  );
+  if (automationSelectionDiagnosticEnabled) {
+    console.log(
+      "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
+      JSON.stringify(automationSelectionDiagnostic)
+    );
+  }
 
   if (
     eligibleProducts.length === 0
