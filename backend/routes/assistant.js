@@ -30,6 +30,7 @@ import {
   isLaunchSmokeTestQuestion,
   runStrictAuthLaunchSmokeTest,
 } from "../services/launchSmokeTestService.js";
+import { buildStorePublishingActivityAnswer } from "../services/consultantPublishingActivity.js";
 // ARTBOOST_STRICT_AUTH_LAUNCH_SMOKE_TEST_V13_9
 // ARTBOOST_CONSULTANT_LAUNCH_AUTHORITY_V13
 
@@ -1124,6 +1125,24 @@ function deterministicAccountAnswer(question, accountContext) {
   const q = cleanString(question, 1200).toLowerCase();
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
+
+  // ARTBOOST_CONSULTANT_PUBLISHING_ACTIVITY_FIX_V16_6
+  // Resolve store + publishing + explicit time-window questions before generic
+  // social-connection counting so "stores posted today" can never collapse into
+  // "how many social platforms are connected."
+  const storePublishingActivity = buildStorePublishingActivityAnswer(
+    question,
+    accountContext
+  );
+  if (storePublishingActivity) {
+    return {
+      ...storePublishingActivity,
+      actions: validateActions(
+        (storePublishingActivity.actionIds || []).map((id) => ({ id }))
+      ),
+      actionIds: undefined,
+    };
+  }
 
   // ARTBOOST_CONSULTANT_PRODUCT_RECOMMENDATION_V1
   if (
