@@ -1,2 +1,8 @@
 node_modules
 .env
+# ARTBOOST_REPOSITORY_BACKUP_HARDENING_V1
+backupbackendserverjs.js
+server.js.*-backup
+server.js.*-backup*
+*.bak
+*.backup
