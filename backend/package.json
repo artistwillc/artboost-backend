@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js"
+    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js",
+    "test:automation-regression": "node tests/automation-repeat-delay-regression.js"
   },
   "keywords": [],
   "author": "",
@@ -22,7 +23,7 @@
     "express": "^5.2.1",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
-    "multer": "^2.2.0",
+    "multer": "2.3.0",
     "oauth-1.0a": "^2.2.6",
     "openai": "^6.37.0",
     "qs": "^6.16.0",
