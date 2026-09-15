@@ -22,16 +22,13 @@ export function applySecurityHeaders(_req, res, next) {
     "camera=(), microphone=(), geolocation=()"
   );
 
-  if (
-    String(process.env.NODE_ENV || "")
-      .trim()
-      .toLowerCase() === "production"
-  ) {
-    res.setHeader(
-      "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains"
-    );
-  }
+  // ARTBOOST_HSTS_FAIL_CLOSED_V1_20260915
+  // HSTS is safe to emit consistently; browsers ignore it when received over plain HTTP.
+  // Do not make production transport protection depend on NODE_ENV being configured correctly.
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains"
+  );
 
   next();
 }
