@@ -28,12 +28,32 @@ function bearerToken(req) {
   return match ? clean(match[1]) : "";
 }
 
-export function strictAuthEnabled() {
-  return String(
-    process.env.ARTBOOST_REQUIRE_AUTH || ""
+// ARTBOOST_PRODUCTION_AUTH_FAIL_CLOSED_V1_20260915
+// Production must never silently fall back to caller-supplied userId identity.
+// Legacy compatibility is available only when explicitly disabled outside production.
+export function strictAuthEnabled(env = process.env) {
+  const configured = String(
+    env.ARTBOOST_REQUIRE_AUTH ?? ""
   )
     .trim()
-    .toLowerCase() === "true";
+    .toLowerCase();
+
+  const nodeEnv = String(
+    env.NODE_ENV ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (nodeEnv === "production") {
+    return true;
+  }
+
+  if (configured === "false") {
+    return false;
+  }
+
+  // Fail closed by default. Local legacy testing must explicitly opt out.
+  return true;
 }
 
 /**
