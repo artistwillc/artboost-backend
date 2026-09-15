@@ -66,6 +66,39 @@ async function retryTransient(label, operation, { attempts = 3, baseDelayMs = 75
   throw lastError;
 }
 
+// ARTBOOST_QUEUE_CLAIM_OBSERVABILITY_20260915_V2
+async function observeCatalogImportClaim(operation) {
+  const startedAt = Date.now();
+  try {
+    const result = await operation();
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 5000) {
+      console.warn("Catalog import queue claim slow:", {
+        provider: "supabase_postgrest_rpc",
+        rpc: "claim_next_catalog_import_job",
+        elapsedMs,
+        outcome: "success",
+      });
+    }
+    return result;
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Catalog import queue claim diagnostic:", {
+      provider: "supabase_postgrest_rpc",
+      rpc: "claim_next_catalog_import_job",
+      elapsedMs,
+      outcome: "error",
+      message,
+      status: error?.status ?? error?.statusCode ?? null,
+      code: error?.code ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null,
+    });
+    throw error;
+  }
+}
+
 function clean(value) {
   return String(
     value ?? ""
@@ -207,12 +240,14 @@ async function claimNextJob() {
   return retryTransient(
     "Catalog import job claim",
     async () => {
-      const { data, error } = await supabase.rpc(
-        "claim_next_catalog_import_job",
-        {
-          p_worker_id: IMPORT_WORKER_ID,
-          p_lock_seconds: IMPORT_LOCK_SECONDS,
-        }
+      const { data, error } = await observeCatalogImportClaim(
+        () => supabase.rpc(
+          "claim_next_catalog_import_job",
+          {
+            p_worker_id: IMPORT_WORKER_ID,
+            p_lock_seconds: IMPORT_LOCK_SECONDS,
+          }
+        )
       );
 
       if (error) {

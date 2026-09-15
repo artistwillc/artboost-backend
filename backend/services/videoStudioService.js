@@ -350,18 +350,53 @@ export async function getVideoJob({ userId, jobId }) {
   return data;
 }
 
+// ARTBOOST_QUEUE_CLAIM_OBSERVABILITY_20260915_V2
+async function observeVideoStudioClaim(operation) {
+  const startedAt = Date.now();
+  try {
+    const result = await operation();
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 5000) {
+      console.warn("Video Studio queue claim slow:", {
+        provider: "supabase_postgrest_rpc",
+        rpc: "claim_next_video_job",
+        elapsedMs,
+        outcome: "success",
+      });
+    }
+    return result;
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Video Studio queue claim diagnostic:", {
+      provider: "supabase_postgrest_rpc",
+      rpc: "claim_next_video_job",
+      elapsedMs,
+      outcome: "error",
+      message,
+      status: error?.status ?? error?.statusCode ?? null,
+      code: error?.code ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null,
+    });
+    throw error;
+  }
+}
+
 export async function claimNextVideoJob() {
   const {
     data,
     error,
-  } = await supabase.rpc(
-    "claim_next_video_job",
-    {
-      p_worker_id:
-        VIDEO_STUDIO_WORKER_ID,
-      p_lock_seconds:
-        VIDEO_STUDIO_LOCK_SECONDS,
-    }
+  } = await observeVideoStudioClaim(
+    () => supabase.rpc(
+      "claim_next_video_job",
+      {
+        p_worker_id:
+          VIDEO_STUDIO_WORKER_ID,
+        p_lock_seconds:
+          VIDEO_STUDIO_LOCK_SECONDS,
+      }
+    )
   );
 
   if (error) {
