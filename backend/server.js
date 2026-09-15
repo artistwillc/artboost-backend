@@ -320,19 +320,20 @@ const PINTEREST_API_BASE = String(
 ).trim().replace(/\/+$/, "");
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
 const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
+// ARTBOOST_OAUTH_CALLBACK_CANONICAL_DOMAIN_V1_20260915
 const PINTEREST_REDIRECT_URI =
   process.env.PINTEREST_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/pinterest/callback";
+  "https://artboostai.com/auth/pinterest/callback";
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
 const INSTAGRAM_REDIRECT_URI =
   process.env.INSTAGRAM_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/instagram/callback";
+  "https://artboostai.com/auth/instagram/callback";
 const THREADS_APP_ID = process.env.THREADS_APP_ID;
 const THREADS_APP_SECRET = process.env.THREADS_APP_SECRET;
 const THREADS_REDIRECT_URI =
   process.env.THREADS_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/threads/callback";
+  "https://artboostai.com/auth/threads/callback";
 const THREADS_API_BASE =
   process.env.THREADS_API_BASE ||
   "https://graph.threads.net/v1.0";
@@ -340,7 +341,7 @@ const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
 const LINKEDIN_REDIRECT_URI =
   process.env.LINKEDIN_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/linkedin/callback";
+  "https://artboostai.com/auth/linkedin/callback";
 const LINKEDIN_SCOPES =
   process.env.LINKEDIN_SCOPES ||
   "openid profile email w_member_social";
@@ -348,7 +349,7 @@ const X_CLIENT_ID = process.env.X_CLIENT_ID;
 const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET;
 const X_REDIRECT_URI =
   process.env.X_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/x/callback";
+  "https://artboostai.com/auth/x/callback";
 const X_SCOPES =
   process.env.X_SCOPES ||
   "tweet.read tweet.write users.read offline.access media.write";
@@ -358,7 +359,7 @@ const SHOPIFY_SCOPES =
   process.env.SHOPIFY_SCOPES || "read_products";
 const SHOPIFY_REDIRECT_URI =
   process.env.SHOPIFY_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/shopify/callback";
+  "https://artboostai.com/auth/shopify/callback";
 const SHOPIFY_API_VERSION =
   process.env.SHOPIFY_API_VERSION || "2026-07";
   const ETSY_API_KEY =
@@ -369,7 +370,7 @@ const ETSY_SHARED_SECRET =
 
 const ETSY_REDIRECT_URI =
   process.env.ETSY_REDIRECT_URI ||
-  "https://artboost-ai.onrender.com/auth/etsy/callback";
+  "https://artboostai.com/auth/etsy/callback";
 
   function createEtsyState(userId) {
   const payload = {
@@ -6443,7 +6444,7 @@ app.get("/facebook/debug-auth-url", (req, res) => {
     process.env.FACEBOOK_APP_ID;
 
   const REDIRECT_URI =
-    "https://artboost-ai.onrender.com/auth/facebook/callback";
+    "https://artboostai.com/auth/facebook/callback";
 
   const url =
     `https://www.facebook.com/v23.0/dialog/oauth` +
@@ -6475,7 +6476,7 @@ app.get("/auth/facebook/callback", async (req, res) => {
 
     const tokenResponse =
       await fetch(
-        `https://graph.facebook.com/v23.0/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=https://artboost-ai.onrender.com/auth/facebook/callback&client_secret=${process.env.FACEBOOK_APP_SECRET}&code=${code}`
+        `https://graph.facebook.com/v23.0/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=https://artboostai.com/auth/facebook/callback&client_secret=${process.env.FACEBOOK_APP_SECRET}&code=${code}`
       );
 
     const tokenData =
