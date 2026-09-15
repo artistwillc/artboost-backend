@@ -625,10 +625,25 @@ export async function publishToPlatforms({
             publishOperation,
         })
 
+      // ARTBOOST_INSTAGRAM_HISTORY_OBSERVABILITY_V32_20260915
+      const providerPostId =
+        result?.id ??
+        result?.providerResult?.id ??
+        result?.result?.id ??
+        null;
+
       results.push({
         platform,
+        status: "success",
         success: true,
+        providerPostId,
         result,
+      });
+
+      console.log("Platform publish confirmed:", {
+        platform,
+        success: true,
+        providerPostId,
       });
     } catch (error) {
       console.error(
@@ -643,12 +658,20 @@ export async function publishToPlatforms({
 
       results.push({
         platform,
+        status: "failed",
         success: false,
+        providerPostId: null,
         error: message,
         needsReconnect:
           /reconnect|expired|invalid.*token|oauth/i.test(
             message
           ),
+      });
+
+      console.log("Platform publish confirmed:", {
+        platform,
+        success: false,
+        error: message,
       });
     }
   }

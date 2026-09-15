@@ -317,6 +317,46 @@ function buildXTitle({
  * Logging failures are reported to Render,
  * but they do not stop a post from publishing.
  */
+// ARTBOOST_INSTAGRAM_HISTORY_OBSERVABILITY_V32_20260915
+function automationHistoryTransient(error) {
+  const text = String(
+    error?.message || error?.details || error?.hint || error || ""
+  ).toLowerCase();
+  const status = Number(error?.status || error?.statusCode || error?.code);
+  return [408, 429, 500, 502, 503, 504].includes(status) ||
+    /timeout|timed out|gateway|fetch failed|network|econnreset|etimedout|service unavailable/.test(text);
+}
+
+function automationPlatformOutcomes(platforms, publishResult) {
+  const selected = [...new Set(
+    (Array.isArray(platforms) ? platforms : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  )];
+  const results = Array.isArray(publishResult?.results)
+    ? publishResult.results
+    : [];
+  const byPlatform = new Map(
+    results
+      .filter((item) => item?.platform)
+      .map((item) => [String(item.platform).trim().toLowerCase(), item])
+  );
+
+  return selected.map((platform) => {
+    const item = byPlatform.get(platform);
+    if (!item) return { platform, status: "unverified", providerPostId: null, error: null };
+    return {
+      platform,
+      status: item.success === true ? "success" :
+        item.skipped === true || item.status === "skipped" ? "skipped" :
+        item.success === false ? "failed" : "unverified",
+      providerPostId: item.providerPostId || item?.result?.id ||
+        item?.result?.providerResult?.id || null,
+      error: item.error || null,
+    };
+  });
+}
+
 async function createAutomationLog({
   automationId,
   userId,
@@ -329,91 +369,84 @@ async function createAutomationLog({
   message = null,
   errorMessage = null,
 }) {
-  try {
-    const productId =
-      product?.id ??
-      product?.product_id ??
-      null;
+  const productId = product?.id ?? product?.product_id ?? null;
+  const productTitle = product?.title ?? product?.name ?? product?.product_title ?? null;
+  const productImageUrl =
+    product?.image_url ?? product?.imageUrl ?? product?.featured_image ??
+    product?.image ?? product?.images?.[0]?.src ?? product?.images?.[0] ?? null;
+  const productUrl =
+    product?.product_url ?? product?.productUrl ?? product?.link ?? product?.url ?? null;
 
-    const productTitle =
-      product?.title ??
-      product?.name ??
-      product?.product_title ??
-      null;
+  const row = {
+    automation_id: automationId,
+    user_id: userId,
+    store_id: storeId ? String(storeId) : null,
+    event_type: eventType,
+    status,
+    product_id: productId ? String(productId) : null,
+    product_title: productTitle ? String(productTitle) : null,
+    product_image_url: productImageUrl ? String(productImageUrl) : null,
+    product_url: productUrl ? String(productUrl) : null,
+    platforms: Array.isArray(platforms) ? platforms : [],
+    publish_result: publishResult,
+    message,
+    error_message: errorMessage,
+  };
 
-    const productImageUrl =
-      product?.image_url ??
-      product?.imageUrl ??
-      product?.featured_image ??
-      product?.image ??
-      product?.images?.[0]?.src ??
-      product?.images?.[0] ??
-      null;
+  const delays = [0, 300, 900, 1800];
+  let lastError = null;
 
-    const productUrl =
-      product?.product_url ??
-      product?.productUrl ??
-      product?.link ??
-      product?.url ??
-      null;
-
-    const {
-      error,
-    } = await supabase
-      .from(
-        "store_automation_logs"
-      )
-      .insert({
-        automation_id:
-          automationId,
-        user_id:
-          userId,
-        store_id:
-          storeId
-            ? String(storeId)
-            : null,
-        event_type:
-          eventType,
-        status,
-        product_id:
-          productId
-            ? String(productId)
-            : null,
-        product_title:
-          productTitle
-            ? String(productTitle)
-            : null,
-        product_image_url:
-          productImageUrl
-            ? String(productImageUrl)
-            : null,
-        product_url:
-          productUrl
-            ? String(productUrl)
-            : null,
-        platforms:
-          Array.isArray(platforms)
-            ? platforms
-            : [],
-        publish_result:
-          publishResult,
-        message,
-        error_message:
-          errorMessage,
-      });
-
-    if (error) {
-      console.error(
-        "Automation log insert failed:",
-        error
-      );
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) {
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
     }
-  } catch (error) {
-    console.error(
-      "Automation history logging failed:",
-      error
-    );
+
+    try {
+      const { error } = await supabase.from("store_automation_logs").insert(row);
+      if (!error) {
+        const outcomes = automationPlatformOutcomes(platforms, publishResult);
+        console.log("Publishing History persisted:", {
+          automationId,
+          eventType,
+          status,
+          attempt: attempt + 1,
+          outcomes,
+        });
+        return { persisted: true, outcomes };
+      }
+
+      lastError = error;
+      if (!automationHistoryTransient(error) || attempt === delays.length - 1) break;
+      console.warn("Publishing History transient insert failure; retrying:", {
+        automationId,
+        attempt: attempt + 1,
+        message: error?.message || String(error),
+      });
+    } catch (error) {
+      lastError = error;
+      if (!automationHistoryTransient(error) || attempt === delays.length - 1) break;
+      console.warn("Publishing History transient exception; retrying:", {
+        automationId,
+        attempt: attempt + 1,
+        message: error?.message || String(error),
+      });
+    }
   }
+
+  console.error("PUBLISHING_HISTORY_PERSISTENCE_FAILED:", {
+    automationId,
+    eventType,
+    status,
+    platforms,
+    outcomes: automationPlatformOutcomes(platforms, publishResult),
+    error: lastError?.message || lastError?.details || String(lastError || "unknown"),
+  });
+
+  return {
+    persisted: false,
+    outcomes: automationPlatformOutcomes(platforms, publishResult),
+    error: lastError?.message || lastError?.details || String(lastError || "unknown"),
+  };
 }
 
 function calculateFollowingRun(automation, fromDate = new Date()) {
@@ -1176,7 +1209,7 @@ ${hashtags}`,
         publishResult?.partialSuccess
       );
 
-    await createAutomationLog({
+    const historyResult = await createAutomationLog({
       automationId:
         automation.id,
       userId,
@@ -1197,6 +1230,13 @@ ${hashtags}`,
           ? "The product posted to some selected platforms."
           : "The product posted successfully.",
     });
+
+    if (!historyResult?.persisted) {
+      console.error("Provider publish succeeded but Publishing History is not authoritative:", {
+        automationId: automation.id,
+        outcomes: historyResult?.outcomes || [],
+      });
+    }
   } else {
     const publishError =
       publishResult?.error ||
