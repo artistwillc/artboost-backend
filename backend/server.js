@@ -54,6 +54,110 @@ dotenv.config({ override: true });
 
 const app = express();
 
+const META_MEDIA_BASE_URL = String(
+  process.env.META_MEDIA_BASE_URL ||
+    "https://artboostai.com/meta/media"
+).trim().replace(/\/+$/, "");
+
+function getMetaMediaSigningSecret() {
+  return String(
+    process.env.META_MEDIA_SIGNING_SECRET ||
+      process.env.CLOUDINARY_API_SECRET ||
+      ""
+  ).trim();
+}
+
+function signMetaMediaPayload(payload) {
+  const secret = getMetaMediaSigningSecret();
+  if (!secret) throw new Error("Meta media signing is not configured.");
+  return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function createMetaMediaProxyUrl(imageUrl) {
+  const parsed = new URL(String(imageUrl || "").trim());
+  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "res.cloudinary.com") {
+    throw new Error("Meta media proxy requires a verified Cloudinary HTTPS image URL.");
+  }
+  const payload = Buffer.from(JSON.stringify({
+    url: parsed.toString(),
+    createdAt: Date.now(),
+  })).toString("base64url");
+  return `${META_MEDIA_BASE_URL}/${payload}.${signMetaMediaPayload(payload)}`;
+}
+
+function resolveMetaMediaToken(token) {
+  const raw = String(token || "").trim();
+  const separator = raw.lastIndexOf(".");
+  if (separator <= 0) throw new Error("Invalid Meta media token.");
+  const payload = raw.slice(0, separator);
+  const supplied = Buffer.from(raw.slice(separator + 1));
+  const expected = Buffer.from(signMetaMediaPayload(payload));
+  if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
+    throw new Error("Invalid Meta media signature.");
+  }
+  let decoded;
+  try {
+    decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("Invalid Meta media payload.");
+  }
+  const createdAt = Number(decoded?.createdAt || 0);
+  if (!Number.isFinite(createdAt) || createdAt <= 0 ||
+      Date.now() - createdAt > 15 * 60 * 1000 ||
+      createdAt - Date.now() > 60 * 1000) {
+    throw new Error("Expired Meta media token.");
+  }
+  const parsed = new URL(String(decoded?.url || "").trim());
+  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "res.cloudinary.com") {
+    throw new Error("Invalid Meta media source URL.");
+  }
+  return parsed.toString();
+}
+
+app.get("/meta/media/:token", async (req, res) => {
+  try {
+    const sourceUrl = resolveMetaMediaToken(req.params.token);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    let upstream;
+    try {
+      upstream = await fetch(sourceUrl, {
+        method: "GET",
+        headers: { Accept: "image/jpeg", "User-Agent": "ArtBoost-Meta-Media-Proxy/1.0" },
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!upstream.ok) throw new Error(`Meta media upstream returned HTTP ${upstream.status}.`);
+    const contentType = String(upstream.headers.get("content-type") || "")
+      .split(";")[0].trim().toLowerCase();
+    if (contentType !== "image/jpeg") {
+      throw new Error(`Meta media upstream returned ${contentType || "unknown content type"} instead of image/jpeg.`);
+    }
+    const bytes = Buffer.from(await upstream.arrayBuffer());
+    if (!bytes.length || bytes.length > 8 * 1024 * 1024) {
+      throw new Error(`Meta media payload size is invalid (${bytes.length} bytes).`);
+    }
+    res.set({
+      "Content-Type": "image/jpeg",
+      "Content-Length": String(bytes.length),
+      "Cache-Control": "public, max-age=300, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    console.log("Meta media proxy served:", {
+      bytes: bytes.length,
+      contentType: "image/jpeg",
+      sourceHost: "res.cloudinary.com",
+    });
+    return res.status(200).send(bytes);
+  } catch (error) {
+    console.error("Meta media proxy error:", error?.message || error);
+    return res.status(404).end();
+  }
+});
+
 app.set("trust proxy", 1);
 app.use(applySecurityHeaders);
 
@@ -9926,9 +10030,13 @@ async function publishThreadsPost({
   );
 
   if (imageUrl) {
+    const metaImageUrl = createMetaMediaProxyUrl(imageUrl);
+    console.log("Threads Meta media proxy prepared:", {
+      host: new URL(metaImageUrl).hostname,
+    });
     createUrl.searchParams.set(
       "image_url",
-      String(imageUrl)
+      metaImageUrl
     );
   }
 
@@ -10254,8 +10362,13 @@ async function publishInstagramPost({
     throw new Error(messageText);
   };
 
+  const metaImageUrl = createMetaMediaProxyUrl(imageUrl);
+  console.log("Instagram Meta media proxy prepared:", {
+    host: new URL(metaImageUrl).hostname,
+  });
+
   const createContainerBody = new URLSearchParams({
-    image_url: String(imageUrl),
+    image_url: metaImageUrl,
     caption: message,
     access_token: connection.access_token,
   });
