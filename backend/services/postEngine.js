@@ -12,6 +12,7 @@ import {
 
 import {
   ensurePublishableImageUrl,
+  ensureMetaPublishableImageUrl,
 } from "./mediaHostingService.js";
 
 import {
@@ -307,7 +308,7 @@ export async function publishToPlatform({
     // or classify the remote response as an unsupported media type.
     // Cache the artwork first so Instagram receives a stable image URL.
     const instagramImageUrl =
-      await ensurePublishableImageUrl(
+      await ensureMetaPublishableImageUrl(
         cleanImageUrl
       );
 
@@ -377,7 +378,7 @@ export async function publishToPlatform({
     // on ArtBoost's Cloudinary account first and give Threads the
     // stable public image URL instead.
     const threadsImageUrl =
-      await ensurePublishableImageUrl(
+      await ensureMetaPublishableImageUrl(
         cleanImageUrl
       );
 

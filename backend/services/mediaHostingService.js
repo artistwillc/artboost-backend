@@ -125,6 +125,118 @@ async function findExistingCloudinaryAsset(publicId) {
   }
 }
 
+
+/**
+ * Build a deterministic Meta-safe Cloudinary rendition.
+ * Forces a real JPEG/sRGB derivative and avoids f_auto negotiation.
+ */
+export function buildMetaSafeCloudinaryUrl(imageUrl) {
+  const sourceUrl = cleanUrl(imageUrl);
+
+  if (!sourceUrl || !isCloudinaryUrl(sourceUrl)) {
+    return sourceUrl;
+  }
+
+  const url = new URL(sourceUrl);
+  const marker = "/upload/";
+  const markerIndex = url.pathname.indexOf(marker);
+
+  if (markerIndex < 0) {
+    return sourceUrl;
+  }
+
+  const before = url.pathname.slice(0, markerIndex + marker.length);
+  const after = url.pathname.slice(markerIndex + marker.length);
+
+  url.pathname =
+    `${before}f_jpg,q_auto:good,cs_srgb,c_limit,w_1080,h_1080/${after}`
+      .replace(/\.(webp|png|gif|avif|heic|heif|jxl|jpeg|jpg)$/i, ".jpg");
+
+  return url.toString();
+}
+
+/**
+ * Prepare and positively preflight an image before giving its URL to Meta.
+ * The full GET verifies that the derivative is publicly retrievable as JPEG
+ * and warms the Cloudinary derivative before Meta performs its own fetch.
+ */
+export async function ensureMetaPublishableImageUrl(imageUrl) {
+  const hostedUrl = await ensurePublishableImageUrl(imageUrl);
+  const metaUrl = buildMetaSafeCloudinaryUrl(hostedUrl);
+
+  if (!metaUrl) {
+    throw new Error("Meta media preparation did not produce an image URL.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(metaUrl, {
+      method: "GET",
+      headers: {
+        Accept: "image/jpeg,image/*;q=0.8,*/*;q=0.1",
+        "User-Agent": "ArtBoost-Meta-Media-Preflight/1.0",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Meta-safe image preflight returned HTTP ${response.status}`
+      );
+    }
+
+    const contentType = String(
+      response.headers.get("content-type") || ""
+    )
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+    if (contentType !== "image/jpeg") {
+      throw new Error(
+        `Meta-safe image preflight returned ${contentType || "no content type"} instead of image/jpeg`
+      );
+    }
+
+    const body = Buffer.from(await response.arrayBuffer());
+
+    if (!body.length) {
+      throw new Error("Meta-safe image preflight returned an empty image.");
+    }
+
+    // Conservative ArtBoost guard; not presented as a Meta-published limit.
+    if (body.length > 8 * 1024 * 1024) {
+      throw new Error(
+        `Meta-safe image is too large (${Math.ceil(body.length / 1024)} KB).`
+      );
+    }
+
+    console.log("Meta automation image preflight passed:", {
+      host: new URL(metaUrl).hostname,
+      contentType,
+      bytes: body.length,
+      format: "jpg",
+      colorSpace: "sRGB",
+      maxWidth: 1080,
+      maxHeight: 1080,
+    });
+
+    return metaUrl;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Meta-safe image preflight timed out after 20 seconds.");
+    }
+    throw new Error(
+      `ArtBoost could not prepare a Meta-fetchable image: ${error?.message || error}`
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function ensurePublishableImageUrl(imageUrl) {
   const sourceUrl = cleanUrl(imageUrl);
 
