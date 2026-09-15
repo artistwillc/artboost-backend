@@ -172,7 +172,21 @@ const importLimiter = createRateLimiter({
   max: 20,
   keyPrefix: "import",
 });
-const upload = multer({ storage: multer.memoryStorage() });
+// ARTBOOST_GENERATE_UPLOAD_HARDENING_V1_20260915
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, callback) => {
+    const mimeType = String(file?.mimetype || "").trim().toLowerCase();
+    if (!mimeType.startsWith("image/")) {
+      callback(new Error("Artwork generation only accepts image uploads."));
+      return;
+    }
+    callback(null, true);
+  },
+});
 const PORT = process.env.PORT || 3000;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
