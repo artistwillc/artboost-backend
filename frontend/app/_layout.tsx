@@ -3,12 +3,12 @@ import {
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
-import { StripeProvider } from "@stripe/stripe-react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
+import ArtBoostStripeProvider from "@/components/ArtBoostStripeProvider";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { installAuthenticatedBackendFetch } from "@/lib/authenticatedBackendFetch";
 
@@ -18,16 +18,13 @@ export const unstable_settings = {
   anchor: "(tabs)",
 };
 
-const stripePublishableKey =
-  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#070611" }} edges={["top"]}>
-        <StripeProvider publishableKey={stripePublishableKey}>
+        <ArtBoostStripeProvider>
       <ThemeProvider
         value={
           colorScheme === "dark"
@@ -81,7 +78,7 @@ export default function RootLayout() {
 
         <StatusBar style="light" />
       </ThemeProvider>
-        </StripeProvider>
+        </ArtBoostStripeProvider>
       </SafeAreaView>
     </SafeAreaProvider>
   );
