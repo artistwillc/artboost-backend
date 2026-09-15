@@ -3322,6 +3322,21 @@ app.use(cors({
     if (ARTBOOST_ALLOWED_ORIGINS.has(normalized)) {
       return callback(null, true);
     }
+
+    // ARTBOOST_LOCAL_RELEASE_GATE_CORS_V1_20260915
+    // Permit only loopback HTTP origins for the local authenticated release gate.
+    // Authentication remains strict; this does not authorize a user or bypass Bearer-token checks.
+    const parsedOrigin = new URL(normalized);
+    const isLocalReleaseGateOrigin =
+      parsedOrigin.protocol === "http:" &&
+      (parsedOrigin.hostname === "localhost" ||
+        parsedOrigin.hostname === "127.0.0.1" ||
+        parsedOrigin.hostname === "[::1]");
+
+    if (isLocalReleaseGateOrigin) {
+      return callback(null, true);
+    }
+
     return callback(new Error("CORS origin is not allowed."));
   },
   credentials: true,
@@ -12056,7 +12071,7 @@ Keep the response clean, visually appealing, and ready to copy.
       );
 
       finalOutput = finalOutput.replace(
-        /check it out\s*👉?/gi,
+        /check it out\s*ðŸ‘‰?/gi,
         ""
       );
 
@@ -13963,7 +13978,7 @@ app.post("/facebook/video-post", async (req, res) => {
           : "",
       ]
         .filter(Boolean)
-        .join(" · ");
+        .join(" Â· ");
 
       throw new Error(
         detail ||
@@ -14347,7 +14362,7 @@ app.post("/threads/video-post", async (req, res) => {
           : "",
       ]
         .filter(Boolean)
-        .join(" · ");
+        .join(" Â· ");
 
       throw new Error(
         detail ||
