@@ -63,13 +63,35 @@ export function createRateLimiter(options = {}) {
 
   const buckets = new Map();
 
+  // ARTBOOST_RATE_LIMIT_BUCKET_BOUND_V1_20260915
+  // Bound per-process limiter state so unique clients cannot grow this Map without limit.
+  const maxBuckets = Math.max(
+    100,
+    positiveInteger(
+      options.maxBuckets ?? process.env.ARTBOOST_RATE_LIMIT_MAX_BUCKETS,
+      10_000
+    )
+  );
+
+  function pruneExpiredBuckets(now) {
+    for (const [key, value] of buckets) {
+      if (value.resetAt <= now) buckets.delete(key);
+    }
+  }
+
+  function ensureBucketCapacity(now) {
+    if (buckets.size < maxBuckets) return;
+    pruneExpiredBuckets(now);
+    while (buckets.size >= maxBuckets) {
+      const oldestKey = buckets.keys().next().value;
+      if (oldestKey === undefined) break;
+      buckets.delete(oldestKey);
+    }
+  }
+
   const timer = setInterval(() => {
     const now = Date.now();
-    for (const [key, value] of buckets) {
-      if (value.resetAt <= now) {
-        buckets.delete(key);
-      }
-    }
+    pruneExpiredBuckets(now);
   }, Math.max(windowMs, 60_000));
 
   timer.unref?.();
@@ -81,6 +103,7 @@ export function createRateLimiter(options = {}) {
     let bucket = buckets.get(key);
 
     if (!bucket || bucket.resetAt <= now) {
+      if (!bucket) ensureBucketCapacity(now);
       bucket = {
         count: 0,
         resetAt: now + windowMs,
