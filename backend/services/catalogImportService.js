@@ -868,6 +868,10 @@ export async function importSingleCatalogProduct({
         userId: String(userId),
         storeId: String(storeId),
         productUrl: cleanProductUrl,
+        // ARTBOOST_FAA_403_OWNERSHIP_REPAIR_20260915
+        // Ownership proof comes from the FAA-hosted profile-flow image
+        // already captured by the proven Universal Scanner.
+        suppliedImageUrl: String(imageUrl || "").trim(),
       });
 
     if (!fineArtAmericaOwnership?.verified) {

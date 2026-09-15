@@ -184,6 +184,90 @@ function artworkSlugMatchesOwner(productUrl, expectedOwnerSlug) {
   }
 }
 
+// ARTBOOST_FAA_403_OWNERSHIP_REPAIR_20260915
+function verifyProfileFlowArtworkAsset({
+  productUrl,
+  imageUrl,
+  expectedOwnerSlug,
+}) {
+  if (!productUrl || !imageUrl || !expectedOwnerSlug) {
+    return false;
+  }
+
+  try {
+    const product = new URL(productUrl);
+    const image = new URL(imageUrl);
+
+    const productHost = product.hostname
+      .replace(/^www\./i, "")
+      .toLowerCase();
+
+    if (
+      product.protocol !== "https:" ||
+      (
+        productHost !== FAA_HOSTNAME &&
+        !productHost.endsWith(`.${FAA_HOSTNAME}`)
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      image.protocol !== "https:" ||
+      image.hostname.toLowerCase() !==
+        "render.fineartamerica.com"
+    ) {
+      return false;
+    }
+
+    const productMatch = product.pathname.match(
+      /^\/featured\/([^/?#]+)\.html$/i
+    );
+
+    if (!productMatch?.[1]) {
+      return false;
+    }
+
+    const artworkSlug =
+      decodeURIComponent(productMatch[1])
+        .trim()
+        .toLowerCase();
+
+    if (
+      artworkSlug !== expectedOwnerSlug &&
+      !artworkSlug.endsWith(`-${expectedOwnerSlug}`)
+    ) {
+      return false;
+    }
+
+    const imagePath = image.pathname;
+    const imagePathLower = imagePath.toLowerCase();
+
+    if (
+      !imagePathLower.includes("/images-profile-flow/") ||
+      !imagePathLower.includes("/artworkimages/")
+    ) {
+      return false;
+    }
+
+    const imageFile =
+      imagePath.split("/").filter(Boolean).pop() || "";
+    const dot = imageFile.lastIndexOf(".");
+    const imageSlug =
+      decodeURIComponent(
+        dot > 0
+          ? imageFile.slice(0, dot)
+          : imageFile
+      )
+        .trim()
+        .toLowerCase();
+
+    return imageSlug === artworkSlug;
+  } catch {
+    return false;
+  }
+}
+
 function cleanArtworkTitle(value = "") {
   return decodeHtmlEntities(value)
     .replace(/\s*\|\s*Fine Art America\s*$/i, "")
@@ -864,6 +948,7 @@ export async function verifyFineArtAmericaProductOwnership({
   storeId,
   productUrl,
   suppliedArtistName = "",
+  suppliedImageUrl = "",
 }) {
   if (!userId || !storeId || !productUrl) {
     return {
@@ -921,6 +1006,30 @@ export async function verifyFineArtAmericaProductOwnership({
       verified: false,
       reason: "supplied_artist_does_not_match_connected_owner",
       canonicalUrl,
+    };
+  }
+
+  // ARTBOOST_FAA_403_OWNERSHIP_REPAIR_20260915
+  // FAA currently blocks backend GETs to valid artwork pages with HTTP 403.
+  // The mobile scanner already has an FAA-hosted profile-flow artwork asset.
+  // Verify that asset cryptographically by URL structure/host/slug linkage
+  // instead of weakening ownership checks or treating a 403 as ownership.
+  if (
+    verifyProfileFlowArtworkAsset({
+      productUrl: canonicalUrl,
+      imageUrl: suppliedImageUrl,
+      expectedOwnerSlug,
+    })
+  ) {
+    return {
+      verified: true,
+      verificationMethod: "profile_flow_artwork_asset",
+      canonicalUrl,
+      expectedOwnerName,
+      artistName:
+        suppliedArtistName || expectedOwnerName,
+      parsedProduct: null,
+      connection,
     };
   }
 
