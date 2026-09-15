@@ -277,6 +277,315 @@ const SCAN_PAGE_SCRIPT = `
       return null;
     };
 
+    // ARTBOOST_FAA_RESTORE_20260909_FINAL
+    const fineArtAmericaInfo = function (rawHref) {
+      try {
+        const url = new URL(
+          String(rawHref || ""),
+          window.location.href
+        );
+
+        const host =
+          url.hostname
+            .toLowerCase()
+            .replace(/^www\\./, "");
+
+        if (
+          host !== "fineartamerica.com" &&
+          !host.endsWith(".fineartamerica.com")
+        ) {
+          return null;
+        }
+
+        const featuredMatch =
+          (url.pathname || "").match(
+            /^\\/featured\\/([^/?#]+)\\.html$/i
+          );
+
+        if (!featuredMatch) {
+          return null;
+        }
+
+        const profileMatch =
+          window.location.pathname.match(
+            /^\\/profiles\\/([^/?#]+)/i
+          );
+
+        const ownerSlug =
+          (profileMatch?.[1] || "")
+            .toLowerCase();
+
+        const featuredSlug =
+          String(featuredMatch[1] || "")
+            .toLowerCase();
+
+        if (ownerSlug) {
+          const ownerMarker =
+            "-" + ownerSlug;
+          const ownerIndex =
+            featuredSlug.lastIndexOf(
+              ownerMarker
+            );
+          const ownerTail =
+            ownerIndex >= 0
+              ? featuredSlug.slice(
+                  ownerIndex +
+                    ownerMarker.length
+                )
+              : "";
+
+          const ownerMatch =
+            featuredSlug === ownerSlug ||
+            featuredSlug.endsWith(
+              ownerMarker
+            ) ||
+            (
+              ownerIndex >= 0 &&
+              (
+                ownerTail === "" ||
+                /^\\-\\d+$/.test(
+                  ownerTail
+                )
+              )
+            );
+
+          if (!ownerMatch) {
+            return null;
+          }
+        }
+
+        url.search = "";
+        url.hash = "";
+
+        return {
+          productUrl: url.toString(),
+          featuredSlug,
+          ownerSlug
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const fineArtAmericaCard = function (link) {
+      if (!link) {
+        return null;
+      }
+
+      let current = link;
+      const fallback =
+        link.parentElement || link;
+
+      for (
+        let depth = 0;
+        current && depth < 7;
+        depth += 1
+      ) {
+        if (current.querySelectorAll) {
+          const featuredCount =
+            current.querySelectorAll(
+              'a[href*="/featured/"]'
+            ).length;
+          const imageCount =
+            current.querySelectorAll("img").length;
+
+          if (
+            imageCount > 0 &&
+            featuredCount <= 3
+          ) {
+            return current;
+          }
+        }
+
+        current = current.parentElement;
+      }
+
+      return fallback;
+    };
+
+    const fineArtAmericaImage = function (link) {
+      const card =
+        fineArtAmericaCard(link) || link;
+      const candidates = [];
+      const seen = {};
+
+      const add = function (raw, score) {
+        const url = absoluteUrl(raw);
+
+        if (
+          !url ||
+          !/^https?:\\/\\//i.test(url) ||
+          seen[url]
+        ) {
+          return;
+        }
+
+        seen[url] = true;
+        const lower = url.toLowerCase();
+
+        if (
+          /logo|icon|avatar|profile|sprite|placeholder|spacer|blank/i.test(
+            lower
+          )
+        ) {
+          return;
+        }
+
+        let finalScore = Number(score) || 0;
+
+        if (
+          /fineartamerica\\.com|pixels\\.com/i.test(
+            lower
+          )
+        ) {
+          finalScore += 1000;
+        }
+
+        if (
+          /artworkimages|images-medium|mediumlarge|rendered/i.test(
+            lower
+          )
+        ) {
+          finalScore += 750;
+        }
+
+        candidates.push({
+          url,
+          score: finalScore
+        });
+      };
+
+      const inspectImage = function (image, bonus) {
+        if (!image) {
+          return;
+        }
+
+        add(
+          imageCandidate(image),
+          bonus
+        );
+
+        const srcset =
+          image.getAttribute("srcset") ||
+          image.getAttribute("data-srcset") ||
+          "";
+
+        srcset
+          .split(",")
+          .map(function (part) {
+            return cleanText(part)
+              .split(/\\s+/)[0] || "";
+          })
+          .filter(Boolean)
+          .forEach(function (value) {
+            add(value, bonus + 250);
+          });
+      };
+
+      if (link?.querySelectorAll) {
+        Array.from(
+          link.querySelectorAll("img")
+        ).forEach(function (image) {
+          inspectImage(image, 2200);
+        });
+      }
+
+      if (card?.querySelectorAll) {
+        Array.from(
+          card.querySelectorAll("img")
+        ).forEach(function (image) {
+          inspectImage(image, 1400);
+        });
+
+        const attrs = [
+          "data-image",
+          "data-image-url",
+          "data-src-large",
+          "data-large-image",
+          "data-original-src",
+          "data-zoom-image",
+          "data-full",
+          "data-full-src"
+        ];
+
+        const nodes = [card].concat(
+          Array.from(
+            card.querySelectorAll("*")
+          ).slice(0, 220)
+        );
+
+        nodes.forEach(function (node) {
+          if (!node?.getAttribute) {
+            return;
+          }
+
+          attrs.forEach(function (name) {
+            add(
+              node.getAttribute(name),
+              1200
+            );
+          });
+
+          const style =
+            node.getAttribute("style") || "";
+          const match =
+            style.match(
+              /background(?:-image)?\\s*:[^;]*url\\(["']?([^"')]+)["']?\\)/i
+            );
+
+          if (match?.[1]) {
+            add(match[1], 1100);
+          }
+        });
+      }
+
+      candidates.sort(function (a, b) {
+        return b.score - a.score;
+      });
+
+      return candidates[0]?.url || "";
+    };
+
+    const fineArtAmericaTitle = function (
+      link,
+      info
+    ) {
+      const card = fineArtAmericaCard(link);
+      const image =
+        link?.querySelector?.("img") ||
+        card?.querySelector?.("img");
+      const titleNode =
+        card?.querySelector?.(
+          "h1, h2, h3, h4, strong, [class*='title'], [data-testid*='title']"
+        );
+
+      const directTitle =
+        cleanText(
+          image?.getAttribute("alt") || ""
+        ) ||
+        cleanText(
+          link?.getAttribute("aria-label") || ""
+        ) ||
+        cleanText(
+          link?.getAttribute("title") || ""
+        ) ||
+        cleanText(
+          titleNode?.textContent || ""
+        );
+
+      if (directTitle) {
+        return directTitle;
+      }
+
+      return (
+        cleanText(
+          String(info?.featuredSlug || "")
+            .replace(/[-_]+/g, " ")
+        ) ||
+        "Fine Art America Artwork"
+      );
+    };
+
     const redbubbleInfo = function (rawHref) {
       try {
         const url = new URL(
@@ -374,6 +683,51 @@ const SCAN_PAGE_SCRIPT = `
       return clean;
     };
 
+    function bestFineArtAmericaImage(node) {
+      if (!node) return "";
+      const candidates = [];
+      const seenImages = [];
+      function rememberImage(image) {
+        if (!image || seenImages.indexOf(image) >= 0) return;
+        seenImages.push(image);
+        const url = absoluteUrl(imageCandidate(image));
+        if (!url) return;
+        const lower = String(url).toLowerCase();
+        if (/(logo|icon|avatar|profile|sprite|placeholder|transparent|spacer|blank)/i.test(lower)) return;
+        let score = 0;
+        const width = Number(image.naturalWidth || image.width || 0);
+        const height = Number(image.naturalHeight || image.height || 0);
+        score += Math.min(5000, width * height) / 1000;
+        if (/fineartamerica\.com|pixels\.com/i.test(lower)) score += 1000;
+        if (/artworkimages|images-medium|mediumlarge|rendered/i.test(lower)) score += 750;
+        candidates.push({ url, score });
+      }
+      if (node.tagName && String(node.tagName).toLowerCase() === "img") rememberImage(node);
+      if (node.querySelectorAll) Array.from(node.querySelectorAll("img")).forEach(rememberImage);
+      let current = node;
+      for (let depth = 0; current && depth < 6; depth += 1) {
+        if (current.querySelectorAll) Array.from(current.querySelectorAll("img")).forEach(rememberImage);
+        current = current.parentElement;
+      }
+      candidates.sort(function(a,b){ return b.score-a.score; });
+      return candidates.length ? candidates[0].url : "";
+    }
+
+    function nearestFineArtAmericaCard(link) {
+      if (!link) return null;
+      let current = link;
+      const fallback = link.parentElement || link;
+      for (let depth = 0; current && depth < 7; depth += 1) {
+        if (current.querySelectorAll) {
+          const featuredCount = current.querySelectorAll('a[href*="/featured/"]').length;
+          const imageCount = current.querySelectorAll("img").length;
+          if (imageCount > 0 && featuredCount <= 3) return current;
+        }
+        current = current.parentElement;
+      }
+      return fallback;
+    }
+
     const products = [];
     const seen = {};
 
@@ -390,6 +744,60 @@ const SCAN_PAGE_SCRIPT = `
       seen[key || product.productUrl] = true;
       products.push(product);
     };
+
+    /* FAA_RESTORED_FEATURED_DETECTOR */
+    Array.from(
+      document.querySelectorAll("a[href]")
+    ).forEach(function (link) {
+      const rawHref = link.getAttribute("href") || "";
+      let parsed;
+      try { parsed = new URL(rawHref, window.location.href); } catch { return; }
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+      if (host !== "fineartamerica.com" && !host.endsWith(".fineartamerica.com")) return;
+
+      const featuredMatch = (parsed.pathname || "").match(/^\/featured\/([^/?#]+)\.html$/i);
+      if (!featuredMatch) return;
+
+      const profileMatch = window.location.pathname.match(/^\/profiles\/([^/?#]+)/i);
+      const ownerSlug = profileMatch?.[1]?.toLowerCase() || "";
+      const featuredSlug = featuredMatch[1].toLowerCase();
+      const ownerName = ownerSlug.replace(/[-_]+/g, " ").trim();
+      const card = nearestFineArtAmericaCard(link);
+      const cardText = cleanText((card || link).textContent || "").toLowerCase();
+      const ownerMarker = "-" + ownerSlug;
+      const ownerIndex = ownerSlug ? featuredSlug.lastIndexOf(ownerMarker) : -1;
+      const ownerTail = ownerIndex >= 0 ? featuredSlug.slice(ownerIndex + ownerMarker.length) : "";
+      const slugOwnerMatch = Boolean(ownerSlug) && (
+        featuredSlug === ownerSlug ||
+        featuredSlug.endsWith(ownerMarker) ||
+        (ownerIndex >= 0 && (ownerTail === "" || /^-\d+$/.test(ownerTail)))
+      );
+      const textOwnerMatch = Boolean(ownerName) && cardText.includes(ownerName);
+      if (ownerSlug && !slugOwnerMatch && !textOwnerMatch) return;
+
+      parsed.search = "";
+      parsed.hash = "";
+      const imageUrl = bestFineArtAmericaImage(card || link);
+      if (!imageUrl) return;
+
+      const titleNode = card && card.querySelector && card.querySelector(
+        "h1, h2, h3, h4, strong, [class*='title'], [data-testid*='title']"
+      );
+
+      addProduct({
+        title: cleanText(
+          titleNode?.textContent ||
+          link.getAttribute("aria-label") ||
+          link.textContent ||
+          featuredSlug.replace(/[-_]+/g, " ")
+        ) || "Fine Art America Artwork",
+        description: "",
+        productUrl: parsed.toString(),
+        imageUrl,
+        price: null,
+        currency: "USD"
+      }, "faa:" + parsed.toString());
+    });
 
     Array.from(
       document.querySelectorAll("a.iCg[href]")
@@ -438,6 +846,47 @@ const SCAN_PAGE_SCRIPT = `
           currency: "USD"
         },
         productUrl
+      );
+    });
+
+    /*
+     * Fine Art America — restored from the previously working importer
+     */
+    Array.from(
+      document.querySelectorAll("a[href]")
+    ).forEach(function (link) {
+      const info =
+        fineArtAmericaInfo(
+          link.getAttribute("href") || ""
+        );
+
+      if (!info) {
+        return;
+      }
+
+      const imageUrl =
+        fineArtAmericaImage(link);
+
+      if (!imageUrl) {
+        return;
+      }
+
+      addProduct(
+        {
+          title:
+            fineArtAmericaTitle(
+              link,
+              info
+            ),
+          description: "",
+          productUrl:
+            info.productUrl,
+          imageUrl,
+          price: null,
+          currency: "USD"
+        },
+        "fineartamerica:" +
+          info.productUrl
       );
     });
 
@@ -656,6 +1105,355 @@ const FULL_STORE_SCAN_SCRIPT = `
       return null;
     }
 
+    // ARTBOOST_FAA_RESTORE_20260909_FINAL
+    function fineArtAmericaInfo(rawHref) {
+      try {
+        var url = new URL(
+          String(rawHref || ""),
+          window.location.href
+        );
+
+        var host =
+          url.hostname
+            .toLowerCase()
+            .replace(/^www\\./, "");
+
+        if (
+          host !== "fineartamerica.com" &&
+          !host.endsWith(".fineartamerica.com")
+        ) {
+          return null;
+        }
+
+        var featuredMatch =
+          (url.pathname || "").match(
+            /^\\/featured\\/([^/?#]+)\\.html$/i
+          );
+
+        if (!featuredMatch) {
+          return null;
+        }
+
+        var profileMatch =
+          window.location.pathname.match(
+            /^\\/profiles\\/([^/?#]+)/i
+          );
+
+        var ownerSlug =
+          (
+            profileMatch &&
+            profileMatch[1]
+              ? profileMatch[1]
+              : ""
+          ).toLowerCase();
+
+        var featuredSlug =
+          String(featuredMatch[1] || "")
+            .toLowerCase();
+
+        if (ownerSlug) {
+          var ownerMarker =
+            "-" + ownerSlug;
+          var ownerIndex =
+            featuredSlug.lastIndexOf(
+              ownerMarker
+            );
+          var ownerTail =
+            ownerIndex >= 0
+              ? featuredSlug.slice(
+                  ownerIndex +
+                    ownerMarker.length
+                )
+              : "";
+
+          var ownerMatch =
+            featuredSlug === ownerSlug ||
+            featuredSlug.endsWith(
+              ownerMarker
+            ) ||
+            (
+              ownerIndex >= 0 &&
+              (
+                ownerTail === "" ||
+                /^\\-\\d+$/.test(
+                  ownerTail
+                )
+              )
+            );
+
+          if (!ownerMatch) {
+            return null;
+          }
+        }
+
+        url.search = "";
+        url.hash = "";
+
+        return {
+          productUrl: url.toString(),
+          featuredSlug: featuredSlug,
+          ownerSlug: ownerSlug
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function fineArtAmericaCard(link) {
+      if (!link) {
+        return null;
+      }
+
+      var current = link;
+      var fallback =
+        link.parentElement || link;
+
+      for (
+        var depth = 0;
+        current && depth < 7;
+        depth += 1
+      ) {
+        if (current.querySelectorAll) {
+          var featuredCount =
+            current.querySelectorAll(
+              'a[href*="/featured/"]'
+            ).length;
+          var imageCount =
+            current.querySelectorAll(
+              "img"
+            ).length;
+
+          if (
+            imageCount > 0 &&
+            featuredCount <= 3
+          ) {
+            return current;
+          }
+        }
+
+        current = current.parentElement;
+      }
+
+      return fallback;
+    }
+
+    function fineArtAmericaImage(link) {
+      var card =
+        fineArtAmericaCard(link) || link;
+      var candidates = [];
+      var seen = {};
+
+      function add(raw, score) {
+        var url = absoluteUrl(raw);
+
+        if (
+          !url ||
+          !/^https?:\\/\\//i.test(url) ||
+          seen[url]
+        ) {
+          return;
+        }
+
+        seen[url] = true;
+        var lower = url.toLowerCase();
+
+        if (
+          /logo|icon|avatar|profile|sprite|placeholder|spacer|blank/i.test(
+            lower
+          )
+        ) {
+          return;
+        }
+
+        var finalScore = Number(score) || 0;
+
+        if (
+          /fineartamerica\\.com|pixels\\.com/i.test(
+            lower
+          )
+        ) {
+          finalScore += 1000;
+        }
+
+        if (
+          /artworkimages|images-medium|mediumlarge|rendered/i.test(
+            lower
+          )
+        ) {
+          finalScore += 750;
+        }
+
+        candidates.push({
+          url: url,
+          score: finalScore
+        });
+      }
+
+      function inspectImage(image, bonus) {
+        if (!image) {
+          return;
+        }
+
+        add(
+          imageCandidate(image),
+          bonus
+        );
+
+        var srcset =
+          image.getAttribute("srcset") ||
+          image.getAttribute("data-srcset") ||
+          "";
+
+        srcset
+          .split(",")
+          .map(function (part) {
+            return cleanText(part)
+              .split(/\\s+/)[0] || "";
+          })
+          .filter(Boolean)
+          .forEach(function (value) {
+            add(value, bonus + 250);
+          });
+      }
+
+      if (
+        link &&
+        link.querySelectorAll
+      ) {
+        Array.from(
+          link.querySelectorAll("img")
+        ).forEach(function (image) {
+          inspectImage(image, 2200);
+        });
+      }
+
+      if (
+        card &&
+        card.querySelectorAll
+      ) {
+        Array.from(
+          card.querySelectorAll("img")
+        ).forEach(function (image) {
+          inspectImage(image, 1400);
+        });
+
+        var attrs = [
+          "data-image",
+          "data-image-url",
+          "data-src-large",
+          "data-large-image",
+          "data-original-src",
+          "data-zoom-image",
+          "data-full",
+          "data-full-src"
+        ];
+
+        var nodes = [card].concat(
+          Array.from(
+            card.querySelectorAll("*")
+          ).slice(0, 220)
+        );
+
+        nodes.forEach(function (node) {
+          if (
+            !node ||
+            !node.getAttribute
+          ) {
+            return;
+          }
+
+          attrs.forEach(function (name) {
+            add(
+              node.getAttribute(name),
+              1200
+            );
+          });
+
+          var style =
+            node.getAttribute("style") || "";
+          var match =
+            style.match(
+              /background(?:-image)?\\s*:[^;]*url\\(["']?([^"')]+)["']?\\)/i
+            );
+
+          if (
+            match &&
+            match[1]
+          ) {
+            add(match[1], 1100);
+          }
+        });
+      }
+
+      candidates.sort(function (a, b) {
+        return b.score - a.score;
+      });
+
+      return (
+        candidates[0] &&
+        candidates[0].url
+      ) || "";
+    }
+
+    function fineArtAmericaTitle(
+      link,
+      info
+    ) {
+      var card = fineArtAmericaCard(link);
+      var image =
+        (
+          link &&
+          link.querySelector &&
+          link.querySelector("img")
+        ) ||
+        (
+          card &&
+          card.querySelector &&
+          card.querySelector("img")
+        );
+      var titleNode =
+        card &&
+        card.querySelector &&
+        card.querySelector(
+          "h1, h2, h3, h4, strong, [class*='title'], [data-testid*='title']"
+        );
+
+      var directTitle =
+        cleanText(
+          image &&
+          image.getAttribute("alt")
+        ) ||
+        cleanText(
+          link &&
+          link.getAttribute("aria-label")
+        ) ||
+        cleanText(
+          link &&
+          link.getAttribute("title")
+        ) ||
+        cleanText(
+          titleNode &&
+          titleNode.textContent
+        );
+
+      if (directTitle) {
+        return directTitle;
+      }
+
+      return (
+        cleanText(
+          String(
+            (
+              info &&
+              info.featuredSlug
+            ) ||
+            ""
+          ).replace(/[-_]+/g, " ")
+        ) ||
+        "Fine Art America Artwork"
+      );
+    }
+
     function redbubbleInfo(rawHref) {
       try {
         var url = new URL(
@@ -822,6 +1620,47 @@ const FULL_STORE_SCAN_SCRIPT = `
             currency: "USD"
           },
           "artpal:" + productUrl
+        );
+      });
+
+      /*
+       * Fine Art America — restored from the previously working importer
+       */
+      Array.from(
+        document.querySelectorAll("a[href]")
+      ).forEach(function (link) {
+        var info =
+          fineArtAmericaInfo(
+            link.getAttribute("href") || ""
+          );
+
+        if (!info) {
+          return;
+        }
+
+        var imageUrl =
+          fineArtAmericaImage(link);
+
+        if (!imageUrl) {
+          return;
+        }
+
+        addAccumulated(
+          {
+            title:
+              fineArtAmericaTitle(
+                link,
+                info
+              ),
+            description: "",
+            productUrl:
+              info.productUrl,
+            imageUrl: imageUrl,
+            price: null,
+            currency: "USD"
+          },
+          "fineartamerica:" +
+            info.productUrl
         );
       });
 
