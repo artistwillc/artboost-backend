@@ -2,10 +2,10 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+// ARTBOOST_RATE_LIMIT_TRUSTED_IP_V1_20260915
 function clientIp(req) {
-  const forwarded = clean(req?.headers?.["x-forwarded-for"]);
-  if (forwarded) return forwarded.split(",")[0].trim();
-
+  // Express resolves req.ip according to app.set("trust proxy", ...).
+  // Do not prefer raw X-Forwarded-For; callers must not select rate-limit buckets.
   return (
     clean(req?.ip) ||
     clean(req?.socket?.remoteAddress) ||
