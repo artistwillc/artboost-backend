@@ -319,40 +319,9 @@ const SCAN_PAGE_SCRIPT = `
           String(featuredMatch[1] || "")
             .toLowerCase();
 
-        if (ownerSlug) {
-          const ownerMarker =
-            "-" + ownerSlug;
-          const ownerIndex =
-            featuredSlug.lastIndexOf(
-              ownerMarker
-            );
-          const ownerTail =
-            ownerIndex >= 0
-              ? featuredSlug.slice(
-                  ownerIndex +
-                    ownerMarker.length
-                )
-              : "";
-
-          const ownerMatch =
-            featuredSlug === ownerSlug ||
-            featuredSlug.endsWith(
-              ownerMarker
-            ) ||
-            (
-              ownerIndex >= 0 &&
-              (
-                ownerTail === "" ||
-                /^\\-\\d+$/.test(
-                  ownerTail
-                )
-              )
-            );
-
-          if (!ownerMatch) {
-            return null;
-          }
-        }
+        // FAA featured slugs use the artist display name, which can differ
+        // from the profile slug. Do not reject a valid /featured/ artwork
+        // solely because those two identifiers differ.
 
         url.search = "";
         url.hash = "";
@@ -745,6 +714,69 @@ const SCAN_PAGE_SCRIPT = `
       products.push(product);
     };
 
+    /* FAA_PROFILE_IMAGE_FINAL_20260915 */
+    (function () {
+      const pagePath = String(window.location.pathname || "").toLowerCase();
+      if (pagePath.indexOf("/profiles/") !== 0) return;
+
+      let artistName = "";
+      const allImages = Array.from(document.querySelectorAll("img"));
+
+      allImages.some(function (image) {
+        const src = String(image.getAttribute("src") || image.getAttribute("data-src") || image.currentSrc || "");
+        const alt = cleanText(image.getAttribute("alt") || "");
+        if (src.toLowerCase().indexOf("/images/artistlogos/") >= 0 && alt.toLowerCase().endsWith(" - artist")) {
+          artistName = alt.slice(0, alt.length - " - Artist".length).trim();
+          return Boolean(artistName);
+        }
+        return false;
+      });
+
+      if (!artistName) return;
+      const artistSuffix = " by " + artistName.toLowerCase();
+      const artistSlug = artistName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+      allImages.forEach(function (image) {
+        const rawImageUrl = String(
+          image.getAttribute("data-original") ||
+          image.getAttribute("data-src") ||
+          image.currentSrc ||
+          image.getAttribute("src") ||
+          ""
+        ).trim();
+        if (!rawImageUrl) return;
+
+        let parsedImage;
+        try { parsedImage = new URL(rawImageUrl, window.location.href); } catch { return; }
+
+        const imagePath = String(parsedImage.pathname || "");
+        const lowerPath = imagePath.toLowerCase();
+        if (String(parsedImage.hostname || "").toLowerCase() !== "render.fineartamerica.com") return;
+        if (lowerPath.indexOf("/images-profile-flow/") < 0) return;
+        if (lowerPath.indexOf("/artworkimages/") < 0) return;
+
+        const alt = cleanText(image.getAttribute("alt") || "");
+        if (!alt || !alt.toLowerCase().endsWith(artistSuffix)) return;
+
+        const filename = imagePath.split("/").filter(Boolean).pop() || "";
+        const dot = filename.lastIndexOf(".");
+        const slug = (dot > 0 ? filename.slice(0, dot) : filename).trim();
+        if (!slug || !slug.toLowerCase().endsWith("-" + artistSlug)) return;
+
+        const title = alt.slice(0, alt.length - artistSuffix.length).trim();
+        const productUrl = "https://fineartamerica.com/featured/" + slug + ".html";
+
+        addProduct({
+          title: title || slug.replace(/[-_]+/g, " "),
+          description: "",
+          productUrl,
+          imageUrl: parsedImage.toString(),
+          price: null,
+          currency: "USD"
+        }, "faa-profile-flow:" + slug.toLowerCase());
+      });
+    })();
+
     /* FAA_RESTORED_FEATURED_DETECTOR */
     Array.from(
       document.querySelectorAll("a[href]")
@@ -773,7 +805,8 @@ const SCAN_PAGE_SCRIPT = `
         (ownerIndex >= 0 && (ownerTail === "" || /^-\d+$/.test(ownerTail)))
       );
       const textOwnerMatch = Boolean(ownerName) && cardText.includes(ownerName);
-      if (ownerSlug && !slugOwnerMatch && !textOwnerMatch) return;
+      // Do not reject valid FAA artwork when the profile slug and the
+      // artist display-name suffix in /featured/ differ.
 
       parsed.search = "";
       parsed.hash = "";
@@ -798,6 +831,55 @@ const SCAN_PAGE_SCRIPT = `
         currency: "USD"
       }, "faa:" + parsed.toString());
     });
+
+
+    /* FAA_PROFILE_FLOW_IMAGE_FALLBACK_FINAL_20260915 */
+    (function () {
+      var pathParts = String(window.location.pathname || "").split("/").filter(Boolean);
+      if (pathParts.length < 2 || String(pathParts[0]).toLowerCase() !== "profiles") return;
+
+      var ownerSlug = String(pathParts[1] || "").toLowerCase();
+      var ownerName = ownerSlug.split("-").join(" ").split("_").join(" ").trim();
+      if (!ownerSlug || !ownerName) return;
+
+      Array.from(document.querySelectorAll("img")).forEach(function (image) {
+        var raw = imageCandidate(image);
+        if (!raw) return;
+
+        var parsedImage;
+        try { parsedImage = new URL(raw, window.location.href); } catch { return; }
+
+        var imageHost = String(parsedImage.hostname || "").toLowerCase();
+        var imagePath = String(parsedImage.pathname || "");
+        var imagePathLower = imagePath.toLowerCase();
+
+        if (imageHost !== "render.fineartamerica.com") return;
+        if (imagePathLower.indexOf("/images-profile-flow/") < 0) return;
+        if (imagePathLower.indexOf("/artworkimages/") < 0) return;
+
+        var alt = cleanText(image.getAttribute("alt") || "");
+        var altLower = alt.toLowerCase();
+        var ownerSuffix = " by " + ownerName;
+        if (!altLower.endsWith(ownerSuffix)) return;
+
+        var filename = imagePath.split("/").filter(Boolean).pop() || "";
+        var dot = filename.lastIndexOf(".");
+        var slug = (dot > 0 ? filename.slice(0, dot) : filename).trim();
+        if (!slug || !slug.toLowerCase().endsWith("-" + ownerSlug)) return;
+
+        var title = alt.slice(0, alt.length - ownerSuffix.length).trim();
+        var productUrl = "https://fineartamerica.com/featured/" + slug + ".html";
+
+        addProduct({
+          title: title || slug.split("-").join(" "),
+          description: "",
+          productUrl: productUrl,
+          imageUrl: parsedImage.toString(),
+          price: null,
+          currency: "USD"
+        }, "fineartamerica:" + productUrl);
+      });
+    })();
 
     Array.from(
       document.querySelectorAll("a.iCg[href]")
@@ -990,6 +1072,19 @@ const SCAN_PAGE_SCRIPT = `
           document.querySelectorAll("img").length,
         sampleLinks,
         sampleImages,
+        // ARTBOOST_FAA_ONSCREEN_DIAGNOSTICS_20260915
+        faaCandidateLinks:
+          Array.from(document.querySelectorAll("a[href]"))
+            .map(function (link) {
+              return absoluteUrl(link.getAttribute("href") || "");
+            })
+            .filter(function (href) {
+              return /fineartamerica\.com|\/featured\//i.test(String(href || ""));
+            })
+            .filter(function (href, index, all) {
+              return href && all.indexOf(href) === index;
+            })
+            .slice(0, 40),
         htmlSnippet:
           String(
             document.body?.innerHTML || ""
@@ -1569,6 +1664,55 @@ const FULL_STORE_SCAN_SCRIPT = `
     }
 
     function collectProducts() {
+
+      /* FAA_PROFILE_FLOW_IMAGE_FALLBACK_FINAL_20260915 */
+      (function () {
+        var pathParts = String(window.location.pathname || "").split("/").filter(Boolean);
+        if (pathParts.length < 2 || String(pathParts[0]).toLowerCase() !== "profiles") return;
+
+        var ownerSlug = String(pathParts[1] || "").toLowerCase();
+        var ownerName = ownerSlug.split("-").join(" ").split("_").join(" ").trim();
+        if (!ownerSlug || !ownerName) return;
+
+        Array.from(document.querySelectorAll("img")).forEach(function (image) {
+          var raw = imageCandidate(image);
+          if (!raw) return;
+
+          var parsedImage;
+          try { parsedImage = new URL(raw, window.location.href); } catch { return; }
+
+          var imageHost = String(parsedImage.hostname || "").toLowerCase();
+          var imagePath = String(parsedImage.pathname || "");
+          var imagePathLower = imagePath.toLowerCase();
+
+          if (imageHost !== "render.fineartamerica.com") return;
+          if (imagePathLower.indexOf("/images-profile-flow/") < 0) return;
+          if (imagePathLower.indexOf("/artworkimages/") < 0) return;
+
+          var alt = cleanText(image.getAttribute("alt") || "");
+          var altLower = alt.toLowerCase();
+          var ownerSuffix = " by " + ownerName;
+          if (!altLower.endsWith(ownerSuffix)) return;
+
+          var filename = imagePath.split("/").filter(Boolean).pop() || "";
+          var dot = filename.lastIndexOf(".");
+          var slug = (dot > 0 ? filename.slice(0, dot) : filename).trim();
+          if (!slug || !slug.toLowerCase().endsWith("-" + ownerSlug)) return;
+
+          var title = alt.slice(0, alt.length - ownerSuffix.length).trim();
+          var productUrl = "https://fineartamerica.com/featured/" + slug + ".html";
+
+          addAccumulated({
+            title: title || slug.split("-").join(" "),
+            description: "",
+            productUrl: productUrl,
+            imageUrl: parsedImage.toString(),
+            price: null,
+            currency: "USD"
+          }, "fineartamerica:" + productUrl);
+        });
+      })();
+
       Array.from(
         document.querySelectorAll("a.iCg[href]")
       ).forEach(function (card) {
@@ -2818,6 +2962,38 @@ function scanEntireStore() {
         return;
       }
 
+      // ARTBOOST_FAA_DIAGNOSTICS_20260915
+      const faaDiagnosticLinks =
+        Array.isArray(message.sampleLinks)
+          ? message.sampleLinks
+          : [];
+      const faaDiagnosticImages =
+        Array.isArray(message.sampleImages)
+          ? message.sampleImages
+          : [];
+
+      console.log("ARTBOOST_FAA_DIAGNOSTICS_BEGIN");
+      console.log(
+        JSON.stringify(
+          {
+            pageTitle: message.pageTitle,
+            pageUrl: message.pageUrl,
+            totalLinks: message.totalLinks,
+            totalImages: message.totalImages,
+            productCount:
+              Array.isArray(message.products)
+                ? message.products.length
+                : 0,
+            sampleLinks: faaDiagnosticLinks,
+            sampleImages: faaDiagnosticImages,
+            htmlSnippet: message.htmlSnippet,
+          },
+          null,
+          2
+        )
+      );
+      console.log("ARTBOOST_FAA_DIAGNOSTICS_END");
+
       console.log(
         "ARTBOOST PAGE INSPECTION",
         {
@@ -3048,7 +3224,19 @@ function scanEntireStore() {
               ? "ArtBoost automatically scrolled the storefront but could not identify supported product links."
               : "Try Scan Entire Store so ArtBoost can automatically load more storefront listings.",
             "",
-            "Inspection details were also printed in the Metro terminal.",
+            (() => {
+              const candidates = Array.isArray((message as any).faaCandidateLinks)
+                ? (message as any).faaCandidateLinks
+                : [];
+              return candidates.length
+                ? [
+                    "FAA candidate links:",
+                    ...candidates.slice(0, 12).map((href: string, index: number) =>
+                      `${index + 1}. ${href}`
+                    ),
+                  ].join("\n")
+                : "FAA candidate links: 0";
+            })(),
           ].join("\n")
         );
       } else {
@@ -3256,6 +3444,10 @@ function scanEntireStore() {
               }
             >
               Universal Scanner
+            </Text>
+            {/* ARTBOOST_LOCAL_BUNDLE_0915 */}
+            <Text style={{ color: "#22c55e", fontSize: 10, fontWeight: "700", marginTop: 2 }}>
+              LOCAL BUILD 0915
             </Text>
           </View>
 
