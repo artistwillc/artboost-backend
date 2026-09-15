@@ -146,10 +146,33 @@ app.get("/meta/media/:token", async (req, res) => {
     if (contentType !== "image/jpeg") {
       throw new Error(`Meta media upstream returned ${contentType || "unknown content type"} instead of image/jpeg.`);
     }
-    const bytes = Buffer.from(await upstream.arrayBuffer());
-    if (!bytes.length || bytes.length > 8 * 1024 * 1024) {
-      throw new Error(`Meta media payload size is invalid (${bytes.length} bytes).`);
+    // ARTBOOST_META_MEDIA_STREAM_SIZE_BOUND_V1_20260915
+    const maxMetaMediaBytes = 8 * 1024 * 1024;
+    const declaredLength = Number(upstream.headers.get("content-length") || 0);
+    if (Number.isFinite(declaredLength) && declaredLength > maxMetaMediaBytes) {
+      throw new Error(`Meta media payload size is invalid (${declaredLength} bytes).`);
     }
+    if (!upstream.body) throw new Error("Meta media upstream returned an empty body.");
+    const reader = upstream.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value?.byteLength) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxMetaMediaBytes) {
+          await reader.cancel("Meta media payload exceeded size limit.");
+          throw new Error(`Meta media payload size is invalid (${totalBytes}+ bytes).`);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (!totalBytes) throw new Error("Meta media upstream returned an empty body.");
+    const bytes = Buffer.concat(chunks, totalBytes);
     res.set({
       "Content-Type": "image/jpeg",
       "Content-Length": String(bytes.length),
