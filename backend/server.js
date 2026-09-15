@@ -916,13 +916,8 @@ app.get(
         <html>
           <body style="font-family:Arial;padding:40px;">
             <h1>Etsy Connection Error</h1>
-            <p>
-              ${
-                error instanceof Error
-                  ? error.message
-                  : "Etsy connection failed."
-              }
-            </p>
+            <!-- ARTBOOST_ETSY_CALLBACK_ERROR_SANITIZATION_V1_20260915 -->
+            <p>Etsy connection failed. Please return to ArtBoost and try again.</p>
           </body>
         </html>
       `);
