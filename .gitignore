@@ -19,3 +19,6 @@ business-entitlement-diagnostic.txt
 thumbnail-regression-diagnostic.txt
 video-publishing-pipeline-diagnostic.txt
 ARTBOOST_NPM_AUDIT_*.json
+
+# ARTBOOST_EMBEDDED_GIT_RUNTIME_CLEANUP_V1_20260915
+/Git/
