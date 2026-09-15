@@ -12071,7 +12071,7 @@ Keep the response clean, visually appealing, and ready to copy.
       );
 
       finalOutput = finalOutput.replace(
-        /check it out\s*ðŸ‘‰?/gi,
+        /check it out\s*👉?/gi,
         ""
       );
 
@@ -13978,7 +13978,7 @@ app.post("/facebook/video-post", async (req, res) => {
           : "",
       ]
         .filter(Boolean)
-        .join(" Â· ");
+        .join(" · ");
 
       throw new Error(
         detail ||
@@ -14362,7 +14362,7 @@ app.post("/threads/video-post", async (req, res) => {
           : "",
       ]
         .filter(Boolean)
-        .join(" Â· ");
+        .join(" · ");
 
       throw new Error(
         detail ||
