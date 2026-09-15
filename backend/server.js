@@ -285,8 +285,11 @@ async function withSocialDbRetry(label, operation) {
   return lastResult;
 }
 
-const PINTEREST_API_BASE =
-  process.env.PINTEREST_API_BASE || "https://api-sandbox.pinterest.com";
+// ARTBOOST_PINTEREST_PRODUCTION_API_FAIL_CLOSED_V1_20260915
+// Production must never silently fall back to Pinterest sandbox.
+const PINTEREST_API_BASE = String(
+  process.env.PINTEREST_API_BASE || "https://api.pinterest.com"
+).trim().replace(/\/+$/, "");
 const PINTEREST_CLIENT_ID = process.env.PINTEREST_CLIENT_ID;
 const PINTEREST_CLIENT_SECRET = process.env.PINTEREST_CLIENT_SECRET;
 const PINTEREST_REDIRECT_URI =
