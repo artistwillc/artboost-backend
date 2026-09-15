@@ -326,6 +326,30 @@ function isLikelyArtworkUrl(value) {
   }
 }
 
+function extractFineArtAmericaResultRange(html) {
+  const visible = stripHtml(html);
+  const match = visible.match(/\b(\d[\d,]*)\s*-\s*(\d[\d,]*)\s+of\s+(\d[\d,]*)\b/i);
+
+  if (!match) return null;
+
+  const start = Number(match[1].replace(/,/g, ""));
+  const end = Number(match[2].replace(/,/g, ""));
+  const total = Number(match[3].replace(/,/g, ""));
+
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    !Number.isFinite(total) ||
+    start < 1 ||
+    end < start ||
+    total < end
+  ) {
+    return null;
+  }
+
+  return { start, end, total };
+}
+
 function extractArtworkLinks(html, pageUrl) {
   const links = new Set();
 
@@ -484,11 +508,25 @@ async function discoverArtworkLinks({
           responseUrl
         );
 
+        const resultRange = extractFineArtAmericaResultRange(html);
+
         for (const link of found) {
           if (!links.has(link)) {
             links.add(link);
             newLinksThisPage += 1;
           }
+        }
+
+        if (resultRange && resultRange.end >= resultRange.total) {
+          console.log(
+            "Fine Art America discovery reached final catalog page:",
+            {
+              pageNumber,
+              discovered: links.size,
+              catalogTotal: resultRange.total,
+            }
+          );
+          return [...links];
         }
       } catch (error) {
         console.log(
