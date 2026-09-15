@@ -7533,9 +7533,7 @@ async function isReachableShopifyImage(
     let response =
       await fetch(clean, {
         method: "HEAD",
-// ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
-        // Signed Cloudinary sources must not redirect to an unvalidated host.
-        redirect: "manual",
+redirect: "follow",
         signal: controller.signal,
       });
 
@@ -7549,9 +7547,7 @@ async function isReachableShopifyImage(
           headers: {
             Range: "bytes=0-0",
           },
-  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
-        // Signed Cloudinary sources must not redirect to an unvalidated host.
-        redirect: "manual",
+  redirect: "follow",
           signal: controller.signal,
         });
     }
@@ -7606,9 +7602,7 @@ async function getShopifyPublicProductImage(
           headers: {
             Accept: "application/json",
           },
-  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
-        // Signed Cloudinary sources must not redirect to an unvalidated host.
-        redirect: "manual",
+  redirect: "follow",
           signal: controller.signal,
         }
       );
@@ -7711,9 +7705,7 @@ async function fetchShopifyImageBuffer(
             Accept:
               "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
           },
-  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
-        // Signed Cloudinary sources must not redirect to an unvalidated host.
-        redirect: "manual",
+  redirect: "follow",
           signal:
             controller.signal,
         }
