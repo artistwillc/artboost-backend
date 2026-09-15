@@ -350,12 +350,29 @@ export async function getVideoJob({ userId, jobId }) {
   return data;
 }
 
-// ARTBOOST_QUEUE_CLAIM_OBSERVABILITY_20260915_V2
+// ARTBOOST_QUEUE_CLAIM_OBSERVABILITY_20260915_V3_1
 async function observeVideoStudioClaim(operation) {
   const startedAt = Date.now();
   try {
     const result = await operation();
     const elapsedMs = Date.now() - startedAt;
+    const rpcError = result?.error ?? null;
+
+    if (rpcError) {
+      console.error("Video Studio queue claim diagnostic:", {
+        provider: "supabase_postgrest_rpc",
+        rpc: "claim_next_video_job",
+        elapsedMs,
+        outcome: "error",
+        message: rpcError?.message ?? String(rpcError),
+        status: rpcError?.status ?? rpcError?.statusCode ?? null,
+        code: rpcError?.code ?? null,
+        details: rpcError?.details ?? null,
+        hint: rpcError?.hint ?? null,
+      });
+      return result;
+    }
+
     if (elapsedMs >= 5000) {
       console.warn("Video Studio queue claim slow:", {
         provider: "supabase_postgrest_rpc",
