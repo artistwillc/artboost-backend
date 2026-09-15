@@ -10228,10 +10228,22 @@ async function publishInstagramPost({
     .join("\n\n")
     .trim();
 
-  const throwInstagramError = (errorData, stage) => {
+  const throwInstagramError = (errorData, stage, httpStatus = null) => {
     const apiError = errorData?.error || {};
     const code = Number(apiError.code || 0);
     const messageText = apiError.message || `Instagram ${stage} failed.`;
+
+    console.error("Instagram Graph API error:", {
+      stage,
+      httpStatus,
+      type: apiError.type || null,
+      code: apiError.code ?? null,
+      errorSubcode: apiError.error_subcode ?? null,
+      errorUserTitle: apiError.error_user_title || null,
+      errorUserMsg: apiError.error_user_msg || null,
+      fbtraceId: apiError.fbtrace_id || null,
+      message: messageText,
+    });
 
     if (code === 190 || /expired|session/i.test(messageText)) {
       throw new Error(
@@ -10242,41 +10254,57 @@ async function publishInstagramPost({
     throw new Error(messageText);
   };
 
+  const createContainerBody = new URLSearchParams({
+    image_url: String(imageUrl),
+    caption: message,
+    access_token: connection.access_token,
+  });
+
   const createContainerResponse = await fetch(
     `https://graph.facebook.com/v23.0/${connection.instagram_user_id}/media`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_url: imageUrl,
-        caption: message,
-        access_token: connection.access_token,
-      }),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: createContainerBody.toString(),
     }
   );
 
   const createContainerData = await createContainerResponse.json();
   if (!createContainerResponse.ok || createContainerData.error) {
-    throwInstagramError(createContainerData, "media container creation");
+    throwInstagramError(
+      createContainerData,
+      "media container creation",
+      createContainerResponse.status
+    );
   }
 
   await new Promise(resolve => setTimeout(resolve, 8000));
+
+  const publishBody = new URLSearchParams({
+    creation_id: String(createContainerData.id),
+    access_token: connection.access_token,
+  });
 
   const publishResponse = await fetch(
     `https://graph.facebook.com/v23.0/${connection.instagram_user_id}/media_publish`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creation_id: createContainerData.id,
-        access_token: connection.access_token,
-      }),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: publishBody.toString(),
     }
   );
 
   const publishData = await publishResponse.json();
   if (!publishResponse.ok || publishData.error) {
-    throwInstagramError(publishData, "publishing");
+    throwInstagramError(
+      publishData,
+      "publishing",
+      publishResponse.status
+    );
   }
 
   return publishData;
