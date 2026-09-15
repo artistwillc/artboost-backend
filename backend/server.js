@@ -54,6 +54,11 @@ dotenv.config({ override: true });
 
 const app = express();
 
+// ARTBOOST_META_MEDIA_SECURITY_HEADERS_V1_20260915
+// Apply common security headers before every route, including Meta media.
+app.set("trust proxy", 1);
+app.use(applySecurityHeaders);
+
 const META_MEDIA_BASE_URL = String(
   process.env.META_MEDIA_BASE_URL ||
     "https://artboostai.com/meta/media"
@@ -157,9 +162,6 @@ app.get("/meta/media/:token", async (req, res) => {
     return res.status(404).end();
   }
 });
-
-app.set("trust proxy", 1);
-app.use(applySecurityHeaders);
 
 const generationLimiter = createRateLimiter({
   windowMs: 60_000,
