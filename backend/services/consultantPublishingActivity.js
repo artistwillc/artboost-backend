@@ -104,14 +104,109 @@ function rangeMatch(createdAt, range, timeZone, now = new Date()) {
   return true;
 }
 
+// ARTBOOST_CONSULTANT_TODAY_PUBLISHING_STATUS_V16_7
 function isPublishingActivityQuestion(question) {
   const q = text(question, 1600).toLowerCase();
   const asksStores = /\b(?:store|stores|shop|shops)\b/.test(q);
+  const asksScheduled = /\b(?:scheduled|schedule|scheduler|automation|automations)\b/.test(q);
   const asksPublishing =
     /\b(?:post|posts|posted|posting|publish|publishes|published|publishing)\b/.test(q);
   const asksCountOrStatus =
-    /\b(?:how many|which|what|did|has|have|status|activity|successful|successfully)\b/.test(q);
-  return asksStores && asksPublishing && asksCountOrStatus && Boolean(rangeFromQuestion(q));
+    /\b(?:how many|which|what|did|has|have|were|was|all|status|activity|successful|successfully|failed|failure|failures|skipped)\b/.test(q);
+
+  return (asksStores || asksScheduled) &&
+    asksPublishing &&
+    asksCountOrStatus &&
+    Boolean(rangeFromQuestion(q));
+}
+
+function asksOverallScheduledPublishingStatus(question) {
+  const q = text(question, 1600).toLowerCase();
+
+  return /\b(?:scheduled|schedule|scheduler|automation|automations)\b/.test(q) &&
+    /\b(?:post|posts|posted|posting|publish|published|publishing)\b/.test(q) &&
+    /\b(?:all|successful|successfully|failed|failure|failures|skipped|status)\b/.test(q) &&
+    Boolean(rangeFromQuestion(q));
+}
+
+function platformOutcomes(log) {
+  const parsed = parseJson(log?.publish_result);
+  const results = arr(parsed?.results);
+  const selected = [...new Set(
+    arr(log?.platforms).map(normalizePlatform).filter(Boolean)
+  )];
+
+  const outcomes = [];
+  const seen = new Set();
+
+  for (const item of results) {
+    const platform = normalizePlatform(item?.platform || item?.name);
+    if (!platform) continue;
+
+    seen.add(platform);
+
+    const rawStatus = text(item?.status, 80).toLowerCase();
+    const skipped = item?.skipped === true || rawStatus === "skipped";
+    const success = item?.success === true;
+    const failed =
+      item?.success === false ||
+      rawStatus === "failed" ||
+      rawStatus === "error";
+
+    outcomes.push({
+      platform,
+      status: success
+        ? "success"
+        : skipped
+          ? "skipped"
+          : failed
+            ? "failed"
+            : "unverified",
+      error: text(
+        item?.error || item?.error_message || item?.message,
+        240
+      ) || null,
+    });
+  }
+
+  for (const platform of selected) {
+    if (!seen.has(platform)) {
+      outcomes.push({
+        platform,
+        status: "unverified",
+        error: null,
+      });
+    }
+  }
+
+  if (outcomes.length === 0) {
+    const rowStatus = text(log?.status, 80).toLowerCase();
+
+    const rowSucceeded =
+      log?.event_type === "post_success" ||
+      rowStatus === "success";
+
+    const rowFailed =
+      log?.event_type === "post_failed" ||
+      rowStatus === "failed" ||
+      Boolean(log?.error_message);
+
+    for (const platform of selected.length ? selected : ["platform"]) {
+      outcomes.push({
+        platform,
+        status: rowSucceeded
+          ? "success"
+          : rowFailed
+            ? "failed"
+            : "unverified",
+        error: rowFailed
+          ? text(log?.error_message || log?.message, 240) || null
+          : null,
+      });
+    }
+  }
+
+  return outcomes;
 }
 
 function successfulPlatforms(log) {
@@ -194,6 +289,80 @@ export function buildStorePublishingActivityAnswer(
     rangeMatch(log?.created_at, range, timeZone, now)
   );
 
+  if (asksOverallScheduledPublishingStatus(question)) {
+    const attempts = periodLogs.filter((log) =>
+      /post|publish|automation/i.test(
+        text(log?.event_type, 100) + " " + text(log?.message, 300)
+      ) ||
+      arr(log?.platforms).length > 0 ||
+      Boolean(parseJson(log?.publish_result))
+    );
+
+    const outcomes = attempts.flatMap(platformOutcomes);
+
+    const success = outcomes.filter((x) => x.status === "success");
+    const failed = outcomes.filter((x) => x.status === "failed");
+    const skipped = outcomes.filter((x) => x.status === "skipped");
+    const unverified = outcomes.filter((x) => x.status === "unverified");
+
+    const period = rangeLabel(range);
+
+    if (!attempts.length || !outcomes.length) {
+      return {
+        answer:
+          `I cannot verify that all scheduled posts were successful ${period} because Publishing History has no verifiable platform outcomes for that period.`,
+        steps: [],
+        actionIds: ["open_analytics"],
+        followUps: [
+          "Show me my publishing history.",
+          "Do any of my automations have errors?"
+        ],
+        usedAccountData: true,
+        severity: "warning",
+        evidenceNote:
+          `Checked first-party Publishing History in ${timeZone}; no verifiable platform outcomes were available for ${period}.`,
+        confidence: "unknown",
+        intelligenceSources: ["artboost"],
+      };
+    }
+
+    const problems = [
+      ...failed,
+      ...skipped,
+      ...unverified
+    ]
+      .slice(0, 8)
+      .map(
+        (x) =>
+          `${x.platform}: ${x.status}${x.error ? ` (${x.error})` : ""}`
+      );
+
+    const allSuccessful =
+      !failed.length &&
+      !skipped.length &&
+      !unverified.length;
+
+    const answer = allSuccessful
+      ? `Yes. Publishing History verifies that all ${outcomes.length} recorded scheduled platform outcomes were successful ${period}.`
+      : `No. Publishing History shows ${success.length} successful, ${failed.length} failed, ${skipped.length} skipped, and ${unverified.length} unverified scheduled platform outcomes ${period}.${problems.length ? " " + problems.join("; ") + "." : ""}`;
+
+    return {
+      answer,
+      steps: [],
+      actionIds: ["open_analytics"],
+      followUps: [
+        "Show me the failed or skipped platforms.",
+        "Do any of my automations have errors?"
+      ],
+      usedAccountData: true,
+      severity: allSuccessful ? "success" : "warning",
+      evidenceNote:
+        `Reconciled scheduler attempts with per-platform Publishing History outcomes using account timezone ${timeZone}; lifetime totals were not used.`,
+      confidence: "high",
+      intelligenceSources: ["artboost"],
+    };
+  }
+
   const perStore = new Map();
 
   for (const log of periodLogs) {
@@ -265,6 +434,8 @@ export const __test = {
   rangeFromQuestion,
   rangeMatch,
   isPublishingActivityQuestion,
+  asksOverallScheduledPublishingStatus,
+  platformOutcomes,
   successfulPlatforms,
   timezoneForAccount,
 };
