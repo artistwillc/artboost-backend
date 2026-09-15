@@ -3304,7 +3304,28 @@ app.use(stripeSandboxRoutes);
 
 // Live Stripe webhook is handled by routes/subscriptions.js above.
 
-app.use(cors());
+// ARTBOOST_CORS_FAIL_CLOSED_V1_20260915
+const ARTBOOST_ALLOWED_ORIGINS = new Set([
+  "https://artboostai.com",
+  "https://www.artboostai.com",
+]);
+app.use(cors({
+  origin(origin, callback) {
+    // Native/mobile clients do not send a browser Origin header.
+    if (!origin) return callback(null, true);
+    let normalized;
+    try {
+      normalized = new URL(origin).origin;
+    } catch {
+      return callback(new Error("CORS origin is invalid."));
+    }
+    if (ARTBOOST_ALLOWED_ORIGINS.has(normalized)) {
+      return callback(null, true);
+    }
+    return callback(new Error("CORS origin is not allowed."));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: "10mb" }));
 app.use("/products", productRoutes);
 // ARTBOOST_HASHTAG_INTELLIGENCE_ROUTE_V1
