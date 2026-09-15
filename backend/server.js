@@ -129,11 +129,16 @@ app.get("/meta/media/:token", async (req, res) => {
       upstream = await fetch(sourceUrl, {
         method: "GET",
         headers: { Accept: "image/jpeg", "User-Agent": "ArtBoost-Meta-Media-Proxy/1.0" },
-        redirect: "follow",
+// ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
+        // Signed Cloudinary sources must not redirect to an unvalidated host.
+        redirect: "manual",
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timeout);
+    }
+    if (upstream.status >= 300 && upstream.status < 400) {
+      throw new Error("Meta media upstream redirects are not allowed.");
     }
     if (!upstream.ok) throw new Error(`Meta media upstream returned HTTP ${upstream.status}.`);
     const contentType = String(upstream.headers.get("content-type") || "")
@@ -7528,7 +7533,9 @@ async function isReachableShopifyImage(
     let response =
       await fetch(clean, {
         method: "HEAD",
-        redirect: "follow",
+// ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
+        // Signed Cloudinary sources must not redirect to an unvalidated host.
+        redirect: "manual",
         signal: controller.signal,
       });
 
@@ -7542,7 +7549,9 @@ async function isReachableShopifyImage(
           headers: {
             Range: "bytes=0-0",
           },
-          redirect: "follow",
+  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
+        // Signed Cloudinary sources must not redirect to an unvalidated host.
+        redirect: "manual",
           signal: controller.signal,
         });
     }
@@ -7597,7 +7606,9 @@ async function getShopifyPublicProductImage(
           headers: {
             Accept: "application/json",
           },
-          redirect: "follow",
+  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
+        // Signed Cloudinary sources must not redirect to an unvalidated host.
+        redirect: "manual",
           signal: controller.signal,
         }
       );
@@ -7700,7 +7711,9 @@ async function fetchShopifyImageBuffer(
             Accept:
               "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
           },
-          redirect: "follow",
+  // ARTBOOST_META_MEDIA_REDIRECT_FAIL_CLOSED_V1_20260915
+        // Signed Cloudinary sources must not redirect to an unvalidated host.
+        redirect: "manual",
           signal:
             controller.signal,
         }
