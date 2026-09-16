@@ -931,8 +931,22 @@ export async function importSingleCatalogProduct({
     suppliedImageIsUsable &&
     !placeholderTitle;
 
+  /*
+   * ARTBOOST_ARTPAL_403_METADATA_FALLBACK_20260916
+   *
+   * ArtPal blocks backend requests to individual listing pages with HTTP 403.
+   * When the scanner already supplied a usable title and image, preserve that
+   * authoritative scanner data instead of issuing one blocked metadata request
+   * per listing merely to fill optional description/price fields.
+   */
+  const artPalScannerMetadataUsable =
+    normalizedStoreType === "artpal" &&
+    suppliedImageIsUsable &&
+    !placeholderTitle;
+
   const needsMetadataFallback =
-    redbubbleScannerMetadataUsable
+    redbubbleScannerMetadataUsable ||
+    artPalScannerMetadataUsable
       ? false
       : !suppliedImageIsUsable ||
         !suppliedDescription ||
