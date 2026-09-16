@@ -3819,6 +3819,10 @@ app.get("/faq", (_req, res) => {
   return res.sendFile(`${process.cwd()}/website/faq.html`);
 });
 
+app.get("/delete-account", (_req, res) => {
+  return res.sendFile(`${process.cwd()}/website/delete-account.html`);
+});
+
 app.get("/app-icon.png", (_req, res) => {
   return res.sendFile(`${process.cwd()}/website/app-icon.png`);
 });
