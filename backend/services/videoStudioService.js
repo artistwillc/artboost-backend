@@ -198,6 +198,20 @@ const VIDEO_STUDIO_LOCK_SECONDS = Math.min(
   7200
 );
 
+// ARTBOOST_QUEUE_IDLE_BACKOFF_20260916
+// Empty Video Studio claims are throttled locally so a fast external worker
+// loop does not continuously hit PostgREST when no video job is queued.
+const VIDEO_STUDIO_EMPTY_CLAIM_COOLDOWN_MS = Math.min(
+  Math.max(
+    Number(
+      process.env.ARTBOOST_VIDEO_EMPTY_CLAIM_COOLDOWN_MS
+    ) || 15000,
+    3000
+  ),
+  60000
+);
+let videoStudioNextClaimAt = 0;
+
 function cleanVideoGuidance(value) {
   // ARTBOOST_VIDEO_GUIDANCE_SEARCH_INTEGRITY_V1_2
   return String(value || "")
@@ -401,6 +415,11 @@ async function observeVideoStudioClaim(operation) {
 }
 
 export async function claimNextVideoJob() {
+  const now = Date.now();
+  if (now < videoStudioNextClaimAt) {
+    return null;
+  }
+
   const {
     data,
     error,
@@ -422,10 +441,18 @@ export async function claimNextVideoJob() {
     );
   }
 
-  return Array.isArray(data) &&
+  const job =
+    Array.isArray(data) &&
     data.length > 0
-    ? data[0]
-    : null;
+      ? data[0]
+      : null;
+
+  videoStudioNextClaimAt = job
+    ? 0
+    : Date.now() +
+      VIDEO_STUDIO_EMPTY_CLAIM_COOLDOWN_MS;
+
+  return job;
 }
 
 export async function heartbeatVideoJob({

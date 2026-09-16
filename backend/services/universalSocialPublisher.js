@@ -553,6 +553,8 @@ export async function publishUniversalSocial({
 
       results.push({
         success: true,
+        status: "success",
+        platform: `universal:${connection.id}`,
         ...result,
       });
     } catch (error) {
@@ -562,6 +564,8 @@ export async function publishUniversalSocial({
 
       results.push({
         success: false,
+        status: "failed",
+        platform: `universal:${connection.id}`,
         connectionId:
           connection.id,
         platformName:

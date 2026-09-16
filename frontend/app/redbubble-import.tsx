@@ -105,6 +105,7 @@ const REDBUBBLE_SYNC_BATCH_SIZE = 50;
 const REDBUBBLE_FAILED_RETRY_BATCH_SIZE = 20;
 const REDBUBBLE_MAX_EXPLORE_PAGES = 500;
 const REDBUBBLE_BATCH_MAX_ATTEMPTS = 3;
+const REDBUBBLE_PAGE_RESCAN_ATTEMPTS = 2;
 
 function sleepMs(
   milliseconds: number
@@ -382,28 +383,132 @@ const EXTRACTION_SCRIPT = `
 
   function getReportedDesignCount() {
     try {
-      var bodyText =
-        document.body
-          ? String(
-              document.body.innerText || ""
-            )
-          : "";
-
-      var match =
-        bodyText.match(
-          /\b(\d{1,5})\s+designs\b/i
-        );
-
-      if (!match || !match[1]) {
-        return 0;
+      function normalizeText(value) {
+        return String(value || "")
+          .replace(/\u00a0/g, " ")
+          .replace(/[\u2022\u00b7]/g, " • ")
+          .replace(/\s+/g, " ")
+          .trim();
       }
 
-      var value =
-        Number(match[1]);
+      function parseDesignCount(value) {
+        var text = normalizeText(value);
+        if (!text) {
+          return 0;
+        }
 
-      return Number.isFinite(value)
-        ? Math.max(0, Math.floor(value))
-        : 0;
+        var match =
+          text.match(
+            /\b([\d,]{1,7})\s+designs?\b/i
+          );
+
+        if (!match || !match[1]) {
+          return 0;
+        }
+
+        var parsed =
+          Number(
+            String(match[1])
+              .replace(/,/g, "")
+          );
+
+        return (
+          Number.isFinite(parsed) &&
+          parsed > 0 &&
+          parsed < 100000
+        )
+          ? Math.floor(parsed)
+          : 0;
+      }
+
+      // ARTBOOST_REDBUBBLE_HEADER_COUNT_20260916
+      // Prefer the artist-profile header shown by Redbubble:
+      // "Joined ... • N designs • View artist profile".
+      var nodes =
+        Array.from(
+          document.querySelectorAll(
+            "body *"
+          )
+        );
+
+      for (
+        var index = 0;
+        index < nodes.length;
+        index += 1
+      ) {
+        var node = nodes[index];
+        var text =
+          normalizeText(
+            node &&
+            node.textContent
+          );
+
+        if (
+          !text ||
+          text.length > 240 ||
+          !/\bjoined\b/i.test(text) ||
+          !/\bview\s+artist\s+profile\b/i.test(text) ||
+          !/\bdesigns?\b/i.test(text)
+        ) {
+          continue;
+        }
+
+        var headerCount =
+          parseDesignCount(text);
+
+        if (headerCount > 0) {
+          return headerCount;
+        }
+      }
+
+      // Fallback for alternate Redbubble layouts.
+      var bodyText =
+        normalizeText(
+          document.body
+            ? document.body.innerText || ""
+            : ""
+        );
+
+      var bodyCount =
+        parseDesignCount(bodyText);
+
+      if (bodyCount > 0) {
+        return bodyCount;
+      }
+
+      try {
+        var html =
+          normalizeText(
+            document.documentElement
+              ? document.documentElement.innerHTML || ""
+              : ""
+          );
+
+        var htmlMatch =
+          html.match(
+            /["'](?:designCount|design_count|artworkCount|artwork_count)["']\s*[:=]\s*["']?([\d,]{1,7})/i
+          );
+
+        if (htmlMatch && htmlMatch[1]) {
+          var htmlCount =
+            Number(
+              String(htmlMatch[1])
+                .replace(/,/g, "")
+            );
+
+          if (
+            Number.isFinite(htmlCount) &&
+            htmlCount > 0 &&
+            htmlCount < 100000
+          ) {
+            return Math.floor(htmlCount);
+          }
+        }
+      } catch {
+        // Visible header/body remain authoritative.
+      }
+
+      return 0;
     } catch {
       return 0;
     }
@@ -662,8 +767,109 @@ const EXTRACTION_SCRIPT = `
       }
     );
 
+    var diagnostic = null;
+
+    try {
+      // ARTBOOST_REDBUBBLE_WEBVIEW_DOM_DIAGNOSTIC_20260916
+      // Capture bounded, non-secret page evidence from the Redbubble WebView.
+      // This is temporary launch diagnostics and is emitted only to Metro logs.
+      var diagnosticBodyText =
+        String(
+          document.body
+            ? document.body.innerText || ""
+            : ""
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+
+      var diagnosticHtml =
+        String(
+          document.documentElement
+            ? document.documentElement.innerHTML || ""
+            : ""
+        );
+
+      function diagnosticSnippets(value) {
+        var source =
+          String(value || "");
+        var lower =
+          source.toLowerCase();
+        var terms = [
+          "designs",
+          "joined",
+          "artist profile",
+          "artistwill",
+        ];
+        var snippets = [];
+
+        terms.forEach(function (term) {
+          var start = 0;
+          var found = 0;
+
+          while (
+            found < 3 &&
+            (start =
+              lower.indexOf(term, start)) >= 0
+          ) {
+            var from =
+              Math.max(0, start - 180);
+            var to =
+              Math.min(
+                source.length,
+                start + term.length + 180
+              );
+
+            snippets.push(
+              source
+                .slice(from, to)
+                .replace(/\s+/g, " ")
+                .trim()
+            );
+
+            start += term.length;
+            found += 1;
+          }
+        });
+
+        return unique(snippets)
+          .slice(0, 12);
+      }
+
+      diagnostic = {
+        browserUrl:
+          window.location.href,
+        documentTitle:
+          document.title || "",
+        readyState:
+          document.readyState || "",
+        bodyTextLength:
+          diagnosticBodyText.length,
+        htmlLength:
+          diagnosticHtml.length,
+        bodySnippets:
+          diagnosticSnippets(
+            diagnosticBodyText
+          ),
+        htmlSnippets:
+          diagnosticSnippets(
+            diagnosticHtml
+          ),
+      };
+    } catch (diagnosticError) {
+      diagnostic = {
+        error:
+          String(
+            diagnosticError &&
+            diagnosticError.message
+              ? diagnosticError.message
+              : diagnosticError
+          ),
+      };
+    }
+
     var payload = {
       type: "REDBUBBLE_METADATA",
+      diagnostic: diagnostic,
       data: {
         pageType: detectPageType(currentUrl),
         title:
@@ -719,8 +925,52 @@ const EXTRACTION_SCRIPT = `
 
   var lastArtworkCount = -1;
   var stableArtworkSamples = 0;
+  var scrollPass = 0;
+  var maxObservedScrollHeight = 0;
+
+  /*
+   * ARTBOOST_REDBUBBLE_DISCOVERY_V4
+   * Redbubble lazy-loads/virtualizes listing cards. A stable DOM count near the
+   * top of the page is not proof that the page is complete. Sweep the document
+   * before accepting a stable result so late cards become discoverable.
+   */
+  function advanceDiscoveryScroll() {
+    try {
+      var root =
+        document.scrollingElement ||
+        document.documentElement ||
+        document.body;
+
+      var height = Math.max(
+        root ? root.scrollHeight : 0,
+        document.body ? document.body.scrollHeight : 0,
+        document.documentElement
+          ? document.documentElement.scrollHeight
+          : 0
+      );
+
+      maxObservedScrollHeight =
+        Math.max(maxObservedScrollHeight, height);
+
+      if (height > 0) {
+        var fraction =
+          Math.min(1, (scrollPass + 1) / 12);
+
+        window.scrollTo(
+          0,
+          Math.floor(height * fraction)
+        );
+
+        scrollPass += 1;
+      }
+    } catch {
+      // Discovery still uses anchors/attributes/embedded markup if scrolling fails.
+    }
+  }
 
   function adaptiveExtractPass() {
+    advanceDiscoveryScroll();
+
     var count =
       extract(false);
 
@@ -736,25 +986,38 @@ const EXTRACTION_SCRIPT = `
     var elapsed =
       Date.now() - scanStartedAt;
 
+    var scrollSweepComplete =
+      scrollPass >= 12;
+
     var populatedAndStable =
       count > 0 &&
-      elapsed >= 6000 &&
+      scrollSweepComplete &&
+      elapsed >= 20000 &&
       stableArtworkSamples >= 2;
 
     var emptyAndStable =
       count === 0 &&
-      elapsed >= 12000 &&
+      scrollSweepComplete &&
+      elapsed >= 22000 &&
       stableArtworkSamples >= 4;
 
     var maxWaitReached =
-      elapsed >= 18000;
+      elapsed >= 32000;
 
     if (
       populatedAndStable ||
       emptyAndStable ||
       maxWaitReached
     ) {
-      extract(true);
+      try {
+        window.scrollTo(0, 0);
+      } catch {
+        // Non-fatal.
+      }
+
+      setTimeout(function () {
+        extract(true);
+      }, 700);
       return;
     }
 
@@ -852,6 +1115,7 @@ export default function RedbubbleImportScreen() {
       targetDesignCount: number;
       pagesScanned: number;
       pageStartUniqueCount: number;
+      pageRescanAttempts: Map<string, number>;
       processedPages: Set<number>;
       artworkLinksById: Map<
         string,
@@ -873,6 +1137,7 @@ export default function RedbubbleImportScreen() {
       targetDesignCount: 0,
       pagesScanned: 0,
       pageStartUniqueCount: 0,
+      pageRescanAttempts: new Map<string, number>(),
       processedPages:
         new Set<number>(),
       artworkLinksById:
@@ -1055,6 +1320,7 @@ export default function RedbubbleImportScreen() {
           targetDesignCount: 0,
           pagesScanned: 0,
           pageStartUniqueCount: 0,
+          pageRescanAttempts: new Map<string, number>(),
           processedPages:
             new Set<number>(),
           artworkLinksById:
@@ -1220,6 +1486,13 @@ export default function RedbubbleImportScreen() {
         "REDBUBBLE_METADATA"
       ) {
         return;
+      }
+
+      if (message?.diagnostic) {
+        console.log(
+          "ARTBOOST REDBUBBLE WEBVIEW DOM DIAGNOSTIC",
+          message.diagnostic
+        );
       }
 
       const nextMetadata: ExtractedMetadata = {
@@ -1553,11 +1826,49 @@ export default function RedbubbleImportScreen() {
       );
 
       setProgressPercent(82);
+
+      const reportedDesignCount =
+        crawl.targetDesignCount;
+      const verifiedPublicListings =
+        allArtworkLinks.length;
+      const reportedVsPublicDelta =
+        reportedDesignCount > 0
+          ? reportedDesignCount -
+            verifiedPublicListings
+          : null;
+
+      console.log(
+        "ARTBOOST REDBUBBLE FINAL DISCOVERY AUDIT",
+        {
+          reportedDesignCount,
+          verifiedPublicListings,
+          reportedVsPublicDelta,
+          reportedCountCaptured:
+            reportedDesignCount > 0,
+          publicCrawlComplete: true,
+          reconciliationStatus:
+            reportedDesignCount <= 0
+              ? "reported-count-unavailable"
+              : reportedDesignCount ===
+                  verifiedPublicListings
+                ? "reported-count-matches-public-links"
+                : "reported-count-differs-from-public-links",
+          discoveredArtworkIds:
+            Array.from(
+              crawl.artworkLinksById.keys()
+            ).sort(
+              (a, b) =>
+                Number(a) - Number(b)
+            ),
+        }
+      );
+
       setProgressLabel(
-        crawl.targetDesignCount >
-          allArtworkLinks.length
-          ? `${allArtworkLinks.length} public listings found from ${crawl.targetDesignCount} reported designs. Syncing verified listings...`
-          : `${allArtworkLinks.length} designs verified. Syncing product details and thumbnails...`
+        reportedDesignCount > 0 &&
+          reportedDesignCount !==
+            verifiedPublicListings
+          ? `${verifiedPublicListings} verified public listings found. Redbubble reports ${reportedDesignCount} designs. Syncing verified public listings...`
+          : `${verifiedPublicListings} public designs verified. Syncing product details and thumbnails...`
       );
 
       await refreshStoreFromArtworkLinks(
@@ -1569,6 +1880,46 @@ export default function RedbubbleImportScreen() {
     if (
       newArtworkCount === 0
     ) {
+      const rescanKey =
+        `${crawl.phase}:${messagePage}`;
+      const priorRescans =
+        crawl.pageRescanAttempts.get(
+          rescanKey
+        ) || 0;
+
+      if (
+        priorRescans <
+          REDBUBBLE_PAGE_RESCAN_ATTEMPTS &&
+        crawl.targetDesignCount >
+          allArtworkLinks.length
+      ) {
+        crawl.pageRescanAttempts.set(
+          rescanKey,
+          priorRescans + 1
+        );
+        crawl.processedPages.delete(
+          messagePage
+        );
+        crawl.pageStartUniqueCount =
+          allArtworkLinks.length;
+
+        setProgressLabel(
+          `${allArtworkLinks.length} of ${crawl.targetDesignCount} reported designs found. Rechecking ${crawl.phase === "shop" ? "Shop" : "Explore"} page ${messagePage} (${priorRescans + 1}/${REDBUBBLE_PAGE_RESCAN_ATTEMPTS})...`
+        );
+
+        setActiveUrl(
+          crawl.phase === "shop"
+            ? buildRedbubbleShopPageUrl(
+                crawl.artistUsername,
+                messagePage
+              )
+            : buildRedbubbleExplorePageUrl(
+                crawl.artistUsername,
+                messagePage
+              )
+        );
+        return;
+      }
       if (
         crawl.phase === "explore"
       ) {

@@ -31,3 +31,42 @@ backend/node_modules/
 .env.*
 **/.env
 **/.env.*
+
+# ArtBoost release-gate secret exclusions
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+SubscriptionKey_L7A7K9L5BR.p8
+
+# ARTBOOST_FINAL_ANDROID_ARCHIVE_FIX_V1 START
+# Local machine/tooling and generated artifacts not required by the Expo build.
+Java/
+Git/
+artboost-android-release-reports/
+artboost-release-gate-reports/
+artboost-repair-reports/
+artboost-repair-backups/
+artboost-test-reports/
+_artboost_backups/
+_apple_iap*_backup*/
+_artboost*_backup*/
+_etsy*_backup*/
+_subscription*_backup*/
+_testflight*_backup*/
+.artboost*
+frontend/dist/
+frontend/dist-final-preflight/
+frontend/eas-archive-inspect/
+frontend/eas-archive-analysis.json
+**/*.zip
+**/*.7z
+**/*.rar
+**/*.tar
+**/*.tgz
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.log
+# ARTBOOST_FINAL_ANDROID_ARCHIVE_FIX_V1 END

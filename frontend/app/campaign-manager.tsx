@@ -39,6 +39,7 @@ import {
 import ArtBoostBrandIcon from "@/components/ArtBoostBrandIcon";
 import { supabase } from "@/lib/supabase";
 import { readApiJson } from "@/lib/apiJson";
+import { runCampaignPlatformFanout } from "../lib/campaignMultiPlatformFanout";
 
 const BACKEND_URL =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
@@ -1156,7 +1157,27 @@ loadFacebookPagesRef.current = loadFacebookPages;
       setLoadingBoards(true);
       setBoardError("");
 
-      const response = await fetch(`${BACKEND_URL}/pinterest/boards`);
+      // ARTBOOST_CAMPAIGN_PINTEREST_USERID_REPAIR_V3
+      // Resolve identity locally so loadBoards does not gain a React-state
+      // dependency and does not alter the existing hook dependency graph.
+      const { data: pinterestAuthData, error: pinterestAuthError } =
+        await supabase.auth.getSession();
+
+      if (pinterestAuthError) {
+        throw pinterestAuthError;
+      }
+
+      const pinterestUserId = pinterestAuthData.session?.user?.id || "";
+
+      if (!pinterestUserId) {
+        setBoards([]);
+        setBoardError("Please sign in again so ArtBoost can load your Pinterest boards.");
+        return;
+      }
+
+      const response = await fetch(
+        `${BACKEND_URL}/pinterest/boards?userId=${encodeURIComponent(pinterestUserId)}`
+      );
       const data = await readApiJson(response, "Campaign Manager");
 
       if (!response.ok) {
@@ -2122,33 +2143,79 @@ const publishSelectedVideoPlatforms = async () => {
 
   return true;
 };
-
+// ARTBOOST_IMAGE_MULTI_PLATFORM_PUBLISH_V2
 const postEverywhere = async () => {
   try {
-    // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3
+    // Video campaigns retain their dedicated tested adapter.
     if (isVideoCampaign) {
       await publishSelectedVideoPlatforms();
       return;
     }
 
-      // ARTBOOST_VIDEO_MULTI_PLATFORM_PUBLISH_V1_3 Old Video Studio post-everywhere guard replaced by multi-platform publisher.
     if (!hasPaidPublishingAccess(profile?.subscription_tier)) {
-      Alert.alert("Paid Plan Required", "Post Everywhere requires a Pro or Business plan.");
+      Alert.alert(
+        "Paid Plan Required",
+        "Post Everywhere requires a Pro or Business plan."
+      );
+      return;
+    }
+
+    if (!session?.user?.id) {
+      Alert.alert("Login Required", "Please log in before publishing.");
       return;
     }
 
     if (!title || !description || !imageUrl) {
-      Alert.alert("Missing Content", "Title, description, and image URL are required.");
+      Alert.alert(
+        "Missing Content",
+        "Title, description, and image URL are required."
+      );
       return;
     }
 
-    if (!selectedBoard) {
-      Alert.alert("Missing Pinterest Board", "Please select a Pinterest board first.");
+    if (selectedPlatforms.length === 0) {
+      Alert.alert(
+        "Choose Platforms",
+        "Select at least one platform before publishing."
+      );
       return;
     }
 
-    if (!selectedFacebookPage) {
-      Alert.alert("Missing Facebook Page", "Please select a Facebook Page first.");
+    if (
+      selectedPlatforms.includes("Pinterest") &&
+      !selectedBoard
+    ) {
+      Alert.alert(
+        "Missing Pinterest Board",
+        "Choose the Pinterest board before publishing."
+      );
+      return;
+    }
+
+    if (
+      selectedPlatforms.includes("Facebook") &&
+      !selectedFacebookPage
+    ) {
+      Alert.alert(
+        "Missing Facebook Page",
+        "Choose the Facebook Page before publishing."
+      );
+      return;
+    }
+
+    const unsupportedForImage = selectedPlatforms.filter(
+      (platform) => platform === "TikTok"
+    );
+
+    const imagePlatforms = selectedPlatforms.filter(
+      (platform) => platform !== "TikTok"
+    );
+
+    if (imagePlatforms.length === 0) {
+      Alert.alert(
+        "No Supported Image Destinations",
+        "The selected platforms do not currently have an image publishing adapter."
+      );
       return;
     }
 
@@ -2156,29 +2223,38 @@ const postEverywhere = async () => {
 
     const finalProductLink = cleanUrl(productLink);
 
-    const aiResponse = await fetch(`${BACKEND_URL}/generate-platform-content`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        title,
-        description,
-        hashtags,
-        cta,
-        productLink: finalProductLink,
-        // ARTBOOST_POST_EVERYWHERE_HASHTAG_CONTEXT_V1
-        imageUrl,
-        storeType: String(productParams.productStoreType || ""),
-        storeName: String(productParams.productStoreName || ""),
-      }),
-    });
+    const aiResponse = await fetch(
+      `${BACKEND_URL}/generate-platform-content`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          hashtags,
+          cta,
+          productLink: finalProductLink,
+          imageUrl,
+          storeType: String(productParams.productStoreType || ""),
+          storeName: String(productParams.productStoreName || ""),
+        }),
+      }
+    );
 
-    const aiData = await aiResponse.json();
+    let aiData: any = {};
+    try {
+      aiData = await aiResponse.json();
+    } catch {
+      aiData = {};
+    }
 
     if (!aiResponse.ok || !aiData.content) {
       throw new Error(
-        aiData.error || "Failed to generate platform-specific content."
+        aiData?.error?.message ||
+          aiData?.error ||
+          "Failed to generate platform-specific content."
       );
     }
 
@@ -2186,7 +2262,6 @@ const postEverywhere = async () => {
 
     const pinterestTitle =
       platformContent.pinterest?.title || title;
-
     const pinterestDescription =
       platformContent.pinterest?.description || description;
 
@@ -2231,87 +2306,166 @@ const postEverywhere = async () => {
         .join("\n\n")
         .trim();
 
-    await fetch(`${BACKEND_URL}/pinterest/create-pin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        boardId: selectedBoard,
-        title: pinterestTitle,
-        description: pinterestDescription,
-        link: finalProductLink,
-        imageUrl,
-      }),
-    });
+    const results = await runCampaignPlatformFanout(
+      imagePlatforms,
+      async (platform) => {
+        let endpoint = "";
+        let payload: any = {};
 
-    await fetch(isVideoCampaign ? `${BACKEND_URL}/facebook/video-post` : `${BACKEND_URL}/facebook/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: facebookMessage,
-        imageUrl,
-        pageId: selectedFacebookPage,
-        productLink: finalProductLink,
-      }),
-    });
+        if (platform === "Pinterest") {
+          endpoint = `${BACKEND_URL}/pinterest/create-pin`;
+          payload = {
+            userId: session.user.id,
+            boardId: selectedBoard,
+            title: pinterestTitle,
+            description: pinterestDescription,
+            link: finalProductLink,
+            imageUrl,
+          };
+        } else if (platform === "Facebook") {
+          endpoint = `${BACKEND_URL}/facebook/post`;
+          payload = {
+            userId: session.user.id,
+            message: facebookMessage,
+            imageUrl,
+            pageId: selectedFacebookPage,
+            productLink: finalProductLink,
+          };
+        } else if (platform === "Instagram") {
+          endpoint = `${BACKEND_URL}/instagram/post`;
+          payload = {
+            userId: session.user.id,
+            message: instagramMessage,
+            imageUrl,
+          };
+        } else if (platform === "X") {
+          endpoint = `${BACKEND_URL}/x/post`;
+          payload = {
+            userId: session.user.id,
+            message: xMessage,
+            imageUrl,
+            productLink: finalProductLink,
+          };
+        } else if (platform === "Threads") {
+          endpoint = `${BACKEND_URL}/threads/post`;
+          payload = {
+            userId: session.user.id,
+            message: threadsMessage,
+            text: threadsMessage,
+            imageUrl: imageUrl || null,
+            productLink: finalProductLink || null,
+          };
+        } else if (platform === "LinkedIn") {
+          endpoint = `${BACKEND_URL}/linkedin/post`;
+          payload = {
+            userId: session.user.id,
+            title: linkedInTitle || linkedInDescription,
+            description: linkedInDescription,
+            imageUrl: imageUrl || null,
+            productLink: finalProductLink || null,
+          };
+        } else {
+          return {
+            success: false,
+            message: "No image publishing adapter is configured.",
+          };
+        }
 
-    await fetch(isVideoCampaign ? `${BACKEND_URL}/instagram/video-post` : `${BACKEND_URL}/instagram/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: instagramMessage,
-        imageUrl,
-      }),
-    });
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
 
-    await fetch(`${BACKEND_URL}/x/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: xMessage,
-        imageUrl,
-        productLink: finalProductLink,
-      }),
-    });
+        let data: any = {};
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
 
-    await fetch(isVideoCampaign ? `${BACKEND_URL}/threads/video-post` : `${BACKEND_URL}/threads/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: session?.user?.id || null,
-        message: threadsMessage,
-        text: threadsMessage,
-        imageUrl: imageUrl || null,
-        productLink: finalProductLink || null,
-      }),
-    });
+        if (!response.ok || data?.error) {
+          const message =
+            data?.details?.message ||
+            data?.error?.message ||
+            data?.error ||
+            data?.message ||
+            `${platform} publish failed with HTTP ${response.status}.`;
 
-    await fetch(`${BACKEND_URL}/linkedin/post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: session?.user?.id || null,
-        title: linkedInTitle || linkedInDescription,
-        description: linkedInDescription,
-        imageUrl: imageUrl || null,
-        productLink: finalProductLink || null,
-      }),
-    });
+          return {
+            success: false,
+            message: String(message),
+          };
+        }
+
+        return {
+          success: true,
+        };
+      }
+    );
+
+    const successful = results
+      .filter((item) => item.success)
+      .map((item) => item.platform);
+
+    const failed = results.filter(
+      (item) => !item.success
+    );
+
+    const lines: string[] = [];
+
+    if (successful.length) {
+      lines.push(
+        `Published/submitted: ${successful.join(", ")}`
+      );
+    }
+
+    if (failed.length) {
+      lines.push(
+        `Failed: ${failed
+          .map(
+            (item) =>
+              `${item.platform} (${item.message || "unknown error"})`
+          )
+          .join("; ")}`
+      );
+    }
+
+    if (unsupportedForImage.length) {
+      lines.push(
+        `Not attempted: ${unsupportedForImage.join(
+          ", "
+        )} — image publishing adapter not enabled yet.`
+      );
+    }
+
+    const incomplete =
+      failed.length > 0 ||
+      unsupportedForImage.length > 0 ||
+      successful.length !== imagePlatforms.length;
 
     Alert.alert(
-      "Post Everywhere Complete",
-      "Your campaign was sent to Pinterest, Facebook, Instagram, X, Threads, and LinkedIn with platform-specific content."
+      incomplete
+        ? "Multi-Platform Publish Results"
+        : "Publishing Submitted",
+      lines.join("\n\n") ||
+        "Publishing finished."
     );
   } catch (err: any) {
     console.log("Post Everywhere failed:", err);
 
     Alert.alert(
       "Post Everywhere Failed",
-      err.message || "One or more platforms failed to publish."
+      err?.message ||
+        "One or more platforms failed to publish."
     );
   } finally {
     setPublishing(false);
   }
 };
+
 
 const generateVariations = async () => {
     try {

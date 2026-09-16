@@ -266,7 +266,7 @@ export function buildStorePublishingActivityAnswer(
       answer:
         `Unable to verify how many of your stores posted ${rangeLabel(range)} because ArtBoost did not return verifiable store publishing-history records for this account.`,
       steps: [],
-      actionIds: ["open_analytics"],
+      actionIds: ["view_publishing_history"],
       followUps: [
         "Show me my publishing history.",
         "Do any of my automations have errors?",
@@ -312,7 +312,7 @@ export function buildStorePublishingActivityAnswer(
         answer:
           `I cannot verify that all scheduled posts were successful ${period} because Publishing History has no verifiable platform outcomes for that period.`,
         steps: [],
-        actionIds: ["open_analytics"],
+        actionIds: ["view_publishing_history"],
         followUps: [
           "Show me my publishing history.",
           "Do any of my automations have errors?"
@@ -349,7 +349,7 @@ export function buildStorePublishingActivityAnswer(
     return {
       answer,
       steps: [],
-      actionIds: ["open_analytics"],
+      actionIds: ["view_publishing_history"],
       followUps: [
         "Show me the failed or skipped platforms.",
         "Do any of my automations have errors?"
@@ -401,6 +401,56 @@ export function buildStorePublishingActivityAnswer(
     return `${storeLabel(item.store)}${platformText}`;
   });
 
+  // ARTBOOST_CONSULTANT_ALL_STORES_RECONCILIATION_V17
+  // "Did all my stores post today?" means stores expected to publish from active
+  // automations, not every connected catalog and not lifetime publishing totals.
+  const q = text(question, 1600).toLowerCase();
+  const asksAllStores = /\ball\b/.test(q) && /\b(?:store|stores|shop|shops)\b/.test(q);
+  if (asksAllStores) {
+    const activeAutomations = arr(accountContext?.activeAutomations);
+    const expectedStoreIds = new Set(
+      activeAutomations.map((a) => text(a?.store_id || a?.storeId, 180)).filter(Boolean)
+    );
+    const expectedStores = expectedStoreIds.size
+      ? connectedStores.filter((store) => expectedStoreIds.has(text(store?.id, 180)))
+      : [];
+
+    if (!expectedStores.length) {
+      return {
+        answer: `Unable to verify whether all stores posted ${period} because ArtBoost does not have an active store-automation set to reconcile against Publishing History.`,
+        steps: [],
+        actionIds: ["review_schedule", "view_publishing_history"],
+        followUps: ["Review my active automations.", "Show me my publishing history."],
+        usedAccountData: true,
+        severity: "warning",
+        evidenceNote: `Publishing History was checked in ${timeZone}, but no active store-automation set was available for expected-store reconciliation.`,
+        confidence: "unknown",
+        intelligenceSources: ["artboost"],
+      };
+    }
+
+    const postedIds = new Set([...perStore.keys()]);
+    const missingStores = expectedStores.filter((store) => !postedIds.has(text(store?.id, 180)));
+    const postedExpected = expectedStores.filter((store) => postedIds.has(text(store?.id, 180)));
+    const expectedLabels = postedExpected.map(storeLabel);
+    const missingLabels = missingStores.map(storeLabel);
+    const allExpectedPosted = missingStores.length === 0;
+
+    return {
+      answer: allExpectedPosted
+        ? `Yes. Publishing History verifies that all ${expectedStores.length} stores with active automations posted successfully ${period}${expectedLabels.length ? `: ${expectedLabels.join("; ")}.` : "."}`
+        : `No. ${postedExpected.length} of ${expectedStores.length} stores with active automations have a verified successful publishing record ${period}. No verified successful post was found for: ${missingLabels.join("; ")}.`,
+      steps: [],
+      actionIds: ["view_publishing_history", "review_schedule"],
+      followUps: ["Show me the missing store publishing records.", "Review my active automations."],
+      usedAccountData: true,
+      severity: allExpectedPosted ? "success" : "warning",
+      evidenceNote: `Reconciled active store automations against successful first-party Publishing History records using account timezone ${timeZone}; connected-store counts and lifetime totals were not substituted.`,
+      confidence: "high",
+      intelligenceSources: ["artboost"],
+    };
+  }
+
   let answer;
   if (postedCount === 0) {
     answer = connectedCount > 0
@@ -414,7 +464,7 @@ export function buildStorePublishingActivityAnswer(
   return {
     answer,
     steps: [],
-    actionIds: ["open_analytics", "open_connections"],
+    actionIds: ["view_publishing_history", "review_schedule"],
     followUps: [
       `Which platforms did my stores post to ${period}?`,
       `Which of my stores did not post ${period}?`,

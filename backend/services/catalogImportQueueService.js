@@ -37,8 +37,23 @@ const IMPORT_POLL_MS = Math.min(
   30000
 );
 
+// ARTBOOST_QUEUE_IDLE_BACKOFF_20260916
+// Keep queued work responsive, but stop hammering PostgREST RPC every few
+// seconds while the queue is empty. Any claimed job immediately resets polling
+// to the configured fast interval.
+const IMPORT_IDLE_POLL_MAX_MS = Math.min(
+  Math.max(
+    Number(
+      process.env.ARTBOOST_IMPORT_IDLE_POLL_MAX_MS
+    ) || 30000,
+    IMPORT_POLL_MS
+  ),
+  120000
+);
+
 let workerStarted = false;
 let workerBusy = false;
+let importIdlePollMs = IMPORT_POLL_MS;
 
 // ARTBOOST_GATEWAY_RETRY_TIKTOK_VIDEO_STUDIO_V1
 const TRANSIENT_INFRASTRUCTURE_ERROR =
@@ -327,7 +342,7 @@ function retryDelaySeconds(
 
 async function processOneJob() {
   if (workerBusy) {
-    return;
+    return false;
   }
 
   workerBusy = true;
@@ -337,8 +352,10 @@ async function processOneJob() {
       await claimNextJob();
 
     if (!job) {
-      return;
+      return false;
     }
+
+    importIdlePollMs = IMPORT_POLL_MS;
 
     await updateJob(
       job.id,
@@ -527,6 +544,8 @@ async function processOneJob() {
         );
       }
     }
+
+    return true;
   } finally {
     workerBusy = false;
   }
@@ -543,23 +562,54 @@ export function startCatalogImportWorker() {
     `Catalog import queue worker started: every ${IMPORT_POLL_MS}ms.`
   );
 
+  let timer = null;
+
+  const scheduleNext = (delayMs) => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    timer = setTimeout(
+      () => {
+        void tick();
+      },
+      delayMs
+    );
+  };
+
   const tick = async () => {
     try {
-      await processOneJob();
+      const claimedJob =
+        await processOneJob();
+
+      if (claimedJob) {
+        importIdlePollMs = IMPORT_POLL_MS;
+      } else {
+        importIdlePollMs = Math.min(
+          Math.max(
+            importIdlePollMs * 2,
+            IMPORT_POLL_MS
+          ),
+          IMPORT_IDLE_POLL_MAX_MS
+        );
+      }
     } catch (error) {
       console.error(
         "Catalog import queue worker error:",
         error
       );
+
+      importIdlePollMs = Math.min(
+        Math.max(
+          importIdlePollMs * 2,
+          IMPORT_POLL_MS
+        ),
+        IMPORT_IDLE_POLL_MAX_MS
+      );
+    } finally {
+      scheduleNext(importIdlePollMs);
     }
   };
 
   void tick();
-
-  setInterval(
-    () => {
-      void tick();
-    },
-    IMPORT_POLL_MS
-  );
 }

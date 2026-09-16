@@ -78,13 +78,34 @@ function signMetaMediaPayload(payload) {
   return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-function createMetaMediaProxyUrl(imageUrl) {
+function normalizeMetaCloudinaryJpegUrl(imageUrl) {
   const parsed = new URL(String(imageUrl || "").trim());
   if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "res.cloudinary.com") {
     throw new Error("Meta media proxy requires a verified Cloudinary HTTPS image URL.");
   }
+
+  const uploadMarker = "/image/upload/";
+  const markerIndex = parsed.pathname.indexOf(uploadMarker);
+  if (markerIndex < 0) {
+    throw new Error("Meta media proxy requires a Cloudinary image delivery URL.");
+  }
+
+  const prefix = parsed.pathname.slice(0, markerIndex + uploadMarker.length);
+  const suffix = parsed.pathname.slice(markerIndex + uploadMarker.length);
+  const alreadyNormalized = /(?:^|\/)f_jpg(?:,|\/)/.test(suffix);
+  if (!alreadyNormalized) {
+    parsed.pathname = `${prefix}f_jpg,q_auto:good,c_limit,w_4096,h_4096/${suffix}`;
+  }
+
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function createMetaMediaProxyUrl(imageUrl) {
+  const normalizedUrl = normalizeMetaCloudinaryJpegUrl(imageUrl);
   const payload = Buffer.from(JSON.stringify({
-    url: parsed.toString(),
+    url: normalizedUrl,
     createdAt: Date.now(),
   })).toString("base64url");
   return `${META_MEDIA_BASE_URL}/${payload}.${signMetaMediaPayload(payload)}`;

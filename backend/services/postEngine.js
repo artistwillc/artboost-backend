@@ -559,11 +559,20 @@ export async function publishToPlatforms({
     );
   }
 
+  // ARTBOOST_FIX08_AUTHORITATIVE_PLATFORM_ACCOUNTING_20260916
+  // Normalize aliases and de-duplicate destinations so every selected platform
+  // has exactly one authoritative outcome in Publishing History.
+  const selectedPlatforms = [...new Set(
+    platforms
+      .map((value) => normalizePlatform(value))
+      .filter(Boolean)
+  )];
+
   const results = [];
 
   for (
     const platformValue
-    of platforms
+    of selectedPlatforms
   ) {
     const platform =
       normalizePlatform(
@@ -632,11 +641,56 @@ export async function publishToPlatforms({
         result?.result?.id ??
         null;
 
+      const reliabilitySkipped =
+        result?.skipped === true ||
+        String(result?.status || "").toLowerCase() === "skipped";
+      const reliabilityFailed =
+        result?.success === false ||
+        ["failed", "error", "timed_out", "timeout"].includes(
+          String(result?.status || "").toLowerCase()
+        );
+
+      if (reliabilitySkipped || reliabilityFailed) {
+        const status = reliabilitySkipped ? "skipped" : "failed";
+        const errorMessage = cleanText(
+          result?.error?.message ||
+          result?.error ||
+          result?.message ||
+          (reliabilitySkipped
+            ? "Publishing reliability layer skipped this platform."
+            : "Publishing provider did not confirm success.")
+        );
+        results.push({
+          platform,
+          status,
+          success: false,
+          skipped: reliabilitySkipped,
+          providerPostId: null,
+          error: errorMessage,
+          errorCode: result?.error?.code ?? result?.code ?? null,
+          providerStatus: result?.error?.status ?? result?.statusCode ?? null,
+          rawProviderError: result?.error ?? null,
+          result,
+        });
+        console.log("Platform publish confirmed:", {
+          platform,
+          success: false,
+          status,
+          error: errorMessage,
+        });
+        continue;
+      }
+
       results.push({
         platform,
         status: "success",
         success: true,
+        skipped: false,
         providerPostId,
+        error: null,
+        errorCode: null,
+        providerStatus: null,
+        rawProviderError: null,
         result,
       });
 
@@ -655,13 +709,28 @@ export async function publishToPlatforms({
         error instanceof Error
           ? error.message
           : "Unknown publishing error.";
+      const rawProviderError = error && typeof error === "object"
+        ? {
+            name: error.name || null,
+            message,
+            code: error.code ?? null,
+            status: error.status ?? error.statusCode ?? null,
+            details: error.details ?? null,
+            provider: error.provider ?? null,
+            retryAfter: error.retryAfter ?? null,
+          }
+        : { message };
 
       results.push({
         platform,
         status: "failed",
         success: false,
+        skipped: false,
         providerPostId: null,
         error: message,
+        errorCode: rawProviderError.code,
+        providerStatus: rawProviderError.status,
+        rawProviderError,
         needsReconnect:
           /reconnect|expired|invalid.*token|oauth/i.test(
             message
@@ -676,30 +745,28 @@ export async function publishToPlatforms({
     }
   }
 
-  const successful =
-    results.filter(
-      (result) =>
-        result.success
-    );
-
-  const failed =
-    results.filter(
-      (result) =>
-        !result.success
-    );
+  const successful = results.filter((result) => result.status === "success");
+  const failed = results.filter((result) => result.status === "failed");
+  const skipped = results.filter((result) => result.status === "skipped");
+  const unverified = results.filter((result) =>
+    !["success", "failed", "skipped"].includes(String(result.status || ""))
+  );
+  const nonSuccessfulCount = failed.length + skipped.length + unverified.length;
 
   return {
     success:
-      successful.length > 0 &&
-      failed.length === 0,
+      selectedPlatforms.length > 0 &&
+      results.length === selectedPlatforms.length &&
+      successful.length === selectedPlatforms.length,
     partialSuccess:
       successful.length > 0 &&
-      failed.length > 0,
-    total: results.length,
-    successful:
-      successful.length,
-    failed:
-      failed.length,
+      nonSuccessfulCount > 0,
+    total: selectedPlatforms.length,
+    attempted: results.length,
+    successful: successful.length,
+    failed: failed.length,
+    skipped: skipped.length,
+    unverified: unverified.length,
     results,
   };
 }

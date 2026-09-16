@@ -104,8 +104,13 @@ selectionMode:
   "least_recently_posted",
     postingIntervalDays:
       Math.max(Number(row.posting_interval_days) || 1, 1),
+    // ARTBOOST_REPEAT_DELAY_ZERO_PRESERVATION_FIX_20260916
+    // Zero is a valid setting. Do not coerce it back to the 30-day default.
     repeatDelayDays:
-      Math.max(Number(row.repeat_delay_days) || 30, 0),
+      Math.max(
+        Number(row.repeat_delay_days ?? 30),
+        0
+      ),
     lastRunAt: row.last_run_at || null,
     nextRunAt: row.next_run_at || null,
     lastProductId: row.last_product_id || null,

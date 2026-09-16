@@ -114,3 +114,8 @@ ios/
 ios/**
 .artboost-android-launch-audit/
 .artboost-ios-launch-audit/
+
+# ArtBoost release-gate secret exclusions
+**/.env
+**/.env.*
+SubscriptionKey_L7A7K9L5BR.p8

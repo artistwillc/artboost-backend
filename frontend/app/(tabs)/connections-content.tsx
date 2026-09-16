@@ -1841,7 +1841,7 @@ export default function ConnectionsScreen() {
               <Text
                 style={styles.metricSeparator}
               >
-                •
+                â€¢
               </Text>
 
               <Text
@@ -2060,35 +2060,6 @@ export default function ConnectionsScreen() {
                 </Text>
               </View>
             </View>
-
-            <Pressable
-              style={styles.connectSocialButton}
-              onPress={() => router.push("/universal-social" as any)}
-            >
-              <View style={styles.primaryActionIcon}>
-                <Ionicons
-                  name="add"
-                  size={25}
-                  color="#ffffff"
-                />
-              </View>
-
-              <View style={styles.primaryActionTextWrap}>
-                <Text style={styles.primaryActionTitle}>
-                  Connect Social Platform
-                </Text>
-
-                <Text style={styles.primaryActionDescription}>
-                  Connect supported social platforms now, with more platforms coming soon.
-                </Text>
-              </View>
-
-              <Ionicons
-                name="chevron-forward"
-                size={22}
-                color="#d8ccff"
-              />
-            </Pressable>
 
             <Pressable
               style={styles.refreshButton}
@@ -2320,8 +2291,8 @@ export default function ConnectionsScreen() {
 
                     <Text style={styles.modalPlatformStatus}>
                       {connected
-                        ? "Connected — authorize again"
-                        : "Not connected — connect now"}
+                        ? "Connected â€” authorize again"
+                        : "Not connected â€” connect now"}
                     </Text>
                   </View>
 

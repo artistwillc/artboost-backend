@@ -105,12 +105,6 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
     icon: "logo-linkedin",
     available: true,
   },
-  {
-    id: "universal",
-    label: "Universal Social",
-    icon: "git-network-outline",
-    available: true,
-  },
 
 ];
 

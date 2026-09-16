@@ -347,12 +347,15 @@ function automationPlatformOutcomes(platforms, publishResult) {
     if (!item) return { platform, status: "unverified", providerPostId: null, error: null };
     return {
       platform,
-      status: item.success === true ? "success" :
+      status: item.success === true && item.status !== "skipped" ? "success" :
         item.skipped === true || item.status === "skipped" ? "skipped" :
-        item.success === false ? "failed" : "unverified",
+        item.success === false || item.status === "failed" ? "failed" : "unverified",
       providerPostId: item.providerPostId || item?.result?.id ||
         item?.result?.providerResult?.id || null,
       error: item.error || null,
+      errorCode: item.errorCode ?? null,
+      providerStatus: item.providerStatus ?? null,
+      rawProviderError: item.rawProviderError ?? null,
     };
   });
 }
@@ -1241,6 +1244,9 @@ ${hashtags}`,
     const publishError =
       publishResult?.error ||
       "Publishing was unsuccessful.";
+    const allSkipped =
+      Number(publishResult?.total || 0) > 0 &&
+      Number(publishResult?.skipped || 0) === Number(publishResult?.total || 0);
 
     await createAutomationLog({
       automationId:
@@ -1248,9 +1254,9 @@ ${hashtags}`,
       userId,
       storeId,
       eventType:
-        "post_failed",
+        allSkipped ? "post_skipped" : "post_failed",
       status:
-        "failed",
+        allSkipped ? "skipped" : "failed",
       product,
       platforms,
       publishResult,
