@@ -347,36 +347,81 @@ function automationProviderPostId(value, depth = 0) {
   return null;
 }
 
+function normalizeAutomationPlatform(value) {
+  const platform = String(value || "").trim().toLowerCase();
+  return platform === "twitter" ? "x" : platform;
+}
+
+function partialAccountingProviderPostId(value, depth = 0) {
+  if (!value || depth > 4) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const v = String(value).trim();
+    return v || null;
+  }
+  if (typeof value !== "object") return null;
+  for (const key of ["providerPostId","id","postId","post_id","pinId","pin_id","publishId","publish_id"]) {
+    const found = partialAccountingProviderPostId(value[key], depth + 1);
+    if (found) return found;
+  }
+  for (const key of ["data","post","providerResult","result"]) {
+    const found = partialAccountingProviderPostId(value[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+// ARTBOOST_PARTIAL_SUCCESS_ACCOUNTING_V1_20260916
 function automationPlatformOutcomes(platforms, publishResult) {
   const selected = [...new Set(
     (Array.isArray(platforms) ? platforms : [])
-      .map((value) => String(value || "").trim().toLowerCase())
+      .map(normalizeAutomationPlatform)
       .filter(Boolean)
   )];
-  const results = Array.isArray(publishResult?.results)
-    ? publishResult.results
-    : [];
+  const results = Array.isArray(publishResult?.results) ? publishResult.results : [];
   const byPlatform = new Map(
-    results
-      .filter((item) => item?.platform)
-      .map((item) => [String(item.platform).trim().toLowerCase(), item])
+    results.filter((item) => item?.platform)
+      .map((item) => [normalizeAutomationPlatform(item.platform), item])
   );
 
   return selected.map((platform) => {
     const item = byPlatform.get(platform);
-    if (!item) return { platform, status: "unverified", providerPostId: null, error: null };
+    if (!item) return {
+      platform,
+      status: "unverified",
+      providerPostId: null,
+      error: "Selected platform did not return an authoritative publishing outcome.",
+      errorCode: null,
+      providerStatus: null,
+      rawProviderError: null,
+    };
     return {
       platform,
       status: item.success === true && item.status !== "skipped" ? "success" :
         item.skipped === true || item.status === "skipped" ? "skipped" :
         item.success === false || item.status === "failed" ? "failed" : "unverified",
-      providerPostId: automationProviderPostId(item),
+      providerPostId: partialAccountingProviderPostId(item),
       error: item.error || null,
       errorCode: item.errorCode ?? null,
       providerStatus: item.providerStatus ?? null,
       rawProviderError: item.rawProviderError ?? null,
     };
   });
+}
+
+function authoritativeAutomationAccounting(platforms, publishResult) {
+  const outcomes = automationPlatformOutcomes(platforms, publishResult);
+  const successful = outcomes.filter((x) => x.status === "success").length;
+  const failed = outcomes.filter((x) => x.status === "failed").length;
+  const skipped = outcomes.filter((x) => x.status === "skipped").length;
+  const unverified = outcomes.filter((x) => x.status === "unverified").length;
+  const total = outcomes.length;
+  return {
+    success: total > 0 && successful === total,
+    partialSuccess: successful > 0 && (failed + skipped + unverified) > 0,
+    total,
+    attempted: Array.isArray(publishResult?.results) ? publishResult.results.length : 0,
+    successful, failed, skipped, unverified, outcomes,
+  };
 }
 
 async function createAutomationLog({
@@ -1171,6 +1216,34 @@ ${hashtags}`,
             ),
         },
       });
+
+    // ARTBOOST_PARTIAL_SUCCESS_ACCOUNTING_V1_20260916
+    const authoritativeAccounting =
+      authoritativeAutomationAccounting(platforms, publishResult);
+    publishResult = {
+      ...publishResult,
+      success: authoritativeAccounting.success,
+      partialSuccess: authoritativeAccounting.partialSuccess,
+      total: authoritativeAccounting.total,
+      attempted: authoritativeAccounting.attempted,
+      successful: authoritativeAccounting.successful,
+      failed: authoritativeAccounting.failed,
+      skipped: authoritativeAccounting.skipped,
+      unverified: authoritativeAccounting.unverified,
+    };
+
+    console.log("Automation authoritative publishing accounting:", {
+      automationId: automation.id,
+      success: publishResult.success,
+      partialSuccess: publishResult.partialSuccess,
+      total: publishResult.total,
+      attempted: publishResult.attempted,
+      successful: publishResult.successful,
+      failed: publishResult.failed,
+      skipped: publishResult.skipped,
+      unverified: publishResult.unverified,
+      outcomes: authoritativeAccounting.outcomes,
+    });
   } catch (error) {
     const message =
       error instanceof Error
