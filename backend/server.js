@@ -14956,12 +14956,23 @@ app.post("/tiktok/video-post", async (req, res) => {
       );
     }
 
+    const publishId =
+      initData.data.publish_id ||
+      null;
+
+    // ARTBOOST_TIKTOK_VIDEO_ACCOUNTING_V1_20260916
+    console.log("ArtBoost TikTok video upload accepted:", {
+      userId,
+      publishId,
+      bytes: bytes.length,
+      status: "processing",
+    });
+
     return res.json({
       success: true,
       mediaType: "video",
-      publishId:
-        initData.data.publish_id ||
-        null,
+      publishId,
+      status: "processing",
     });
   } catch (error) {
     console.error("TikTok Video Post Error:", error);

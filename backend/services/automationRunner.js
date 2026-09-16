@@ -327,6 +327,26 @@ function automationHistoryTransient(error) {
     /timeout|timed out|gateway|fetch failed|network|econnreset|etimedout|service unavailable/.test(text);
 }
 
+
+// ARTBOOST_PROVIDER_ID_ACCOUNTING_V1_20260916
+function automationProviderPostId(value, depth = 0) {
+  if (!value || depth > 4) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (typeof value !== "object") return null;
+  for (const key of ["providerPostId", "id", "postId", "post_id", "pinId", "pin_id", "publishId", "publish_id"]) {
+    const found = automationProviderPostId(value[key], depth + 1);
+    if (found) return found;
+  }
+  for (const key of ["data", "post", "providerResult", "result"]) {
+    const found = automationProviderPostId(value[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 function automationPlatformOutcomes(platforms, publishResult) {
   const selected = [...new Set(
     (Array.isArray(platforms) ? platforms : [])
@@ -350,8 +370,7 @@ function automationPlatformOutcomes(platforms, publishResult) {
       status: item.success === true && item.status !== "skipped" ? "success" :
         item.skipped === true || item.status === "skipped" ? "skipped" :
         item.success === false || item.status === "failed" ? "failed" : "unverified",
-      providerPostId: item.providerPostId || item?.result?.id ||
-        item?.result?.providerResult?.id || null,
+      providerPostId: automationProviderPostId(item),
       error: item.error || null,
       errorCode: item.errorCode ?? null,
       providerStatus: item.providerStatus ?? null,

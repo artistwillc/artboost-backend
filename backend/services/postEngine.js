@@ -1,4 +1,4 @@
-﻿import { findSocialProvider } from "../config/socialProviderRegistry.js";
+import { findSocialProvider } from "../config/socialProviderRegistry.js";
 import { publishDynamicProvider } from "./genericSocialPublisher.js";
 import { publishUniversalSocial } from "./universalSocialPublisher.js";
 import {
@@ -42,6 +42,33 @@ function cleanText(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// ARTBOOST_PROVIDER_ID_ACCOUNTING_V1_20260916
+function providerPublishId(value, depth = 0) {
+  if (!value || depth > 4) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (typeof value !== "object") return null;
+
+  const directKeys = [
+    "id", "postId", "post_id", "pinId", "pin_id",
+    "publishId", "publish_id", "providerPostId"
+  ];
+  for (const key of directKeys) {
+    if (value[key] !== undefined && value[key] !== null) {
+      const found = providerPublishId(value[key], depth + 1);
+      if (found) return found;
+    }
+  }
+
+  for (const key of ["data", "post", "providerResult", "result"]) {
+    const found = providerPublishId(value[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
 }
 
 function resolveImageUrl(product) {
@@ -635,11 +662,8 @@ export async function publishToPlatforms({
         })
 
       // ARTBOOST_INSTAGRAM_HISTORY_OBSERVABILITY_V32_20260915
-      const providerPostId =
-        result?.id ??
-        result?.providerResult?.id ??
-        result?.result?.id ??
-        null;
+      // ARTBOOST_PROVIDER_ID_ACCOUNTING_V1_20260916
+      const providerPostId = providerPublishId(result);
 
       const reliabilitySkipped =
         result?.skipped === true ||
