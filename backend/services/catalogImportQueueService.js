@@ -54,6 +54,44 @@ const IMPORT_IDLE_POLL_MAX_MS = Math.min(
 let workerStarted = false;
 let workerBusy = false;
 let importIdlePollMs = IMPORT_POLL_MS;
+let catalogClaimTimeoutStreak = 0;
+let catalogClaimCooldownUntil = 0;
+
+const CATALOG_CLAIM_TIMEOUT_THRESHOLD = Math.min(
+  Math.max(Number(process.env.ARTBOOST_CATALOG_CLAIM_TIMEOUT_THRESHOLD) || 2, 2),
+  10
+);
+const CATALOG_CLAIM_TIMEOUT_COOLDOWN_MS = Math.min(
+  Math.max(Number(process.env.ARTBOOST_CATALOG_CLAIM_TIMEOUT_COOLDOWN_MS) || 60000, 15000),
+  300000
+);
+
+// ARTBOOST_CATALOG_QUEUE_TIMEOUT_BREAKER_V3_20260916
+function catalogClaimCooldownRemainingMs(now = Date.now()) {
+  return Math.max(catalogClaimCooldownUntil - now, 0);
+}
+
+function resetCatalogClaimTimeoutState() {
+  catalogClaimTimeoutStreak = 0;
+  catalogClaimCooldownUntil = 0;
+}
+
+function recordCatalogClaimTimeout(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!TRANSIENT_INFRASTRUCTURE_ERROR.test(message)) return;
+  catalogClaimTimeoutStreak += 1;
+  if (catalogClaimTimeoutStreak >= CATALOG_CLAIM_TIMEOUT_THRESHOLD) {
+    catalogClaimCooldownUntil = Date.now() + CATALOG_CLAIM_TIMEOUT_COOLDOWN_MS;
+    console.warn("Catalog import queue claim cooldown opened:", {
+      provider: "supabase_postgrest_rpc",
+      rpc: "claim_next_catalog_import_job",
+      failureStreak: catalogClaimTimeoutStreak,
+      cooldownMs: CATALOG_CLAIM_TIMEOUT_COOLDOWN_MS,
+      message,
+    });
+  }
+}
+
 
 // ARTBOOST_GATEWAY_RETRY_TIKTOK_VIDEO_STUDIO_V1
 const TRANSIENT_INFRASTRUCTURE_ERROR =
@@ -269,31 +307,44 @@ export async function getCatalogImportJob({
 }
 
 async function claimNextJob() {
-  return retryTransient(
-    "Catalog import job claim",
-    async () => {
-      const { data, error } = await observeCatalogImportClaim(
-        () => supabase.rpc(
-          "claim_next_catalog_import_job",
-          {
-            p_worker_id: IMPORT_WORKER_ID,
-            p_lock_seconds: IMPORT_LOCK_SECONDS,
-          }
-        )
-      );
+  const cooldownRemainingMs = catalogClaimCooldownRemainingMs();
+  if (cooldownRemainingMs > 0) {
+    return { __catalogClaimDeferred: true, retryAfterMs: cooldownRemainingMs };
+  }
 
-      if (error) {
-        throw new Error(
-          `Unable to claim catalog import job: ${error.message}`
+  try {
+    const claimed = await retryTransient(
+      "Catalog import job claim",
+      async () => {
+        const { data, error } = await observeCatalogImportClaim(
+          () => supabase.rpc(
+            "claim_next_catalog_import_job",
+            {
+              p_worker_id: IMPORT_WORKER_ID,
+              p_lock_seconds: IMPORT_LOCK_SECONDS,
+            }
+          )
         );
-      }
 
-      return Array.isArray(data) && data.length > 0
-        ? data[0]
-        : null;
-    },
-    { attempts: 3, baseDelayMs: 750 }
-  );
+        if (error) {
+          throw new Error(
+            `Unable to claim catalog import job: ${error.message}`
+          );
+        }
+
+        return Array.isArray(data) && data.length > 0
+          ? data[0]
+          : null;
+      },
+      { attempts: 2, baseDelayMs: 1000 }
+    );
+
+    resetCatalogClaimTimeoutState();
+    return claimed;
+  } catch (error) {
+    recordCatalogClaimTimeout(error);
+    throw error;
+  }
 }
 
 async function updateJob(
@@ -350,8 +401,18 @@ async function processOneJob() {
   try {
     const job =
       await claimNextJob();
-
     if (!job) {
+      return false;
+    }
+
+    if (job.__catalogClaimDeferred === true) {
+      importIdlePollMs = Math.max(
+        IMPORT_POLL_MS,
+        Math.min(
+          job.retryAfterMs || CATALOG_CLAIM_TIMEOUT_COOLDOWN_MS,
+          IMPORT_IDLE_POLL_MAX_MS
+        )
+      );
       return false;
     }
 
