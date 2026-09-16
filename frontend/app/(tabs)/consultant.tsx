@@ -281,6 +281,8 @@ export default function ConsultantScreen() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
+          // ARTBOOST_ARTIST_PROFILE_CONTEXT_V1_20260916
+          artistProfile: session.user?.user_metadata?.artboost_artist_profile || null,
           question,
           currentScreen: "ai-consultant",
           appVersion:

@@ -9,6 +9,7 @@ import "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import ArtBoostStripeProvider from "@/components/ArtBoostStripeProvider";
+import ArtistProfileGate from "@/components/ArtistProfileGate"; // ARTBOOST_ARTIST_PROFILE_GATE_MOUNT_V1_20260916
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { installAuthenticatedBackendFetch } from "@/lib/authenticatedBackendFetch";
 
@@ -25,6 +26,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#070611" }} edges={["top"]}>
         <ArtBoostStripeProvider>
+          <ArtistProfileGate />
       <ThemeProvider
         value={
           colorScheme === "dark"
@@ -43,6 +45,7 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="artist-profile-onboarding" options={{ gestureEnabled: false }} />
 
           <Stack.Screen name="catalog-importer" />
 
