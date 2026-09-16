@@ -14544,21 +14544,29 @@ async function uploadXVideo({
     );
   }
 
-  const init = new FormData();
-  init.append("command", "INIT");
-  init.append("media_type", "video/mp4");
-  init.append("media_category", "tweet_video");
-  init.append("total_bytes", String(bytes.length));
-
+  /*
+   * ARTBOOST_X_VIDEO_UPLOAD_API_V2_20260916
+   *
+   * Use X's current dedicated chunked-upload endpoints. The previous adapter
+   * sent legacy command-style multipart INIT data to /2/media/upload, which
+   * X rejected as an invalid request.
+   */
   const initResponse = await fetch(
-    "https://api.x.com/2/media/upload",
+    "https://api.x.com/2/media/upload/initialize",
     {
       method: "POST",
       headers: {
         Authorization:
           `Bearer ${accessToken}`,
+        "Content-Type":
+          "application/json",
       },
-      body: init,
+      body: JSON.stringify({
+        media_type: "video/mp4",
+        media_category: "tweet_video",
+        total_bytes: bytes.length,
+        shared: false,
+      }),
     }
   );
 
@@ -14597,29 +14605,27 @@ async function uploadXVideo({
         )
       );
 
-    const append = new FormData();
-    append.append("command", "APPEND");
-    append.append("media_id", String(mediaId));
-    append.append("segment_index", String(segment));
-    append.append(
-      "media",
-      new Blob(
-        [chunk],
-        { type: "video/mp4" }
-      ),
-      `segment-${segment}.mp4`
-    );
-
+    /*
+     * ARTBOOST_X_VIDEO_UPLOAD_API_V2_CORRECTION_20260916
+     * X API v2 append accepts a JSON media string plus integer segment_index.
+     */
     const appendResponse =
       await fetch(
-        "https://api.x.com/2/media/upload",
+        `https://api.x.com/2/media/upload/${encodeURIComponent(
+          String(mediaId)
+        )}/append`,
         {
           method: "POST",
           headers: {
             Authorization:
               `Bearer ${accessToken}`,
+            "Content-Type":
+              "application/json",
           },
-          body: append,
+          body: JSON.stringify({
+            media: chunk.toString("base64"),
+            segment_index: segment,
+          }),
         }
       );
 
@@ -14631,20 +14637,17 @@ async function uploadXVideo({
     }
   }
 
-  const finalize = new FormData();
-  finalize.append("command", "FINALIZE");
-  finalize.append("media_id", String(mediaId));
-
   const finalizeResponse =
     await fetch(
-      "https://api.x.com/2/media/upload",
+      `https://api.x.com/2/media/upload/${encodeURIComponent(
+        String(mediaId)
+      )}/finalize`,
       {
         method: "POST",
         headers: {
           Authorization:
             `Bearer ${accessToken}`,
         },
-        body: finalize,
       }
     );
 
