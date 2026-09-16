@@ -914,11 +914,30 @@ export async function importSingleCatalogProduct({
    * repaired by a later re-import.
    */
   let fallbackMetadata = null;
+
+  /*
+   * ARTBOOST_REDBUBBLE_SCANNER_METADATA_20260916
+   *
+   * Redbubble blocks backend requests to /shop/ap/* with HTTP 403. The
+   * storefront scanner already supplies the authoritative artwork URL,
+   * artwork ID, title, and thumbnail. Do not make a guaranteed-to-fail
+   * server metadata request merely because optional description/price data
+   * is absent. A fallback remains allowed only when the scanner did not
+   * supply enough identity/media data to preserve a usable catalog row.
+   */
+  const redbubbleScannerMetadataUsable =
+    normalizedStoreType === "redbubble" &&
+    Boolean(redbubbleArtworkId) &&
+    suppliedImageIsUsable &&
+    !placeholderTitle;
+
   const needsMetadataFallback =
-    !suppliedImageIsUsable ||
-    !suppliedDescription ||
-    suppliedPriceMissing ||
-    placeholderTitle;
+    redbubbleScannerMetadataUsable
+      ? false
+      : !suppliedImageIsUsable ||
+        !suppliedDescription ||
+        suppliedPriceMissing ||
+        placeholderTitle;
 
   if (needsMetadataFallback) {
     try {
@@ -1089,8 +1108,16 @@ export async function importSingleCatalogProduct({
       metadataStatus:
         fallbackMetadata
           ? "enriched"
+          : redbubbleScannerMetadataUsable
+          ? "scanner_supplied"
           : needsMetadataFallback
           ? "partial"
+          : "supplied",
+      metadataSource:
+        redbubbleScannerMetadataUsable
+          ? "redbubble_storefront_scan"
+          : fallbackMetadata
+          ? "marketplace_fetch"
           : "supplied",
       metadataFetchedAt:
         fallbackMetadata
