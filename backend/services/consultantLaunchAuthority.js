@@ -1,11 +1,12 @@
-// ARTBOOST_CONSULTANT_SOCIAL_CONNECTION_AUTHORITY_V18_2
+// ARTBOOST_CONSULTANT_SOCIAL_CONNECTION_AUTHORITY_V18_3
 // ARTBOOST_CONSULTANT_PUBLISHING_HISTORY_ROUTING_FIX_V17_1
 // Preserve the proven launch-authority implementation while routing:
-// 1) current social-connection questions through current connection evidence; and
+// 1) current social-connection questions through canonical account connection evidence; and
 // 2) publishing-status questions through deterministic Publishing History evidence.
 
 import * as BaseAuthority from "./consultantLaunchAuthorityBase.js";
 import { buildStorePublishingActivityAnswer } from "./consultantPublishingActivity.js";
+import supabase from "../lib/supabase.js";
 
 export * from "./consultantLaunchAuthorityBase.js";
 
@@ -38,6 +39,79 @@ function formatNames(values) {
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+// V18.3: the Connections screen and OAuth callbacks persist the account's connection
+// state in social_connections. Consultant's old internal HTTP self-probes run without
+// the mobile user's Bearer token under strict auth, so 401/403 results must not erase
+// that canonical state. Overlay the authenticated user's saved rows onto the external
+// probe context before BaseAuthority merges it into accountContext.
+export async function loadConsultantExternalContext({ userId, connectedStores = [] } = {}) {
+  const base = await BaseAuthority.loadConsultantExternalContext({
+    userId,
+    connectedStores,
+  });
+
+  if (!userId) return base;
+
+  try {
+    const { data, error } = await supabase
+      .from("social_connections")
+      .select("platform,connected,expires_at,connected_at,updated_at")
+      .eq("user_id", String(userId))
+      .limit(30);
+
+    if (error) {
+      console.warn("Consultant canonical social connection lookup unavailable:", error.message);
+      return base;
+    }
+
+    const byPlatform = new Map(
+      (Array.isArray(base?.platformSignals) ? base.platformSignals : [])
+        .map((signal) => [normalizePlatform(signal?.platform), signal])
+        .filter(([platform]) => SOCIAL_ORDER.includes(platform))
+    );
+
+    for (const row of Array.isArray(data) ? data : []) {
+      const platform = normalizePlatform(row?.platform);
+      if (!SOCIAL_ORDER.includes(platform)) continue;
+
+      const probe = byPlatform.get(platform) || {};
+      byPlatform.set(platform, {
+        ...probe,
+        platform,
+        userScoped: true,
+        connected: row?.connected === true,
+        expiresAt: row?.expires_at || null,
+        connectedAt: row?.connected_at || null,
+        updatedAt: row?.updated_at || null,
+        unavailable: false,
+        // This is authenticated first-party account state, not a provider reachability
+        // claim. Keep the old probe status separately for diagnostics only.
+        providerProbeStatusCode: probe?.statusCode ?? null,
+        statusCode: 200,
+        source: "social_connections:canonical-account-state",
+      });
+    }
+
+    return {
+      ...base,
+      platformSignals: SOCIAL_ORDER
+        .map((platform) => byPlatform.get(platform))
+        .filter(Boolean),
+      rules: {
+        ...(base?.rules || {}),
+        platformConnectionAuthority:
+          "Authenticated social_connections account state is authoritative for whether a platform is connected. Provider reachability is a separate health signal and cannot turn an authenticated saved connection into a false disconnect.",
+      },
+    };
+  } catch (error) {
+    console.warn(
+      "Consultant canonical social connection lookup failed:",
+      error instanceof Error ? error.message : error
+    );
+    return base;
+  }
 }
 
 function socialConnectionQuestion(question) {
@@ -79,10 +153,9 @@ function buildSocialConnectionAnswer(question, accountContext) {
     const live = liveByPlatform.get(platform);
     const saved = savedByPlatform.get(platform);
     const statusCode = Number(live?.statusCode);
+    const canonicalAccountState =
+      String(live?.source || "").includes("social_connections:canonical-account-state");
 
-    // A 401/403 from an internal self-probe is an authentication transport failure,
-    // not evidence that the user's provider account is disconnected. The Connections
-    // UI has the user's Supabase session; the server-side Consultant probe does not.
     const liveAuthUnavailable = statusCode === 401 || statusCode === 403;
     const liveDefinitive =
       live &&
@@ -95,17 +168,18 @@ function buildSocialConnectionAnswer(question, accountContext) {
       ? live.connected === true
       : savedConnected;
 
-    // If a current provider-status endpoint explicitly says connected=true, that
-    // current result wins over an old expires_at timestamp. A token may have been
-    // refreshed/rotated while historical metadata still contains the old expiry.
-    // Only evaluate expiry when current live status did not confirm the connection.
-    const expiresAt = !liveDefinitive
+    // Canonical saved connection state answers the same question as the Connections
+    // screen: is this account connected? Expiry/reachability is a separate health
+    // dimension and must not silently change connected -> disconnected. For a true
+    // provider-health question, the platform status endpoint can still be checked.
+    const expiresAt = !liveDefinitive && !canonicalAccountState
       ? (saved?.expiresAt || null)
       : null;
 
     const expired =
       connected &&
       !liveDefinitive &&
+      !canonicalAccountState &&
       Boolean(expiresAt) &&
       Number.isFinite(new Date(expiresAt).getTime()) &&
       new Date(expiresAt).getTime() <= Date.now();
@@ -149,8 +223,8 @@ function buildSocialConnectionAnswer(question, accountContext) {
       : `All ${connected.length} supported social platforms are currently connected in ArtBoost: ${formatNames(connectedNames)}. I do not see a connection issue requiring attention.`;
   } else {
     answer = connected.length
-      ? `You currently have ${connected.length} verified connected social ${connected.length === 1 ? "platform" : "platforms"} in ArtBoost: ${formatNames(connectedNames)}.`
-      : "I do not currently have a verified connected social publishing platform in the server-side account context.";
+      ? `You currently have ${connected.length} connected social ${connected.length === 1 ? "platform" : "platforms"} in ArtBoost: ${formatNames(connectedNames)}.`
+      : "I do not currently have a connected social publishing platform in the authenticated account state.";
 
     if (issues.length) {
       answer += ` ${issues.join("; ")}.`;
@@ -182,8 +256,8 @@ function buildSocialConnectionAnswer(question, accountContext) {
     intelligence: "ArtBoost",
     confidence: unavailable.length ? "moderate" : "high",
     evidenceNote: unavailable.length
-      ? "Current ArtBoost account state was used where available. A server-side provider probe that could not authenticate is reported as unverified, not falsely classified as disconnected."
-      : "Current ArtBoost account state and definitive provider-status checks were reconciled; a live connected result overrides stale expiry metadata.",
+      ? "Authenticated ArtBoost connection state was used where available. Provider reachability is reported separately and does not create a false disconnect."
+      : "Based on authenticated ArtBoost social_connections account state; provider reachability and token-health checks are treated as separate diagnostics.",
   };
 }
 
