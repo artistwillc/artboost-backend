@@ -37,9 +37,12 @@
         "expo-audio",
         {
           "microphonePermission": "Allow ArtBoost AI to use your microphone for Consultant voice input.",
-          "recordAudioAndroid": true
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
         }
       ],
+      "./plugins/withArtBoostAudioForegroundServiceGuard",
       [
         "expo-image-picker",
         {
