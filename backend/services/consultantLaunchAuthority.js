@@ -1,8 +1,7 @@
-// ARTBOOST_CONSULTANT_SOCIAL_CONNECTION_AUTHORITY_V18_1
+// ARTBOOST_CONSULTANT_SOCIAL_CONNECTION_AUTHORITY_V18_2
 // ARTBOOST_CONSULTANT_PUBLISHING_HISTORY_ROUTING_FIX_V17_1
 // Preserve the proven launch-authority implementation while routing:
-// 1) current social-connection questions through the same live status probes used
-//    by the Connections screen; and
+// 1) current social-connection questions through current connection evidence; and
 // 2) publishing-status questions through deterministic Publishing History evidence.
 
 import * as BaseAuthority from "./consultantLaunchAuthorityBase.js";
@@ -79,37 +78,49 @@ function buildSocialConnectionAnswer(question, accountContext) {
   const states = SOCIAL_ORDER.map((platform) => {
     const live = liveByPlatform.get(platform);
     const saved = savedByPlatform.get(platform);
+    const statusCode = Number(live?.statusCode);
 
-    // Match the Connections screen: when its live status endpoint returned a
-    // definitive boolean, that result is authoritative for the current UI state.
-    // Only fall back to saved account state when the live probe was unavailable.
+    // A 401/403 from an internal self-probe is an authentication transport failure,
+    // not evidence that the user's provider account is disconnected. The Connections
+    // UI has the user's Supabase session; the server-side Consultant probe does not.
+    const liveAuthUnavailable = statusCode === 401 || statusCode === 403;
     const liveDefinitive =
       live &&
       live.unavailable !== true &&
+      !liveAuthUnavailable &&
       typeof live.connected === "boolean";
 
+    const savedConnected = saved?.connected === true;
     const connected = liveDefinitive
       ? live.connected === true
-      : saved?.connected === true;
+      : savedConnected;
 
-    // A stale saved expiry must never override a live status endpoint that has
-    // just confirmed the connection. Preserve expiry only when the live endpoint
-    // itself supplies it or when we had to fall back to saved state.
-    const expiresAt = liveDefinitive
-      ? (live?.expiresAt || null)
-      : (saved?.expiresAt || null);
+    // If a current provider-status endpoint explicitly says connected=true, that
+    // current result wins over an old expires_at timestamp. A token may have been
+    // refreshed/rotated while historical metadata still contains the old expiry.
+    // Only evaluate expiry when current live status did not confirm the connection.
+    const expiresAt = !liveDefinitive
+      ? (saved?.expiresAt || null)
+      : null;
 
     const expired =
       connected &&
+      !liveDefinitive &&
       Boolean(expiresAt) &&
       Number.isFinite(new Date(expiresAt).getTime()) &&
       new Date(expiresAt).getTime() <= Date.now();
+
+    const unavailable =
+      !liveDefinitive &&
+      !savedConnected &&
+      (liveAuthUnavailable || live?.unavailable === true || !live);
 
     return {
       platform,
       connected,
       expired,
-      unavailable: !liveDefinitive && !saved,
+      unavailable,
+      statusCode: Number.isFinite(statusCode) ? statusCode : null,
     };
   });
 
@@ -128,18 +139,18 @@ function buildSocialConnectionAnswer(question, accountContext) {
   const issues = [
     ...expired.map((item) => `${displayPlatform(item.platform)} is connected but expired`),
     ...disconnected.map((item) => `${displayPlatform(item.platform)} is not currently connected`),
-    ...unavailable.map((item) => `${displayPlatform(item.platform)} status could not be verified`),
+    ...unavailable.map((item) => `${displayPlatform(item.platform)} status could not be verified by the server-side probe`),
   ];
 
   let answer;
   if (asksHealth) {
     answer = issues.length
-      ? `The following social connections need attention: ${issues.join("; ")}.`
+      ? `The following social connection states need verification: ${issues.join("; ")}.`
       : `All ${connected.length} supported social platforms are currently connected in ArtBoost: ${formatNames(connectedNames)}. I do not see a connection issue requiring attention.`;
   } else {
     answer = connected.length
-      ? `You currently have ${connected.length} connected social ${connected.length === 1 ? "platform" : "platforms"} in ArtBoost: ${formatNames(connectedNames)}.`
-      : "I do not currently see any connected social publishing platforms in ArtBoost.";
+      ? `You currently have ${connected.length} verified connected social ${connected.length === 1 ? "platform" : "platforms"} in ArtBoost: ${formatNames(connectedNames)}.`
+      : "I do not currently have a verified connected social publishing platform in the server-side account context.";
 
     if (issues.length) {
       answer += ` ${issues.join("; ")}.`;
@@ -148,10 +159,10 @@ function buildSocialConnectionAnswer(question, accountContext) {
 
   return {
     answer,
-    steps: issues.length
+    steps: disconnected.length || expired.length
       ? [
           "Open Connections.",
-          "Reconnect only a platform that the current Connections status reports as disconnected or expired.",
+          "Reconnect only a platform that the current Connections screen also reports as disconnected or expired.",
           "Refresh Connection Status after completing authorization.",
         ]
       : [],
@@ -167,11 +178,12 @@ function buildSocialConnectionAnswer(question, accountContext) {
       "Which platforms will my automations post to?",
     ],
     usedAccountData: true,
-    severity: issues.length ? "warning" : "success",
+    severity: disconnected.length || expired.length ? "warning" : unavailable.length ? "info" : "success",
     intelligence: "ArtBoost",
-    confidence: unavailable.length ? "Medium" : "High",
-    evidenceNote:
-      "Current ArtBoost connection status uses the same live platform status probes as the Connections screen; saved connection state is only a fallback when a live probe is unavailable.",
+    confidence: unavailable.length ? "moderate" : "high",
+    evidenceNote: unavailable.length
+      ? "Current ArtBoost account state was used where available. A server-side provider probe that could not authenticate is reported as unverified, not falsely classified as disconnected."
+      : "Current ArtBoost account state and definitive provider-status checks were reconciled; a live connected result overrides stale expiry metadata.",
   };
 }
 
