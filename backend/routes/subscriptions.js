@@ -289,7 +289,7 @@ function rememberProcessedWebhook(eventId) {
 }
 
 /*
- * Current ArtBoost monthly Stripe prices (Aug. 21, 2026).
+ * Current ArtBoost monthly Stripe prices (Sep. 17, 2026).
  *
  * Stripe Price objects are immutable, so each pricing revision gets a new
  * Price ID. If Render still contains one of the immediately-retired IDs,
@@ -298,8 +298,8 @@ function rememberProcessedWebhook(eventId) {
  */
 const CURRENT_PRICE_IDS = {
   starter: "price_1U70FpFJ3py30aWTdqIb2jEc", // $19.99/month
-  pro: "price_1U70GKFJ3py30aWT0YfBUifw", // $39.99/month
-  business: "price_1U70GgFJ3py30aWTlQMeJi6m", // $79.99/month
+  pro: "price_1UGf9eFJ3py30aWT0qIzr8LA", // $49.99/month
+  business: "price_1UGfBqFJ3py30aWTTaA09P1v", // $99.99/month
 };
 
 const RETIRED_TIER_PRICE_IDS = {
@@ -311,7 +311,13 @@ const RETIRED_TIER_PRICE_IDS = {
 function configuredPriceId(tier, envValue) {
   const cleanEnv = String(envValue || "").trim();
 
-  if (cleanEnv && cleanEnv !== RETIRED_TIER_PRICE_IDS[tier]) {
+  const staleEnvironmentPriceIds = {
+    starter: new Set([RETIRED_TIER_PRICE_IDS.starter]),
+    pro: new Set([RETIRED_TIER_PRICE_IDS.pro, "price_1U70GKFJ3py30aWT0YfBUifw"]),
+    business: new Set([RETIRED_TIER_PRICE_IDS.business, "price_1U70GgFJ3py30aWTlQMeJi6m"]),
+  };
+
+  if (cleanEnv && !staleEnvironmentPriceIds[tier]?.has(cleanEnv)) {
     return cleanEnv;
   }
 
@@ -342,6 +348,8 @@ const LEGACY_TIER_PRICE_IDS = new Map(
     [RETIRED_TIER_PRICE_IDS.starter, "starter"],
     [RETIRED_TIER_PRICE_IDS.pro, "pro"],
     [RETIRED_TIER_PRICE_IDS.business, "business"],
+    ["price_1U70GKFJ3py30aWT0YfBUifw", "pro"], // retired $39.99/month
+    ["price_1U70GgFJ3py30aWTlQMeJi6m", "business"], // retired $79.99/month
     [process.env.STRIPE_MONTHLY_PRICE_ID, "pro"],
     [process.env.STRIPE_YEARLY_PRICE_ID, "pro"],
   ].filter(([priceId]) => Boolean(priceId))
@@ -382,8 +390,8 @@ function priceIdForTier(tier) {
 
 const EXPECTED_MONTHLY_AMOUNTS = {
   starter: 1999,
-  pro: 3999,
-  business: 7999,
+  pro: 4999,
+  business: 9999,
 };
 
 async function assertCanonicalStripePrice(tier, priceId) {
