@@ -3329,6 +3329,8 @@ app.use(stripeSandboxRoutes);
 const ARTBOOST_ALLOWED_ORIGINS = new Set([
   "https://artboostai.com",
   "https://www.artboostai.com",
+  // Render PR previews are isolated HTTPS staging instances for this service.
+  "https://artboost-ai-pr-2.onrender.com",
 ]);
 app.use(cors({
   origin(origin, callback) {
