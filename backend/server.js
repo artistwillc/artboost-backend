@@ -9079,16 +9079,8 @@ app.get("/pinterest/status", async (req, res) => {
 
 app.get("/pinterest/boards", async (req, res) => {
   try {
-    const userId = req.query.userId
-      ? String(req.query.userId)
-      : null;
-
-    if (!userId) {
-      return res.status(400).json({
-        error:
-          "Pinterest boards require an ArtBoost userId.",
-      });
-    }
+    const userId = await resolveRequestUserId(req, res);
+    if (!userId) return;
 
     const userConnection =
       await getValidPinterestConnection(
@@ -10649,8 +10641,14 @@ app.post("/x/post", async (req, res) => {
 });
 
 app.post("/pinterest/create-pin", async (req, res) => {
+  let authenticatedUserId = null;
+  let requestTitle = "";
   try {
-    const { userId, boardId, title, description, link, imageUrl } = req.body;
+    authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
+
+    const { boardId, title, description, link, imageUrl } = req.body;
+    requestTitle = title || "";
 
     const pinData = await publishPinterestPin({
       boardId,
@@ -10661,7 +10659,7 @@ app.post("/pinterest/create-pin", async (req, res) => {
     });
 
     await createNotification({
-      userId,
+      userId: authenticatedUserId,
       title: "Pinterest Pin Published",
       message: `Your campaign "${title || "Untitled Campaign"}" was posted to Pinterest.`,
       type: "success",
@@ -10672,14 +10670,14 @@ app.post("/pinterest/create-pin", async (req, res) => {
       pin: pinData,
     });
   } catch (err) {
-    const { userId, title } = req.body || {};
-
-    await createNotification({
-      userId,
-      title: "Pinterest Post Failed",
-      message: `Pinterest could not publish "${title || "Untitled Campaign"}". ${err.message}`,
-      type: "error",
-    });
+    if (authenticatedUserId) {
+      await createNotification({
+        userId: authenticatedUserId,
+        title: "Pinterest Post Failed",
+        message: `Pinterest could not publish "${requestTitle || "Untitled Campaign"}". ${err.message}`,
+        type: "error",
+      });
+    }
 
     res.status(500).json({
       error: "Pinterest pin creation failed.",
