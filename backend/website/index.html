@@ -208,13 +208,20 @@
         <button type="button" data-account-tab="signup">Create Account</button>
         <button type="button" data-account-tab="signin">Sign In</button>
       </div>
+      <form class="account-form" id="accountForm">
+        <label>Email
+          <input id="accountEmail" name="email" type="email" autocomplete="email" required>
+        </label>
+        <label>Password
+          <input id="accountPassword" name="password" type="password" autocomplete="current-password" minlength="6" required>
+        </label>
+        <button class="gold-btn" id="accountSubmit" type="submit">Create Account</button>
+        <p class="account-status" id="accountStatus" role="status" aria-live="polite"></p>
+      </form>
       <div class="account-actions">
-        <a class="account-image-btn" id="accountPrimary" href="artboostai://">
-          <img id="accountButtonImage" src="assets/create-account.webp" alt="Create an Account">
-        </a>
         <button class="secondary-btn" type="button" data-pricing>Choose a Plan</button>
       </div>
-      <p class="account-note">On a phone with ArtBoost installed, this opens the ArtBoost app. If the app is not installed, use the app download/TestFlight link your team provides.</p>
+      <p class="account-note">Use the same ArtBoost email and password you use in the mobile app.</p>
     </section>
   </div>
 
