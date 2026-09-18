@@ -11670,8 +11670,11 @@ Exact schema:
   }
 });
 
-app.post("/generate", upload.single("image"), async (req, res) => {
+app.post("/generate", generationLimiter, upload.single("image"), async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
+
     if (!req.file) {
       return res.status(400).json({ error: "No artwork image uploaded." });
     }
