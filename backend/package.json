@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js",
+    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node tests/background-scheduler-guard-regression.js",
     "test:automation-regression": "node tests/automation-repeat-delay-regression.js"
   },
   "keywords": [],
