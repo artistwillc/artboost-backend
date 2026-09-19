@@ -11383,9 +11383,50 @@ async function expireFreeMonthSubscriptions() {
   }
 }
 
-setInterval(runScheduledCampaigns, 60 * 1000);
-setInterval(runDueStoreAutomations, 60 * 1000);
-setInterval(expireFreeMonthSubscriptions, 60 * 60 * 1000);
+// ARTBOOST_SINGLE_WRITER_SCHEDULER_GUARD_V1_20260919
+// Render PR Preview services share the production database. They must never
+// execute background publishing/billing schedulers or they can race the
+// production service and publish the same due work twice.
+function backgroundSchedulersEnabled() {
+  const explicit = String(process.env.ARTBOOST_ENABLE_BACKGROUND_SCHEDULERS || "")
+    .trim()
+    .toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(explicit)) return true;
+  if (["0", "false", "no", "off"].includes(explicit)) return false;
+
+  const renderServiceName = String(process.env.RENDER_SERVICE_NAME || "")
+    .trim()
+    .toLowerCase();
+
+  const renderPullRequest = String(process.env.RENDER_PULL_REQUEST || "")
+    .trim()
+    .toLowerCase();
+
+  const isRenderPreview =
+    renderPullRequest === "true" ||
+    renderPullRequest === "1" ||
+    /^pr-/.test(renderPullRequest) ||
+    /(?:^|-)pr-?\d+(?:-|$)/.test(renderServiceName);
+
+  return !isRenderPreview;
+}
+
+if (backgroundSchedulersEnabled()) {
+  console.log("ArtBoost background schedulers enabled.", {
+    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
+    renderPullRequest: process.env.RENDER_PULL_REQUEST || null,
+  });
+
+  setInterval(runScheduledCampaigns, 60 * 1000);
+  setInterval(runDueStoreAutomations, 60 * 1000);
+  setInterval(expireFreeMonthSubscriptions, 60 * 60 * 1000);
+} else {
+  console.warn("ArtBoost background schedulers disabled on this service.", {
+    renderServiceName: process.env.RENDER_SERVICE_NAME || null,
+    renderPullRequest: process.env.RENDER_PULL_REQUEST || null,
+  });
+}
 
 
 app.post("/marketing-consultant/profile", async (req, res) => {
