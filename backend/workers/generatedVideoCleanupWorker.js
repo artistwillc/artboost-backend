@@ -70,7 +70,6 @@ function normalizeTier(profile) {
   const raw = String(
     profile?.subscription_tier ||
     profile?.plan ||
-    profile?.subscription_plan ||
     "free"
   ).toLowerCase();
 
@@ -112,7 +111,7 @@ async function loadProfile(userId) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("subscription_tier,plan,subscription_plan")
+    .select("subscription_tier,plan")
     .eq("id", userId)
     .maybeSingle();
 
