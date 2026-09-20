@@ -14,7 +14,7 @@ for (const id of ["status","productCount","storeCount","accountState","workspace
 for (const route of ["/products?limit=60","/stores","/automations","/social-connect/providers","/ai/assistant","/generate","/pinterest/boards","/pinterest/create-pin","/schedule-campaign"]) {
   assert.ok(js.includes(route),"missing workspace API route: "+route);
 }
-for (const marker of ["Authorization:","refreshSession","artboost_web_session","safeHttpUrl","escapeHtml","publishGeneratedPinterest","scheduleGeneratedPinterest"]) {
+for (const marker of ["COMMAND CENTER","Dashboard","data-dashboard-view","Open Products","Open Stores","Ask Consultant","Create Content","Open Schedule","Open Connections"]) {\n  assert.ok(js.includes(marker),"missing flagship dashboard marker: "+marker);\n}\nfor (const marker of ["Authorization:","refreshSession","artboost_web_session","safeHttpUrl","escapeHtml","publishGeneratedPinterest","scheduleGeneratedPinterest"]) {
   assert.ok(js.includes(marker),"missing workspace auth/safety/workflow marker: "+marker);
 }
 for (const marker of ["--gold:#ffb000","--purple:#8a43ff","radial-gradient","backdrop-filter","@media(max-width:900px)","@media(max-width:650px)"]) {
