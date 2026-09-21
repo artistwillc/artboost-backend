@@ -29,11 +29,6 @@ const TOOLS = {
     body: "Generate polished captions matched to your artwork, product and campaign goal.",
     bullets: ["Create platform-ready captions.", "Adjust messaging for different campaign goals.", "Pair captions with titles, hashtags and CTAs."]
   },
-  analytics: {
-    title: "Analytics & Reports",
-    body: "Review ArtBoost activity and available performance data to understand what is working.",
-    bullets: ["Review campaign and posting activity.", "Compare products and platforms.", "Use insights to improve future campaigns."]
-  },
   hashtags: {
     title: "Hashtag Generator",
     body: "Build relevant hashtag groups for artwork, products and social campaigns.",
