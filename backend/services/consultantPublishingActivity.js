@@ -1,3 +1,4 @@
+// ARTBOOST_CONSULTANT_TIME_SCOPED_PUBLISHING_COUNT_FIX_V18_5
 // ARTBOOST_CONSULTANT_PUBLISHING_ACTIVITY_FIX_V16_6
 // Pure, deterministic first-party publishing-activity reasoning for the AI Consultant.
 
@@ -114,19 +115,38 @@ function isPublishingActivityQuestion(question) {
   const asksCountOrStatus =
     /\b(?:how many|which|what|did|has|have|were|was|all|status|activity|successful|successfully|failed|failure|failures|skipped)\b/.test(q);
 
-  return (asksStores || asksScheduled) &&
+  // Time-qualified post/outcome questions are publishing-history questions even
+  // when the user does not repeat "scheduled", "automation", or "store".
+  // Example: "How many posts were successful today?" must never fall through
+  // to lifetime publishing totals.
+  const asksOutcome =
+    /\b(?:successful|successfully|success|failed|failure|failures|skipped|unverified|status|outcome|outcomes)\b/.test(q);
+  const timeScopedPostOutcome =
     asksPublishing &&
     asksCountOrStatus &&
+    asksOutcome &&
     Boolean(rangeFromQuestion(q));
+
+  return (
+    timeScopedPostOutcome ||
+    ((asksStores || asksScheduled) &&
+      asksPublishing &&
+      asksCountOrStatus &&
+      Boolean(rangeFromQuestion(q)))
+  );
 }
 
 function asksOverallScheduledPublishingStatus(question) {
   const q = text(question, 1600).toLowerCase();
 
-  return /\b(?:scheduled|schedule|scheduler|automation|automations)\b/.test(q) &&
-    /\b(?:post|posts|posted|posting|publish|published|publishing)\b/.test(q) &&
-    /\b(?:all|successful|successfully|failed|failure|failures|skipped|status)\b/.test(q) &&
-    Boolean(rangeFromQuestion(q));
+  const hasPublishing = /\b(?:post|posts|posted|posting|publish|published|publishing)\b/.test(q);
+  const hasOutcome = /\b(?:all|successful|successfully|success|failed|failure|failures|skipped|unverified|status|outcome|outcomes)\b/.test(q);
+  const hasExplicitScheduler = /\b(?:scheduled|schedule|scheduler|automation|automations)\b/.test(q);
+
+  return hasPublishing &&
+    hasOutcome &&
+    Boolean(rangeFromQuestion(q)) &&
+    (hasExplicitScheduler || /\b(?:how many|were|was|did|have|has)\b/.test(q));
 }
 
 function platformOutcomes(log) {
@@ -342,9 +362,12 @@ export function buildStorePublishingActivityAnswer(
       !skipped.length &&
       !unverified.length;
 
-    const answer = allSuccessful
-      ? `Yes. Publishing History verifies that all ${outcomes.length} recorded scheduled platform outcomes were successful ${period}.`
-      : `No. Publishing History shows ${success.length} successful, ${failed.length} failed, ${skipped.length} skipped, and ${unverified.length} unverified scheduled platform outcomes ${period}.${problems.length ? " " + problems.join("; ") + "." : ""}`;
+    const asksHowMany = /\bhow many\b/.test(text(question, 1600).toLowerCase());
+    const answer = asksHowMany
+      ? `${success.length} scheduled platform posts were successfully published ${period}. Publishing History shows ${failed.length} failed, ${skipped.length} skipped, and ${unverified.length} unverified platform outcomes.${problems.length ? " " + problems.join("; ") + "." : ""}`
+      : allSuccessful
+        ? `Yes. Publishing History verifies that all ${outcomes.length} recorded scheduled platform outcomes were successful ${period}.`
+        : `No. Publishing History shows ${success.length} successful, ${failed.length} failed, ${skipped.length} skipped, and ${unverified.length} unverified scheduled platform outcomes ${period}.${problems.length ? " " + problems.join("; ") + "." : ""}`;
 
     return {
       answer,
