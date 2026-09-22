@@ -1353,12 +1353,13 @@ export async function getNextAutomationProduct({
     automationSelectionDiagnostic.availableProducts = 0;
     automationSelectionDiagnostic.result =
       "NO_AVAILABLE_PRODUCTS_BEFORE_HISTORY";
-    if (automationSelectionDiagnosticEnabled) {
-      console.log(
-        "ARTBOOST_AUTOMATION_LIVE_DIAGNOSTIC",
-        JSON.stringify(automationSelectionDiagnostic)
-      );
-    }
+    // Always emit a compact diagnostic when selection fails. This is
+    // intentionally failure-only so normal automation runs remain quiet while
+    // production support can identify exactly where a catalog was eliminated.
+    console.warn(
+      "ARTBOOST_AUTOMATION_SELECTION_FAILURE",
+      JSON.stringify(automationSelectionDiagnostic)
+    );
     return null;
   }
 
@@ -1600,6 +1601,10 @@ export async function getNextAutomationProduct({
   if (
     eligibleProducts.length === 0
   ) {
+    console.warn(
+      "ARTBOOST_AUTOMATION_SELECTION_FAILURE",
+      JSON.stringify(automationSelectionDiagnostic)
+    );
     return null;
   }
 
@@ -1769,5 +1774,4 @@ export async function markProductAsPosted({
 
   return updatedProduct;
 }
-
 
