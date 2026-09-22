@@ -708,11 +708,7 @@ export async function getNextAutomationProduct({
   // at the older connection ID even though automation points at the newer ID.
   let resolvedStoreUrl = null;
 
-  if (
-    storeId &&
-    (!resolvedStoreType ||
-      !resolvedStoreName)
-  ) {
+  if (storeId) {
     const {
       data: universalConnection,
       error: universalError,
