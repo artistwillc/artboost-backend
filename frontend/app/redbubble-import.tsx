@@ -387,7 +387,7 @@ const EXTRACTION_SCRIPT = `
         return String(value || "")
           .replace(/\u00a0/g, " ")
           .replace(/[\u2022\u00b7]/g, " • ")
-          .replace(/\s+/g, " ")
+          .replace(/\\s+/g, " ")
           .trim();
       }
 
@@ -558,7 +558,7 @@ const EXTRACTION_SCRIPT = `
     function cleanArtworkTitle(value) {
       var text =
         String(value || "")
-          .replace(/\s+/g, " ")
+          .replace(/\\s+/g, " ")
           .trim();
 
       if (!text) {
@@ -567,7 +567,7 @@ const EXTRACTION_SCRIPT = `
 
       var previewMatch =
         text.match(
-          /^Item preview,\s*(.*?)\s+designed and sold by\b/i
+          /^Item preview,\\s*(.*?)\\s+designed and sold by\\b/i
         );
 
       if (
@@ -779,7 +779,7 @@ const EXTRACTION_SCRIPT = `
             ? document.body.innerText || ""
             : ""
         )
-          .replace(/\s+/g, " ")
+          .replace(/\\s+/g, " ")
           .trim();
 
       var diagnosticHtml =
@@ -822,7 +822,7 @@ const EXTRACTION_SCRIPT = `
             snippets.push(
               source
                 .slice(from, to)
-                .replace(/\s+/g, " ")
+                .replace(/\\s+/g, " ")
                 .trim()
             );
 
