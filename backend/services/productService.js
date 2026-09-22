@@ -702,11 +702,13 @@ export async function getNextAutomationProduct({
       ? String(storeName)
       : null;
 
-  if (
-    storeId &&
-    (!resolvedStoreType ||
-      !resolvedStoreName)
-  ) {
+  // Preserve the canonical storefront URL separately from the display name.
+  // Reconnecting a universal marketplace can leave multiple active connection
+  // rows for the same physical storefront. Product ownership may still point
+  // at the older connection ID even though automation points at the newer ID.
+  let resolvedStoreUrl = null;
+
+  if (storeId) {
     const {
       data: universalConnection,
       error: universalError,
@@ -743,6 +745,9 @@ export async function getNextAutomationProduct({
         universalConnection.store_name ||
         universalConnection.store_url ||
         resolvedStoreName;
+      resolvedStoreUrl =
+        universalConnection.store_url ||
+        null;
     } else {
       const {
         data: legacyConnection,
@@ -986,6 +991,15 @@ export async function getNextAutomationProduct({
     const sameTypeStoreIds =
       new Set();
 
+    // Connection IDs that represent the exact same storefront URL are aliases,
+    // not separate stores. This is especially important for ArtPal, where a
+    // reconnect can create a fresh connection while the persisted catalog is
+    // still correctly attached to the prior connection.
+    const sameStorefrontAliasIds =
+      new Set([String(storeId)]);
+    const canonicalStoreUrl =
+      normalizeStoreName(resolvedStoreUrl);
+
     for (
       const connection
       of universalConnections
@@ -1012,6 +1026,21 @@ export async function getNextAutomationProduct({
         sameTypeStoreIds.add(
           connectionId
         );
+
+        const connectionStoreUrl =
+          normalizeStoreName(
+            connection?.store_url
+          );
+
+        if (
+          canonicalStoreUrl &&
+          connectionStoreUrl ===
+            canonicalStoreUrl
+        ) {
+          sameStorefrontAliasIds.add(
+            connectionId
+          );
+        }
       }
     }
 
@@ -1075,8 +1104,21 @@ export async function getNextAutomationProduct({
                 )
               : "";
 
-          // Never steal a product from any currently connected store,
-          // including another store of the same marketplace.
+          // A row attached to an older active connection for the exact same
+          // storefront URL is safe to reconcile to the selected connection.
+          if (
+            productConnectionId &&
+            sameStorefrontAliasIds.has(
+              productConnectionId
+            )
+          ) {
+            return (
+              productConnectionId !==
+              String(storeId)
+            );
+          }
+
+          // Never steal a product from a genuinely different active store.
           if (
             productConnectionId &&
             activeStoreIds.has(
@@ -1166,6 +1208,8 @@ export async function getNextAutomationProduct({
       sameTypeConnectedStoreIds:
         sameTypeStoreIds.size,
       onlyConnectedStoreOfType,
+      sameStorefrontAliasIds:
+        sameStorefrontAliasIds.size,
     };
 
     const productsById =
