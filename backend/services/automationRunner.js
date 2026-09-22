@@ -704,6 +704,15 @@ try {
       timezone:
         automation.timezone ||
         "America/Chicago",
+      // Manual runs execute now. Scheduled runs are evaluated at their
+      // persisted run boundary so Preview and execution share the same
+      // repeat-delay eligibility clock.
+      eligibilityAsOf:
+        normalizedTrigger === "manual"
+          ? new Date()
+          : automation.next_run_at
+            ? new Date(automation.next_run_at)
+            : new Date(),
     });
 } catch (error) {
   const message =
