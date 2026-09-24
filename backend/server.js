@@ -3851,6 +3851,80 @@ app.get("/support", (req, res) => {
 `);
 });
 
+// ARTBOOST_APPLE_ACCOUNT_DELETION_V1_20260924
+app.delete("/account/delete", express.json({ limit: "16kb" }), async (req, res) => {
+  try {
+    const authHeader = String(req.headers.authorization || "").trim();
+    const accessToken = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const userId = authData?.user?.id || null;
+    if (authError || !userId) {
+      return res.status(401).json({ error: "Your ArtBoost session is no longer valid." });
+    }
+
+    if (String(req.body?.confirmation || "").trim().toUpperCase() !== "DELETE") {
+      return res.status(400).json({ error: "Deletion confirmation is required." });
+    }
+
+    // Delete user-owned ArtBoost rows that are not guaranteed to cascade.
+    // Missing optional tables are tolerated so deletion still works across
+    // production schema revisions; auth deletion is the authoritative final step.
+    const userOwnedTables = [
+      "notifications",
+      "store_automation_logs",
+      "store_automations",
+      "scheduled_campaigns",
+      "products",
+      "social_connections",
+      "store_connections",
+      "profiles",
+    ];
+
+    for (const table of userOwnedTables) {
+      try {
+        const { error } = await supabase.from(table).delete().eq("user_id", userId);
+        if (error && !/column .*user_id|does not exist|relation .* does not exist/i.test(error.message || "")) {
+          console.warn(`Account deletion cleanup warning for ${table}:`, error.message);
+        }
+      } catch (cleanupError) {
+        console.warn(`Account deletion cleanup skipped for ${table}:`, cleanupError?.message || cleanupError);
+      }
+    }
+
+    // profiles uses the auth user UUID as its primary key in ArtBoost.
+    try {
+      const { error: profileDeleteError } = await supabase.from("profiles").delete().eq("id", userId);
+      if (profileDeleteError) {
+        console.warn("Account deletion profile cleanup warning:", profileDeleteError.message);
+      }
+    } catch (profileCleanupError) {
+      console.warn("Account deletion profile cleanup skipped:", profileCleanupError?.message || profileCleanupError);
+    }
+
+    const { error: deleteUserError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteUserError) {
+      console.error("Supabase auth user deletion failed:", deleteUserError);
+      return res.status(500).json({
+        error: "Your account data cleanup started, but the authentication account could not be deleted. Please contact support.",
+      });
+    }
+
+    return res.json({ success: true, deleted: true });
+  } catch (error) {
+    console.error("Permanent account deletion failed:", error);
+    return res.status(500).json({
+      error: error?.message || "Permanent account deletion failed.",
+    });
+  }
+});
+
 app.get("/delete-user-data", (req, res) => {
 
   res.send(`
