@@ -16,7 +16,8 @@ const items: MoreItem[] = [
   { testId: "artboost-more-notifications", title: "Notifications", icon: "notifications", route: "/notifications" },
   { testId: "artboost-more-platform-status", title: "Platform Status", icon: "radio", route: "/(tabs)/connections", params: { section: "social" } },
   { testId: "artboost-more-creator-tools", title: "Creator Tools", icon: "compass", route: "/explore" },
-  { testId: "artboost-more-subscription", title: "Subscription", icon: "card", route: "/(tabs)/pro" }
+  { testId: "artboost-more-subscription", title: "Subscription", icon: "card", route: "/(tabs)/pro" },
+  { testId: "artboost-more-account", title: "Account & Privacy", icon: "person-circle", route: "/account-settings" }
 ];
 
 // ARTBOOST_MORE_CHILD_DETERMINISTIC_A11Y_V3105A
