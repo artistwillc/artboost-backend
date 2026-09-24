@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -61,6 +62,7 @@ export default function HomeScreen() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const [image, setImage] = useState<string | null>(null);
   const [hostedImageUrl, setHostedImageUrl] = useState("");
@@ -245,7 +247,14 @@ export default function HomeScreen() {
     setProfile(data);
   };
 
+  const requireTermsAcceptance = () => {
+    if (acceptedTerms) return true;
+    Alert.alert("Terms Acceptance Required", "Review and accept the Terms of Service, Privacy Policy, and zero-tolerance content rules before signing in or creating an account.");
+    return false;
+  };
+
   const signUp = async () => {
+  if (!requireTermsAcceptance()) return;
   if (!authEmail || !authPassword) {
     Alert.alert("Missing Info", "Enter an email and password.");
     return;
@@ -279,6 +288,7 @@ export default function HomeScreen() {
 };
 
   const signIn = async () => {
+  if (!requireTermsAcceptance()) return;
   if (!authEmail || !authPassword) {
     Alert.alert("Missing Info", "Enter your email and password.");
     return;
@@ -1262,6 +1272,41 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
                 secureTextEntry
                 onChangeText={setAuthPassword}
               />
+
+              <View style={{ marginTop: 4, marginBottom: 12 }}>
+                <Pressable
+                  onPress={() => setAcceptedTerms((value) => !value)}
+                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: acceptedTerms }}
+                  testID="artboost-terms-acceptance"
+                >
+                  <View style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 5,
+                    borderWidth: 1,
+                    borderColor: acceptedTerms ? "#8b5cf6" : "#6b647e",
+                    backgroundColor: acceptedTerms ? "#8b5cf6" : "transparent",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 1,
+                  }}>
+                    <Text style={{ color: "#fff", fontWeight: "900" }}>{acceptedTerms ? "✓" : ""}</Text>
+                  </View>
+                  <Text style={{ color: "#d8d3e4", flex: 1, fontSize: 12, lineHeight: 18 }}>
+                    I agree to the ArtBoost AI Terms of Service and Privacy Policy, including the zero-tolerance policy for objectionable content and abusive behavior.
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 18, marginTop: 10 }}>
+                  <Pressable onPress={() => Linking.openURL("https://artboostai.com/terms")}>
+                    <Text style={{ color: "#a78bfa", fontWeight: "800", fontSize: 12 }}>Terms of Service</Text>
+                  </Pressable>
+                  <Pressable onPress={() => Linking.openURL("https://artboostai.com/privacy")}>
+                    <Text style={{ color: "#a78bfa", fontWeight: "800", fontSize: 12 }}>Privacy Policy</Text>
+                  </Pressable>
+                </View>
+              </View>
 
               <Pressable
                 style={styles.loginButton}
