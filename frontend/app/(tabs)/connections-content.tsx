@@ -1841,7 +1841,7 @@ export default function ConnectionsScreen() {
               <Text
                 style={styles.metricSeparator}
               >
-                â€¢
+                •
               </Text>
 
               <Text
