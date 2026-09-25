@@ -23,12 +23,6 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      [
-        "@stripe/stripe-react-native",
-        {
-          "enableGooglePay": true
-        }
-      ],
       "expo-font",
       "expo-sqlite",
       [
