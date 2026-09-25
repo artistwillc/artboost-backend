@@ -122,6 +122,50 @@ function normalizeUrl(value, baseUrl) {
   }
 }
 
+function normalizeArtPalStorefrontUrl(value) {
+  const normalized = normalizeUrl(value, value);
+
+  if (!normalized) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const host = normalizeHost(parsed.hostname);
+
+    if (host !== "artpal.com") {
+      return normalized;
+    }
+
+    const galleryId =
+      parsed.searchParams.get("id") ||
+      parsed.searchParams.get("r");
+
+    if (galleryId && /^\d+$/.test(galleryId)) {
+      return `https://www.ArtPal.com/artists.html?id=${galleryId}`;
+    }
+
+    if (/^\/artistwill\/?$/i.test(parsed.pathname)) {
+      return "https://www.ArtPal.com/artists.html?id=37279";
+    }
+
+    return normalized;
+  } catch {
+    return normalized;
+  }
+}
+
+function isCloudflareChallenge(html = "") {
+  const source = String(html).toLowerCase();
+
+  return (
+    source.includes("performing security verification") ||
+    source.includes("verify you are not a bot") ||
+    source.includes("cf-chl-") ||
+    source.includes("challenge-platform")
+  );
+}
+
 function createExternalProductId(productUrl) {
   return crypto
     .createHash("sha256")
@@ -604,8 +648,13 @@ export async function importUniversalStore({
       storeId,
     });
 
+  const effectiveStoreUrl =
+    connection.platform === "artpal"
+      ? normalizeArtPalStorefrontUrl(connection.store_url)
+      : connection.store_url;
+
   const parsedStoreUrl = new URL(
-    connection.store_url
+    effectiveStoreUrl
   );
 
   const storeHost = normalizeHost(
@@ -625,7 +674,7 @@ export async function importUniversalStore({
     pageNumber += 1
   ) {
     const pageUrl = new URL(
-      connection.store_url
+      effectiveStoreUrl
     );
 
     if (pageNumber > 1) {
@@ -644,6 +693,15 @@ export async function importUniversalStore({
       } = await fetchPage(
         pageUrl.toString()
       );
+
+      if (
+        connection.platform === "artpal" &&
+        isCloudflareChallenge(html)
+      ) {
+        throw new Error(
+          "ArtPal returned its Cloudflare verification page instead of the gallery."
+        );
+      }
 
       const discovered =
         extractCandidateLinks(
