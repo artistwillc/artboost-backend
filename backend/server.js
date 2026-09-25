@@ -3851,6 +3851,62 @@ app.get("/support", (req, res) => {
 `);
 });
 
+// ARTBOOST_APPLE_UGC_SAFETY_V1_20260925
+async function requireArtBoostUser(req) {
+  const authHeader = String(req.headers.authorization || "").trim();
+  const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user?.id) return null;
+  return data.user;
+}
+
+app.post("/safety/report", express.json({ limit: "32kb" }), async (req, res) => {
+  try {
+    const user = await requireArtBoostUser(req);
+    if (!user) return res.status(401).json({ error: "Authentication is required." });
+    const details = String(req.body?.details || "").trim().slice(0, 5000);
+    const reportedUserId = String(req.body?.reportedUserId || "").trim() || null;
+    if (!details) return res.status(400).json({ error: "Report details are required." });
+    const { error } = await supabase.from("ugc_reports").insert({
+      reporter_user_id: user.id,
+      reported_user_id: reportedUserId,
+      details,
+      status: "open",
+    });
+    if (error) {
+      console.error("UGC report insert failed:", error);
+      return res.status(500).json({ error: "The safety report could not be saved." });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("UGC report failed:", error);
+    return res.status(500).json({ error: "The safety report could not be submitted." });
+  }
+});
+
+app.post("/safety/block", express.json({ limit: "16kb" }), async (req, res) => {
+  try {
+    const user = await requireArtBoostUser(req);
+    if (!user) return res.status(401).json({ error: "Authentication is required." });
+    const blockedUserId = String(req.body?.reportedUserId || "").trim();
+    if (!blockedUserId) return res.status(400).json({ error: "A user ID is required." });
+    if (blockedUserId === user.id) return res.status(400).json({ error: "You cannot block your own account." });
+    const { error } = await supabase.from("user_blocks").upsert(
+      { blocker_user_id: user.id, blocked_user_id: blockedUserId },
+      { onConflict: "blocker_user_id,blocked_user_id" }
+    );
+    if (error) {
+      console.error("UGC block insert failed:", error);
+      return res.status(500).json({ error: "The user could not be blocked." });
+    }
+    return res.json({ success: true, blockedUserId });
+  } catch (error) {
+    console.error("UGC block failed:", error);
+    return res.status(500).json({ error: "The user could not be blocked." });
+  }
+});
+
 // ARTBOOST_APPLE_ACCOUNT_DELETION_V1_20260924
 app.delete("/account/delete", express.json({ limit: "16kb" }), async (req, res) => {
   try {
