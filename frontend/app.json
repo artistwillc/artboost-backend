@@ -26,7 +26,6 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.artboostai",
           "enableGooglePay": true
         }
       ],
