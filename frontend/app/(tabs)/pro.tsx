@@ -38,7 +38,7 @@ type StoreSummary = {
 };
 
 function formatTier(value?: string | null) {
-  const normalized = String(value || "starter")
+  const normalized = String(value || "free")
     .trim()
     .toLowerCase();
 
@@ -54,7 +54,7 @@ function formatTier(value?: string | null) {
   }
 
   if (normalized === "free") {
-    return "Starter";
+    return "Free";
   }
 
   return (
@@ -89,6 +89,24 @@ export default function ProScreen() {
       ),
     [profile?.subscription_tier]
   );
+
+  const subscriptionStatus = String(profile?.subscription_status || "free")
+    .trim()
+    .toLowerCase();
+
+  const hasActiveSubscription =
+    profile?.is_pro === true &&
+    ["active", "trialing", "grace_period", "complimentary_active"].includes(
+      subscriptionStatus
+    );
+
+  const statusLabel = hasActiveSubscription
+    ? "ACTIVE"
+    : subscriptionStatus === "expired"
+      ? "EXPIRED"
+      : subscriptionStatus === "cancelled" || subscriptionStatus === "canceled"
+        ? "CANCELLED"
+        : "FREE";
 
   const activeCampaigns = useMemo(
     () =>
@@ -346,11 +364,16 @@ export default function ProScreen() {
             </Text>
           </View>
 
-          <View style={styles.activeBadge}>
+          <View
+            style={[
+              styles.activeBadge,
+              !hasActiveSubscription && styles.inactiveBadge,
+            ]}
+          >
             <Text
               style={styles.activeBadgeText}
             >
-              ACTIVE
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -628,6 +651,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#12a86b",
     paddingHorizontal: 11,
     paddingVertical: 6,
+  },
+
+  inactiveBadge: {
+    backgroundColor: "#5b5568",
   },
 
   activeBadgeText: {
