@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { supabase } from "@/lib/supabase";
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
 
 export default function SafetyScreen() {
   const [details, setDetails] = useState("");
