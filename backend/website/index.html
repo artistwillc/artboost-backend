@@ -49,7 +49,7 @@
     <section class="section intro" id="features">
       <p class="eyebrow">EVERYTHING YOU NEED TO MARKET YOUR ART</p>
       <h1>One AI marketing workspace.<br><span>Built for creators.</span></h1>
-      <p class="lead">Create content, schedule campaigns, connect stores and social platforms, analyze results, and grow your art business from one place.</p>
+      <p class="lead">Create content, schedule campaigns, connect stores and social platforms, automate promotion, and grow your art business from one place.</p>
       <button class="gold-btn" type="button" data-account="signup">Start Free</button>
     </section>
 
@@ -68,7 +68,6 @@
 
         <button class="tool-hit c1 r2" data-tool="chat"></button>
         <button class="tool-hit c2 r2" data-tool="caption"></button>
-        <button class="tool-hit c3 r2" data-tool="analytics"></button>
         <button class="tool-hit c4 r2" data-tool="hashtags"></button>
 
         <button class="tool-hit c1 r3" data-tool="rewriter"></button>
@@ -183,12 +182,12 @@
         </article>
         <article class="popular">
           <i>MOST POPULAR</i>
-          <h3>Pro</h3><strong>$49.99<span>/month</span></strong><p><strong>15 AI product videos/month</strong></p>
+          <h3>Pro</h3><strong>$39.99<span>/month</span></strong><p><strong>15 AI product videos/month</strong></p>
           <p>The complete ArtBoost experience for serious artists and POD sellers.</p>
           <a class="plan-button" href="https://artboost-ai.onrender.com/subscribe/pro">Choose Pro</a>
         </article>
         <article>
-          <h3>Business</h3><strong>$99.99<span>/month</span></strong><p><strong>30 AI product videos/month</strong></p>
+          <h3>Business</h3><strong>$79.99<span>/month</span></strong><p><strong>30 AI product videos/month</strong></p>
           <p>For high-volume sellers and growing creative businesses.</p>
           <a class="plan-button" href="https://artboost-ai.onrender.com/subscribe/business">Choose Business</a>
         </article>
@@ -208,17 +207,22 @@
         <button type="button" data-account-tab="signup">Create Account</button>
         <button type="button" data-account-tab="signin">Sign In</button>
       </div>
+      <form id="accountForm" class="web-auth-form">
+        <label>Email<input id="accountEmail" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+        <label>Password<input id="accountPassword" type="password" autocomplete="current-password" minlength="6" required placeholder="Your password"></label>
+        <label class="terms-check"><input id="accountTerms" type="checkbox"> <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, including the zero-tolerance content policy.</span></label>
+        <button class="gold-btn" id="accountSubmit" type="submit">Create Account</button>
+        <p class="auth-status" id="authStatus" aria-live="polite"></p>
+      </form>
       <div class="account-actions">
-        <a class="account-image-btn" id="accountPrimary" href="artboostai://">
-          <img id="accountButtonImage" src="assets/create-account.webp" alt="Create an Account">
-        </a>
         <button class="secondary-btn" type="button" data-pricing>Choose a Plan</button>
       </div>
-      <p class="account-note">On a phone with ArtBoost installed, this opens the ArtBoost app. If the app is not installed, use the app download/TestFlight link your team provides.</p>
+      <p class="account-note">Your ArtBoost website account uses the same secure account system as the ArtBoost app.</p>
     </section>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
 </body>
 </html>
