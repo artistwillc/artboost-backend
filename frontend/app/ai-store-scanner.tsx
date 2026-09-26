@@ -180,45 +180,6 @@ function getRedbubbleExplorePageUrl(
   }
 }
 
-function normalizeArtPalStoreUrl(value: string) {
-  const normalized = normalizeUrl(value);
-
-  if (!normalized) {
-    return value;
-  }
-
-  try {
-    const parsed = new URL(normalized);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-
-    if (host !== "artpal.com") {
-      return normalized;
-    }
-
-    const galleryId =
-      parsed.searchParams.get("id") ||
-      parsed.searchParams.get("r");
-
-    if (galleryId && /^\d+$/.test(galleryId)) {
-      return `https://www.ArtPal.com/artists.html?id=${galleryId}`;
-    }
-
-    /*
-     * ArtPal's public profile route can redirect into Cloudflare's
-     * bot-verification flow inside an embedded WebView. Preserve a
-     * known gallery id from the connected ArtistWill storefront so
-     * the scanner opens the gallery listing endpoint directly.
-     */
-    if (/^\/artistwill\/?$/i.test(parsed.pathname)) {
-      return "https://www.ArtPal.com/artists.html?id=37279";
-    }
-
-    return normalized;
-  } catch {
-    return normalized;
-  }
-}
-
 function makeProductId(productUrl: string) {
   return productUrl
     .toLowerCase()
@@ -2219,13 +2180,7 @@ export default function AIStoreScannerScreen() {
     .toLowerCase();
 
   const [storeUrl, setStoreUrl] =
-    useState(() => {
-      const incoming = String(params.storeUrl || "").trim();
-
-      return storeType === "artpal"
-        ? normalizeArtPalStoreUrl(incoming)
-        : incoming;
-    });
+    useState(\n      String(params.storeUrl || "")\n    );
 
   const [browserUrl, setBrowserUrl] =
     useState("");
@@ -2491,10 +2446,6 @@ const [scanProgress, setScanProgress] =
       normalized = normalizeUrl(
         `https://${storeUrl}`
       );
-    }
-
-    if (storeType === "artpal") {
-      normalized = normalizeArtPalStoreUrl(normalized || storeUrl);
     }
 
     if (!normalized) {
