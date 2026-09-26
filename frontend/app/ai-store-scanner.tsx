@@ -202,6 +202,34 @@ function makeProductId(productUrl: string) {
  * It also sends page inspection data to Metro so we
  * can diagnose unsupported storefront layouts.
  */
+const ARTPAL_READY_PROBE_SCRIPT = `
+(function () {
+  try {
+    var body = String(document.body && document.body.innerText || "").toLowerCase();
+    var html = String(document.documentElement && document.documentElement.innerHTML || "").toLowerCase();
+    var title = String(document.title || "").toLowerCase();
+    var challenge =
+      body.includes("performing security verification") ||
+      body.includes("verify you are not a bot") ||
+      body.includes("performance and security by cloudflare") ||
+      html.includes("cf-chl-") ||
+      html.includes("challenge-platform") ||
+      title.includes("just a moment");
+
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: challenge ? "artpal_challenge" : "artpal_ready",
+      url: window.location.href
+    }));
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "artpal_probe_error",
+      error: String(error && error.message ? error.message : error)
+    }));
+  }
+  true;
+})();
+`;
+
 const SCAN_PAGE_SCRIPT = `
 (function () {
   try {
@@ -2126,6 +2154,10 @@ export default function AIStoreScannerScreen() {
 
   const webViewRef =
     useRef<WebView>(null);
+  const artPalProbeTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const artPalProbeAttemptsRef =
+    useRef(0);
 
   const autoSync =
     params.autoSync === "true";
@@ -2926,6 +2958,60 @@ function scanEntireStore() {
           event.nativeEvent.data
         );
 
+        if (message.type === "artpal_challenge") {
+          if (storeType !== "artpal" || autoSyncScanStartedRef.current) {
+            return;
+          }
+
+          artPalProbeAttemptsRef.current += 1;
+          setScanProgress("Waiting for ArtPal security verification...");
+
+          if (artPalProbeAttemptsRef.current >= 12) {
+            setFullStoreScanning(false);
+            setScanProgress("");
+            Alert.alert(
+              "ArtPal Verification Required",
+              "ArtPal is still showing its Cloudflare verification page. ArtBoost did not scan that page as a storefront. Reload the ArtPal store and try Sync again."
+            );
+            return;
+          }
+
+          if (artPalProbeTimerRef.current) {
+            clearTimeout(artPalProbeTimerRef.current);
+          }
+
+          artPalProbeTimerRef.current = setTimeout(() => {
+            webViewRef.current?.injectJavaScript(
+              ARTPAL_READY_PROBE_SCRIPT
+            );
+          }, 2500);
+          return;
+        }
+
+        if (message.type === "artpal_ready") {
+          if (
+            storeType === "artpal" &&
+            autoSync &&
+            !autoSyncScanStartedRef.current
+          ) {
+            if (artPalProbeTimerRef.current) {
+              clearTimeout(artPalProbeTimerRef.current);
+              artPalProbeTimerRef.current = null;
+            }
+            artPalProbeAttemptsRef.current = 0;
+            autoSyncScanStartedRef.current = true;
+            setScanProgress("ArtPal verified — scanning storefront...");
+            setTimeout(() => {
+              scanEntireStore();
+            }, 750);
+          }
+          return;
+        }
+
+        if (message.type === "artpal_probe_error") {
+          return;
+        }
+
         if (
   message.type ===
   "scan_progress"
@@ -3568,12 +3654,20 @@ function scanEntireStore() {
                   autoSync &&
                   !autoSyncScanStartedRef.current
                 ) {
-                  autoSyncScanStartedRef.current =
-                    true;
+                  if (storeType === "artpal") {
+                    setFullStoreScanning(true);
+                    setScanProgress("Checking ArtPal storefront...");
+                    webViewRef.current?.injectJavaScript(
+                      ARTPAL_READY_PROBE_SCRIPT
+                    );
+                  } else {
+                    autoSyncScanStartedRef.current =
+                      true;
 
-                  setTimeout(() => {
-                    scanEntireStore();
-                  }, 500);
+                    setTimeout(() => {
+                      scanEntireStore();
+                    }, 500);
+                  }
                 }
               }}
               onNavigationStateChange={(
