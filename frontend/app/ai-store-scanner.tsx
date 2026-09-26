@@ -105,6 +105,32 @@ function normalizeUrl(
   }
 }
 
+function normalizeArtPalStorefrontUrl(value: string) {
+  const normalized = normalizeUrl(value);
+
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+
+    if (host !== "artpal.com" && !host.endsWith(".artpal.com")) {
+      return normalized;
+    }
+
+    // Known-good ArtPal scanner behavior: stay on the artist storefront
+    // and strip artwork/detail state from the ?i= parameter.
+    url.searchParams.delete("i");
+    url.hash = "";
+
+    return url.toString();
+  } catch {
+    return normalized;
+  }
+}
+
 function getRedbubbleArtworkId(
   value: unknown
 ) {
@@ -241,6 +267,34 @@ function makeProductId(productUrl: string) {
  * It also sends page inspection data to Metro so we
  * can diagnose unsupported storefront layouts.
  */
+const ARTPAL_READY_PROBE_SCRIPT = `
+(function () {
+  try {
+    var body = String(document.body && document.body.innerText || "").toLowerCase();
+    var html = String(document.documentElement && document.documentElement.innerHTML || "").toLowerCase();
+    var title = String(document.title || "").toLowerCase();
+    var challenge =
+      body.includes("performing security verification") ||
+      body.includes("verify you are not a bot") ||
+      body.includes("performance and security by cloudflare") ||
+      html.includes("cf-chl-") ||
+      html.includes("challenge-platform") ||
+      title.includes("just a moment");
+
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: challenge ? "artpal_challenge" : "artpal_ready",
+      url: window.location.href
+    }));
+  } catch (error) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: "artpal_probe_error",
+      error: String(error && error.message ? error.message : error)
+    }));
+  }
+  true;
+})();
+`;
+
 const SCAN_PAGE_SCRIPT = `
 (function () {
   try {
@@ -2165,6 +2219,10 @@ export default function AIStoreScannerScreen() {
 
   const webViewRef =
     useRef<WebView>(null);
+  const artPalProbeTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const artPalProbeAttemptsRef =
+    useRef(0);
 
   const autoSync =
     params.autoSync === "true";
@@ -2220,15 +2278,18 @@ export default function AIStoreScannerScreen() {
 
   const [storeUrl, setStoreUrl] =
     useState(() => {
-      const incoming = String(params.storeUrl || "").trim();
-
+      const requestedUrl = String(params.storeUrl || "");
       return storeType === "artpal"
-        ? normalizeArtPalStoreUrl(incoming)
-        : incoming;
+        ? normalizeArtPalStorefrontUrl(requestedUrl)
+        : requestedUrl;
     });
 
   const [browserUrl, setBrowserUrl] =
-    useState("");
+    useState(() =>
+      storeType === "artpal"
+        ? normalizeArtPalStorefrontUrl(String(params.storeUrl || ""))
+        : ""
+    );
 
   const [products, setProducts] =
     useState<ScannedProduct[]>([]);
@@ -2259,6 +2320,10 @@ const [scanProgress, setScanProgress] =
 
   useEffect(() => {
     return () => {
+      if (artPalProbeTimerRef.current) {
+        clearTimeout(artPalProbeTimerRef.current);
+        artPalProbeTimerRef.current = null;
+      }
       if (
         redbubblePageScanTimerRef.current
       ) {
@@ -2328,9 +2393,10 @@ const [scanProgress, setScanProgress] =
 
     async function resolveSavedStoreUrl() {
       try {
-        const directUrl = normalizeUrl(
-          String(params.storeUrl || "")
-        );
+        const directUrl =
+          storeType === "artpal"
+            ? normalizeArtPalStorefrontUrl(String(params.storeUrl || ""))
+            : normalizeUrl(String(params.storeUrl || ""));
 
         if (directUrl) {
           if (active) {
@@ -2481,7 +2547,9 @@ const [scanProgress, setScanProgress] =
 
   function openStore() {
     let normalized =
-      normalizeUrl(storeUrl);
+      storeType === "artpal"
+        ? normalizeArtPalStorefrontUrl(storeUrl)
+        : normalizeUrl(storeUrl);
 
     if (
       !normalized &&
@@ -2622,6 +2690,15 @@ const [scanProgress, setScanProgress] =
     return;
   }
 
+  if (storeType === "artpal") {
+    setScanning(true);
+    setScanProgress("Checking ArtPal storefront...");
+    webViewRef.current?.injectJavaScript(
+      ARTPAL_READY_PROBE_SCRIPT
+    );
+    return;
+  }
+
   setScanning(true);
 
   webViewRef.current?.injectJavaScript(
@@ -2654,6 +2731,13 @@ function scanEntireStore() {
 
   if (storeType === "redbubble") {
     startRedbubblePagedScan();
+    return;
+  }
+
+  if (storeType === "artpal" && !autoSyncScanStartedRef.current) {
+    setFullStoreScanning(true);
+    setScanProgress("Checking ArtPal storefront...");
+    webViewRef.current?.injectJavaScript(ARTPAL_READY_PROBE_SCRIPT);
     return;
   }
 
@@ -2975,6 +3059,76 @@ function scanEntireStore() {
           event.nativeEvent.data
         );
 
+        if (message.type === "artpal_challenge") {
+          if (storeType !== "artpal") {
+            return;
+          }
+
+          artPalProbeAttemptsRef.current += 1;
+          setScanProgress("Waiting for ArtPal security verification...");
+
+          if (artPalProbeAttemptsRef.current >= 12) {
+            setFullStoreScanning(false);
+            setScanProgress("");
+            Alert.alert(
+              "ArtPal Verification Required",
+              "ArtPal is still showing its Cloudflare verification page. ArtBoost did not scan that page as a storefront. Reload the ArtPal store and try Sync again."
+            );
+            return;
+          }
+
+          if (artPalProbeTimerRef.current) {
+            clearTimeout(artPalProbeTimerRef.current);
+          }
+
+          artPalProbeTimerRef.current = setTimeout(() => {
+            webViewRef.current?.injectJavaScript(
+              ARTPAL_READY_PROBE_SCRIPT
+            );
+          }, 2500);
+          return;
+        }
+
+        if (message.type === "artpal_ready") {
+          if (storeType !== "artpal") {
+            return;
+          }
+
+          if (artPalProbeTimerRef.current) {
+            clearTimeout(artPalProbeTimerRef.current);
+            artPalProbeTimerRef.current = null;
+          }
+          artPalProbeAttemptsRef.current = 0;
+
+          if (autoSync && !autoSyncScanStartedRef.current) {
+            autoSyncScanStartedRef.current = true;
+            setScanProgress("ArtPal verified — scanning storefront...");
+            setTimeout(() => {
+              scanEntireStore();
+            }, 750);
+            return;
+          }
+
+          if (scanning) {
+            setScanProgress("ArtPal verified — scanning visible products...");
+            webViewRef.current?.injectJavaScript(SCAN_PAGE_SCRIPT);
+            return;
+          }
+
+          if (fullStoreScanning) {
+            autoSyncScanStartedRef.current = true;
+            setScanProgress("ArtPal verified — scanning storefront...");
+            setTimeout(() => {
+              scanEntireStore();
+            }, 250);
+          }
+          return;
+        }
+
+        if (message.type === "artpal_probe_error") {
+          return;
+        }
+
         if (
   message.type ===
   "scan_progress"
@@ -3270,20 +3424,24 @@ function scanEntireStore() {
             fullStoreScanning
               ? "ArtBoost automatically scrolled the storefront but could not identify supported product links."
               : "Try Scan Entire Store so ArtBoost can automatically load more storefront listings.",
-            "",
-            (() => {
-              const candidates = Array.isArray((message as any).faaCandidateLinks)
-                ? (message as any).faaCandidateLinks
-                : [];
-              return candidates.length
-                ? [
-                    "FAA candidate links:",
-                    ...candidates.slice(0, 12).map((href: string, index: number) =>
-                      `${index + 1}. ${href}`
-                    ),
-                  ].join("\n")
-                : "FAA candidate links: 0";
-            })(),
+            ...(storeType === "fine_art_america" || storeType === "fineartamerica" || storeType === "faa"
+              ? [
+                  "",
+                  (() => {
+                    const candidates = Array.isArray((message as any).faaCandidateLinks)
+                      ? (message as any).faaCandidateLinks
+                      : [];
+                    return candidates.length
+                      ? [
+                          "FAA candidate links:",
+                          ...candidates.slice(0, 12).map((href: string, index: number) =>
+                            `${index + 1}. ${href}`
+                          ),
+                        ].join("\n")
+                      : "FAA candidate links: 0";
+                  })(),
+                ]
+              : []),
           ].join("\n")
         );
       } else {
@@ -3492,9 +3650,9 @@ function scanEntireStore() {
             >
               Universal Scanner
             </Text>
-            {/* ARTBOOST_LOCAL_BUNDLE_0915 */}
+            {/* ARTBOOST_SCANNER_RELEASE_20260926_R2 */}
             <Text style={{ color: "#22c55e", fontSize: 10, fontWeight: "700", marginTop: 2 }}>
-              LOCAL BUILD 0915
+              SCANNER 0926-R2
             </Text>
           </View>
 
@@ -3613,12 +3771,20 @@ function scanEntireStore() {
                   autoSync &&
                   !autoSyncScanStartedRef.current
                 ) {
-                  autoSyncScanStartedRef.current =
-                    true;
+                  if (storeType === "artpal") {
+                    setFullStoreScanning(true);
+                    setScanProgress("Checking ArtPal storefront...");
+                    webViewRef.current?.injectJavaScript(
+                      ARTPAL_READY_PROBE_SCRIPT
+                    );
+                  } else {
+                    autoSyncScanStartedRef.current =
+                      true;
 
-                  setTimeout(() => {
-                    scanEntireStore();
-                  }, 500);
+                    setTimeout(() => {
+                      scanEntireStore();
+                    }, 500);
+                  }
                 }
               }}
               onNavigationStateChange={(
