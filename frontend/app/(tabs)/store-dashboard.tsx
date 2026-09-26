@@ -180,7 +180,14 @@ export default function StoreDashboardScreen() {
 
       const exactCount = Number(data?.total);
       if (Number.isFinite(exactCount) && exactCount >= 0) {
-        setProductCount(exactCount);
+        // A store card can already carry a newer successful import count than
+        // this endpoint (for example immediately after a browser-assisted
+        // ArtPal import). Do not replace a known positive count with a stale 0.
+        setProductCount((currentCount) =>
+          exactCount === 0 && currentCount > 0
+            ? currentCount
+            : exactCount
+        );
       }
     } catch (error) {
       console.log(
