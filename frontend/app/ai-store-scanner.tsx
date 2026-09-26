@@ -2620,14 +2620,6 @@ const [scanProgress, setScanProgress] =
   }
 
   setScanning(true);
-    setScanProgress("Checking ArtPal storefront...");
-    webViewRef.current?.injectJavaScript(
-      ARTPAL_READY_PROBE_SCRIPT
-    );
-    return;
-  }
-
-  setScanning(true);
 
   webViewRef.current?.injectJavaScript(
     SCAN_PAGE_SCRIPT
