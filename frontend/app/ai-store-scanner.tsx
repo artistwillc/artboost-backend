@@ -3221,20 +3221,24 @@ function scanEntireStore() {
             fullStoreScanning
               ? "ArtBoost automatically scrolled the storefront but could not identify supported product links."
               : "Try Scan Entire Store so ArtBoost can automatically load more storefront listings.",
-            "",
-            (() => {
-              const candidates = Array.isArray((message as any).faaCandidateLinks)
-                ? (message as any).faaCandidateLinks
-                : [];
-              return candidates.length
-                ? [
-                    "FAA candidate links:",
-                    ...candidates.slice(0, 12).map((href: string, index: number) =>
-                      `${index + 1}. ${href}`
-                    ),
-                  ].join("\n")
-                : "FAA candidate links: 0";
-            })(),
+            ...(storeType === "fine_art_america" || storeType === "fineartamerica" || storeType === "faa"
+              ? [
+                  "",
+                  (() => {
+                    const candidates = Array.isArray((message as any).faaCandidateLinks)
+                      ? (message as any).faaCandidateLinks
+                      : [];
+                    return candidates.length
+                      ? [
+                          "FAA candidate links:",
+                          ...candidates.slice(0, 12).map((href: string, index: number) =>
+                            `${index + 1}. ${href}`
+                          ),
+                        ].join("\n")
+                      : "FAA candidate links: 0";
+                  })(),
+                ]
+              : []),
           ].join("\n")
         );
       } else {
