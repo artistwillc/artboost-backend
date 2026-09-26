@@ -615,7 +615,9 @@ export async function importUniversalStore({
       storeId,
     });
 
-  const parsedStoreUrl = new URL(\n    connection.store_url\n  );
+  const parsedStoreUrl = new URL(
+    connection.store_url
+  );
 
   const storeHost = normalizeHost(
     parsedStoreUrl.hostname
@@ -633,7 +635,9 @@ export async function importUniversalStore({
     );
     pageNumber += 1
   ) {
-    const pageUrl = new URL(\n    connection.store_url\n  );
+    const pageUrl = new URL(
+    connection.store_url
+  );
 
     if (pageNumber > 1) {
       pageUrl.searchParams.set(
