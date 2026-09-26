@@ -105,6 +105,32 @@ function normalizeUrl(
   }
 }
 
+function normalizeArtPalStorefrontUrl(value: string) {
+  const normalized = normalizeUrl(value);
+
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+
+    if (host !== "artpal.com" && !host.endsWith(".artpal.com")) {
+      return normalized;
+    }
+
+    // Known-good ArtPal scanner behavior: stay on the artist storefront
+    // and strip artwork/detail state from the ?i= parameter.
+    url.searchParams.delete("i");
+    url.hash = "";
+
+    return url.toString();
+  } catch {
+    return normalized;
+  }
+}
+
 function getRedbubbleArtworkId(
   value: unknown
 ) {
@@ -2212,10 +2238,19 @@ export default function AIStoreScannerScreen() {
     .toLowerCase();
 
   const [storeUrl, setStoreUrl] =
-    useState(\n      String(params.storeUrl || "")\n    );
+    useState(() => {
+      const requestedUrl = String(params.storeUrl || "");
+      return storeType === "artpal"
+        ? normalizeArtPalStorefrontUrl(requestedUrl)
+        : requestedUrl;
+    });
 
   const [browserUrl, setBrowserUrl] =
-    useState("");
+    useState(() =>
+      storeType === "artpal"
+        ? normalizeArtPalStorefrontUrl(String(params.storeUrl || ""))
+        : ""
+    );
 
   const [products, setProducts] =
     useState<ScannedProduct[]>([]);
@@ -2246,6 +2281,10 @@ const [scanProgress, setScanProgress] =
 
   useEffect(() => {
     return () => {
+      if (artPalProbeTimerRef.current) {
+        clearTimeout(artPalProbeTimerRef.current);
+        artPalProbeTimerRef.current = null;
+      }
       if (
         redbubblePageScanTimerRef.current
       ) {
@@ -2315,9 +2354,10 @@ const [scanProgress, setScanProgress] =
 
     async function resolveSavedStoreUrl() {
       try {
-        const directUrl = normalizeUrl(
-          String(params.storeUrl || "")
-        );
+        const directUrl =
+          storeType === "artpal"
+            ? normalizeArtPalStorefrontUrl(String(params.storeUrl || ""))
+            : normalizeUrl(String(params.storeUrl || ""));
 
         if (directUrl) {
           if (active) {
@@ -2468,7 +2508,9 @@ const [scanProgress, setScanProgress] =
 
   function openStore() {
     let normalized =
-      normalizeUrl(storeUrl);
+      storeType === "artpal"
+        ? normalizeArtPalStorefrontUrl(storeUrl)
+        : normalizeUrl(storeUrl);
 
     if (
       !normalized &&
@@ -2605,6 +2647,15 @@ const [scanProgress, setScanProgress] =
     return;
   }
 
+  if (storeType === "artpal") {
+    setScanning(true);
+    setScanProgress("Checking ArtPal storefront...");
+    webViewRef.current?.injectJavaScript(
+      ARTPAL_READY_PROBE_SCRIPT
+    );
+    return;
+  }
+
   setScanning(true);
 
   webViewRef.current?.injectJavaScript(
@@ -2637,6 +2688,13 @@ function scanEntireStore() {
 
   if (storeType === "redbubble") {
     startRedbubblePagedScan();
+    return;
+  }
+
+  if (storeType === "artpal" && !autoSyncScanStartedRef.current) {
+    setFullStoreScanning(true);
+    setScanProgress("Checking ArtPal storefront...");
+    webViewRef.current?.injectJavaScript(ARTPAL_READY_PROBE_SCRIPT);
     return;
   }
 
@@ -2959,7 +3017,7 @@ function scanEntireStore() {
         );
 
         if (message.type === "artpal_challenge") {
-          if (storeType !== "artpal" || autoSyncScanStartedRef.current) {
+          if (storeType !== "artpal") {
             return;
           }
 
@@ -2989,21 +3047,37 @@ function scanEntireStore() {
         }
 
         if (message.type === "artpal_ready") {
-          if (
-            storeType === "artpal" &&
-            autoSync &&
-            !autoSyncScanStartedRef.current
-          ) {
-            if (artPalProbeTimerRef.current) {
-              clearTimeout(artPalProbeTimerRef.current);
-              artPalProbeTimerRef.current = null;
-            }
-            artPalProbeAttemptsRef.current = 0;
+          if (storeType !== "artpal") {
+            return;
+          }
+
+          if (artPalProbeTimerRef.current) {
+            clearTimeout(artPalProbeTimerRef.current);
+            artPalProbeTimerRef.current = null;
+          }
+          artPalProbeAttemptsRef.current = 0;
+
+          if (autoSync && !autoSyncScanStartedRef.current) {
             autoSyncScanStartedRef.current = true;
             setScanProgress("ArtPal verified — scanning storefront...");
             setTimeout(() => {
               scanEntireStore();
             }, 750);
+            return;
+          }
+
+          if (scanning) {
+            setScanProgress("ArtPal verified — scanning visible products...");
+            webViewRef.current?.injectJavaScript(SCAN_PAGE_SCRIPT);
+            return;
+          }
+
+          if (fullStoreScanning) {
+            autoSyncScanStartedRef.current = true;
+            setScanProgress("ArtPal verified — scanning storefront...");
+            setTimeout(() => {
+              scanEntireStore();
+            }, 250);
           }
           return;
         }
@@ -3533,9 +3607,9 @@ function scanEntireStore() {
             >
               Universal Scanner
             </Text>
-            {/* ARTBOOST_LOCAL_BUNDLE_0915 */}
+            {/* ARTBOOST_SCANNER_RELEASE_20260926_R2 */}
             <Text style={{ color: "#22c55e", fontSize: 10, fontWeight: "700", marginTop: 2 }}>
-              LOCAL BUILD 0915
+              SCANNER 0926-R2
             </Text>
           </View>
 
