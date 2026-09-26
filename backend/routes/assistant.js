@@ -102,7 +102,7 @@ async function createResponseWithTransientRateLimitRetry(request, label) {
 
     const delayMs = openAIRetryDelayMs(error);
     console.warn(
-      "AI Consultant transient Sol rate limit during " + label +
+      "AI Consultant transient model rate limit during " + label +
       "; retrying once in " + delayMs + "ms."
     );
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -2272,11 +2272,11 @@ router.post("/assistant", async (req, res) => {
     });
     const openAIRequest = {
       model: isConsultant
-        ? process.env.OPENAI_CONSULTANT_MODEL || "gpt-5.6-sol"
+        ? process.env.OPENAI_CONSULTANT_MODEL || "gpt-6-astra"
         : process.env.OPENAI_SUPPORT_MODEL ||
           process.env.OPENAI_MARKETING_MODEL ||
           "gpt-5.6-terra",
-      // V15.2.2: GPT-5.6 Sol rejects the Responses API temperature parameter.
+      // ARTBOOST_ASTRA_V1: GPT-6 Astra powers Consultant reasoning via Responses API. Keep unsupported sampling parameters out.
       max_output_tokens: 4000,
       ...(useWebResearch
         ? {
