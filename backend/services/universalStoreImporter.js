@@ -122,17 +122,6 @@ function normalizeUrl(value, baseUrl) {
   }
 }
 
-function isCloudflareChallenge(html = "") {
-  const source = String(html).toLowerCase();
-
-  return (
-    source.includes("performing security verification") ||
-    source.includes("verify you are not a bot") ||
-    source.includes("cf-chl-") ||
-    source.includes("challenge-platform")
-  );
-}
-
 function createExternalProductId(productUrl) {
   return crypto
     .createHash("sha256")
@@ -656,14 +645,6 @@ export async function importUniversalStore({
         pageUrl.toString()
       );
 
-      if (
-        connection.platform === "artpal" &&
-        isCloudflareChallenge(html)
-      ) {
-        throw new Error(
-          "ArtPal returned its Cloudflare verification page instead of the gallery."
-        );
-      }
 
       const discovered =
         extractCandidateLinks(
