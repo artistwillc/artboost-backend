@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#02030a"><title>ArtBoost AI Workspace</title>
+<link rel="stylesheet" href="styles.css"><link rel="icon" href="/assets/artboost-app-icon.png">
+<style>
+.workspace-shell{min-height:100vh;background:radial-gradient(circle at 50% 0,#17112e,#02030a 42%,#000)}
+.workspace-top{height:72px;display:flex;align-items:center;padding:0 max(22px,calc((100vw - 1400px)/2));border-bottom:1px solid #241b35;background:#05050dcc;position:sticky;top:0}
+.workspace-top .brand{margin-right:auto}.workspace-user{color:#bbb;font-size:13px;margin-right:12px}
+.workspace-main{width:min(1200px,calc(100% - 32px));margin:auto;padding:54px 0}
+.workspace-main h1{font-size:clamp(36px,6vw,66px)}.workspace-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
+.workspace-card{display:block;text-align:left;background:linear-gradient(145deg,#11111d,#080810);border:1px solid #35264c;border-radius:20px;padding:24px;color:#fff;text-decoration:none;min-height:170px}
+.workspace-card:hover{border-color:#8a43ff;transform:translateY(-2px)}.workspace-card b{display:block;color:#ffe06b;font-size:12px;letter-spacing:1.4px;margin-bottom:12px}.workspace-card h2{font-size:25px;margin-bottom:10px}.workspace-card p{color:#bbb;line-height:1.5;margin:0}
+.workspace-loading{text-align:center;padding:120px 20px;color:#bbb}
+@media(max-width:800px){.workspace-grid{grid-template-columns:1fr}.workspace-user{display:none}}
+</style></head>
+<body class="workspace-shell">
+<header class="workspace-top"><a class="brand" href="/"><span class="brand-mark">A</span><span><strong>ARTBOOST</strong><em>AI</em></span></a><span class="workspace-user" id="workspaceUser"></span><button class="secondary-btn" id="signOut" type="button">Sign Out</button></header>
+<main class="workspace-main" id="workspaceMain"><div class="workspace-loading">Loading your ArtBoost workspace…</div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="workspace.js"></script>
+</body></html>
