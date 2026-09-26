@@ -46,3 +46,12 @@ h1,h2{margin:0 0 18px;line-height:1.02}h1{font-size:clamp(38px,6vw,76px)}h2{font
 .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);z-index:300;background:#15101e;border:1px solid #634496;color:#fff;padding:12px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:translate(-50%,0)}
 @media(max-width:900px){.nav{display:none}.nav.open{display:flex;position:absolute;top:72px;left:0;right:0;background:#070711;padding:20px;flex-direction:column;border-bottom:1px solid #352649}.menu-btn{display:block}.workflow-grid{grid-template-columns:1fr}.integration-grid{grid-template-columns:repeat(2,1fr)}.plans{grid-template-columns:1fr 1fr}.footer{grid-template-columns:1fr}.hero-stage{margin-top:0}}
 @media(max-width:560px){.site-header{height:62px;padding:0 12px}.brand strong{font-size:14px}.brand-mark{width:32px;height:32px}.text-btn{display:none}.gold-btn.small{display:none}.nav.open{top:62px}.section{padding:52px 0}.integration-grid{grid-template-columns:1fr 1fr;gap:10px}.integration-card{padding:10px}.integration-card img{width:86px}.plans{grid-template-columns:1fr}.modal-card{padding:26px 18px}.modal-card h2{font-size:28px}.hero-create,.hero-signin{height:12%}.demo-pricing{top:89%;height:10%}}
+
+.web-auth-form{display:grid;gap:14px;margin-top:20px;text-align:left}
+.web-auth-form label{display:grid;gap:7px;color:#ddd;font-size:13px;font-weight:800}
+.web-auth-form input[type="email"],.web-auth-form input[type="password"]{width:100%;border:1px solid #413154;border-radius:11px;background:#090910;color:#fff;padding:13px 14px;outline:none}
+.web-auth-form input:focus{border-color:#8a43ff;box-shadow:0 0 0 3px #8a43ff22}
+.terms-check{grid-template-columns:auto 1fr!important;align-items:start;font-weight:500!important;line-height:1.45}
+.terms-check input{margin-top:3px}.terms-check a{color:var(--gold2)}
+.auth-status{min-height:20px;margin:0!important;color:var(--gold2)!important;font-size:13px}
+.web-auth-form button:disabled{opacity:.55;cursor:wait}
