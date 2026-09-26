@@ -1838,11 +1838,9 @@ export default function ConnectionsScreen() {
                 Products
               </Text>
 
-              <Text
-                style={styles.metricSeparator}
-              >
-                {"\u2022"}
-              </Text>
+              <View
+                style={styles.metricDot}
+              />
 
               <Text
                 style={
@@ -2781,8 +2779,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  metricSeparator: {
-    color: "#ffffff",
+  metricDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#8b8b8b",
     marginHorizontal: 7,
   },
 
