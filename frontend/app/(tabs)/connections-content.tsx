@@ -2289,8 +2289,8 @@ export default function ConnectionsScreen() {
 
                     <Text style={styles.modalPlatformStatus}>
                       {connected
-                        ? "Connected â€” authorize again"
-                        : "Not connected â€” connect now"}
+                        ? "Connected - authorize again"
+                        : "Not connected - connect now"}
                     </Text>
                   </View>
 
