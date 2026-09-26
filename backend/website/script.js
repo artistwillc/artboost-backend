@@ -29,11 +29,6 @@ const TOOLS = {
     body: "Generate polished captions matched to your artwork, product and campaign goal.",
     bullets: ["Create platform-ready captions.", "Adjust messaging for different campaign goals.", "Pair captions with titles, hashtags and CTAs."]
   },
-  analytics: {
-    title: "Analytics & Reports",
-    body: "Review ArtBoost activity and available performance data to understand what is working.",
-    bullets: ["Review campaign and posting activity.", "Compare products and platforms.", "Use insights to improve future campaigns."]
-  },
   hashtags: {
     title: "Hashtag Generator",
     body: "Build relevant hashtag groups for artwork, products and social campaigns.",
@@ -103,16 +98,32 @@ document.querySelectorAll("[data-close-pricing]").forEach(btn => btn.addEventLis
 document.querySelectorAll("[data-close-modal]").forEach(btn => btn.addEventListener("click", () => closeModal(toolModal)));
 document.querySelectorAll("[data-close-account]").forEach(btn => btn.addEventListener("click", () => closeModal(accountModal)));
 
+let accountMode = "signup";
+let supabaseClient = null;
+
+async function getSupabaseClient() {
+  if (supabaseClient) return supabaseClient;
+  if (!window.supabase?.createClient) throw new Error("Secure sign-in is still loading. Please try again.");
+  const response = await fetch("/api/public-auth-config", { headers: { Accept: "application/json" } });
+  const config = await response.json();
+  if (!response.ok || !config.supabaseUrl || !config.supabasePublishableKey) {
+    throw new Error(config.error || "Website sign-in is not configured.");
+  }
+  supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabasePublishableKey);
+  return supabaseClient;
+}
+
 function setAccountMode(mode) {
-  const signup = mode !== "signin";
+  accountMode = mode === "signin" ? "signin" : "signup";
+  const signup = accountMode === "signup";
   document.querySelector("#accountTitle").textContent = signup ? "Create your ArtBoost account" : "Sign in to ArtBoost";
   document.querySelector("#accountCopy").textContent = signup
-    ? "Create your account first, then choose the plan that fits your business."
-    : "Open ArtBoost and sign in with your existing account.";
-  const image = document.querySelector("#accountButtonImage");
-  image.src = signup ? "assets/create-account.webp" : "assets/sign-in.webp";
-  image.alt = signup ? "Create an Account" : "Sign In";
-  document.querySelectorAll("[data-account-tab]").forEach(b => b.classList.toggle("active", b.dataset.accountTab === (signup ? "signup" : "signin")));
+    ? "Create your account and start on the Free tier."
+    : "Sign in with the same ArtBoost account you use in the app.";
+  document.querySelector("#accountSubmit").textContent = signup ? "Create Account" : "Sign In";
+  document.querySelector("#accountPassword").autocomplete = signup ? "new-password" : "current-password";
+  document.querySelector("#authStatus").textContent = "";
+  document.querySelectorAll("[data-account-tab]").forEach(b => b.classList.toggle("active", b.dataset.accountTab === accountMode));
 }
 document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener("click", () => {
   setAccountMode(btn.dataset.account);
@@ -120,8 +131,37 @@ document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener(
 }));
 document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
 
-document.querySelector("#accountPrimary").addEventListener("click", () => {
-  setTimeout(() => showToast("If ArtBoost did not open, launch the ArtBoost app and create or sign in to your account."), 500);
+document.querySelector("#accountForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const email = document.querySelector("#accountEmail").value.trim();
+  const password = document.querySelector("#accountPassword").value;
+  const accepted = document.querySelector("#accountTerms").checked;
+  const status = document.querySelector("#authStatus");
+  const submit = document.querySelector("#accountSubmit");
+
+  if (!accepted) {
+    status.textContent = "Accept the Terms of Service and Privacy Policy before continuing.";
+    return;
+  }
+
+  submit.disabled = true;
+  status.textContent = accountMode === "signup" ? "Creating account…" : "Signing in…";
+  try {
+    const client = await getSupabaseClient();
+    const result = accountMode === "signup"
+      ? await client.auth.signUp({ email, password })
+      : await client.auth.signInWithPassword({ email, password });
+    if (result.error) throw result.error;
+    if (accountMode === "signup" && !result.data?.session) {
+      status.textContent = "Account created. Check your email to confirm your account, then sign in.";
+      return;
+    }
+    window.location.assign("/workspace.html");
+  } catch (error) {
+    status.textContent = error?.message || "Unable to continue. Please try again.";
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 document.querySelector("[data-demo-generate]").addEventListener("click", () => {
