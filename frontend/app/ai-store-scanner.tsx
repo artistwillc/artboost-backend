@@ -2152,10 +2152,6 @@ export default function AIStoreScannerScreen() {
 
   const webViewRef =
     useRef<WebView>(null);
-  const artPalProbeTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-  const artPalProbeAttemptsRef =
-    useRef(0);
 
   const autoSync =
     params.autoSync === "true";
@@ -2253,10 +2249,6 @@ const [scanProgress, setScanProgress] =
 
   useEffect(() => {
     return () => {
-      if (artPalProbeTimerRef.current) {
-        clearTimeout(artPalProbeTimerRef.current);
-        artPalProbeTimerRef.current = null;
-      }
       if (
         redbubblePageScanTimerRef.current
       ) {
