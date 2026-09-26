@@ -3851,6 +3851,136 @@ app.get("/support", (req, res) => {
 `);
 });
 
+// ARTBOOST_APPLE_UGC_SAFETY_V1_20260925
+async function requireArtBoostUser(req) {
+  const authHeader = String(req.headers.authorization || "").trim();
+  const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user?.id) return null;
+  return data.user;
+}
+
+app.post("/safety/report", express.json({ limit: "32kb" }), async (req, res) => {
+  try {
+    const user = await requireArtBoostUser(req);
+    if (!user) return res.status(401).json({ error: "Authentication is required." });
+    const details = String(req.body?.details || "").trim().slice(0, 5000);
+    const reportedUserId = String(req.body?.reportedUserId || "").trim() || null;
+    if (!details) return res.status(400).json({ error: "Report details are required." });
+    const { error } = await supabase.from("ugc_reports").insert({
+      reporter_user_id: user.id,
+      reported_user_id: reportedUserId,
+      details,
+      status: "open",
+    });
+    if (error) {
+      console.error("UGC report insert failed:", error);
+      return res.status(500).json({ error: "The safety report could not be saved." });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("UGC report failed:", error);
+    return res.status(500).json({ error: "The safety report could not be submitted." });
+  }
+});
+
+app.post("/safety/block", express.json({ limit: "16kb" }), async (req, res) => {
+  try {
+    const user = await requireArtBoostUser(req);
+    if (!user) return res.status(401).json({ error: "Authentication is required." });
+    const blockedUserId = String(req.body?.reportedUserId || "").trim();
+    if (!blockedUserId) return res.status(400).json({ error: "A user ID is required." });
+    if (blockedUserId === user.id) return res.status(400).json({ error: "You cannot block your own account." });
+    const { error } = await supabase.from("user_blocks").upsert(
+      { blocker_user_id: user.id, blocked_user_id: blockedUserId },
+      { onConflict: "blocker_user_id,blocked_user_id" }
+    );
+    if (error) {
+      console.error("UGC block insert failed:", error);
+      return res.status(500).json({ error: "The user could not be blocked." });
+    }
+    return res.json({ success: true, blockedUserId });
+  } catch (error) {
+    console.error("UGC block failed:", error);
+    return res.status(500).json({ error: "The user could not be blocked." });
+  }
+});
+
+// ARTBOOST_APPLE_ACCOUNT_DELETION_V1_20260924
+app.delete("/account/delete", express.json({ limit: "16kb" }), async (req, res) => {
+  try {
+    const authHeader = String(req.headers.authorization || "").trim();
+    const accessToken = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const userId = authData?.user?.id || null;
+    if (authError || !userId) {
+      return res.status(401).json({ error: "Your ArtBoost session is no longer valid." });
+    }
+
+    if (String(req.body?.confirmation || "").trim().toUpperCase() !== "DELETE") {
+      return res.status(400).json({ error: "Deletion confirmation is required." });
+    }
+
+    // Delete user-owned ArtBoost rows that are not guaranteed to cascade.
+    // Missing optional tables are tolerated so deletion still works across
+    // production schema revisions; auth deletion is the authoritative final step.
+    const userOwnedTables = [
+      "notifications",
+      "store_automation_logs",
+      "store_automations",
+      "scheduled_campaigns",
+      "products",
+      "social_connections",
+      "store_connections",
+      "profiles",
+    ];
+
+    for (const table of userOwnedTables) {
+      try {
+        const { error } = await supabase.from(table).delete().eq("user_id", userId);
+        if (error && !/column .*user_id|does not exist|relation .* does not exist/i.test(error.message || "")) {
+          console.warn(`Account deletion cleanup warning for ${table}:`, error.message);
+        }
+      } catch (cleanupError) {
+        console.warn(`Account deletion cleanup skipped for ${table}:`, cleanupError?.message || cleanupError);
+      }
+    }
+
+    // profiles uses the auth user UUID as its primary key in ArtBoost.
+    try {
+      const { error: profileDeleteError } = await supabase.from("profiles").delete().eq("id", userId);
+      if (profileDeleteError) {
+        console.warn("Account deletion profile cleanup warning:", profileDeleteError.message);
+      }
+    } catch (profileCleanupError) {
+      console.warn("Account deletion profile cleanup skipped:", profileCleanupError?.message || profileCleanupError);
+    }
+
+    const { error: deleteUserError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteUserError) {
+      console.error("Supabase auth user deletion failed:", deleteUserError);
+      return res.status(500).json({
+        error: "Your account data cleanup started, but the authentication account could not be deleted. Please contact support.",
+      });
+    }
+
+    return res.json({ success: true, deleted: true });
+  } catch (error) {
+    console.error("Permanent account deletion failed:", error);
+    return res.status(500).json({
+      error: error?.message || "Permanent account deletion failed.",
+    });
+  }
+});
+
 app.get("/delete-user-data", (req, res) => {
 
   res.send(`
