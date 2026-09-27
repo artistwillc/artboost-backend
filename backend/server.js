@@ -6776,120 +6776,40 @@ app.get("/facebook/permissions", async (req, res) => {
 });
 
 app.post("/facebook/post", async (req, res) => {
-
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
 
     const {
-      message,
-      imageUrl,
-      pageId,
-      productLink
-    } = req.body;
+      message = "",
+      imageUrl = "",
+      pageId = null,
+      productLink = "",
+    } = req.body || {};
 
-    const finalMessage = [
-      message,
-      productLink
-    ].filter(Boolean).join("\n\n");
-
-    if (!facebookConnection.token) {
-
-      return res.status(400).json({
-        error: "Facebook not connected"
-      });
-
-    }
-
-    const pagesResponse =
-      await fetch(
-        `https://graph.facebook.com/v23.0/me/accounts?access_token=${facebookConnection.token}`
-      );
-
-    const pagesData =
-      await pagesResponse.json();
-
-    if (!pagesData.data || !pagesData.data.length) {
-
-      return res.status(400).json({
-        error: "No Facebook Pages found"
-      });
-
-    }
-
-    const page =
-      pageId
-        ? pagesData.data.find(
-          (p) => p.id === pageId
-        )
-        : pagesData.data[0];
-
-    if (!page) {
-
-      return res.status(400).json({
-        error: "Selected Facebook Page not found"
-      });
-
-    }
-
-    let postUrl =
-      `https://graph.facebook.com/v23.0/${page.id}/feed`;
-
-    let body = {
-      message: finalMessage,
-      access_token: page.access_token,
-    };
-
-    if (imageUrl) {
-
-      postUrl =
-        `https://graph.facebook.com/v23.0/${page.id}/photos`;
-
-      body = {
-        url: imageUrl,
-        caption: finalMessage,
-        access_token: page.access_token,
-      };
-
-    }
-
-    const postResponse =
-      await fetch(postUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-    const postData =
-      await postResponse.json();
-
-    if (postData.error) {
-
-      console.log(
-        "Facebook Post Error:",
-        postData.error
-      );
-
-      return res.status(500).json({
-        error: postData.error,
-      });
-
-    }
-
-    res.json(postData);
-
-  }
-
-  catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      error: err.message,
+    const result = await publishFacebookPost({
+      userId: authenticatedUserId,
+      title: String(message || "").trim(),
+      description: "",
+      hashtags: "",
+      cta: "",
+      productLink: String(productLink || "").trim(),
+      imageUrl: String(imageUrl || "").trim(),
+      pageId: pageId ? String(pageId) : null,
     });
 
+    return res.json({
+      success: true,
+      platform: "facebook",
+      result,
+    });
+  } catch (err) {
+    console.error("Facebook Post Error:", err);
+    return res.status(500).json({
+      success: false,
+      error: err instanceof Error ? err.message : "Facebook could not publish this post.",
+    });
   }
-
 });
 
 // ================================
