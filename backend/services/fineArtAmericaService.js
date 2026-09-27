@@ -322,7 +322,7 @@ function extractArtworkArtistName(html, productSchema) {
   return byMatch?.[1]?.trim() || "";
 }
 
-function createExternalProductId(productUrl) {
+export function createExternalProductId(productUrl) {
   return crypto
     .createHash("sha256")
     .update(String(productUrl).toLowerCase())

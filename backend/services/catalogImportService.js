@@ -1,5 +1,5 @@
 import supabase from "../lib/supabase.js";
-import { verifyFineArtAmericaProductOwnership } from "./fineArtAmericaService.js";
+import { verifyFineArtAmericaProductOwnership, createExternalProductId } from "./fineArtAmericaService.js";
 
 const MAX_URLS_PER_REQUEST = 25;
 const FETCH_TIMEOUT_MS = 15000;
@@ -893,6 +893,12 @@ export async function importSingleCatalogProduct({
     fineArtAmericaOwnership?.canonicalUrl ||
     cleanProductUrl;
 
+  // ARTBOOST_FAA_CANONICAL_IDENTITY_REPAIR_20260927
+  const fineArtAmericaExternalId =
+    fineArtAmericaOwnership?.verified
+      ? createExternalProductId(finalProductUrl)
+      : null;
+
   const suppliedImageUrl = String(imageUrl || "").trim();
   const suppliedDescription = cleanText(description || "");
   const suppliedPriceMissing =
@@ -1051,6 +1057,36 @@ export async function importSingleCatalogProduct({
   }
 
   /*
+   * ARTBOOST_FAA_CANONICAL_IDENTITY_REPAIR_20260927
+   *
+   * Exact URL remains the fast path. If it does not match, use the same
+   * canonical external ID as the proven FAA importer so the catalog scanner
+   * updates an existing FAA artwork instead of creating a second row.
+   */
+  if (!existingProduct && fineArtAmericaExternalId) {
+    const {
+      data: faaProduct,
+      error: faaLookupError,
+    } = await supabase
+      .from("products")
+      .select(
+        "id,product_url,image_url,title,description,price,currency,metadata,external_product_id"
+      )
+      .eq("user_id", String(userId))
+      .eq("store_type", "fine_art_america")
+      .eq("external_product_id", fineArtAmericaExternalId)
+      .maybeSingle();
+
+    if (faaLookupError) {
+      throw new Error(
+        `Unable to check existing Fine Art America product: ${faaLookupError.message}`
+      );
+    }
+
+    existingProduct = faaProduct || null;
+  }
+
+  /*
    * Older Redbubble imports sometimes used /i/... URLs for the same artwork.
    * Search only URLs containing this artwork ID, then validate the extracted ID;
    * do not load the user's entire Redbubble catalog for every import.
@@ -1095,6 +1131,9 @@ export async function importSingleCatalogProduct({
   const productRecord = {
     user_id: String(userId),
     store_type: normalizedStoreType,
+    ...(fineArtAmericaExternalId
+      ? { external_product_id: fineArtAmericaExternalId }
+      : {}),
     store_name: String(storeName).trim(),
     store_connection_id: storeId ? String(storeId) : null,
     title:
