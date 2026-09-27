@@ -48,7 +48,7 @@ import {
   applySecurityHeaders,
   createRateLimiter,
 } from "./middleware/security.js";
-import { securityAuthMode } from "./middleware/auth.js";
+import { securityAuthMode, resolveRequestUserId } from "./middleware/auth.js";
 
 dotenv.config({ override: true });
 
@@ -1355,13 +1355,6 @@ app.post("/etsy/sync", express.json({ limit: "10mb" }), async (req, res) => {
     const userId =
       req.body?.userId ||
       req.query?.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -3329,6 +3322,8 @@ app.use(stripeSandboxRoutes);
 const ARTBOOST_ALLOWED_ORIGINS = new Set([
   "https://artboostai.com",
   "https://www.artboostai.com",
+  // Isolated Render preview used to validate the flagship web workspace before production.
+  "https://artboost-ai-pr-2.onrender.com",
 ]);
 app.use(cors({
   origin(origin, callback) {
@@ -10779,8 +10774,14 @@ app.post("/x/post", async (req, res) => {
 });
 
 app.post("/pinterest/create-pin", async (req, res) => {
+  let authenticatedUserId = null;
+  let requestTitle = "";
   try {
-    const { userId, boardId, title, description, link, imageUrl } = req.body;
+    authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
+
+    const { boardId, title, description, link, imageUrl } = req.body;
+    requestTitle = title || "";
 
     const pinData = await publishPinterestPin({
       boardId,
@@ -10791,7 +10792,7 @@ app.post("/pinterest/create-pin", async (req, res) => {
     });
 
     await createNotification({
-      userId,
+      userId: authenticatedUserId,
       title: "Pinterest Pin Published",
       message: `Your campaign "${title || "Untitled Campaign"}" was posted to Pinterest.`,
       type: "success",
@@ -10802,14 +10803,14 @@ app.post("/pinterest/create-pin", async (req, res) => {
       pin: pinData,
     });
   } catch (err) {
-    const { userId, title } = req.body || {};
-
-    await createNotification({
-      userId,
-      title: "Pinterest Post Failed",
-      message: `Pinterest could not publish "${title || "Untitled Campaign"}". ${err.message}`,
-      type: "error",
-    });
+    if (authenticatedUserId) {
+      await createNotification({
+        userId: authenticatedUserId,
+        title: "Pinterest Post Failed",
+        message: `Pinterest could not publish "${requestTitle || "Untitled Campaign"}". ${err.message}`,
+        type: "error",
+      });
+    }
 
     res.status(500).json({
       error: "Pinterest pin creation failed.",
@@ -10837,6 +10838,9 @@ app.post("/schedule-campaign", async (req, res) => {
       nextRunAt,
       repeatUntil,
     } = req.body;
+
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
 
     const normalizedPlatform = String(platform || "Pinterest").trim();
     const platformKey = normalizedPlatform.toLowerCase();
@@ -10896,7 +10900,7 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
+    const limitCheck = await checkCampaignLimit(authenticatedUserId, normalizedPlatform);
 
     if (!limitCheck.allowed) {
       return res.status(403).json({
@@ -10912,7 +10916,7 @@ app.post("/schedule-campaign", async (req, res) => {
       nextRunAt || (finalRepeatType !== "one_time" ? publishAt : null);
 
     const insertPayload = {
-      user_id: userId,
+      user_id: authenticatedUserId,
       platform: normalizedPlatform,
       campaign_group_id: campaignGroupId || null,
       title,
@@ -11847,8 +11851,11 @@ Exact schema:
   }
 });
 
-app.post("/generate", upload.single("image"), async (req, res) => {
+app.post("/generate", generationLimiter, upload.single("image"), async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
+
     if (!req.file) {
       return res.status(400).json({ error: "No artwork image uploaded." });
     }
