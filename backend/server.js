@@ -10739,7 +10739,6 @@ app.post("/pinterest/create-pin", async (req, res) => {
 app.post("/schedule-campaign", async (req, res) => {
   try {
     const {
-      userId,
       title,
       description,
       imageUrl,
@@ -10763,7 +10762,7 @@ app.post("/schedule-campaign", async (req, res) => {
     const platformKey = normalizedPlatform.toLowerCase();
 
     console.log("SCHEDULE REQUEST RECEIVED:", {
-      userId,
+      userId: authenticatedUserId,
       platform: normalizedPlatform,
       hasTitle: Boolean(title),
       hasDescription: Boolean(description),
@@ -10774,13 +10773,6 @@ app.post("/schedule-campaign", async (req, res) => {
       hasHashtags: Boolean(hashtags),
       hasCta: Boolean(cta),
     });
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing userId.",
-      });
-    }
 
     if (!title || !description || !publishAt) {
       return res.status(400).json({
@@ -10796,7 +10788,7 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (!["pinterest", "facebook", "instagram", "x"].includes(platformKey)) {
+    if (!["pinterest", "facebook", "instagram", "x", "threads"].includes(platformKey)) {
       return res.status(400).json({
         success: false,
         error: `Unsupported platform: ${normalizedPlatform}`,
@@ -10879,11 +10871,11 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (userId) {
+    if (authenticatedUserId) {
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
+        .eq("id", authenticatedUserId)
         .single();
 
       if (!profileError && (profile?.subscription_tier || "free") === "free") {
@@ -10893,12 +10885,12 @@ app.post("/schedule-campaign", async (req, res) => {
             monthly_campaign_count:
               (profile?.monthly_campaign_count || 0) + 1,
           })
-          .eq("id", userId);
+          .eq("id", authenticatedUserId);
       }
     }
 
     await createNotification({
-      userId,
+      userId: authenticatedUserId,
       title: "Campaign Scheduled",
       message: `Your ${normalizedPlatform} campaign "${title}" was scheduled successfully.`,
       type: "success",
