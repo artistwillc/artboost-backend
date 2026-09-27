@@ -14032,8 +14032,9 @@ async function resolveFacebookVideoPage({
 
 app.post("/facebook/video-post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       message = "",
       description = "",
       videoUrl = "",
@@ -14050,7 +14051,7 @@ app.post("/facebook/video-post", async (req, res) => {
     }
 
     const page = await resolveFacebookVideoPage({
-      userId,
+      authenticatedUserId,
       pageId,
     });
 
@@ -14099,7 +14100,7 @@ app.post("/facebook/video-post", async (req, res) => {
     }
 
     console.log("ArtBoost Facebook Page video published:", {
-      userId,
+      authenticatedUserId,
       pageId: page.id,
       pageName: page.name,
       videoId: data?.id || null,
@@ -14128,8 +14129,9 @@ app.post("/facebook/video-post", async (req, res) => {
 
 app.post("/instagram/video-post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       message = "",
       videoUrl = "",
     } = req.body || {};
@@ -14143,7 +14145,7 @@ app.post("/instagram/video-post", async (req, res) => {
     }
 
     const connection =
-      await artboostVideoSocialConnection(userId, "instagram");
+      await artboostVideoSocialConnection(authenticatedUserId, "instagram");
 
     const instagramUserId =
       connection.instagram_user_id;
@@ -14317,8 +14319,9 @@ async function waitForThreadsVideoContainer({
 
 app.post("/threads/video-post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       message = "",
       description = "",
       text = "",
@@ -14337,7 +14340,7 @@ app.post("/threads/video-post", async (req, res) => {
 
     const connection =
       await artboostVideoSocialConnection(
-        userId,
+        authenticatedUserId,
         "threads"
       );
 
@@ -14483,7 +14486,7 @@ app.post("/threads/video-post", async (req, res) => {
     }
 
     console.log("ArtBoost Threads video published:", {
-      userId,
+      authenticatedUserId,
       creationId: created.id,
       postId: published.id,
     });
@@ -14829,8 +14832,9 @@ async function uploadXVideo({
 
 app.post("/x/video-post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       title = "",
       description = "",
       message = "",
@@ -14850,7 +14854,7 @@ app.post("/x/video-post", async (req, res) => {
     }
 
     const connection =
-      await getValidXConnection(userId);
+      await getValidXConnection(authenticatedUserId);
 
     const postText =
       xVideoMessage({
@@ -14896,7 +14900,7 @@ app.post("/x/video-post", async (req, res) => {
       );
 
     console.log("ArtBoost X video published:", {
-      userId,
+      authenticatedUserId,
       mediaId,
       postId:
         posted?.data?.id || null,
@@ -14925,8 +14929,9 @@ app.post("/x/video-post", async (req, res) => {
 
 app.post("/tiktok/video-post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       title = "",
       description = "",
       videoUrl = "",
@@ -14953,7 +14958,7 @@ app.post("/tiktok/video-post", async (req, res) => {
     }
 
     const connection =
-      await artboostVideoSocialConnection(userId, "tiktok");
+      await artboostVideoSocialConnection(authenticatedUserId, "tiktok");
 
     const sourceResponse = await fetch(cleanVideo);
 
@@ -15056,7 +15061,7 @@ app.post("/tiktok/video-post", async (req, res) => {
 
     // ARTBOOST_TIKTOK_VIDEO_ACCOUNTING_V1_20260916
     console.log("ArtBoost TikTok video upload accepted:", {
-      userId,
+      authenticatedUserId,
       publishId,
       bytes: bytes.length,
       status: "processing",
