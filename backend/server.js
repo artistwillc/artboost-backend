@@ -6897,14 +6897,9 @@ app.post("/facebook/post", async (req, res) => {
 // ================================
 app.post("/instagram/post", async (req, res) => {
   try {
-    const { userId = null, message = "", imageUrl = "" } = req.body || {};
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "Instagram publishing requires an ArtBoost userId.",
-      });
-    }
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
+    const { message = "", imageUrl = "" } = req.body || {};
 
     if (!imageUrl) {
       return res.status(400).json({
@@ -6914,7 +6909,7 @@ app.post("/instagram/post", async (req, res) => {
     }
 
     const publishData = await publishInstagramPost({
-      userId,
+      userId: authenticatedUserId,
       title: String(message || "").trim(),
       description: "",
       hashtags: "",
@@ -10462,8 +10457,9 @@ app.post(
   "/threads/post",
   async (req, res) => {
     try {
+      const authenticatedUserId = await resolveRequestUserId(req, res);
+      if (!authenticatedUserId) return;
       const {
-        userId,
         title,
         description,
         hashtags,
@@ -10475,7 +10471,7 @@ app.post(
 
       const result =
         await publishThreadsPost({
-          userId,
+          userId: authenticatedUserId,
           title:
             title ||
             message ||
@@ -10718,8 +10714,9 @@ async function publishXPost({
 
 app.post("/x/post", async (req, res) => {
   try {
+    const authenticatedUserId = await resolveRequestUserId(req, res);
+    if (!authenticatedUserId) return;
     const {
-      userId = null,
       message = "",
       title = "",
       description = "",
@@ -10750,7 +10747,7 @@ app.post("/x/post", async (req, res) => {
           String(productLink || "").trim(),
         imageUrl:
           String(imageUrl || "").trim(),
-        userId,
+        userId: authenticatedUserId,
       });
 
     return res.json({
