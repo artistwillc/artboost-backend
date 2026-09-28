@@ -1650,6 +1650,38 @@ router.post(
   }
 );
 
+router.get(
+  "/website/account-summary",
+  async (req, res) => {
+    try {
+      const user = await authenticatedWebsiteUser(req);
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("email,subscription_tier,subscription_status,plan,current_period_end,stripe_customer_id,stripe_subscription_id,referral_code,referral_count,free_months,monthly_campaign_count")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return res.json({
+        success: true,
+        email: user.email,
+        profile: profile || {
+          email: user.email,
+          subscription_tier: "free",
+          subscription_status: "free",
+          plan: "free",
+        },
+        pricing: {
+          starter: { monthly: 19.99, unlimitedPosts: true },
+          pro: { monthly: 49.99, unlimitedPosts: true },
+          business: { monthly: 99.99, unlimitedPosts: true },
+        },
+      });
+    } catch (error) {
+      return res.status(401).json({ error: error?.message || "Unable to load account." });
+    }
+  }
+);
+
 router.post(
   "/website/create-checkout-session",
   express.json({ limit: "100kb" }),
