@@ -9,7 +9,8 @@
     "test:automation-regression": "node tests/automation-repeat-delay-regression.js",
     "build:web": "node scripts/buildWebApp.mjs",
     "build": "npm run build:web",
-    "postinstall": "node scripts/buildWebApp.mjs"
+    "postinstall": "node scripts/buildWebApp.mjs",
+    "verify:web-export": "node scripts/verifyWebExport.mjs"
   },
   "keywords": [],
   "author": "",
