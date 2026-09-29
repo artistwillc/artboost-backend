@@ -5,8 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node tests/background-scheduler-guard-regression.js",
-    "test:automation-regression": "node tests/automation-repeat-delay-regression.js"
+    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node --check website/workspace/workspace.js && node tests/background-scheduler-guard-regression.js && node tests/web-workspace-regression.js",
+    "test:automation-regression": "node tests/automation-repeat-delay-regression.js",
+    "test:web-workspace": "node --check website/workspace/workspace.js && node tests/web-workspace-regression.js"
   },
   "keywords": [],
   "author": "",
@@ -17,7 +18,6 @@
     "@supabase/supabase-js": "^2.105.4",
     "body-parser": "^2.3.0",
     "cloudinary": "^2.10.0",
-    "cors": "^2.8.6",
     "crypto-js": "^4.2.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
