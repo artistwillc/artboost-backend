@@ -42,4 +42,4 @@ function run(args) {
 }
 
 run(["--prefix", "../frontend", "ci"]);
-run(["--prefix", "../frontend", "run", "export:web"]);
+run(["--prefix", "../frontend", "exec", "--", "expo", "export", "--platform", "web", "--config", "app.web.config.js"]);
