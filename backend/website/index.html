@@ -196,7 +196,7 @@
     </section>
   </div>
 
-  <!-- Account modal: UI is complete; opening the native ArtBoost app is the final account action. -->
+  <!-- Account modal: preserve flagship artwork while routing authentication through the browser. -->
   <div class="modal" id="accountModal" aria-hidden="true">
     <div class="backdrop" data-close-account></div>
     <section class="modal-card account-modal" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
@@ -209,12 +209,12 @@
         <button type="button" data-account-tab="signin">Sign In</button>
       </div>
       <div class="account-actions">
-        <a class="account-image-btn" id="accountPrimary" href="artboostai://">
+        <a class="account-image-btn" id="accountPrimary" href="/app/web-auth">
           <img id="accountButtonImage" src="assets/create-account.webp" alt="Create an Account">
         </a>
         <button class="secondary-btn" type="button" data-pricing>Choose a Plan</button>
       </div>
-      <p class="account-note">On a phone with ArtBoost installed, this opens the ArtBoost app. If the app is not installed, use the app download/TestFlight link your team provides.</p>
+      <p class="account-note">Create your account or sign in securely in your browser. Your ArtBoost account stays connected across web, iPhone, and Android.</p>
     </section>
   </div>
 
