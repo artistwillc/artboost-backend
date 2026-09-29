@@ -44,3 +44,4 @@ function run(args) {
 
 run(["--prefix", "../frontend", "ci"]);
 run(["--prefix", "../frontend", "run", "export:web"]);
+run(["run", "verify:web-export"]);
