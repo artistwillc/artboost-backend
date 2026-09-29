@@ -183,11 +183,16 @@ export default function ArtistProfileOnboarding() {
     if (!optional || saving) return;
     const nextAnswers = { ...answers, [item[0]]: "" };
     setAnswers(nextAnswers);
+
+    if (step === OPTIONAL.length - 1) {
+      await finish(nextAnswers);
+      return;
+    }
+
     setSaving(true);
     try {
       await persistDraft(nextAnswers);
-      if (step < OPTIONAL.length - 1) setStep(step + 1);
-      else await finish(nextAnswers);
+      setStep(step + 1);
     } catch (e: any) {
       Alert.alert("Artist Profile", e?.message || "Unable to save your progress. Please try again.");
     } finally {
