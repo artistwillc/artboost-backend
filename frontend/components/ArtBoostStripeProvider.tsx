@@ -1,18 +1,27 @@
-// ARTBOOST_STRIPE_WEB_COMPATIBILITY_V1_1_20260915
-import { StripeProvider } from "@stripe/stripe-react-native";
+// ARTBOOST_STRIPE_PLATFORM_SAFE_V2_20260929
 import type { PropsWithChildren } from "react";
+import { Platform } from "react-native";
 
-const stripePublishableKey =
-  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+type ProviderProps = PropsWithChildren;
 
-export default function ArtBoostStripeProvider({
-  children,
-}: PropsWithChildren) {
-  // StripeProvider's installed typings require ReactElement children rather than
-  // ReactNode. A Fragment guarantees one ReactElement without changing rendering.
+function WebStripePassThrough({ children }: ProviderProps) {
+  return <>{children}</>;
+}
+
+export default function ArtBoostStripeProvider(props: ProviderProps) {
+  if (Platform.OS === "web") {
+    return <WebStripePassThrough {...props} />;
+  }
+
+  // Keep the native Stripe module out of the browser execution path.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { StripeProvider } = require("@stripe/stripe-react-native");
+  const stripePublishableKey =
+    process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+
   return (
     <StripeProvider publishableKey={stripePublishableKey}>
-      <>{children}</>
+      <>{props.children}</>
     </StripeProvider>
   );
 }
