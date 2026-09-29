@@ -7,8 +7,9 @@
     "start": "node server.js",
     "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node tests/background-scheduler-guard-regression.js",
     "test:automation-regression": "node tests/automation-repeat-delay-regression.js",
-    "build:web": "npm --prefix ../frontend ci && npm --prefix ../frontend run export:web",
-    "build": "npm run build:web"
+    "build:web": "EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL:-$SUPABASE_URL} EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-$SUPABASE_PUBLISHABLE_KEY} npm --prefix ../frontend ci && EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL:-$SUPABASE_URL} EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-$SUPABASE_PUBLISHABLE_KEY} npm --prefix ../frontend run export:web",
+    "build": "npm run build:web",
+    "postinstall": "if [ \"$ARTBOOST_SKIP_WEB_EXPORT\" = \"1\" ]; then echo 'Skipping ArtBoost web export'; else npm run build:web; fi"
   },
   "keywords": [],
   "author": "",
