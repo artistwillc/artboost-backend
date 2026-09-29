@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test:campaign-pinterest-regression": "node tests/campaign-pinterest-userid-regression.mjs",
-    "test:campaign-multiplatform-publish-regression": "node tests/campaign-multiplatform-publish-regression.mjs"
+    "test:campaign-multiplatform-publish-regression": "node tests/campaign-multiplatform-publish-regression.mjs",
+    "export:web": "expo export --platform web"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",
