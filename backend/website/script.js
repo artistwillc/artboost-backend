@@ -108,7 +108,7 @@ function setAccountMode(mode) {
   document.querySelector("#accountTitle").textContent = signup ? "Create your ArtBoost account" : "Sign in to ArtBoost";
   document.querySelector("#accountCopy").textContent = signup
     ? "Create your account first, then choose the plan that fits your business."
-    : "Open ArtBoost and sign in with your existing account.";
+    : "Sign in securely in your browser with your existing ArtBoost account.";
   const image = document.querySelector("#accountButtonImage");
   image.src = signup ? "assets/create-account.webp" : "assets/sign-in.webp";
   image.alt = signup ? "Create an Account" : "Sign In";
@@ -120,9 +120,6 @@ document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener(
 }));
 document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
 
-document.querySelector("#accountPrimary").addEventListener("click", () => {
-  setTimeout(() => showToast("If ArtBoost did not open, launch the ArtBoost app and create or sign in to your account."), 500);
-});
 
 document.querySelector("[data-demo-generate]").addEventListener("click", () => {
   const status = document.querySelector("#demoStatus");
