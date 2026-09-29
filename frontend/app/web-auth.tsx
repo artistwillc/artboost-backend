@@ -20,7 +20,7 @@ export default function WebAuthScreen() {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       if (data.session?.user) {
-        router.replace("/(tabs)" as any);
+        router.replace("/web-dashboard" as any);
         return;
       }
       setLoading(false);
@@ -65,7 +65,7 @@ export default function WebAuthScreen() {
 
       const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
       if (error) throw error;
-      router.replace("/(tabs)" as any);
+      router.replace("/web-dashboard" as any);
     } catch (error: any) {
       setMessage(error?.message || "ArtBoost could not complete authentication.");
     } finally {
