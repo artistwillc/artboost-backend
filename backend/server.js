@@ -3793,6 +3793,13 @@ app.get("/app", (_req, res) => {
   return res.redirect(302, "/app/web-auth");
 });
 
+// Serve the browser authentication entry explicitly so it cannot fall through
+// to the marketing website or rely on express.static extension resolution.
+app.get("/app/web-auth", (_req, res) => {
+  res.set("Cache-Control", "no-store, max-age=0");
+  return res.sendFile(`${webAppDist}/web-auth.html`);
+});
+
 app.use(
   "/app",
   express.static(webAppDist, {
