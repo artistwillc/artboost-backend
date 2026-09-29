@@ -3783,6 +3783,37 @@ app.get("/api/public-auth-config", (_req, res) => {
 // ARTBOOST WEBSITE STATIC FILES
 // =========================================================
 //
+// ARTBOOST_WEB_APP_MOUNT_V1_20260929
+// The Expo static web export is generated into frontend/dist during deployment.
+// Mount it before the marketing website so /app assets and routes cannot be
+// intercepted by backend/website.
+const webAppDist = `${process.cwd()}/../frontend/dist`;
+
+app.get("/app", (_req, res) => {
+  return res.redirect(302, "/app/web-auth");
+});
+
+app.use(
+  "/app",
+  express.static(webAppDist, {
+    index: "index.html",
+  })
+);
+
+app.get("/app/*path", (req, res) => {
+  const requestedPath = Array.isArray(req.params.path)
+    ? req.params.path.join("/")
+    : String(req.params.path || "");
+  const routeFile = requestedPath
+    ? `${webAppDist}/${requestedPath}.html`
+    : `${webAppDist}/index.html`;
+  return res.sendFile(routeFile, (error) => {
+    if (!error) return;
+    if (res.headersSent) return;
+    return res.status(error.statusCode || 404).send("ArtBoost web route not found.");
+  });
+});
+
 // Dedicated mobile website lives in backend/mobile.
 // Keep this route BEFORE the desktop website middleware so
 // /mobile/* is always served from the mobile build.
