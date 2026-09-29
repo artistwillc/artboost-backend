@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -61,6 +62,7 @@ export default function HomeScreen() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [legalAccepted, setLegalAccepted] = useState(false); // ARTBOOST_AUTH_CONSENT_V1_20260929
 
   const [image, setImage] = useState<string | null>(null);
   const [hostedImageUrl, setHostedImageUrl] = useState("");
@@ -246,6 +248,11 @@ export default function HomeScreen() {
   };
 
   const signUp = async () => {
+  if (!legalAccepted) {
+    Alert.alert("Agreement Required", "Accept the ArtBoost Terms of Service and Privacy Policy before creating an account.");
+    return;
+  }
+
   if (!authEmail || !authPassword) {
     Alert.alert("Missing Info", "Enter an email and password.");
     return;
@@ -254,9 +261,17 @@ export default function HomeScreen() {
   try {
     setAuthLoading(true);
 
+    const acceptedAt = new Date().toISOString();
     const result = await supabase.auth.signUp({
       email: authEmail.trim(),
       password: authPassword,
+      options: {
+        data: {
+          artboost_terms_accepted_at: acceptedAt,
+          artboost_privacy_acknowledged_at: acceptedAt,
+          artboost_legal_version: "2026-08-31",
+        },
+      },
     });
 
     console.log("SIGNUP RESULT:", JSON.stringify(result, null, 2));
@@ -1276,9 +1291,33 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
               </Pressable>
 
               <Pressable
-                style={styles.signupButton}
+                style={styles.legalConsentRow}
+                onPress={() => setLegalAccepted((current) => !current)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: legalAccepted }}
+              >
+                <View style={[styles.legalCheckbox, legalAccepted && styles.legalCheckboxChecked]}>
+                  <Text style={styles.legalCheckmark}>{legalAccepted ? "✓" : ""}</Text>
+                </View>
+                <Text style={styles.legalConsentText}>
+                  I agree to the ArtBoost Terms of Service and acknowledge the Privacy Policy.
+                </Text>
+              </Pressable>
+
+              <View style={styles.legalLinksRow}>
+                <Pressable onPress={() => Linking.openURL("https://artboostai.com/terms")}>
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </Pressable>
+                <Text style={styles.legalDivider}>•</Text>
+                <Pressable onPress={() => Linking.openURL("https://artboostai.com/privacy")}>
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </Pressable>
+              </View>
+
+              <Pressable
+                style={[styles.signupButton, !legalAccepted && styles.authButtonDisabled]}
                 onPress={signUp}
-                disabled={authLoading}
+                disabled={authLoading || !legalAccepted}
               >
                 <Text style={styles.buttonText}>
                   Create Account
@@ -2084,6 +2123,15 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
 }
 
 const styles = StyleSheet.create({
+  legalConsentRow:{flexDirection:"row",alignItems:"flex-start",gap:10,marginTop:14},
+  legalCheckbox:{width:22,height:22,borderRadius:6,borderWidth:1,borderColor:"#7c3aed",alignItems:"center",justifyContent:"center",backgroundColor:"#0b0a13"},
+  legalCheckboxChecked:{backgroundColor:"#7c3aed"},
+  legalCheckmark:{color:"#fff",fontSize:15,fontWeight:"900",lineHeight:18},
+  legalConsentText:{flex:1,color:"#c9c2d8",fontSize:13,lineHeight:19},
+  legalLinksRow:{flexDirection:"row",alignItems:"center",justifyContent:"center",gap:8,marginTop:9,marginBottom:4},
+  legalLink:{color:"#c4b5fd",fontSize:13,fontWeight:"700",textDecorationLine:"underline"},
+  legalDivider:{color:"#77708d",fontSize:12},
+  authButtonDisabled:{opacity:0.45},
   cosmicHero: { width: "100%", backgroundColor: "#120b25", borderWidth: 1, borderColor: "#4b2d78", borderRadius: 24, padding: 20, overflow: "hidden", marginBottom: 14, shadowColor: "#9b5cff", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 5 } },
   consultantCard: { marginTop: 18, backgroundColor: "#090713e8", borderWidth: 1, borderColor: "#443877", borderRadius: 18, padding: 14 },
   overviewHeader: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
