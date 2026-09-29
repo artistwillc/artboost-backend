@@ -7,6 +7,7 @@ const distRoot = path.join(frontendRoot, "dist");
 const required = [
   path.join(distRoot, "index.html"),
   path.join(distRoot, "web-auth.html"),
+  path.join(distRoot, "web-dashboard.html"),
 ];
 
 for (const file of required) {
@@ -22,4 +23,4 @@ if (!authHtml.includes("/app/")) {
   process.exit(1);
 }
 
-console.log("ArtBoost web export verified: index.html + web-auth.html + /app base path.");
+console.log("ArtBoost web export verified: index.html + web-auth.html + web-dashboard.html + /app base path.");
