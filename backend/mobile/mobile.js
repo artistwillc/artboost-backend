@@ -49,7 +49,7 @@ document.querySelectorAll("[data-close-account]").forEach(x=>x.addEventListener(
 function setAccount(mode){
   const signup=mode!=="signin";
   document.querySelector("#accountTitle").textContent=signup?"Create your ArtBoost account":"Sign in to ArtBoost";
-  document.querySelector("#accountCopy").textContent=signup?"Create your account and start on the Free tier.":"Open ArtBoost and sign in with your existing account.";
+  document.querySelector("#accountCopy").textContent=signup?"Create your account and start on the Free tier.":"Sign in securely in your browser with your existing ArtBoost account.";
   const img=document.querySelector("#accountButtonImage");
   img.src=signup?"assets/create-account.webp":"assets/sign-in.webp";
   img.alt=signup?"Create an Account":"Sign In";
@@ -57,7 +57,6 @@ function setAccount(mode){
 }
 document.querySelectorAll("[data-account]").forEach(x=>x.addEventListener("click",()=>{setAccount(x.dataset.account);openSheet(accountSheet)}));
 document.querySelectorAll("[data-account-tab]").forEach(x=>x.addEventListener("click",()=>setAccount(x.dataset.accountTab)));
-document.querySelector("#accountPrimary").addEventListener("click",()=>setTimeout(()=>showToast("If ArtBoost did not open, launch the ArtBoost app and continue there."),450));
 
 document.querySelector("[data-demo-generate]").addEventListener("click",()=>{
   document.querySelector("#demoStatus").textContent="Demo generated — title, caption, hashtags and CTA are ready.";
