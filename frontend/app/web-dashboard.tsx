@@ -1,97 +1,58 @@
-// ARTBOOST_WEB_DASHBOARD_V1_20260929
+// ARTBOOST_FLAGSHIP_WEB_V2_20260929
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, ImageBackground, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { supabase } from "@/lib/supabase";
 
+const cosmic = require("@/assets/images/artboost-cosmic-bg-v3153.png");
+const consultant = require("@/assets/images/artboost-ai-consultant.jpg");
+const logo = require("@/assets/images/icon.png");
+
 const actions = [
-  { title: "Artwork Library", copy: "Review imported artwork and products from your connected stores.", route: "/(tabs)/products" },
-  { title: "Connect", copy: "Manage stores and social platform connections.", route: "/(tabs)/connections" },
-  { title: "AI Consultant", copy: "Ask ArtBoost what to market next and build your next campaign.", route: "/(tabs)/consultant" },
-  { title: "Campaign Manager", copy: "Create, schedule, and manage your marketing campaigns.", route: "/campaign-manager" },
-  { title: "Video Studio", copy: "Turn artwork into social-ready vertical video.", route: "/video-studio" },
-  { title: "Publishing History", copy: "Review recent campaign and publishing activity.", route: "/history" },
+  { icon:"✦", title:"Artwork Library", copy:"Your connected-store catalog, organized and ready to market.", route:"/(tabs)/products" },
+  { icon:"↗", title:"Connect", copy:"Connect stores and social channels from one workspace.", route:"/(tabs)/connections" },
+  { icon:"✧", title:"AI Consultant", copy:"Get marketing guidance tailored to your art business.", route:"/(tabs)/consultant" },
+  { icon:"◈", title:"Campaign Manager", copy:"Create, schedule, and manage campaigns across your channels.", route:"/campaign-manager" },
+  { icon:"▶", title:"Video Studio", copy:"Turn your artwork into social-ready marketing video.", route:"/video-studio" },
+  { icon:"✓", title:"Publishing History", copy:"Review campaign and publishing activity across ArtBoost.", route:"/history" },
 ];
 
-export default function WebDashboard() {
-  const { width } = useWindowDimensions();
-  const compact = width < 760;
-  const [email, setEmail] = useState("");
-  const [tier, setTier] = useState("Starter");
-  const [loading, setLoading] = useState(true);
+export default function WebDashboard(){
+  const {width}=useWindowDimensions(); const compact=width<760;
+  const [email,setEmail]=useState(""); const [tier,setTier]=useState("Starter"); const [loading,setLoading]=useState(true);
+  useEffect(()=>{let alive=true;(async()=>{const {data}=await supabase.auth.getSession();const user=data.session?.user;if(!alive)return;if(!user){router.replace("/web-auth" as any);return;}setEmail(user.email||"");const {data:profile}=await supabase.from("profiles").select("subscription_tier").eq("id",user.id).maybeSingle();if(!alive)return;const raw=String(profile?.subscription_tier||"starter").toLowerCase();setTier(raw==="business"?"Business":raw==="pro"?"Pro":"Starter");setLoading(false);})();return()=>{alive=false};},[]);
+  async function signOut(){await supabase.auth.signOut();router.replace("/web-auth" as any);}
+  if(loading)return <SafeAreaView style={s.safe}><View style={s.loading}><ActivityIndicator size="large" color="#d85cff"/><Text style={s.muted}>Opening your ArtBoost workspace...</Text></View></SafeAreaView>;
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      const user = data.session?.user;
-      if (!alive) return;
-      if (!user) {
-        router.replace("/web-auth" as any);
-        return;
-      }
-      setEmail(user.email || "");
-      const { data: profile } = await supabase.from("profiles").select("subscription_tier").eq("id", user.id).maybeSingle();
-      if (!alive) return;
-      const raw = String(profile?.subscription_tier || "starter").toLowerCase();
-      setTier(raw === "business" ? "Business" : raw === "pro" ? "Pro" : "Starter");
-      setLoading(false);
-    })();
-    return () => { alive = false; };
-  }, []);
+  return <SafeAreaView style={s.safe}><ImageBackground source={cosmic} resizeMode="cover" style={s.bg} imageStyle={s.bgImage}><View style={s.scrim}><ScrollView contentContainerStyle={s.page}>
+    <View style={[s.nav,compact&&s.navCompact]}>
+      <Pressable style={s.brandWrap} onPress={()=>router.replace("/web-dashboard" as any)}><Image source={logo} style={s.logo}/><View><Text style={s.brand}>ArtBoost <Text style={s.ai}>AI</Text></Text><Text style={s.brandSub}>THE AI MARKETING ASSISTANT FOR ARTISTS</Text></View></Pressable>
+      <View style={s.navActions}>{!compact&&<><Pressable onPress={()=>router.push("/(tabs)/products" as any)}><Text style={s.navLink}>Library</Text></Pressable><Pressable onPress={()=>router.push("/(tabs)/connections" as any)}><Text style={s.navLink}>Connect</Text></Pressable><Pressable onPress={()=>router.push("/(tabs)/consultant" as any)}><Text style={s.navLink}>AI Consultant</Text></Pressable></>}<Pressable onPress={signOut}><Text style={s.signOut}>Sign Out</Text></Pressable></View>
+    </View>
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    router.replace("/web-auth" as any);
-  }
+    <View style={[s.hero,compact&&s.heroCompact]}>
+      <View style={s.heroCopy}><Text style={s.eyebrow}>CREATE THE ART. ARTBOOST HANDLES THE MARKETING.</Text><Text style={[s.title,compact&&s.titleCompact]}>Your creative business, <Text style={s.gradientWord}>amplified.</Text></Text><Text style={s.subtitle}>Connect your stores. Create marketing content. Schedule and publish across your social channels. Get AI guidance built around your art business.</Text>
+        <View style={s.heroButtons}><Pressable style={s.primary} onPress={()=>router.push("/(tabs)/consultant" as any)}><Text style={s.primaryText}>✦ Ask AI Consultant</Text></Pressable><Pressable style={s.secondary} onPress={()=>router.push("/campaign-manager" as any)}><Text style={s.secondaryText}>Create Campaign</Text></Pressable></View>
+      </View>
+      <Pressable style={[s.consultantCard,compact&&s.consultantCompact]} onPress={()=>router.push("/(tabs)/consultant" as any)}><Image source={consultant} resizeMode="cover" style={s.consultantImage}/><View style={s.consultantOverlay}><Text style={s.live}>●  AI CONSULTANT LIVE</Text><Text style={s.consultantTitle}>Ask what to market next</Text><Text style={s.consultantCopy}>Your ArtBoost marketing agent is ready.</Text></View></Pressable>
+    </View>
 
-  if (loading) return <SafeAreaView style={s.safe}><View style={s.loading}><ActivityIndicator size="large" /><Text style={s.muted}>Opening your ArtBoost workspace...</Text></View></SafeAreaView>;
+    <View style={[s.account,compact&&s.accountCompact]}><View><Text style={s.label}>SIGNED IN</Text><Text style={s.email} numberOfLines={1}>{email}</Text></View><View style={s.tier}><Text style={s.tierText}>{tier.toUpperCase()}</Text></View><Text style={s.accountText}>One ArtBoost account across web, iPhone, and Android.</Text></View>
 
-  return (
-    <SafeAreaView style={s.safe}>
-      <ScrollView contentContainerStyle={s.page}>
-        <View style={[s.nav, compact && s.navCompact]}>
-          <View><Text style={s.brand}>ARTBOOST AI</Text><Text style={s.brandSub}>CREATOR MARKETING WORKSPACE</Text></View>
-          <View style={s.navActions}><Pressable onPress={() => router.push("/(tabs)/consultant" as any)}><Text style={s.navLink}>AI Consultant</Text></Pressable><Pressable onPress={signOut}><Text style={s.signOut}>Sign Out</Text></Pressable></View>
-        </View>
+    <View style={s.section}><Text style={s.sectionEyebrow}>YOUR ARTBOOST WORKSPACE</Text><Text style={[s.sectionTitle,compact&&s.sectionTitleCompact]}>Create. Connect. Automate. Grow.</Text><Text style={s.sectionCopy}>The tools behind your marketing—built into one flagship workspace.</Text></View>
+    <View style={[s.grid,compact&&s.gridCompact]}>{actions.map(item=><Pressable key={item.title} style={[s.card,compact&&s.cardCompact]} onPress={()=>router.push(item.route as any)}><View style={s.iconBox}><Text style={s.icon}>{item.icon}</Text></View><Text style={s.cardTitle}>{item.title}</Text><Text style={s.cardCopy}>{item.copy}</Text><Text style={s.open}>OPEN  →</Text></Pressable>)}</View>
 
-        <View style={[s.hero, compact && s.heroCompact]}>
-          <View style={s.heroCopy}>
-            <Text style={s.eyebrow}>YOUR ART. YOUR BUSINESS. AMPLIFIED.</Text>
-            <Text style={[s.title, compact && s.titleCompact]}>Your ArtBoost command center</Text>
-            <Text style={s.subtitle}>Connect your creative business, build campaigns with AI, and publish from one workspace.</Text>
-            <View style={s.heroButtons}>
-              <Pressable style={s.goldButton} onPress={() => router.push("/(tabs)/consultant" as any)}><Text style={s.goldText}>Ask AI Consultant</Text></Pressable>
-              <Pressable style={s.outlineButton} onPress={() => router.push("/campaign-manager" as any)}><Text style={s.outlineText}>Open Campaign Manager</Text></Pressable>
-            </View>
-          </View>
-          <View style={s.accountCard}><Text style={s.cardLabel}>SIGNED IN</Text><Text style={s.email} numberOfLines={1}>{email}</Text><View style={s.tierPill}><Text style={s.tierText}>{tier.toUpperCase()}</Text></View><Text style={s.accountCopy}>One account across ArtBoost web, iPhone, and Android.</Text></View>
-        </View>
-
-        <View style={s.sectionHead}><Text style={s.sectionKicker}>ARTBOOST WORKSPACE</Text><Text style={s.sectionTitle}>Everything you need to market your work</Text></View>
-        <View style={s.grid}>
-          {actions.map((item) => <Pressable key={item.title} style={[s.actionCard, compact && s.actionCardCompact]} onPress={() => router.push(item.route as any)}>
-            <Text style={s.actionTitle}>{item.title}</Text><Text style={s.actionCopy}>{item.copy}</Text><Text style={s.open}>OPEN  →</Text>
-          </Pressable>)}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+    <View style={[s.footerCta,compact&&s.footerCompact]}><View style={s.footerCopy}><Text style={s.footerKicker}>MORE TIME TO CREATE.</Text><Text style={s.footerTitle}>Let ArtBoost work while you create.</Text><Text style={s.footerText}>Your connected marketing workspace stays ready whenever inspiration strikes.</Text></View><Pressable style={s.primary} onPress={()=>router.push("/campaign-manager" as any)}><Text style={s.primaryText}>Build a Campaign →</Text></Pressable></View>
+  </ScrollView></View></ImageBackground></SafeAreaView>;
 }
 
 const s=StyleSheet.create({
-  safe:{flex:1,backgroundColor:"#07060d"},page:{minHeight:"100%",paddingBottom:64},
-  loading:{flex:1,alignItems:"center",justifyContent:"center",gap:14},muted:{color:"#9c93ac"},
-  nav:{width:"100%",maxWidth:1180,alignSelf:"center",paddingHorizontal:30,paddingVertical:24,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},navCompact:{paddingHorizontal:20},
-  brand:{color:"#f6c84b",fontSize:20,fontWeight:"900",letterSpacing:3},brandSub:{color:"#8f849f",fontSize:9,fontWeight:"800",letterSpacing:2,marginTop:4},
-  navActions:{flexDirection:"row",alignItems:"center",gap:20},navLink:{color:"#e9e3f2",fontWeight:"800"},signOut:{color:"#f6c84b",fontWeight:"900"},
-  hero:{width:"100%",maxWidth:1180,alignSelf:"center",borderWidth:1,borderColor:"#4a2d75",borderRadius:28,backgroundColor:"#100b1c",padding:42,flexDirection:"row",gap:36,alignItems:"center"},heroCompact:{marginHorizontal:16,width:"auto",padding:24,flexDirection:"column",alignItems:"stretch"},
-  heroCopy:{flex:1},eyebrow:{color:"#f6c84b",fontSize:12,fontWeight:"900",letterSpacing:2.4},title:{color:"#fff",fontSize:52,lineHeight:58,fontWeight:"900",marginTop:12},titleCompact:{fontSize:36,lineHeight:41},
-  subtitle:{color:"#c6bed0",fontSize:18,lineHeight:28,maxWidth:680,marginTop:16},heroButtons:{flexDirection:"row",flexWrap:"wrap",gap:12,marginTop:26},
-  goldButton:{backgroundColor:"#f3bf35",borderRadius:12,paddingHorizontal:22,paddingVertical:14},goldText:{color:"#17100a",fontWeight:"900"},outlineButton:{borderWidth:1,borderColor:"#7651ad",borderRadius:12,paddingHorizontal:22,paddingVertical:14},outlineText:{color:"#fff",fontWeight:"900"},
-  accountCard:{width:310,maxWidth:"100%",borderWidth:1,borderColor:"#60418b",backgroundColor:"#0a0811",borderRadius:20,padding:22},cardLabel:{color:"#9e72e8",fontSize:11,fontWeight:"900",letterSpacing:2},email:{color:"#fff",fontSize:18,fontWeight:"800",marginTop:8},
-  tierPill:{alignSelf:"flex-start",backgroundColor:"#6d35c7",borderRadius:99,paddingHorizontal:14,paddingVertical:7,marginTop:16},tierText:{color:"#fff",fontSize:11,fontWeight:"900",letterSpacing:1},accountCopy:{color:"#9e96a9",lineHeight:20,marginTop:16},
-  sectionHead:{width:"100%",maxWidth:1180,alignSelf:"center",paddingHorizontal:30,marginTop:46,marginBottom:18},sectionKicker:{color:"#9e72e8",fontSize:11,fontWeight:"900",letterSpacing:2},sectionTitle:{color:"#fff",fontSize:30,fontWeight:"900",marginTop:7},
-  grid:{width:"100%",maxWidth:1180,alignSelf:"center",paddingHorizontal:30,flexDirection:"row",flexWrap:"wrap",gap:16},actionCard:{width:"31.8%",minWidth:260,borderWidth:1,borderColor:"#332342",backgroundColor:"#0e0b15",borderRadius:18,padding:22},actionCardCompact:{width:"100%"},
-  actionTitle:{color:"#fff",fontSize:19,fontWeight:"900"},actionCopy:{color:"#a9a0b4",lineHeight:21,marginTop:9,minHeight:44},open:{color:"#f6c84b",fontSize:11,fontWeight:"900",letterSpacing:1.5,marginTop:20},
+ safe:{flex:1,backgroundColor:"#05030b"},bg:{flex:1},bgImage:{opacity:.72},scrim:{flex:1,backgroundColor:"rgba(4,2,10,.56)"},page:{minHeight:"100%",paddingBottom:70},loading:{flex:1,alignItems:"center",justifyContent:"center",gap:14},muted:{color:"#b8adc7"},
+ nav:{width:"100%",maxWidth:1240,alignSelf:"center",paddingHorizontal:30,paddingVertical:20,flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:20},navCompact:{paddingHorizontal:18,paddingVertical:14},brandWrap:{flexDirection:"row",alignItems:"center",gap:12,flexShrink:1},logo:{width:48,height:48,borderRadius:12},brand:{color:"#fff",fontSize:25,fontWeight:"900"},ai:{color:"#d85cff"},brandSub:{color:"#a79bb7",fontSize:8,fontWeight:"900",letterSpacing:1.5,marginTop:2},navActions:{flexDirection:"row",alignItems:"center",gap:20},navLink:{color:"#eee8f5",fontWeight:"800"},signOut:{color:"#f6c84b",fontWeight:"900"},
+ hero:{width:"100%",maxWidth:1180,alignSelf:"center",marginTop:24,borderWidth:1,borderColor:"rgba(190,83,255,.62)",borderRadius:30,backgroundColor:"rgba(10,5,23,.82)",padding:38,flexDirection:"row",gap:30,alignItems:"center",shadowColor:"#b12cff",shadowOpacity:.22,shadowRadius:28},heroCompact:{marginHorizontal:16,width:"auto",marginTop:10,padding:22,flexDirection:"column",alignItems:"stretch"},heroCopy:{flex:1},eyebrow:{color:"#f6c84b",fontSize:11,fontWeight:"900",letterSpacing:2},title:{color:"#fff",fontSize:50,lineHeight:56,fontWeight:"900",marginTop:12},titleCompact:{fontSize:36,lineHeight:41},gradientWord:{color:"#e65cff"},subtitle:{color:"#d0c6da",fontSize:17,lineHeight:27,maxWidth:650,marginTop:15},heroButtons:{flexDirection:"row",flexWrap:"wrap",gap:12,marginTop:25},primary:{backgroundColor:"#a72cf2",borderWidth:1,borderColor:"#e060ff",borderRadius:13,paddingHorizontal:22,paddingVertical:14,shadowColor:"#c737ff",shadowOpacity:.35,shadowRadius:15},primaryText:{color:"#fff",fontWeight:"900"},secondary:{backgroundColor:"rgba(15,8,27,.75)",borderWidth:1,borderColor:"#7b50b1",borderRadius:13,paddingHorizontal:22,paddingVertical:14},secondaryText:{color:"#fff",fontWeight:"900"},
+ consultantCard:{width:350,height:285,maxWidth:"100%",overflow:"hidden",borderRadius:22,borderWidth:1,borderColor:"#9d46db",backgroundColor:"#08040f"},consultantCompact:{width:"100%",height:270},consultantImage:{width:"100%",height:"100%"},consultantOverlay:{position:"absolute",left:0,right:0,bottom:0,padding:18,paddingTop:55,backgroundColor:"rgba(5,2,12,.72)"},live:{color:"#75f6ac",fontSize:10,fontWeight:"900",letterSpacing:1.3},consultantTitle:{color:"#fff",fontSize:22,fontWeight:"900",marginTop:5},consultantCopy:{color:"#c9bed4",marginTop:5},
+ account:{width:"100%",maxWidth:1180,alignSelf:"center",marginTop:16,borderWidth:1,borderColor:"rgba(124,76,176,.65)",borderRadius:18,backgroundColor:"rgba(7,4,15,.84)",paddingHorizontal:22,paddingVertical:17,flexDirection:"row",alignItems:"center",gap:18},accountCompact:{marginHorizontal:16,width:"auto",alignItems:"flex-start",flexWrap:"wrap"},label:{color:"#c56cff",fontSize:10,fontWeight:"900",letterSpacing:2},email:{color:"#fff",fontSize:17,fontWeight:"800",marginTop:4},tier:{backgroundColor:"#6e2dcc",borderRadius:99,paddingHorizontal:14,paddingVertical:7},tierText:{color:"#fff",fontSize:10,fontWeight:"900",letterSpacing:1},accountText:{color:"#aaa0b5",marginLeft:"auto"},
+ section:{width:"100%",maxWidth:1180,alignSelf:"center",paddingHorizontal:8,marginTop:48,marginBottom:18},sectionEyebrow:{color:"#d45cff",fontSize:10,fontWeight:"900",letterSpacing:2},sectionTitle:{color:"#fff",fontSize:34,fontWeight:"900",marginTop:7},sectionTitleCompact:{fontSize:28},sectionCopy:{color:"#b9aec5",fontSize:16,marginTop:7},
+ grid:{width:"100%",maxWidth:1180,alignSelf:"center",flexDirection:"row",flexWrap:"wrap",gap:16},gridCompact:{paddingHorizontal:16},card:{width:"31.8%",minWidth:270,borderWidth:1,borderColor:"rgba(117,67,159,.68)",backgroundColor:"rgba(9,5,18,.84)",borderRadius:20,padding:22},cardCompact:{width:"100%",minWidth:0},iconBox:{width:42,height:42,borderRadius:12,backgroundColor:"rgba(163,44,242,.2)",borderWidth:1,borderColor:"#8b3bc0",alignItems:"center",justifyContent:"center"},icon:{color:"#f3c74f",fontSize:20,fontWeight:"900"},cardTitle:{color:"#fff",fontSize:19,fontWeight:"900",marginTop:16},cardCopy:{color:"#b7adbf",lineHeight:21,marginTop:8,minHeight:44},open:{color:"#e061ff",fontSize:10,fontWeight:"900",letterSpacing:1.5,marginTop:20},
+ footerCta:{width:"100%",maxWidth:1180,alignSelf:"center",marginTop:42,borderRadius:24,borderWidth:1,borderColor:"#7c36aa",backgroundColor:"rgba(20,6,31,.84)",padding:28,flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:25},footerCompact:{marginHorizontal:16,width:"auto",flexDirection:"column",alignItems:"flex-start"},footerCopy:{flex:1},footerKicker:{color:"#f6c84b",fontSize:10,fontWeight:"900",letterSpacing:2},footerTitle:{color:"#fff",fontSize:25,fontWeight:"900",marginTop:6},footerText:{color:"#bdb1c8",marginTop:7,lineHeight:21}
 });
