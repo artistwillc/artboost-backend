@@ -38,6 +38,8 @@ import {
 import OpenAI from "openai";
 import multer from "multer";
 import Stripe from "stripe";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { v2 as cloudinary } from "cloudinary";
 import OAuth from "oauth-1.0a";
@@ -3787,7 +3789,8 @@ app.get("/api/public-auth-config", (_req, res) => {
 // The Expo static web export is generated into frontend/dist during deployment.
 // Mount it before the marketing website so /app assets and routes cannot be
 // intercepted by backend/website.
-const webAppDist = `${process.cwd()}/../frontend/dist`;
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const webAppDist = path.resolve(serverDir, "../frontend/dist");
 
 app.get("/app", (_req, res) => {
   return res.redirect(302, "/app/web-auth");
