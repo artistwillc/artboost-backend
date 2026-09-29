@@ -29,6 +29,7 @@ const env = {
   ...process.env,
   EXPO_PUBLIC_SUPABASE_URL: supabaseUrl,
   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: supabasePublishableKey,
+  ARTBOOST_WEB_EXPORT: "1",
 };
 
 function run(args) {
@@ -42,4 +43,4 @@ function run(args) {
 }
 
 run(["--prefix", "../frontend", "ci"]);
-run(["--prefix", "../frontend", "exec", "--", "expo", "export", "--platform", "web", "--config", "app.web.config.js"]);
+run(["--prefix", "../frontend", "run", "export:web"]);
