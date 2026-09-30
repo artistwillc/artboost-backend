@@ -22,6 +22,7 @@ import {
   TextInput,
   View,
   Image,
+  ImageBackground,
   Alert,
 } from "react-native";
 import AIConsultantAvatar from "@/components/AIConsultantAvatar";
@@ -368,12 +369,14 @@ export default function ConsultantScreen() {
       accessible={false}
       accessibilityElementsHidden={false}
     >
+      {Platform.OS === "web" ? <ImageBackground source={require("../../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={[styles.flex, Platform.OS === "web" && styles.webWorkspace]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={80}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, Platform.OS === "web" && styles.webHeader]}>
+          {Platform.OS === "web" ? <Pressable style={styles.webDashboardButton} onPress={() => router.replace("/web-dashboard" as any)} accessibilityRole="button" accessibilityLabel="Back to dashboard"><Ionicons name="grid-outline" size={18} color="#fff" /><Text style={styles.webDashboardText}>Dashboard</Text></Pressable> : null}
           <AIConsultantAvatar
             size={66}
             label={consultantName}
@@ -386,7 +389,7 @@ export default function ConsultantScreen() {
         <ScrollView
           ref={scrollRef}
           style={styles.flex}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, Platform.OS === "web" && styles.webContent]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -532,7 +535,7 @@ export default function ConsultantScreen() {
             </Pressable>
           </View>
         ) : null}
-        <View style={styles.composer}>
+        <View style={[styles.composer, Platform.OS === "web" && styles.webComposer]}>
           <Pressable
             onPress={chooseAttachment}
             disabled={busy || recording || voiceProcessing}
@@ -579,6 +582,10 @@ export default function ConsultantScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "rgba(7, 6, 17, 0.90)" },
   flex: { flex: 1 },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.66 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.58)" },
+  webWorkspace: { width: "100%", maxWidth: 1080, alignSelf: "center", marginVertical: 18, borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "rgba(166,77,224,0.62)", backgroundColor: "rgba(7,4,16,0.84)" },
   header: {
     paddingHorizontal: 18,
     paddingVertical: 13,
@@ -589,6 +596,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  webHeader: { minHeight: 92, backgroundColor: "rgba(11,5,24,0.90)", borderBottomColor: "rgba(151,72,207,0.58)", justifyContent: "center", gap: 14 },
+  webDashboardButton: { position: "absolute", left: 18, top: 24, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: "#7542a5", backgroundColor: "rgba(35,15,57,0.88)", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 7, zIndex: 2 },
+  webDashboardText: { color: "#fff", fontSize: 12, fontWeight: "900" },
   livePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -613,6 +623,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   content: { padding: 18, paddingBottom: 28 },
+  webContent: { paddingHorizontal: 28, paddingTop: 24, paddingBottom: 34 },
   title: { color: "#fff", fontSize: 28, fontWeight: "900" },
   subtitle: {
     color: "#ffffff",
@@ -767,6 +778,7 @@ const styles = StyleSheet.create({
     borderTopColor: "#242039",
     backgroundColor: "rgba(12, 11, 24, 0.94)",
   },
+  webComposer: { paddingHorizontal: 22, paddingVertical: 16, backgroundColor: "rgba(10,5,22,0.94)", borderTopColor: "rgba(151,72,207,0.52)" },
   input: {
     flex: 1,
     minHeight: 46,
