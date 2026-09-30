@@ -16,6 +16,8 @@ import {
   View,
   Image,
   ImageBackground,
+  Platform,
+  useWindowDimensions,
   type ImageSourcePropType,
 } from "react-native";
 
@@ -100,6 +102,9 @@ type Product = {
 
 export default function ProductsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === "web";
+  const webWide = isWeb && width >= 900;
   const [products, setProducts] = useState<Product[]>([]);
   type Store = {
   id: string;
@@ -426,9 +431,11 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
 
   return (
     <SafeAreaView style={styles.screen}>
+      {isWeb ? <ImageBackground source={require("../../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
+          isWeb && styles.webScrollContent,
           {
             paddingBottom:
               tabBarHeight + 32,
@@ -452,7 +459,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
         }
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, isWeb && styles.webHeader]}>
           <View style={styles.headerTextWrap}>
             <Text style={styles.eyebrow}>
               ARTBOOST AI
@@ -473,9 +480,10 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
               artwork, and marketing automations.
             </Text>
           </View>
+          {isWeb ? <Pressable style={styles.webDashboardButton} onPress={() => router.replace("/web-dashboard" as any)}><Ionicons name="grid-outline" size={17} color="#ffffff" /><Text style={styles.webDashboardButtonText}>Dashboard</Text></Pressable> : null}
         </View>
 
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, isWeb && styles.webPanel]}>
           <View style={styles.summaryItem}>
             <Text style={styles.summaryNumber}>
               {products.length}
@@ -523,7 +531,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
           </View>
         </View>
 
-        <View style={styles.libraryNav}>
+        <View style={[styles.libraryNav, isWeb && styles.webNav]}>
           <Pressable style={[styles.libraryNavButton, styles.libraryNavButtonActive]}>
             <Ionicons name="storefront-outline" size={18} color="#ffffff" />
             <Text style={styles.libraryNavText}>Stores</Text>
@@ -538,7 +546,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
           </Pressable>
         </View>
 
-        <View style={styles.sectionHeader}>
+        <View style={[styles.sectionHeader, isWeb && styles.webSectionHeader]}>
           <View>
             <Text
               style={styles.sectionTitle}
@@ -608,7 +616,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
             </Pressable>
           </View>
         ) : (
-          <View style={styles.sourcesList}>
+          <View style={[styles.sourcesList, webWide && styles.webSourcesGrid]}>
             {connectedSources.map((store) => {
               const count =
                 getStoreProductCount(store);
@@ -621,7 +629,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
               return (
                 <Pressable
                   key={store.id}
-                  style={styles.sourceCard}
+                  style={[styles.sourceCard, isWeb && styles.webSourceCard, webWide && styles.webSourceCardWide]}
                   onPress={() =>
                     openStore(store)
                   }
@@ -702,7 +710,7 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
 
             {manualProducts.length > 0 ? (
               <Pressable
-                style={styles.sourceCard}
+                style={[styles.sourceCard, isWeb && styles.webSourceCard, webWide && styles.webSourceCardWide]}
                 onPress={() =>
                   router.push(
                     "/product-import-wizard" as any
@@ -772,6 +780,10 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.62 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.58)" },
+  webScrollContent: { width: "100%", maxWidth: 1180, alignSelf: "center", paddingTop: 12, paddingBottom: 72 },
 
   header: {
     paddingHorizontal: 20,
@@ -786,6 +798,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 16,
   },
+  webHeader: { marginHorizontal: 20, marginTop: 10, paddingHorizontal: 24, paddingVertical: 22, borderRadius: 22, borderWidth: 1, borderColor: "rgba(163,72,225,0.55)", backgroundColor: "rgba(8,4,18,0.84)", alignItems: "center" },
+  webDashboardButton: { minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: "#7643a8", backgroundColor: "rgba(35,15,57,0.82)", paddingHorizontal: 15, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" },
+  webDashboardButtonText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
 
   eyebrow: {
     color: "#9b5cff",
@@ -822,6 +837,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  webPanel: { backgroundColor: "rgba(9,5,20,0.86)", borderColor: "rgba(129,72,177,0.60)" },
   summaryItem: {
     flex: 1,
     alignItems: "center",
@@ -852,11 +868,13 @@ const styles = StyleSheet.create({
   libraryNavButton: { flex: 1, minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: "#352e4d", backgroundColor: "#17141f", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 8 },
   libraryNavButtonActive: { backgroundColor: "#332460", borderColor: "#704fe0" },
   libraryNavText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  webNav: { marginHorizontal: 20 },
   sectionHeader: {
     paddingHorizontal: 20,
     marginBottom: 13,
   },
 
+  webSectionHeader: { marginTop: 20 },
   sectionTitle: {
     color: "#ffffff",
     fontSize: 21,
@@ -874,6 +892,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
+  webSourcesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
   sourceCard: {
     minHeight: 104,
     borderRadius: 20,
@@ -886,6 +905,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  webSourceCard: { backgroundColor: "rgba(9,5,20,0.88)", borderColor: "rgba(123,67,169,0.62)", shadowColor: "#b12cff", shadowOpacity: 0.12, shadowRadius: 14 },
+  webSourceCardWide: { width: "48.9%", marginBottom: 0 },
   sourceIconWrap: {
     width: 58,
     height: 58,
@@ -955,7 +976,7 @@ const styles = StyleSheet.create({
   },
 
   loadingText: {
-    color: "#c3bdd23c2",
+    color: "#c3bdd2",
     fontSize: 14,
     marginTop: 12,
   },
