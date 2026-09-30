@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  ImageBackground,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -312,15 +314,20 @@ export default function CampaignHistoryScreen() {
     );
   }
 
+  const isWeb = Platform.OS === "web";
+
   return (
+    <View style={styles.root}>
+      {isWeb ? <ImageBackground source={require("../../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
     <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.container}
+      style={[styles.screen, isWeb && styles.webScreen]}
+      contentContainerStyle={[styles.container, isWeb && styles.webContainer]}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={refresh} />
       }
     >
-      <Text style={styles.title}>Campaign History</Text>
+      {isWeb ? <Pressable style={styles.webDashboardButton} onPress={() => { const { router } = require("expo-router"); router.replace("/web-dashboard"); }}><Text style={styles.webDashboardButtonText}>‹  Dashboard</Text></Pressable> : null}
+      <Text style={styles.title}>{isWeb ? "Publishing History" : "Campaign History"}</Text>
       <Text style={styles.subtitle}>
         Review and manage scheduled, published, saved, paused, and failed
         ArtBoost campaigns.
@@ -427,6 +434,7 @@ export default function CampaignHistoryScreen() {
         ))
       )}
     </ScrollView>
+    </View>
   );
 }
 
@@ -440,6 +448,14 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#070611" },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.64 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.60)" },
+  webScreen: { backgroundColor: "transparent" },
+  webContainer: { width: "100%", maxWidth: 1120, alignSelf: "center", marginVertical: 18, paddingHorizontal: 28, paddingTop: 24, paddingBottom: 72, borderRadius: 24, borderWidth: 1, borderColor: "rgba(155,76,214,0.56)", backgroundColor: "rgba(7,4,16,0.84)" },
+  webDashboardButton: { alignSelf: "flex-start", minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: "#7542a5", backgroundColor: "rgba(35,15,57,0.88)", paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
+  webDashboardButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
   screen: {
     flex: 1,
     backgroundColor: "rgba(7, 6, 17, 0.92)",
