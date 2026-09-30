@@ -1938,29 +1938,34 @@ export default function ConnectionsScreen() {
     );
   }
 
+  const isWeb = Platform.OS === "web";
+
   return (
     <>
+      {isWeb ? <ImageBackground source={require("../../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
       <ScrollView
         accessibilityLabel="Connections"
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[styles.container, isWeb && styles.webContainer]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.pageHeader}>
+        <View style={[styles.pageHeader, isWeb && styles.webPageHeader]}>
           <Pressable
             style={styles.backButton}
             onPress={() => {
-              if (router.canGoBack()) {
+              if (isWeb) {
+                router.replace("/web-dashboard" as any);
+              } else if (router.canGoBack()) {
                 router.back();
               } else {
                 router.replace("/(tabs)" as any);
               }
             }}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={isWeb ? "Back to dashboard" : "Go back"}
           >
             <Ionicons
-              name="arrow-back"
+              name={isWeb ? "grid-outline" : "arrow-back"}
               size={23}
               color="#ffffff"
             />
@@ -1977,7 +1982,7 @@ export default function ConnectionsScreen() {
           </View>
         </View>
 
-        <View style={styles.segmentedControl}>
+        <View style={[styles.segmentedControl, isWeb && styles.webPanel]}>
           <Pressable
             style={[
               styles.segmentButton,
@@ -2039,7 +2044,7 @@ export default function ConnectionsScreen() {
 
         {activeSection === "social" ? (
           <>
-            <View style={styles.sectionIntroCard}>
+            <View style={[styles.sectionIntroCard, isWeb && styles.webPanel]}>
               <View style={styles.sectionIntroIcon}>
                 <Ionicons
                   name="megaphone-outline"
@@ -2103,7 +2108,7 @@ export default function ConnectionsScreen() {
           </>
         ) : (
           <>
-            <View style={styles.sectionIntroCard}>
+            <View style={[styles.sectionIntroCard, isWeb && styles.webPanel]}>
               <View style={styles.sectionIntroIcon}>
                 <Ionicons
                   name="storefront-outline"
@@ -2325,12 +2330,18 @@ const styles = StyleSheet.create({
     minHeight: "100%",
   },
 
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.62 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.60)" },
+  webContainer: { width: "100%", maxWidth: 1080, alignSelf: "center", paddingTop: 28, paddingBottom: 72, backgroundColor: "transparent" },
+  webPanel: { backgroundColor: "rgba(9,5,20,0.88)", borderColor: "rgba(138,73,190,0.62)" },
   pageHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 22,
   },
 
+  webPageHeader: { borderWidth: 1, borderColor: "rgba(159,76,220,0.58)", backgroundColor: "rgba(8,4,18,0.86)", borderRadius: 22, padding: 18 },
   backButton: {
     width: 40,
     height: 40,
