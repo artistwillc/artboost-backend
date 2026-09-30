@@ -7,6 +7,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  ImageBackground,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -614,15 +616,16 @@ export default function VideoStudioScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {Platform.OS === "web" ? <ImageBackground source={require("../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)" as any); }}><Ionicons name="arrow-back" size={23} color="#fff" /></Pressable>
+      <View style={[styles.header, Platform.OS === "web" && styles.webHeader]}>
+        <Pressable style={styles.backButton} onPress={() => { if (Platform.OS === "web") router.replace("/web-dashboard" as any); else if (router.canGoBack()) router.back(); else router.replace("/(tabs)" as any); }}><Ionicons name={Platform.OS === "web" ? "grid-outline" : "arrow-back"} size={23} color="#fff" /></Pressable>
         <View style={{ flex: 1 }}><Text style={styles.eyebrow}>ARTBOOST AI</Text><Text style={styles.title}>Video Studio</Text></View>
         <View style={styles.proBadge}><Ionicons name="sparkles" size={14} color="#f8d66d" /><Text style={styles.proText}>PREMIUM</Text></View>
       </View>
 
       {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#9b5cff" /><Text style={styles.muted}>Loading your products…</Text></View> : (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, Platform.OS === "web" && styles.webContent]} showsVerticalScrollIndicator={false}>
           <View style={styles.heroCard}><Text style={styles.heroTitle}>Turn a listing into a polished product video.</Text><Text style={styles.heroText}>Choose a product and a style. ArtBoost handles the 9:16 composition, camera motion, transitions, rendering, and high-quality export.</Text></View>
 
           <Text style={styles.step}>1  Choose Product</Text>
@@ -788,6 +791,11 @@ export default function VideoStudioScreen() {
 }
 
 const styles = StyleSheet.create({
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.64 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.60)" },
+  webHeader: { width: "100%", maxWidth: 1120, alignSelf: "center", marginTop: 18, borderWidth: 1, borderColor: "rgba(155,76,214,0.56)", borderBottomColor: "rgba(155,76,214,0.56)", borderRadius: 22, backgroundColor: "rgba(8,4,18,0.88)", paddingHorizontal: 22, paddingVertical: 16 },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center", marginTop: 14, marginBottom: 30, paddingHorizontal: 28, paddingTop: 26, paddingBottom: 72, borderRadius: 24, borderWidth: 1, borderColor: "rgba(125,65,172,0.50)", backgroundColor: "rgba(7,4,16,0.84)" },
   safe: { flex: 1, backgroundColor: "#08090d" }, header: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 14, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#292a32" },
   backButton: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#171820", alignItems: "center", justifyContent: "center" }, eyebrow: { color: "#a78bfa", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }, title: { color: "#fff", fontSize: 26, fontWeight: "800", marginTop: 1 },
   usageCard: { flexDirection: "row", gap: 12, alignItems: "center", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#3b2d58", backgroundColor: "#171321", marginBottom: 14 },
