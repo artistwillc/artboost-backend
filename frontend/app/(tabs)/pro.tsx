@@ -82,6 +82,9 @@ export default function ProScreen() {
   const [openingBilling, setOpeningBilling] =
     useState(false);
 
+  const [deletingAccount, setDeletingAccount] =
+    useState(false);
+
   const tierName = useMemo(
     () =>
       formatTier(
@@ -300,6 +303,52 @@ export default function ProScreen() {
     }
   }
 
+  async function deleteWebAccount() {
+    Alert.alert(
+      "Permanently Delete Account?",
+      "This permanently deletes your ArtBoost account and associated ArtBoost data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingAccount(true);
+              const { data } = await supabase.auth.getSession();
+              const accessToken = data.session?.access_token;
+              if (!accessToken) throw new Error("Your ArtBoost session is no longer valid.");
+
+              const response = await fetch(`${BACKEND_URL}/account/delete`, {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({ confirmation: "DELETE" }),
+              });
+              const result = await response.json().catch(() => ({}));
+              if (!response.ok || !result?.deleted) {
+                throw new Error(result?.error || "Unable to delete your account.");
+              }
+
+              await supabase.auth.signOut();
+              if (Platform.OS === "web") {
+                await Linking.openURL("https://artboostai.com");
+              } else {
+                router.replace("/(tabs)" as any);
+              }
+            } catch (error: any) {
+              Alert.alert("Account Deletion Error", error?.message || "Unable to delete your account.");
+            } finally {
+              setDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.loadingScreen}>
@@ -320,6 +369,12 @@ export default function ProScreen() {
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
+      {Platform.OS === "web" ? (
+        <Pressable style={styles.webDashboardButton} onPress={() => router.replace("/web-dashboard" as any)}>
+          <Text style={styles.webDashboardButtonText}>‹  Dashboard</Text>
+        </Pressable>
+      ) : null}
+
       <Text style={styles.eyebrow}>
         ARTBOOST {tierName.toUpperCase()}
       </Text>
@@ -519,11 +574,35 @@ export default function ProScreen() {
           </Text>
         </Pressable>
       )}
+      {Platform.OS === "web" ? (
+        <View style={styles.webAccountCard}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <Text style={styles.webAccountText}>
+            Manage billing above or permanently delete your ArtBoost account and associated ArtBoost data.
+          </Text>
+          <Pressable
+            style={[styles.deleteAccountButton, deletingAccount && styles.disabledButton]}
+            disabled={deletingAccount}
+            onPress={deleteWebAccount}
+          >
+            <Text style={styles.deleteAccountButtonText}>
+              {deletingAccount ? "Deleting Account..." : "Delete Account Permanently"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  webDashboardButton: { alignSelf: "flex-start", minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: "#7542a5", backgroundColor: "rgba(35,15,57,0.88)", paddingHorizontal: 14, alignItems: "center", justifyContent: "center", marginBottom: 18 },
+  webDashboardButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  webAccountCard: { marginTop: 22, padding: 18, borderRadius: 18, borderWidth: 1, borderColor: "#6b2938", backgroundColor: "rgba(37,10,19,0.78)" },
+  webAccountText: { color: "#fff", fontSize: 13, lineHeight: 20, marginBottom: 14 },
+  deleteAccountButton: { minHeight: 48, borderRadius: 13, backgroundColor: "#b91c1c", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  deleteAccountButtonText: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  disabledButton: { opacity: 0.55 },
   loadingScreen: {
     flex: 1,
     backgroundColor: "rgba(7, 6, 17, 0.88)",
