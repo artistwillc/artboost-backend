@@ -27,6 +27,8 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   Alert,
   Image,
+  ImageBackground,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -2613,9 +2615,13 @@ useFocusEffect(
     loadScheduledCampaigns,
   ]);
 
+  const isWeb = Platform.OS === "web";
+
   return (
+    <View style={styles.root}>
+      {isWeb ? <ImageBackground source={require("../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[styles.container, isWeb && styles.webContainer]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.titleRow}>
@@ -2624,7 +2630,7 @@ useFocusEffect(
           accessible={true}
           focusable={true}
           accessibilityRole="button"
-          accessibilityLabel="Back to More Tools"
+          accessibilityLabel={isWeb ? "Back to dashboard" : "Back to More Tools"}
           testID="artboost-back-campaign-manager"
           nativeID="artboost-back-campaign-manager"
           collapsable={false}
@@ -2632,13 +2638,13 @@ useFocusEffect(
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           pressRetentionOffset={{ top: 12, bottom: 12, left: 12, right: 12 }}
           onAccessibilityTap={() => {
-            router.replace("/(tabs)/more" as any);
+            router.replace((isWeb ? "/web-dashboard" : "/(tabs)/more") as any);
           }}
           onPress={() => {
-            router.replace("/(tabs)/more" as any);
+            router.replace((isWeb ? "/web-dashboard" : "/(tabs)/more") as any);
           }}
         >
-          <Ionicons name="arrow-back" size={23} color="#ffffff" />
+          <Ionicons name={isWeb ? "grid-outline" : "arrow-back"} size={23} color="#ffffff" />
         </Pressable>
 
         <View style={styles.titleCopy}>
@@ -3594,10 +3600,16 @@ else {
         </Text>
       </Pressable>
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#070611" },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.64 },
+  webScrim: { flex: 1, backgroundColor: "rgba(4,2,10,0.60)" },
+  webContainer: { width: "100%", maxWidth: 1120, alignSelf: "center", marginVertical: 18, paddingHorizontal: 28, paddingTop: 28, paddingBottom: 72, borderRadius: 24, borderWidth: 1, borderColor: "rgba(155,76,214,0.56)", backgroundColor: "rgba(7,4,16,0.84)" },
   container: {
     padding: 20,
     backgroundColor: "rgba(7, 6, 17, 0.88)",
