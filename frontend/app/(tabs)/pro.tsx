@@ -455,34 +455,6 @@ export default function ProScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.actionCard}>
-        <View style={styles.actionTextWrap}>
-          <Text style={styles.actionTitle}>
-            Analytics
-          </Text>
-
-          <Text style={styles.actionText}>
-            Review trends, top artwork,
-            campaign performance, and growth.
-          </Text>
-        </View>
-
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={() =>
-            router.push(
-              "/analytics" as any
-            )
-          }
-        >
-          <Text
-            style={styles.secondaryButtonText}
-          >
-            View
-          </Text>
-        </Pressable>
-      </View>
-
       <View style={styles.referralCard}>
         <Text style={styles.sectionTitle}>
           Referral Rewards
