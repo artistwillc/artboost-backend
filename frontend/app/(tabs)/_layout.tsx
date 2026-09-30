@@ -686,8 +686,9 @@ export default function TabLayout() {
   // IOS_UNIFORM_CUSTOM_TAB_FINAL_V291
   // iOS uses one uniform custom Pressable implementation for all five primary tabs.
   const ios = Platform.OS === "ios";
+  const web = Platform.OS === "web";
   return (
-    <Tabs tabBar={ios ? (props) => <FinalIosTabBar {...props} /> : (props) => <CustomTabBar {...props} />} screenOptions={{ headerShown:false }}>
+    <Tabs tabBar={web ? () => null : ios ? (props) => <FinalIosTabBar {...props} /> : (props) => <CustomTabBar {...props} />} screenOptions={{ headerShown:false }}>
       <Tabs.Screen name="index" options={{ title:"Home" }} />
       <Tabs.Screen name="products" options={{ title:"Library" }} />
       <Tabs.Screen name="connect-tab" options={{ href:null }} />
