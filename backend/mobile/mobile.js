@@ -49,7 +49,7 @@ document.querySelectorAll("[data-close-account]").forEach(x=>x.addEventListener(
 function setAccount(mode){
   const signup=mode!=="signin";
   document.querySelector("#accountTitle").textContent=signup?"Create your ArtBoost account":"Sign in to ArtBoost";
-  document.querySelector("#accountCopy").textContent=signup?"Create your account and start on the Free tier.":"Sign in securely in your browser with your existing ArtBoost account.";
+  document.querySelector("#accountCopy").textContent=signup?"Create your ArtBoost account securely in your browser.":"Sign in securely in your browser with your existing ArtBoost account.";
   const img=document.querySelector("#accountButtonImage");
   img.src=signup?"assets/create-account.webp":"assets/sign-in.webp";
   img.alt=signup?"Create an Account":"Sign In";
