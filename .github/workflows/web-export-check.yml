@@ -1,0 +1,55 @@
+name: ArtBoost Web Export Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "backend/scripts/buildWebApp.mjs"
+      - "backend/scripts/verifyWebExport.mjs"
+      - ".github/workflows/web-export-check.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "backend/scripts/buildWebApp.mjs"
+      - "backend/scripts/verifyWebExport.mjs"
+      - ".github/workflows/web-export-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: artboost-web-export-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      ARTBOOST_WEB_EXPORT: "1"
+      EXPO_PUBLIC_SUPABASE_URL: "https://example.supabase.co"
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_build_validation_only"
+      EXPO_PUBLIC_API_URL: "https://artboostai.com"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Export Expo web app
+        run: npm run export:web
+
+      - name: Verify required flagship routes
+        working-directory: .
+        run: node backend/scripts/verifyWebExport.mjs
