@@ -303,50 +303,59 @@ export default function ProScreen() {
     }
   }
 
-  async function deleteWebAccount() {
-    Alert.alert(
-      "Permanently Delete Account?",
-      "This permanently deletes your ArtBoost account and associated ArtBoost data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Account",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setDeletingAccount(true);
-              const { data } = await supabase.auth.getSession();
-              const accessToken = data.session?.access_token;
-              if (!accessToken) throw new Error("Your ArtBoost session is no longer valid.");
+  async function performAccountDeletion() {
+    try {
+      setDeletingAccount(true);
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) throw new Error("Your ArtBoost session is no longer valid.");
 
-              const response = await fetch(`${BACKEND_URL}/account/delete`, {
-                method: "DELETE",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${accessToken}`,
-                },
-                body: JSON.stringify({ confirmation: "DELETE" }),
-              });
-              const result = await response.json().catch(() => ({}));
-              if (!response.ok || !result?.deleted) {
-                throw new Error(result?.error || "Unable to delete your account.");
-              }
-
-              await supabase.auth.signOut();
-              if (Platform.OS === "web") {
-                await Linking.openURL("https://artboostai.com");
-              } else {
-                router.replace("/(tabs)" as any);
-              }
-            } catch (error: any) {
-              Alert.alert("Account Deletion Error", error?.message || "Unable to delete your account.");
-            } finally {
-              setDeletingAccount(false);
-            }
-          },
+      const response = await fetch(`${BACKEND_URL}/account/delete`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
-      ]
-    );
+        body: JSON.stringify({ confirmation: "DELETE" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.deleted) {
+        throw new Error(result?.error || "Unable to delete your account.");
+      }
+
+      await supabase.auth.signOut();
+      if (Platform.OS === "web") {
+        await Linking.openURL("https://artboostai.com");
+      } else {
+        router.replace("/(tabs)" as any);
+      }
+    } catch (error: any) {
+      Alert.alert("Account Deletion Error", error?.message || "Unable to delete your account.");
+    } finally {
+      setDeletingAccount(false);
+    }
+  }
+
+  async function deleteWebAccount() {
+    const warning = "This permanently deletes your ArtBoost account and associated ArtBoost data. This cannot be undone.";
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof globalThis.confirm === "function"
+          ? globalThis.confirm(`Permanently Delete Account?\n\n${warning}`)
+          : false;
+      if (confirmed) await performAccountDeletion();
+      return;
+    }
+
+    Alert.alert("Permanently Delete Account?", warning, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete Account",
+        style: "destructive",
+        onPress: performAccountDeletion,
+      },
+    ]);
   }
 
   if (loading) {
