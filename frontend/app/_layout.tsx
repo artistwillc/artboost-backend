@@ -3,10 +3,13 @@ import {
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { Platform } from "react-native";
+import { useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
 import ArtBoostStripeProvider from "@/components/ArtBoostStripeProvider";
 import ArtistProfileGate from "@/components/ArtistProfileGate"; // ARTBOOST_ARTIST_PROFILE_GATE_MOUNT_V1_20260916
@@ -19,6 +22,40 @@ export const unstable_settings = {
   anchor: "(tabs)",
 };
 
+function WebAuthenticationGate() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || pathname === "/web-auth") return;
+
+    let alive = true;
+
+    async function enforceWebSession() {
+      const { data } = await supabase.auth.getSession();
+      if (!alive) return;
+      if (!data.session?.user) {
+        router.replace("/web-auth" as any);
+      }
+    }
+
+    enforceWebSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      if (!session?.user && pathname !== "/web-auth") {
+        router.replace("/web-auth" as any);
+      }
+    });
+
+    return () => {
+      alive = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [pathname]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
@@ -26,6 +63,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SafeAreaView style={{ flex: 1, backgroundColor: "#070611" }} edges={["top"]}>
         <ArtBoostStripeProvider>
+          <WebAuthenticationGate />
           <ArtistProfileGate />
       <ThemeProvider
         value={
