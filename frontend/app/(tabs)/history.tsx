@@ -1,6 +1,7 @@
 import ArtBoostRemoteImage from "@/components/ArtBoostRemoteImage";
 // ARTBOOST_VISUAL_PARITY_V3153
 import React, { useEffect, useState } from "react";
+import { router } from "expo-router";
 import {
   ActivityIndicator,
   Alert,
@@ -326,7 +327,7 @@ export default function CampaignHistoryScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={refresh} />
       }
     >
-      {isWeb ? <Pressable style={styles.webDashboardButton} onPress={() => { const { router } = require("expo-router"); router.replace("/web-dashboard"); }}><Text style={styles.webDashboardButtonText}>‹  Dashboard</Text></Pressable> : null}
+      {isWeb ? <Pressable style={styles.webDashboardButton} onPress={() => router.replace("/web-dashboard" as any)}><Text style={styles.webDashboardButtonText}>‹  Dashboard</Text></Pressable> : null}
       <Text style={styles.title}>{isWeb ? "Publishing History" : "Campaign History"}</Text>
       <Text style={styles.subtitle}>
         Review and manage scheduled, published, saved, paused, and failed
