@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  ImageBackground,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -214,6 +216,7 @@ export default function PublishingHistoryScreen() {
   const visibleFilters = requestedStatus === "failed_skipped"
     ? [{ label: "Failed + Skipped", value: "failed_skipped" }, ...FILTERS]
     : FILTERS;
+  const isWeb = Platform.OS === "web";
 
   if (loading) {
     return (
@@ -228,14 +231,15 @@ export default function PublishingHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {isWeb ? <ImageBackground source={require("../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
       <ScrollView
-        style={styles.screen}
-        contentContainerStyle={styles.content}
+        style={[styles.screen, isWeb && styles.webScreen]}
+        contentContainerStyle={[styles.content, isWeb && styles.webContent]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
       >
         <View style={styles.headerRow}>
-          <Pressable style={styles.back} onPress={() => router.back()} accessibilityLabel="Go back">
-            <Ionicons name="chevron-back" size={24} color="#fff" />
+          <Pressable style={styles.back} onPress={() => { if (isWeb) router.replace("/web-dashboard" as any); else router.back(); }} accessibilityLabel={isWeb ? "Back to dashboard" : "Go back"}>
+            <Ionicons name={isWeb ? "grid-outline" : "chevron-back"} size={24} color="#fff" />
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Publishing History</Text>
@@ -339,6 +343,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#090713" },
   screen: { flex: 1, backgroundColor: "#090713" },
   content: { padding: 20, paddingBottom: 70 },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 1 },
+  webScrim: { flex: 1, backgroundColor: "rgba(8,5,18,0.52)" },
+  webScreen: { backgroundColor: "transparent" },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center", paddingHorizontal: 28, paddingTop: 28, paddingBottom: 80 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, marginBottom: 18 },
   back: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#171225" },
