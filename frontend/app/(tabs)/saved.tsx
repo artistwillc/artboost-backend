@@ -11,6 +11,8 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  ImageBackground,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +22,8 @@ import {
 
 import { supabase } from "../../lib/supabase";
 import { readApiJson } from "../../lib/apiJson";
+
+const isWeb = Platform.OS === "web";
 
 const API_BASE =
   process.env.EXPO_PUBLIC_BACKEND_URL ||
@@ -236,9 +240,24 @@ export default function SavedScreen() {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
+    <ImageBackground
+      source={isWeb ? require("../../assets/images/artboost-cosmic-bg-v3153.png") : undefined}
+      style={styles.screen}
+      imageStyle={styles.backgroundImage}
     >
+      {isWeb ? <View pointerEvents="none" style={styles.webScrim} /> : null}
+      <ScrollView
+        contentContainerStyle={[styles.container, isWeb && styles.webContainer]}
+      >
+        {isWeb ? (
+          <Pressable
+            style={styles.dashboardButton}
+            onPress={() => router.replace("/web-dashboard" as any)}
+            accessibilityLabel="Back to dashboard"
+          >
+            <Text style={styles.dashboardButtonText}>Dashboard</Text>
+          </Pressable>
+        ) : null}
       <Text style={styles.header}>
         Saved & Favorites
       </Text>
@@ -379,11 +398,18 @@ export default function SavedScreen() {
           </View>
         ))
       )}
-    </ScrollView>
+      </ScrollView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#070611" },
+  backgroundImage: { resizeMode: "cover" },
+  webScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(7, 6, 17, 0.68)" },
+  webContainer: { width: "100%", maxWidth: 1120, alignSelf: "center" },
+  dashboardButton: { alignSelf: "flex-start", marginTop: 18, marginBottom: -10, borderWidth: 1, borderColor: "#6d5ca8", backgroundColor: "rgba(18, 16, 29, 0.88)", borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10 },
+  dashboardButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
   container: {
     padding: 20,
     backgroundColor:
