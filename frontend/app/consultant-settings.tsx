@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, ImageBackground, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
@@ -63,11 +63,14 @@ export default function ConsultantSettingsScreen() {
     }
   };
 
+  const isWeb = Platform.OS === "web";
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+      {isWeb ? <ImageBackground source={require("../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
+      <View style={[styles.webShell, isWeb && styles.webShellDesktop]}>
+      <View style={[styles.header, isWeb && styles.webHeader]}>
+        <Pressable onPress={() => { if (isWeb) router.replace("/web-dashboard" as any); else router.back(); }} style={styles.back} accessibilityLabel={isWeb ? "Back to dashboard" : "Go back"}>
+          <Ionicons name={isWeb ? "grid-outline" : "arrow-back"} size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle}>Consultant Settings</Text>
       </View>
@@ -93,12 +96,19 @@ export default function ConsultantSettingsScreen() {
           </>
         )}
       </View>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#070812" },
+  webBackdrop: { ...StyleSheet.absoluteFillObject },
+  webBackdropImage: { opacity: 0.64 },
+  webScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(4,2,12,0.36)" },
+  webShell: { flex: 1 },
+  webShellDesktop: { width: "100%", maxWidth: 900, alignSelf: "center", marginVertical: 24, borderRadius: 24, borderWidth: 1, borderColor: "rgba(155,76,214,0.50)", backgroundColor: "rgba(7,4,16,0.84)" },
+  webHeader: { borderBottomWidth: 1, borderBottomColor: "rgba(155,76,214,0.32)" },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingVertical: 14 },
   back: { padding: 8, marginRight: 8 },
   headerTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
