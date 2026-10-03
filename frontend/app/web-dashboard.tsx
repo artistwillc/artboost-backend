@@ -14,7 +14,7 @@ const actions = [
   { icon:"✧", title:"AI Consultant", copy:"Get marketing guidance tailored to your art business.", route:"/(tabs)/consultant" },
   { icon:"◈", title:"Campaign Manager", copy:"Create, schedule, and manage campaigns across your channels.", route:"/campaign-manager" },
   { icon:"▶", title:"Video Studio", copy:"Turn your artwork into social-ready marketing video.", route:"/video-studio" },
-  { icon:"✓", title:"Publishing History", copy:"Review campaign and publishing activity across ArtBoost.", route:"/(tabs)/history" },
+  { icon:"✓", title:"Publishing History", copy:"Review campaign and publishing activity across ArtBoost.", route:"/publishing-history" },
 ];
 
 export default function WebDashboard(){
