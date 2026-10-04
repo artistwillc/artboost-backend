@@ -120,6 +120,18 @@ document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener(
 }));
 document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
 
+const accountParams = new URLSearchParams(window.location.search);
+const requestedAccount = accountParams.get("account");
+const requestedTier = accountParams.get("tier");
+if (requestedAccount === "required" || requestedAccount === "create") {
+  setAccountMode(requestedAccount === "required" ? "signin" : "signup");
+  if (requestedTier && ["starter", "pro", "business"].includes(requestedTier)) {
+    document.querySelector("#accountCopy").textContent =
+      `Sign in or create your account to continue with the ${requestedTier.charAt(0).toUpperCase() + requestedTier.slice(1)} plan.`;
+  }
+  openModal(accountModal);
+}
+
 
 document.querySelector("[data-demo-generate]").addEventListener("click", () => {
   const status = document.querySelector("#demoStatus");
