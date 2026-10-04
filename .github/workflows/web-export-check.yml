@@ -7,12 +7,14 @@ on:
       - "frontend/**"
       - "backend/scripts/buildWebApp.mjs"
       - "backend/scripts/verifyWebExport.mjs"
+      - "backend/website/**"
       - ".github/workflows/web-export-check.yml"
   pull_request:
     paths:
       - "frontend/**"
       - "backend/scripts/buildWebApp.mjs"
       - "backend/scripts/verifyWebExport.mjs"
+      - "backend/website/**"
       - ".github/workflows/web-export-check.yml"
   workflow_dispatch:
 
@@ -53,3 +55,11 @@ jobs:
       - name: Verify required flagship routes
         working-directory: .
         run: node backend/scripts/verifyWebExport.mjs
+
+      - name: Verify flagship static website
+        working-directory: .
+        run: |
+          test -s backend/website/index.html
+          test -s backend/website/styles.css
+          test -s backend/website/script.js
+          grep -Fq 'https://apps.apple.com/us/app/artboost-ai/id6784803136' backend/website/index.html
