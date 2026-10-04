@@ -15,12 +15,13 @@ const actions = [
   { icon:"◈", title:"Campaign Manager", copy:"Create, schedule, and manage campaigns across your channels.", route:"/campaign-manager" },
   { icon:"▶", title:"Video Studio", copy:"Turn your artwork into social-ready marketing video.", route:"/video-studio" },
   { icon:"✓", title:"Publishing History", copy:"Review campaign and publishing activity across ArtBoost.", route:"/publishing-history" },
+  { icon:"$", title:"Account & Billing", copy:"Manage your ArtBoost subscription, billing, and account controls.", route:"/(tabs)/pro" },
 ];
 
 export default function WebDashboard(){
   const {width}=useWindowDimensions(); const compact=width<760;
-  const [email,setEmail]=useState(""); const [tier,setTier]=useState("Starter"); const [loading,setLoading]=useState(true);
-  useEffect(()=>{let alive=true;(async()=>{const {data}=await supabase.auth.getSession();const user=data.session?.user;if(!alive)return;if(!user){router.replace("/web-auth" as any);return;}setEmail(user.email||"");const {data:profile}=await supabase.from("profiles").select("subscription_tier").eq("id",user.id).maybeSingle();if(!alive)return;const raw=String(profile?.subscription_tier||"starter").toLowerCase();setTier(raw==="business"?"Business":raw==="pro"?"Pro":"Starter");setLoading(false);})();return()=>{alive=false};},[]);
+  const [email,setEmail]=useState(""); const [tier,setTier]=useState("Free"); const [loading,setLoading]=useState(true);
+  useEffect(()=>{let alive=true;(async()=>{const {data}=await supabase.auth.getSession();const user=data.session?.user;if(!alive)return;if(!user){router.replace("/web-auth" as any);return;}setEmail(user.email||"");const {data:profile}=await supabase.from("profiles").select("subscription_tier").eq("id",user.id).maybeSingle();if(!alive)return;const raw=String(profile?.subscription_tier||"free").toLowerCase();setTier(raw==="business"?"Business":raw==="pro"?"Pro":raw==="starter"?"Starter":"Free");setLoading(false);})();return()=>{alive=false};},[]);
   async function signOut(){await supabase.auth.signOut();router.replace("/web-auth" as any);}
   if(loading)return <SafeAreaView style={s.safe}><View style={s.loading}><ActivityIndicator size="large" color="#d85cff"/><Text style={s.muted}>Opening your ArtBoost workspace...</Text></View></SafeAreaView>;
 
