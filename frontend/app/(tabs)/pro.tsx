@@ -271,14 +271,9 @@ export default function ProScreen() {
           headers: {
             "Content-Type":
               "application/json",
+            Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({
-            customerId:
-              profile?.stripe_customer_id ||
-              null,
-            email: session.user.email,
-            userId: session.user.id,
-          }),
+          body: JSON.stringify({}),
         }
       );
 
