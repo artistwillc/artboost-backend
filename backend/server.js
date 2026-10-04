@@ -5859,26 +5859,34 @@ app.post("/apply-referral", async (req, res) => {
 
 app.post("/create-billing-portal", async (req, res) => {
   try {
-    const { customerId, email, userId } = req.body;
-    let finalCustomerId = customerId;
+    const user = await requireArtBoostUser(req);
+    if (!user?.id || !user?.email) {
+      return res.status(401).json({ error: "Authentication is required." });
+    }
 
-    if (!finalCustomerId && email) {
-      const syncResult = await syncStripeSubscriptionForUser({
-        userId,
-        email,
-      });
-      finalCustomerId = syncResult.customerId;
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("stripe_customer_id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    let finalCustomerId = String(profile?.stripe_customer_id || "").trim();
+    if (!finalCustomerId) {
+      const syncResult = await syncStripeSubscriptionForUser({ userId: user.id, email: user.email });
+      finalCustomerId = String(syncResult?.customerId || "").trim();
     }
 
     if (!finalCustomerId) {
       return res.status(400).json({
-        error: "Missing Stripe customer ID.",
+        error: "No billing account is connected to this ArtBoost account.",
       });
     }
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: finalCustomerId,
-      return_url: "https://artboost-ai.onrender.com",
+      return_url: "https://artboostai.com/app/web-dashboard",
     });
 
     res.json({
