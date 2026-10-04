@@ -1,6 +1,6 @@
 // ARTBOOST_ARTIST_PROFILE_ONBOARDING_V2_20260928
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, ImageBackground, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 
@@ -204,9 +204,17 @@ export default function ArtistProfileOnboarding() {
   const totalQuestions = REQUIRED.length + OPTIONAL.length;
   const progressWidth = `${Math.round((totalPosition / totalQuestions) * 100)}%`;
 
+  const isWeb = Platform.OS === "web";
+
   return (
     <SafeAreaView style={s.safe}>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ImageBackground
+        source={isWeb ? require("../assets/images/artboost-cosmic-bg-v3153.png") : undefined}
+        style={s.background}
+        imageStyle={s.backgroundImage}
+      >
+        {isWeb ? <View pointerEvents="none" style={s.webScrim} /> : null}
+        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.kicker}>ARTBOOST AI CONSULTANT</Text>
         <Text style={s.title}>Build Your Artist Profile</Text>
         <Text style={s.subtitle}>Merlin uses this profile to tailor marketing, pricing, content, sales, booking, and business guidance to your actual art practice. Your progress is saved after every answer.</Text>
@@ -247,13 +255,17 @@ export default function ArtistProfileOnboarding() {
           </Pressable>
         ) : null}
         <Text style={s.autosave}>Progress saves securely to your ArtBoost account after each step.</Text>
-      </ScrollView>
+        </ScrollView>
+      </ImageBackground>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   safe:{flex:1,backgroundColor:"#070611"},
+  background:{flex:1},
+  backgroundImage:{resizeMode:"cover"},
+  webScrim:{...StyleSheet.absoluteFillObject,backgroundColor:"rgba(7, 6, 17, 0.66)"},
   content:{flexGrow:1,padding:24,paddingTop:36,maxWidth:720,width:"100%",alignSelf:"center"},
   kicker:{color:"#a78bfa",fontSize:13,fontWeight:"800",letterSpacing:1.6},
   title:{color:"#fff",fontSize:30,fontWeight:"800",marginTop:8},
