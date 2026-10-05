@@ -61,7 +61,7 @@ export default function WebAuthScreen() {
         });
         if (error) throw error;
         if (data.session?.user) {
-          router.replace("/artist-profile-onboarding" as any);
+          router.replace((requestedTier ? `/artist-profile-onboarding?tier=${encodeURIComponent(requestedTier)}` : "/artist-profile-onboarding") as any);
           return;
         }
         setMessage("Account created. Check your email to confirm your address, then return here and sign in.");
