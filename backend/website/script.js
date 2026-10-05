@@ -110,6 +110,14 @@ function setAccountMode(mode) {
     ? "Create your account first, then choose the plan that fits your business."
     : "Sign in securely in your browser with your existing ArtBoost account.";
   const image = document.querySelector("#accountButtonImage");
+  const primary = document.querySelector("#accountPrimary");
+  const pendingTier = new URLSearchParams(window.location.search).get("tier");
+  const validTier = ["starter", "pro", "business"].includes(String(pendingTier || "").toLowerCase())
+    ? String(pendingTier).toLowerCase()
+    : "";
+  const query = new URLSearchParams({ mode: signup ? "signup" : "signin" });
+  if (validTier) query.set("tier", validTier);
+  primary.href = `/app/web-auth?${query.toString()}`;
   image.src = signup ? "assets/create-account.webp" : "assets/sign-in.webp";
   image.alt = signup ? "Create an Account" : "Sign In";
   document.querySelectorAll("[data-account-tab]").forEach(b => b.classList.toggle("active", b.dataset.accountTab === (signup ? "signup" : "signin")));
@@ -119,6 +127,14 @@ document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener(
   openModal(accountModal);
 }));
 document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
+
+const pageParams = new URLSearchParams(window.location.search);
+const requestedAccount = pageParams.get("account");
+const requestedTier = String(pageParams.get("tier") || "").toLowerCase();
+if (requestedAccount && ["free", "starter", "pro", "business"].includes(requestedTier || "free")) {
+  setAccountMode(requestedAccount === "required" ? "signin" : "signup");
+  openModal(accountModal);
+}
 
 
 document.querySelector("[data-demo-generate]").addEventListener("click", () => {
