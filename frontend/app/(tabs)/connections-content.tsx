@@ -824,7 +824,7 @@ export default function ConnectionsScreen() {
       async (
         platform: string,
         path: string
-      ) => {
+      ): Promise<[string, boolean]> => {
         try {
           const response = await fetch(
             `${BACKEND_URL}${path}`
@@ -846,11 +846,6 @@ export default function ConnectionsScreen() {
             typeof data.connected !==
               "boolean"
           ) {
-            await updateStoredConnection(
-              platform,
-              false
-            );
-
             console.log(
               `${platform} status could not be verified:`,
               data?.error ||
@@ -858,26 +853,23 @@ export default function ConnectionsScreen() {
                 `HTTP ${response.status}`
             );
 
-            return;
+            return [platform, false];
           }
 
-          await updateStoredConnection(
+          return [
             platform,
-            data.connected
-          );
+            data.connected,
+          ];
         } catch (error) {
-          await updateStoredConnection(
-            platform,
-            false
-          );
-
           console.log(
             `${platform} status check failed closed:`,
             error
           );
+
+          return [platform, false];
         }
       },
-      [updateStoredConnection]
+      []
     );
 
   const refreshAllStatuses =
@@ -898,60 +890,77 @@ export default function ConnectionsScreen() {
           localConnections
         );
 
-        await Promise.all([
-          checkSimpleStatus(
-            "Pinterest",
-            userId
-              ? `/pinterest/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/pinterest/status"
-          ),
-          checkSimpleStatus(
-            "Facebook",
-            "/facebook/test"
-          ),
-          checkSimpleStatus(
-            "Instagram",
-            userId
-              ? `/instagram/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/instagram/status"
-          ),
-          checkSimpleStatus(
-            "Threads",
-            userId
-              ? `/threads/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/threads/status"
-          ),
-          checkSimpleStatus(
-            "LinkedIn",
-            userId
-              ? `/linkedin/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/linkedin/status"
-          ),
-          checkSimpleStatus(
-            "X",
-            userId
-              ? `/x/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/x/status"
-          ),
-          checkSimpleStatus(
-            "TikTok",
-            userId
-              ? `/tiktok/status?userId=${encodeURIComponent(
-                  userId
-                )}`
-              : "/tiktok/status"
-          ),
-        ]);
+        const statusEntries =
+          await Promise.all([
+            checkSimpleStatus(
+              "Pinterest",
+              userId
+                ? `/pinterest/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/pinterest/status"
+            ),
+            checkSimpleStatus(
+              "Facebook",
+              "/facebook/test"
+            ),
+            checkSimpleStatus(
+              "Instagram",
+              userId
+                ? `/instagram/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/instagram/status"
+            ),
+            checkSimpleStatus(
+              "Threads",
+              userId
+                ? `/threads/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/threads/status"
+            ),
+            checkSimpleStatus(
+              "LinkedIn",
+              userId
+                ? `/linkedin/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/linkedin/status"
+            ),
+            checkSimpleStatus(
+              "X",
+              userId
+                ? `/x/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/x/status"
+            ),
+            checkSimpleStatus(
+              "TikTok",
+              userId
+                ? `/tiktok/status?userId=${encodeURIComponent(
+                    userId
+                  )}`
+                : "/tiktok/status"
+            ),
+          ]);
+
+        const authoritativeConnections =
+          Object.fromEntries(
+            statusEntries
+          );
+
+        setSocialConnections(
+          authoritativeConnections
+        );
+
+        await AsyncStorage.setItem(
+          "artboost_connections",
+          JSON.stringify(
+            authoritativeConnections
+          )
+        );
 
         if (!userId) {
           setStores([]);
