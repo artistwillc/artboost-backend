@@ -2227,6 +2227,15 @@ app.get(
           ? connection.platform_data
           : {};
 
+      console.log("Threads status diagnostic", {
+        userKey: crypto.createHash("sha256").update(String(userId)).digest("hex").slice(0, 10),
+        rowFound: Boolean(connection),
+        connectedFlag: connection?.connected === true,
+        hasAccessToken: Boolean(connection?.access_token),
+        expired,
+        hasExpiresAt: Boolean(connection?.expires_at),
+      });
+
       return res.json({
         configured: Boolean(
           THREADS_APP_ID &&
@@ -2690,6 +2699,15 @@ app.get("/linkedin/status", async (req, res) => {
       typeof connection.platform_data === "object"
         ? connection.platform_data
         : {};
+
+    console.log("LinkedIn status diagnostic", {
+      userKey: crypto.createHash("sha256").update(String(userId)).digest("hex").slice(0, 10),
+      rowFound: Boolean(connection),
+      connectedFlag: connection?.connected === true,
+      hasAccessToken: Boolean(connection?.access_token),
+      expired,
+      hasExpiresAt: Boolean(connection?.expires_at),
+    });
 
     return res.json({
       configured: Boolean(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
