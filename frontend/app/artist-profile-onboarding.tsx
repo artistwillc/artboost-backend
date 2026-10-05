@@ -1,7 +1,7 @@
 // ARTBOOST_ARTIST_PROFILE_ONBOARDING_V2_20260928
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
 
 type Answers = Record<string, string>;
@@ -37,6 +37,10 @@ const DRAFT_KEY = "artboost_artist_profile_draft";
 const VERSION_KEY = "artboost_artist_profile_onboarding_version";
 
 export default function ArtistProfileOnboarding() {
+  const params = useLocalSearchParams<{ tier?: string }>();
+  const requestedTier = ["starter", "pro", "business"].includes(String(params.tier || "").toLowerCase())
+    ? String(params.tier).toLowerCase()
+    : "";
   const [answers, setAnswers] = useState<Answers>({});
   const [step, setStep] = useState(0);
   const [optional, setOptional] = useState(false);
@@ -150,7 +154,7 @@ export default function ArtistProfileOnboarding() {
 
       const { error } = await supabase.auth.updateUser({ data: nextMetadata });
       if (error) throw error;
-      router.replace("/(tabs)/consultant" as any);
+      router.replace((requestedTier ? `/web-dashboard?tier=${encodeURIComponent(requestedTier)}` : "/(tabs)/consultant") as any);
     } catch (e: any) {
       Alert.alert("Artist Profile", e?.message || "Unable to finish your Artist Profile.");
     } finally {

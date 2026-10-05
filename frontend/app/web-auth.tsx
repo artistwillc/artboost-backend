@@ -1,5 +1,5 @@
 // ARTBOOST_WEB_AUTH_V1_20260929
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { supabase } from "@/lib/supabase";
@@ -7,7 +7,13 @@ import { supabase } from "@/lib/supabase";
 type Mode = "signup" | "signin";
 
 export default function WebAuthScreen() {
-  const [mode, setMode] = useState<Mode>("signup");
+  const params = useLocalSearchParams<{ mode?: string; tier?: string }>();
+  const requestedMode: Mode = params.mode === "signin" ? "signin" : "signup";
+  const requestedTier = ["starter", "pro", "business"].includes(String(params.tier || "").toLowerCase())
+    ? String(params.tier).toLowerCase()
+    : "";
+  const dashboardRoute = requestedTier ? `/web-dashboard?tier=${encodeURIComponent(requestedTier)}` : "/web-dashboard";
+  const [mode, setMode] = useState<Mode>(requestedMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [legalAccepted, setLegalAccepted] = useState(false);
@@ -20,7 +26,7 @@ export default function WebAuthScreen() {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       if (data.session?.user) {
-        router.replace("/web-dashboard" as any);
+        router.replace(dashboardRoute as any);
         return;
       }
       setLoading(false);
@@ -55,7 +61,7 @@ export default function WebAuthScreen() {
         });
         if (error) throw error;
         if (data.session?.user) {
-          router.replace("/artist-profile-onboarding" as any);
+          router.replace((requestedTier ? `/artist-profile-onboarding?tier=${encodeURIComponent(requestedTier)}` : "/artist-profile-onboarding") as any);
           return;
         }
         setMessage("Account created. Check your email to confirm your address, then return here and sign in.");
@@ -65,7 +71,7 @@ export default function WebAuthScreen() {
 
       const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
       if (error) throw error;
-      router.replace("/web-dashboard" as any);
+      router.replace(dashboardRoute as any);
     } catch (error: any) {
       setMessage(error?.message || "ArtBoost could not complete authentication.");
     } finally {
