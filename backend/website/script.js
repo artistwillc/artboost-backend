@@ -131,6 +131,13 @@ document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListe
 const pageParams = new URLSearchParams(window.location.search);
 const requestedAccount = pageParams.get("account");
 const requestedTier = String(pageParams.get("tier") || "").toLowerCase();
+const checkoutStatus = pageParams.get("checkout");
+if (checkoutStatus === "success") {
+  const label = requestedTier ? requestedTier.charAt(0).toUpperCase() + requestedTier.slice(1) : "paid";
+  showToast(`Your ${label} checkout is complete. Sign in to open your ArtBoost workspace.`);
+} else if (checkoutStatus === "cancelled") {
+  showToast("Checkout was cancelled. No new purchase was completed.");
+}
 if (requestedAccount && ["free", "starter", "pro", "business"].includes(requestedTier || "free")) {
   setAccountMode(requestedAccount === "required" ? "signin" : "signup");
   openModal(accountModal);
