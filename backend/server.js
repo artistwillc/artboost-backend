@@ -3825,10 +3825,26 @@ app.use(
   "/app",
   express.static(webAppDist, {
     index: "index.html",
+    // Expo's route HTML references hashed JS chunks, but the route document
+    // itself must never be cached or browsers can keep executing an older
+    // Connections bundle after a production deploy.
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html")) {
+        res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+        res.set("Pragma", "no-cache");
+        res.set("Expires", "0");
+      }
+    },
   })
 );
 
 app.get("/app/*path", (req, res) => {
+  // Dynamic Expo route documents are deployment pointers and must always be
+  // revalidated. Static hashed assets remain cacheable through express.static.
+  res.set("Cache-Control", "no-store, max-age=0, must-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+
   const requestedPath = Array.isArray(req.params.path)
     ? req.params.path.join("/")
     : String(req.params.path || "");
