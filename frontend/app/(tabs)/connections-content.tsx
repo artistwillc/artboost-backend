@@ -295,6 +295,21 @@ export default function ConnectionsScreen() {
     {}
   );
 
+  // Web renders only status returned by the live backend. Keep this separate
+  // from native/persisted connection state so browser storage cannot win a
+  // later reconciliation race.
+  const [
+    webSocialConnections,
+    setWebSocialConnections,
+  ] = useState<Record<string, boolean>>(
+    {}
+  );
+
+  const displayedSocialConnections =
+    Platform.OS === "web"
+      ? webSocialConnections
+      : socialConnections;
+
   const [stores, setStores] = useState<
     ConnectedStore[]
   >([]);
@@ -955,16 +970,22 @@ export default function ConnectionsScreen() {
             statusEntries
           );
 
-        setSocialConnections(
-          authoritativeConnections
-        );
-
-        await AsyncStorage.setItem(
-          "artboost_connections",
-          JSON.stringify(
+        if (Platform.OS === "web") {
+          setWebSocialConnections(
             authoritativeConnections
-          )
-        );
+          );
+        } else {
+          setSocialConnections(
+            authoritativeConnections
+          );
+
+          await AsyncStorage.setItem(
+            "artboost_connections",
+            JSON.stringify(
+              authoritativeConnections
+            )
+          );
+        }
 
         if (!userId) {
           setStores([]);
@@ -1644,7 +1665,7 @@ export default function ConnectionsScreen() {
     platform: SocialPlatform
   ) {
     const connected = Boolean(
-      socialConnections[platform.name]
+      displayedSocialConnections[platform.name]
     );
 
     return (
@@ -2110,7 +2131,7 @@ export default function ConnectionsScreen() {
               <Text style={styles.listHeaderCount}>
                 {
                   socialPlatforms.filter(platform =>
-                    Boolean(socialConnections[platform.name])
+                    Boolean(displayedSocialConnections[platform.name])
                   ).length
                 }
                 /{socialPlatforms.length} connected
@@ -2280,7 +2301,7 @@ export default function ConnectionsScreen() {
 
             {socialPlatforms.map(platform => {
               const connected = Boolean(
-                socialConnections[platform.name]
+                displayedSocialConnections[platform.name]
               );
 
               return (
