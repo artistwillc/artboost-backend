@@ -126,7 +126,10 @@ document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener(
   setAccountMode(btn.dataset.account);
   openModal(accountModal);
 }));
-document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
+document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => {
+  setAccountMode(btn.dataset.accountTab);
+  window.location.assign(document.querySelector("#accountPrimary").href);
+}));
 
 const pageParams = new URLSearchParams(window.location.search);
 const requestedAccount = pageParams.get("account");
