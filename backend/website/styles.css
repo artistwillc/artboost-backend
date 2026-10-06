@@ -51,3 +51,9 @@ h1,h2{margin:0 0 18px;line-height:1.02}h1{font-size:clamp(38px,6vw,76px)}h2{font
 .promo-video-shell{width:min(920px,100%);margin:34px auto 0;padding:1px;border-radius:26px;background:linear-gradient(135deg,#8a43ff,#ffb000,#29d4ff);box-shadow:0 28px 90px #6d2cff24}
 .promo-video{display:block;width:100%;max-height:78vh;aspect-ratio:9/16;object-fit:contain;background:#000;border-radius:25px}
 @media(min-width:760px){.promo-video{aspect-ratio:16/9}}
+
+/* Account modal: center primary CTA and constrain dialog to the viewport. */
+.account-modal{width:min(700px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow-y:auto;margin:auto}
+.account-actions{justify-items:stretch}
+.account-image-btn{display:flex;align-items:center;justify-content:center;width:100%;max-width:100%;text-align:center}
+.account-image-btn img{display:block;width:min(480px,100%);height:auto;margin-inline:auto}
