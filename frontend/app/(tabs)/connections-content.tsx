@@ -883,12 +883,16 @@ export default function ConnectionsScreen() {
         const userId =
           sessionData.session?.user?.id;
 
-        const localConnections =
-          await getStoredConnections();
+        // Browser status must come from the live backend. Persisted connection
+        // state is only a native fallback and must never override web truth.
+        if (Platform.OS !== "web") {
+          const localConnections =
+            await getStoredConnections();
 
-        setSocialConnections(
-          localConnections
-        );
+          setSocialConnections(
+            localConnections
+          );
+        }
 
         const statusEntries =
           await Promise.all([
