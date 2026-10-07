@@ -842,7 +842,12 @@ export default function ConnectionsScreen() {
       ): Promise<[string, boolean]> => {
         try {
           const response = await fetch(
-            `${BACKEND_URL}${path}`
+            `${BACKEND_URL}${path}`,
+            // Web connection indicators must not reuse a cached negative
+            // response after OAuth completes. Native requests are unchanged.
+            Platform.OS === "web"
+              ? { cache: "no-store" }
+              : undefined
           );
 
           const responseText =
