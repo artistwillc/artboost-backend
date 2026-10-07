@@ -614,6 +614,7 @@ export async function importUniversalStore({
 
   const links = new Set();
   let pagesWithoutNewLinks = 0;
+  let artpalAccessDenied = false;
 
   for (
     let pageNumber = 1;
@@ -660,6 +661,9 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      if ((storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) && /\b403\b|forbidden|cloudflare|security verification/i.test(error instanceof Error ? error.message : String(error))) {
+        artpalAccessDenied = true;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -678,6 +682,10 @@ export async function importUniversalStore({
     if (pagesWithoutNewLinks >= 2) {
       break;
     }
+  }
+
+  if (artpalAccessDenied && links.size === 0) {
+    throw new Error("ArtPal denied storefront access (HTTP 403 / security verification). No artwork was imported or deleted. Retry after ArtPal permits access, or use an authorized artwork export or individual product URLs.");
   }
 
   const limitedLinks = [...links].slice(
