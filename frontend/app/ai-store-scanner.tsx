@@ -14,6 +14,7 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   FlatList,
   Pressable,
   StyleSheet,
@@ -2235,6 +2236,8 @@ export default function AIStoreScannerScreen() {
 const [scanProgress, setScanProgress] =
   useState("");
 
+  const [webScanMessage, setWebScanMessage] = useState("");
+
   const [importing, setImporting] =
     useState(false);
 
@@ -2631,7 +2634,47 @@ const [scanProgress, setScanProgress] =
   }, 15000);
 }
 
+async function scanWebStore() {
+  // Web browsers cannot inject JavaScript into native WebView. Use the
+  // existing authenticated backend universal importer instead.
+  if (fullStoreScanning || importing) return;
+  setFullStoreScanning(true);
+  setWebScanMessage("");
+  setScanProgress("Importing ArtPal products from the server...");
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new Error("Your ArtBoost session expired. Sign in and try again.");
+    }
+    const response = await fetch(`${API_BASE}/stores/universal/import`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ storeId: storeId || undefined, storeUrl: browserUrl || storeUrl }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.details || payload.error || `Import failed (HTTP ${response.status}).`);
+    }
+    const message = `ArtPal scan finished: ${payload.discovered ?? 0} links found, ${payload.imported ?? 0} new products, ${payload.updated ?? 0} updated, ${payload.skipped ?? 0} skipped.`;
+    setWebScanMessage(message);
+    setScanProgress(message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "ArtPal import failed.";
+    setWebScanMessage(`Scan failed: ${message}`);
+    setScanProgress(`Scan failed: ${message}`);
+  } finally {
+    setFullStoreScanning(false);
+  }
+}
+
 function scanEntireStore() {
+  if (Platform.OS === "web") {
+    void scanWebStore();
+    return;
+  }
   if (!browserUrl) {
     Alert.alert(
       "Open Store First",
@@ -3582,6 +3625,18 @@ function scanEntireStore() {
               </View>
             ) : null}
 
+            {Platform.OS === "web" ? (
+              <View style={{ padding: 16 }}>
+                <Text style={{ color: "#c4b5fd", fontSize: 13 }}>
+                  Browser scanning uses the ArtBoost server importer. No embedded mobile browser is required.
+                </Text>
+                {webScanMessage ? (
+                  <Text accessibilityRole="alert" style={{ color: "#ffffff", marginTop: 10 }}>
+                    {webScanMessage}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
             <WebView
               ref={webViewRef}
               source={{
@@ -3637,11 +3692,12 @@ function scanEntireStore() {
                 );
               }}
             />
+            )}
 
             <View
               style={styles.scanBar}
             >
-              <Pressable
+              {Platform.OS !== "web" ? <Pressable
                 style={[
                   styles.scanButton,
                   (scanning || fullStoreScanning) &&
@@ -3674,7 +3730,7 @@ function scanEntireStore() {
                     ? "Scanning..."
                     : "Scan Visible Products"}
                 </Text>
-              </Pressable>
+              </Pressable> : null}
 
 <Pressable
   style={[
@@ -3706,7 +3762,7 @@ function scanEntireStore() {
   >
     {fullStoreScanning
       ? "Scanning Entire Store..."
-      : "Scan Entire Store"}
+      : Platform.OS === "web" ? "Import ArtPal Store" : "Scan Entire Store"}
   </Text>
 </Pressable>
 
