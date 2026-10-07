@@ -2174,6 +2174,20 @@ app.get(
   }
 );
 
+// These two status routes are registered before the shared CORS middleware.
+// Allow only the production website origins so browsers can read their JSON.
+// Do not change native OAuth or the global CORS policy.
+app.use(
+  ["/threads/status", "/linkedin/status"],
+  cors({
+    origin: [
+      "https://artboostai.com",
+      "https://www.artboostai.com",
+    ],
+    credentials: true,
+  })
+);
+
 app.get(
   "/threads/status",
   async (req, res) => {
