@@ -2178,7 +2178,7 @@ app.get(
 // Allow only the production website origins so browsers can read their JSON.
 // Do not change native OAuth or the global CORS policy.
 app.use(
-  ["/threads/status", "/linkedin/status"],
+  ["/threads/status", "/linkedin/status", "/x/status"],
   cors({
     origin: [
       "https://artboostai.com",
