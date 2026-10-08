@@ -35,9 +35,7 @@ async function verifyPaidStoreOperation(userId, res) {
     return false;
   }
   const tier = String(data.subscription_tier || "free").toLowerCase();
-  const status = String(data.subscription_status || "").toLowerCase();
-  if (!["starter","pro","business"].includes(tier) ||
-      !["active","trialing", "complimentary_active"].includes(status)) {
+  if (tier === "free") {
     res.status(403).json({ success: false, upgradeRequired: true,
       error: "Store connections and scanning require a paid subscription." });
     return false;
