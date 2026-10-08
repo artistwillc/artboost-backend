@@ -57,4 +57,9 @@ assert.match(serverSource, /const useAtomicFreeScheduling = isFreeScheduling && 
 assert.match(serverSource, /if \(useAtomicFreeScheduling\) \{/, "Only Free may enter atomic RPC path");
 assert.match(serverSource, /if \(!isFreeScheduling\) \{[\s\S]*?checkCampaignLimit\(userId, normalizedPlatform\)/, "Paid tiers must retain legacy scheduling checks");
 assert.match(serverSource, /ENFORCE_SCHEDULE_AUTH === "true" \|\| atomicSchedulingEnabled\(\)/, "Atomic scheduling requires authenticated identity");
+const scheduleHandlerStart = serverSource.indexOf('app.post("/schedule-campaign"');
+const scheduleHandler = serverSource.slice(scheduleHandlerStart, serverSource.indexOf("\n});", scheduleHandlerStart));
+assert.ok(scheduleHandlerStart >= 0, "Scheduling handler must exist");
+assert.doesNotMatch(scheduleHandler.slice(0, scheduleHandler.indexOf("const isFreeScheduling")), /Atomic scheduling rollout is not verified/, "Incomplete rollout must not block paid users before tier resolution");
+assert.match(scheduleHandler, /if \(isFreeScheduling && process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled\(\)\)/, "Incomplete rollout guard must be Free-only");
 console.log("Free-tier entitlement source regression checks passed");
