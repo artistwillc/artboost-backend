@@ -19,3 +19,10 @@ test("ArtPal-specific 403 classification is retained", () => {
   assert.match(source, /storeHost\.endsWith\("\.artpal\.com"\)/);
   assert.match(source, /403.*forbidden.*cloudflare.*security verification/i);
 });
+
+test("ArtPal HTTP 200 challenge markup is recognized before discovery", () => {
+  const challengeCheck = source.indexOf("cf-chl-|cf-turnstile|challenge-platform");
+  const discovery = source.indexOf("const discovered =", challengeCheck);
+  assert.ok(challengeCheck >= 0 && discovery > challengeCheck);
+  assert.match(source, /just a moment\|checking your browser\|verify you are human\|security verification/i);
+});
