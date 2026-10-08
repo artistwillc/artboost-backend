@@ -59,3 +59,12 @@ test("line-break bearer header is rejected before Supabase lookup", async () => 
   assert.equal((await verifySchedulingUser(guarded, "Bearer\nvalid", "a")).status, 401);
   assert.equal(calls, 0);
 });
+
+test("malformed claimed account IDs fail ownership validation", async () => {
+  for (const claimedUserId of [null, 123, ["a"], { id: "a" }, ""]) {
+    assert.deepEqual(
+      await verifySchedulingUser(client({ id: "a" }), "Bearer token", claimedUserId),
+      { ok: false, status: 403, reason: "Account mismatch" }
+    );
+  }
+});
