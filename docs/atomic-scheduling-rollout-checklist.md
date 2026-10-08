@@ -41,3 +41,12 @@
 - Backend workflow now **explicitly runs** `backend/tests/schedulingIdentityContract.test.js` and watches it in the pull-request path filter. The preceding green run #67 did not include this new test; do not cite #67 as evidence for that suite.
 - Behavioral coverage verifies the shared identity helper against mocked asynchronous Supabase responses. It is **not** a full end-to-end HTTP test against a released iOS, Android, or web client.
 - Outstanding release blockers remain: published-client bearer token compatibility, backend callers, Stripe Price IDs, and representative production schema/migration review. No merge or production activation authorized.
+
+## Production RLS read-only audit (2026-10-08)
+- Confirmed `public.profiles` and `public.scheduled_campaigns` both have RLS enabled.
+- Profile authenticated SELECT/UPDATE policies restrict rows with `auth.uid() = id`.
+- Scheduled-campaign authenticated SELECT/INSERT/UPDATE/DELETE policies restrict rows with `auth.uid() = user_id`; INSERT has an explicit ownership `WITH CHECK`.
+- Existing UPDATE policies show `with_check = NULL` in `pg_policies`. PostgreSQL may reuse a policy's USING expression as WITH CHECK when omitted; verify effective behavior and plan an explicit WITH CHECK hardening migration if appropriate. Do not claim the existing policies permit reassignment without a behavioral test.
+- Service-role policies allow backend access; confirm actual function EXECUTE grants in isolated PostgreSQL CI before applying the RPC.
+- Live database does not yet have `public.schedule_campaign_with_quota(uuid,jsonb)`; expected while migration remains unapplied.
+- This audit made no production database modifications.
