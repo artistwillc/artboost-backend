@@ -84,3 +84,10 @@ Backend CI run #76 and isolated PostgreSQL run #54 succeeded at commit `f36530c6
 - The currently live code is **not** draft PR #42. Preserve this commit as the known deployed baseline for comparison and rollback planning.
 - Production service has auto-deploy enabled on `main`; do not merge this PR as a surrogate for isolated testing.
 - Next gate: obtain and verify real published-client scheduling requests and Stripe Price ID mappings without exposing user tokens or secrets. No configuration changes were made during this check.
+
+## Additional rollout blocker: monthly quota reset semantics (2026-10-08)
+- Inspected `backend/server.js` legacy `checkCampaignLimit`: compares `new Date()` against `new Date(profile.campaign_reset_date)`, and advances reset using JavaScript `setMonth` then writes an ISO timestamp.
+- Live `profiles.campaign_reset_date` column is PostgreSQL `date` (no time of day), while draft atomic RPC computes `today_utc` and advances by `interval '1 month'` on a date.
+- **Behavioral parity is not established** for month-end dates, timezone boundaries, and dates previously written from JavaScript. Before rollout, create boundary-case tests and agree on the canonical reset rule; avoid silently changing renewal timing for customers.
+- The atomic function's supported scheduling platforms (`pinterest`, `facebook`, `instagram`, `x`) match the current create-route allowlist, but do not imply support for all ArtBoost connected posting platforms.
+- Keep release on HOLD until this boundary behavior is tested in addition to published-client auth, Stripe price mapping, and staging checks.
