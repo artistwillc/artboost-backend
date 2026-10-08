@@ -30,6 +30,27 @@ begin
  '{"platform":"Facebook","title":"Test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into c;
  if (c->>'allowed')::boolean then raise exception 'Free Facebook campaign accepted'; end if;
 end $$;
+-- Free users may choose Facebook first; subsequent Pinterest requests must fail.
+insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
+values ('00000000-0000-0000-0000-000000000004','free',0,(current_date + interval '1 month')::date);
+do $choice$
+declare first_post jsonb; wrong_platform jsonb; recurring jsonb; next_run jsonb; count_after integer;
+begin
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
+ '{"platform":"Facebook","title":"Chosen platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into first_post;
+ if (first_post->>'allowed') is distinct from 'true' then raise exception 'Free Facebook first choice rejected: %',first_post; end if;
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
+ '{"platform":"Pinterest","title":"Wrong platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into wrong_platform;
+ if (wrong_platform->>'allowed') is distinct from 'false' then raise exception 'Second platform accepted: %',wrong_platform; end if;
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
+ '{"platform":"Facebook","title":"Recurring","description":"Test","publish_at":"2030-01-01T12:00:00Z","repeat_type":"daily"}') into recurring;
+ if (recurring->>'allowed') is distinct from 'false' then raise exception 'Recurring Free post accepted: %',recurring; end if;
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
+ '{"platform":"Facebook","title":"Background","description":"Test","publish_at":"2030-01-01T12:00:00Z","next_run_at":"2030-01-02T12:00:00Z"}') into next_run;
+ if (next_run->>'allowed') is distinct from 'false' then raise exception 'Background Free post accepted: %',next_run; end if;
+ select monthly_campaign_count into count_after from public.profiles where id='00000000-0000-0000-0000-000000000004';
+ if count_after <> 1 then raise exception 'Rejected Free requests consumed quota: %',count_after; end if;
+end $choice$;
 -- Reset date in the past must restart the monthly quota at zero.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000002','free',5,(current_date - interval '1 day')::date);
