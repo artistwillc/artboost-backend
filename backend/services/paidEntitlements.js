@@ -1,8 +1,8 @@
-// Pure, side-effect-free entitlement predicate. The feature flag and database
-// lookup remain at the API/worker boundary.
+// Only Free accounts lose automation/store access when the Free-tier guard is enabled.
+// Do not reinterpret paid subscription statuses here: paid-tier eligibility remains
+// governed by the existing billing and subscription flows.
 export function hasPaidAutomationAccess(profile) {
-  const tier = String(profile?.subscription_tier || "free").toLowerCase();
-  const status = String(profile?.subscription_status || "").toLowerCase();
-  return ["starter", "pro", "business"].includes(tier) &&
-    ["active", "trialing", "complimentary_active"].includes(status);
+  if (!profile) return false;
+  const tier = String(profile.subscription_tier || "free").toLowerCase();
+  return tier !== "free";
 }
