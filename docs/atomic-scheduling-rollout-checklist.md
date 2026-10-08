@@ -10,7 +10,7 @@
 - [ ] Verify every published iOS, Android, and web scheduling client sends a Supabase access token as `Authorization: Bearer <token>` on create, list, delete, and lifecycle requests. Current source inspection is insufficient to confirm this.
 - [ ] Verify all existing scheduling entrypoints, background jobs, and server-side callers remain compatible with ownership enforcement.
 - [ ] Verify the exact live Stripe price IDs and subscription tier mapping.
-- [ ] Review production schema, policies, existing functions, and migration effects before applying any SQL.
+- [ ] Complete migration review: live column types, RLS policies and absence of the RPC were inspected read-only; production permissions, complete migration effects and staging execution still need verification.
 
 ## Staged release (requires explicit authorization)
 1. Keep `ENABLE_ATOMIC_SCHEDULE_QUOTA`, `ATOMIC_SCHEDULE_MIGRATION_VERIFIED`, and `SCHEDULE_CLIENT_AUTH_VERIFIED` unset/false.
@@ -50,3 +50,10 @@
 - Service-role policies allow backend access; confirm actual function EXECUTE grants in isolated PostgreSQL CI before applying the RPC.
 - Live database does not yet have `public.schedule_campaign_with_quota(uuid,jsonb)`; expected while migration remains unapplied.
 - This audit made no production database modifications.
+
+## Final verification checkpoint (2026-10-08)
+- Commit `7f2a284255b857258940ef947303cd47c54852b5`: backend CI run #75 and isolated PostgreSQL CI run #53 both passed.
+- The isolated PostgreSQL workflow now runs `tests/sql/rls_ownership_assertions.sql`, verifying that an UPDATE policy with an owner-only USING expression and omitted WITH CHECK rejects ownership reassignment in the tested configuration. This does not replace a production RLS permission audit.
+- Read-only production schema inspection confirmed required profile/campaign column names and types; live function lookup confirmed the proposed RPC has not been installed. No production SQL modifications were made.
+- **Ready:** draft PR code and currently configured automated tests. **Not release-ready:** published-client token verification, background caller audit, live Stripe price IDs, and complete staging/permission checks.
+- **Release decision: HOLD.** Do not merge, deploy, apply SQL, or enable flags until the unresolved items are verified and the owner explicitly authorizes the rollout.
