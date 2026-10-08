@@ -690,9 +690,14 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
-      pageFetchErrors.push(
-        error instanceof Error ? error.message : String(error)
-      );
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      pageFetchErrors.push(failureMessage);
+      // A definitive access denial will not improve by requesting more pages.
+      if (/Store returned (?:401|403)\\b/.test(failureMessage)) {
+        throw new Error(
+          "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Use a marketplace-authorized export or contact the marketplace about integration access."
+        );
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -720,7 +725,7 @@ export async function importUniversalStore({
     );
     if (accessDenied) {
       throw new Error(
-        "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Try a supported product-URL import or contact the marketplace about authorized integration."
+        "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Use a marketplace-authorized export or contact the marketplace about integration access."
       );
     }
     throw new Error(
