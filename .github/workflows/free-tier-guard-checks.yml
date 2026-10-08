@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "backend/server.js"
+      - "backend/tests/free-tier-entitlement-regression.js"
       - "backend/routes/stores.js"
       - "backend/routes/automations.js"
       - "backend/services/storeSyncService.js"
@@ -28,3 +29,4 @@ jobs:
           node --check backend/services/storeSyncService.js
           node --check backend/services/catalogImportQueueService.js
           node --check backend/services/automationRunner.js
+          node backend/tests/free-tier-entitlement-regression.js
