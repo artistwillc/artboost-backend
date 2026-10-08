@@ -15,6 +15,7 @@ declare
   today_utc date := (now() at time zone 'UTC')::date;
   reset_date date;
   campaign_count integer;
+  selected_platform text;
 begin
   -- A row lock serializes all quota decisions for the same user.
   select * into p from public.profiles where id = p_user_id for update;
@@ -25,8 +26,21 @@ begin
     return jsonb_build_object('allowed',false,'reason','Unsupported platform');
   end if;
   if coalesce(p.subscription_tier,'free') = 'free' then
-    if platform_key <> 'pinterest' then
-      return jsonb_build_object('allowed',false,'reason','Free users can only use Pinterest.');
+    -- Free subscribers may select any one supported platform. Derive the
+    -- choice from their first scheduled campaign; changing it is not supported
+    -- by this RPC and must use a separately approved account-level policy.
+    select lower(trim(sc.platform)) into selected_platform
+      from public.scheduled_campaigns sc
+      where sc.user_id = p_user_id
+        and lower(trim(sc.platform)) in ('pinterest','facebook','instagram','x')
+      order by sc.created_at asc, sc.id asc
+      limit 1;
+    if selected_platform is not null and selected_platform <> platform_key then
+      return jsonb_build_object('allowed',false,'reason','Free accounts may schedule on one selected platform.');
+    end if;
+    if coalesce(p_campaign->>'repeat_type','one_time') <> 'one_time'
+       or nullif(p_campaign->>'repeat_until','') is not null then
+      return jsonb_build_object('allowed',false,'reason','Free accounts cannot schedule recurring campaigns.');
     end if;
     reset_date := p.campaign_reset_date;
     campaign_count := coalesce(p.monthly_campaign_count,0);
