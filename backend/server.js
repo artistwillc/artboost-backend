@@ -11008,6 +11008,18 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true") {
+      const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
+  
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          success: false,
+          upgradeRequired: true,
+          error: limitCheck.reason,
+        });
+      }
+    }
+
     const finalRepeatType = repeatType || "one_time";
 
     const calculatedNextRun =
@@ -11035,24 +11047,71 @@ app.post("/schedule-campaign", async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    // Enable only after the atomic quota migration is applied and verified.
-    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true") {
-      return res.status(503).json({ success: false, error: "Campaign scheduling update is not enabled." });
+    let data;
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
+      // Enable only after the atomic quota migration is applied and verified.
+      const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
+        p_user_id: userId,
+        p_campaign: insertPayload,
+      });
+      if (error) {
+        console.error("ATOMIC SCHEDULE FAILED:", { code: error.code, message: error.message });
+        return res.status(500).json({ success: false, error: "Failed to save scheduled campaign." });
+      }
+      if (!quotaResult?.allowed) {
+        return res.status(403).json({ success: false, upgradeRequired: true, error: quotaResult?.reason || "Campaign limit reached." });
+      }
+      data = quotaResult.campaign;
+      if (!data?.id) throw new Error("Atomic scheduling returned no campaign.");
+  
+  
+    } else {
+        const { data: legacyData, error } = await supabase
+        .from("scheduled_campaigns")
+        .insert(insertPayload)
+        .select()
+        .single();
+  
+      if (error) {
+        console.log("SCHEDULE INSERT FAILED:", {
+          platform: normalizedPlatform,
+          error: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          payload: insertPayload,
+        });
+  
+        return res.status(500).json({
+          success: false,
+          error: "Failed to save scheduled campaign.",
+          details: error.message,
+          code: error.code,
+          hint: error.hint,
+        });
+      }
+  
+      data = legacyData;
+      if (userId) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("subscription_tier, monthly_campaign_count")
+          .eq("id", userId)
+          .single();
+  
+        if (!profileError && (profile?.subscription_tier || "free") === "free") {
+          await supabase
+            .from("profiles")
+            .update({
+              monthly_campaign_count:
+                (profile?.monthly_campaign_count || 0) + 1,
+            })
+            .eq("id", userId);
+        }
+      }
+  
+  
     }
-    const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
-      p_user_id: userId,
-      p_campaign: insertPayload,
-    });
-    if (error) {
-      console.error("ATOMIC SCHEDULE FAILED:", { code: error.code, message: error.message });
-      return res.status(500).json({ success: false, error: "Failed to save scheduled campaign." });
-    }
-    if (!quotaResult?.allowed) {
-      return res.status(403).json({ success: false, upgradeRequired: true, error: quotaResult?.reason || "Campaign limit reached." });
-    }
-    const data = quotaResult.campaign;
-    if (!data?.id) throw new Error("Atomic scheduling returned no campaign.");
-
     await createNotification({
       userId,
       title: "Campaign Scheduled",
