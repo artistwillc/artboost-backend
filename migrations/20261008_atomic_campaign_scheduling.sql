@@ -45,6 +45,11 @@ begin
     end;
   end if;
   if coalesce(p.subscription_tier,'free') = 'free' then
+    -- Only future one-time posts qualify for manual Free scheduling.
+    -- Reject past timestamps without consuming a monthly slot.
+    if (p_campaign->>'publish_at')::timestamptz <= now() then
+      return jsonb_build_object('allowed',false,'reason','Publishing date must be in the future');
+    end if;
     -- Free subscribers may select any one supported platform. Derive the
     -- choice from their first scheduled campaign; changing it is not supported
     -- by this RPC and must use a separately approved account-level policy.
