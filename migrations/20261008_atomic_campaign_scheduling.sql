@@ -33,6 +33,17 @@ begin
      or nullif(trim(coalesce(p_campaign->>'publish_at','')),'') is null then
     return jsonb_build_object('allowed',false,'reason','Missing required campaign fields');
   end if;
+  -- Reject malformed or non-finite timestamps without aborting the transaction.
+  -- Only the Free path needs this new validation; paid scheduling is unchanged.
+  if coalesce(p.subscription_tier,'free') = 'free' then
+    begin
+      if not isfinite((p_campaign->>'publish_at')::timestamptz) then
+        return jsonb_build_object('allowed',false,'reason','Invalid publishing date');
+      end if;
+    exception when invalid_datetime_format or datetime_field_overflow then
+      return jsonb_build_object('allowed',false,'reason','Invalid publishing date');
+    end;
+  end if;
   if coalesce(p.subscription_tier,'free') = 'free' then
     -- Free subscribers may select any one supported platform. Derive the
     -- choice from their first scheduled campaign; changing it is not supported
