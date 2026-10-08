@@ -17,3 +17,18 @@ Backend requirements before release:
 Still to decide: how often Free users may change their selected social platform; which manual-post platforms are actually supported; whether the monthly quota counts created campaigns or published posts.
 
 Status: SPECIFICATION ONLY. No production entitlement changes or migrations are authorized by this document.
+
+## Verified route inventory (2026-10-08)
+Dedicated `backend/routes/stores.js` entry points:
+- `GET /` lists stores (read-only; product policy must decide whether Free accounts see legacy stores).
+- `POST /:storeId/sync-background`, `POST /:storeId/sync`: store scans/synchronization; paid-only.
+- `POST /universal/import`, `POST /redbubble/import`, `POST /fine-art-america/import`: imports; paid-only.
+- `POST /:storeId/disconnect`: allow users to remove old connections, even after downgrading.
+- `GET /import-jobs/:jobId`: read-only progress; protect ownership, avoid creating new jobs.
+- `POST /sync-due/run`: internal background scheduler; requires separate service authentication and paid-tier checks per job, not merely a client middleware gate.
+
+Also audit `backend/routes/automations.js` creation/update/resume/run routes, `backend/server.js` legacy Etsy/Shopify and `/api/v2/store-connections` routes, OAuth callbacks, and catalog import workers. Do not consider Free restrictions complete until all entry points and workers are covered.
+
+Security: `backend/middleware/auth.js` already provides `resolveRequestUserId` with strict authentication in production. Subscription verification must use the resolved identity, not an unverified `userId` body/query parameter.
+
+Implementation status: inventory only; no store entitlement gate active.
