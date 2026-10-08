@@ -36,3 +36,54 @@ test("authorization scheme is case insensitive and token is passed unchanged", a
   assert.equal((await verifySchedulingUser(guarded, "bEaReR opaque-token", "a")).ok, true);
   assert.equal(received, "opaque-token");
 });
+
+test("thrown Supabase auth errors are rejected without leaking internal details", async () => {
+  const failing = { auth: { getUser: async () => { throw new Error("network or provider failure"); } } };
+  assert.deepEqual(
+    await verifySchedulingUser(failing, "Bearer opaque-token", "a"),
+    { ok: false, status: 401, reason: "Invalid or expired session" }
+  );
+});
+
+test("non-string authorization headers cannot be coerced into valid tokens", async () => {
+  let calls = 0;
+  const guarded = { auth: { getUser: async () => { calls++; return { data: { user: { id: "a" } }, error: null }; } } };
+  for (const authorization of [["Bearer valid"], { toString: () => "Bearer valid" }, 123, null]) {
+    assert.equal((await verifySchedulingUser(guarded, authorization, "a")).status, 401);
+  }
+  assert.equal(calls, 0);
+});
+test("line-break bearer header is rejected before Supabase lookup", async () => {
+  let calls = 0;
+  const guarded = { auth: { getUser: async () => { calls++; return { data: { user: { id: "a" } }, error: null }; } } };
+  assert.equal((await verifySchedulingUser(guarded, "Bearer\nvalid", "a")).status, 401);
+  assert.equal(calls, 0);
+});
+
+test("malformed claimed account IDs fail ownership validation", async () => {
+  for (const claimedUserId of [null, 123, ["a"], { id: "a" }, ""]) {
+    assert.deepEqual(
+      await verifySchedulingUser(client({ id: "a" }), "Bearer token", claimedUserId),
+      { ok: false, status: 403, reason: "Account mismatch" }
+    );
+  }
+});
+
+test("malformed authenticated user IDs are rejected as invalid sessions", async () => {
+  for (const id of [null, 123, ["a"], { id: "a" }, ""]) {
+    assert.deepEqual(
+      await verifySchedulingUser(client({ id }), "Bearer token", "a"),
+      { ok: false, status: 401, reason: "Invalid or expired session" }
+    );
+  }
+});
+
+test("authentication provider null and incomplete responses fail closed", async () => {
+  for (const response of [null, undefined, {}, { data: null }, { data: {} }, { data: { user: null } }]) {
+    const provider = { auth: { getUser: async () => response } };
+    assert.deepEqual(
+      await verifySchedulingUser(provider, "Bearer token", "a"),
+      { ok: false, status: 401, reason: "Invalid or expired session" }
+    );
+  }
+});
