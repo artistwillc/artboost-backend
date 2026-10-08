@@ -19,15 +19,15 @@ do $$
 declare a jsonb; b jsonb; c jsonb; n integer;
 begin
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000001',
- '{"platform":"Pinterest","title":"Test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into a;
+ '{"platform":"Pinterest","title":"Test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into a;
  if not (a->>'allowed')::boolean then raise exception 'Fifth campaign denied: %',a; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000001',
- '{"platform":"Pinterest","title":"Test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into b;
+ '{"platform":"Pinterest","title":"Test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into b;
  if (b->>'allowed')::boolean then raise exception 'Sixth campaign accepted'; end if;
  select count(*) into n from public.scheduled_campaigns;
  if n <> 1 then raise exception 'Expected one inserted campaign, got %',n; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000001',
- '{"platform":"Facebook","title":"Test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into c;
+ '{"platform":"Facebook","title":"Test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into c;
  if (c->>'allowed')::boolean then raise exception 'Free Facebook campaign accepted'; end if;
 end $$;
 -- Free users may choose Facebook first; subsequent Pinterest requests must fail.
@@ -37,16 +37,16 @@ do $choice$
 declare first_post jsonb; wrong_platform jsonb; recurring jsonb; next_run jsonb; count_after integer;
 begin
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
- '{"platform":"Facebook","title":"Chosen platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into first_post;
+ '{"platform":"Facebook","title":"Chosen platform","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into first_post;
  if (first_post->>'allowed') is distinct from 'true' then raise exception 'Free Facebook first choice rejected: %',first_post; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
- '{"platform":"Pinterest","title":"Wrong platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into wrong_platform;
+ '{"platform":"Pinterest","title":"Wrong platform","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into wrong_platform;
  if (wrong_platform->>'allowed') is distinct from 'false' then raise exception 'Second platform accepted: %',wrong_platform; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
- '{"platform":"Facebook","title":"Recurring","description":"Test","publish_at":"2030-01-01T12:00:00Z","repeat_type":"daily"}') into recurring;
+ '{"platform":"Facebook","title":"Recurring","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z","repeat_type":"daily"}') into recurring;
  if (recurring->>'allowed') is distinct from 'false' then raise exception 'Recurring Free post accepted: %',recurring; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004',
- '{"platform":"Facebook","title":"Background","description":"Test","publish_at":"2030-01-01T12:00:00Z","next_run_at":"2030-01-02T12:00:00Z"}') into next_run;
+ '{"platform":"Facebook","title":"Background","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z","next_run_at":"2030-01-02T12:00:00Z"}') into next_run;
  if (next_run->>'allowed') is distinct from 'false' then raise exception 'Background Free post accepted: %',next_run; end if;
  select monthly_campaign_count into count_after from public.profiles where id='00000000-0000-0000-0000-000000000004';
  if count_after <> 1 then raise exception 'Rejected Free requests consumed quota: %',count_after; end if;
@@ -58,7 +58,7 @@ do $reset$
 declare result jsonb; counter integer; next_reset date;
 begin
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000002',
- '{"platform":"Pinterest","title":"Reset test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into result;
+ '{"platform":"Pinterest","title":"Reset test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into result;
  if not (result->>'allowed')::boolean then raise exception 'Reset did not allow campaign: %',result; end if;
  select monthly_campaign_count,campaign_reset_date into counter,next_reset from public.profiles
  where id='00000000-0000-0000-0000-000000000002';
@@ -71,7 +71,7 @@ do $paid$
 declare result jsonb; counter integer;
 begin
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000003',
- '{"platform":"Facebook","title":"Paid test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into result;
+ '{"platform":"Facebook","title":"Paid test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into result;
  if not (result->>'allowed')::boolean then raise exception 'Paid tier blocked: %',result; end if;
  select monthly_campaign_count into counter from public.profiles where id='00000000-0000-0000-0000-000000000003';
  if counter <> 5 then raise exception 'Paid tier quota changed: %',counter; end if;
@@ -84,10 +84,10 @@ begin
  select monthly_campaign_count into before_quota from public.profiles
  where id='00000000-0000-0000-0000-000000000002';
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000099',
- '{"platform":"Pinterest","title":"Missing profile","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into missing;
+ '{"platform":"Pinterest","title":"Missing profile","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into missing;
  if (missing->>'allowed') is distinct from 'false' then raise exception 'Missing profile accepted: %',missing; end if;
  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000002',
- '{"platform":"unsupported","title":"Bad platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into unsupported;
+ '{"platform":"unsupported","title":"Bad platform","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into unsupported;
  if (unsupported->>'allowed') is distinct from 'false' then raise exception 'Unsupported platform accepted: %',unsupported; end if;
  select count(*) into after_count from public.scheduled_campaigns;
  select monthly_campaign_count into after_quota from public.profiles
