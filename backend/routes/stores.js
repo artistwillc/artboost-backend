@@ -21,6 +21,30 @@ import {
 
 const router = express.Router();
 
+
+/**
+ * Staged paid-only store operations. Disabled until all store entry points,
+ * background workers and released clients have been verified.
+ */
+async function verifyPaidStoreOperation(userId, res) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status").eq("id", userId).single();
+  if (error || !data) {
+    res.status(503).json({ success: false, error: "Unable to verify subscription." });
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  const status = String(data.subscription_status || "").toLowerCase();
+  if (!["starter","pro","business"].includes(tier) ||
+      !["active","trialing"].includes(status)) {
+    res.status(403).json({ success: false, upgradeRequired: true,
+      error: "Store connections and scanning require a paid subscription." });
+    return false;
+  }
+  return true;
+}
+
 startStoreSyncWorker();
 startCatalogImportWorker();
 
@@ -58,6 +82,7 @@ router.post("/:storeId/sync-background", async (req, res) => {
     const resolvedUserId =
       await resolveRequestUserId(req, res);
     if (!resolvedUserId) return;
+    if (!await verifyPaidStoreOperation(resolvedUserId, res)) return;
 
     const userId =
       String(resolvedUserId).trim();
@@ -156,6 +181,7 @@ router.post("/:storeId/sync", async (req, res) => {
     const userId =
       await resolveRequestUserId(req, res);
     if (!userId) return;
+    if (!await verifyPaidStoreOperation(userId, res)) return;
 
     const result = await syncStoreConnection({
       userId: String(userId),
@@ -247,6 +273,7 @@ router.post("/universal/import", async (req, res) => {
     const userId =
       await resolveRequestUserId(req, res);
     if (!userId) return;
+    if (!await verifyPaidStoreOperation(userId, res)) return;
     if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A storeId or storeUrl is required." });
     const result = await importUniversalStore({
       userId: String(userId),
@@ -271,6 +298,7 @@ router.post("/redbubble/import", async (req, res) => {
     const userId =
       await resolveRequestUserId(req, res);
     if (!userId) return;
+    if (!await verifyPaidStoreOperation(userId, res)) return;
     if (!resolvedStoreUrl) return res.status(400).json({ success: false, error: "Missing Redbubble store URL." });
     const result = await importRedbubbleStore({
       userId: String(userId),
@@ -292,6 +320,7 @@ router.post("/fine-art-america/import", async (req, res) => {
     const userId =
       await resolveRequestUserId(req, res);
     if (!userId) return;
+    if (!await verifyPaidStoreOperation(userId, res)) return;
     if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A Fine Art America storeId or storeUrl is required." });
     const result = await importFineArtAmericaStore({
       userId: String(userId),
