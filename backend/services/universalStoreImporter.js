@@ -490,7 +490,8 @@ function parseProductPage({
 async function mapWithConcurrency(
   values,
   concurrency,
-  mapper
+  mapper,
+  onError = () => {}
 ) {
   const results = [];
   let index = 0;
@@ -510,6 +511,7 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        onError(error);
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -737,6 +739,7 @@ export async function importUniversalStore({
     );
   }
 
+  let artpalProductAccessDenied = false;
   const parsedProducts =
     await mapWithConcurrency(
       limitedLinks,
@@ -766,14 +769,25 @@ export async function importUniversalStore({
           );
         }
 
+        if (isArtPalHost(storeHost) && isArtPalChallengeHtml(html)) {
+          throw new Error("ArtPal security verification challenge detected on artwork page.");
+        }
+
         return parseProductPage({
           html,
           responseUrl,
           originalUrl: productUrl,
           storeHost,
         });
+      },
+      (error) => {
+        if (isArtPalHost(storeHost) && isArtPalAccessError(error)) {
+          artpalProductAccessDenied = true;
+        }
       }
     );
+
+  assertArtPalScanAccessible(artpalProductAccessDenied);
 
   const uniqueProducts = [
     ...new Map(
