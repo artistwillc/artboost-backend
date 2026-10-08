@@ -1,6 +1,7 @@
 // ARTBOOST_NOTIFICATION_PREFERENCE_GATE_V3154
 import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
 import { verifySchedulingUser } from "./services/verifySchedulingUser.js";
+import { atomicSchedulingEnabled } from "./services/atomicSchedulingGate.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -10966,7 +10967,7 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) {
         return res.status(identity.status).json({ success: false, error: identity.reason });
@@ -11008,7 +11009,7 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true") {
+    if (!atomicSchedulingEnabled()) {
       const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
   
       if (!limitCheck.allowed) {
@@ -11048,7 +11049,7 @@ app.post("/schedule-campaign", async (req, res) => {
     };
 
     let data;
-    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
+    if (atomicSchedulingEnabled()) {
       // Enable only after the atomic quota migration is applied and verified.
       const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
         p_user_id: userId,
