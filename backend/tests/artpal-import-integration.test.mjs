@@ -91,3 +91,21 @@ test("HTTP 200 Cloudflare challenge preserves catalog", async () => {
     response("<html><title>Just a moment...</title><p>Cloudflare security verification</p></html>", 200, url), 1
   );
 });
+
+test("HTTP 403 on an artwork page preserves catalog", async () => {
+  await runDeniedScan(async (url) => {
+    if (url.includes("/artwork/example")) return response("Forbidden", 403, url);
+    if (url.includes("page=2")) return response("", 200, url);
+    return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
+  }, 2);
+});
+
+test("HTTP 200 Cloudflare challenge on an artwork page preserves catalog", async () => {
+  await runDeniedScan(async (url) => {
+    if (url.includes("/artwork/example")) {
+      return response("<html><title>Just a moment...</title><p>Cloudflare</p></html>", 200, url);
+    }
+    if (url.includes("page=2")) return response("", 200, url);
+    return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
+  }, 2);
+});
