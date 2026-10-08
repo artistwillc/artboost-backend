@@ -17,6 +17,6 @@ export function isArtPalAccessError(error) {
 
 export function assertArtPalScanAccessible(accessDenied) {
   if (accessDenied) {
-    throw new Error("ArtPal denied storefront access (HTTP 403 / security verification). No artwork was imported or deleted. Retry after ArtPal permits access, or use an authorized artwork export or individual product URLs.");
+    throw new Error("ArtPal denied storefront access or a page request failed (HTTP 403, security verification, or network error). No artwork was imported or deleted. Retry when ArtPal is reachable, or use an authorized artwork export or individual product URLs.");
   }
 }
