@@ -78,3 +78,9 @@ Backend CI run #76 and isolated PostgreSQL run #54 succeeded at commit `f36530c6
 - Root and backend unit tests are aligned, including partial Stripe line items, malformed auth headers, thrown auth-provider errors and malformed account IDs.
 - Latest commit `b9984a1dd61aad17965d7857e3e316f70af58f33`: backend CI run #82 passed; isolated PostgreSQL run #60 passed.
 - **Approval remains conditional** on published client compatibility, Stripe price mapping and staging validation; green unit tests alone do not authorize deployment.
+
+## Live production baseline (2026-10-08)
+- Render deployment `dep-db3qu18473hc73bt77og` reports status `live` for commit `9a5a06649abc5879bda4aa998079e04d01311074` on `main` (Google Play download badge correction).
+- The currently live code is **not** draft PR #42. Preserve this commit as the known deployed baseline for comparison and rollback planning.
+- Production service has auto-deploy enabled on `main`; do not merge this PR as a surrogate for isolated testing.
+- Next gate: obtain and verify real published-client scheduling requests and Stripe Price ID mappings without exposing user tokens or secrets. No configuration changes were made during this check.
