@@ -684,7 +684,7 @@ export async function importUniversalStore({
     }
   }
 
-  if (artpalAccessDenied && links.size === 0) {
+  if (artpalAccessDenied) {
     throw new Error("ArtPal denied storefront access (HTTP 403 / security verification). No artwork was imported or deleted. Retry after ArtPal permits access, or use an authorized artwork export or individual product URLs.");
   }
 
