@@ -123,71 +123,47 @@ function setAccountStatus(message, isError = false) {
 
 function setAccountMode(mode) {
   const signup = mode !== "signin";
-  accountMode = signup ? "signup" : "signin";
   document.querySelector("#accountTitle").textContent = signup ? "Create your ArtBoost account" : "Sign in to ArtBoost";
   document.querySelector("#accountCopy").textContent = signup
-    ? "Create your account with ArtBoost, then choose the plan that fits your business."
-    : "Sign in with the same ArtBoost account you use in the app.";
-  document.querySelector("#accountSubmit").textContent = signup ? "Create Account" : "Sign In";
-  document.querySelector("#accountPassword").autocomplete = signup ? "new-password" : "current-password";
-  document.querySelectorAll("[data-account-tab]").forEach(b => b.classList.toggle("active", b.dataset.accountTab === accountMode));
-  setAccountStatus("");
+    ? "Create your account first, then choose the plan that fits your business."
+    : "Sign in securely in your browser with your existing ArtBoost account.";
+  const image = document.querySelector("#accountButtonImage");
+  const primary = document.querySelector("#accountPrimary");
+  const pendingTier = new URLSearchParams(window.location.search).get("tier");
+  const validTier = ["starter", "pro", "business"].includes(String(pendingTier || "").toLowerCase())
+    ? String(pendingTier).toLowerCase()
+    : "";
+  const query = new URLSearchParams({ mode: signup ? "signup" : "signin" });
+  if (validTier) query.set("tier", validTier);
+  primary.href = `/app/web-auth?${query.toString()}`;
+  image.src = signup ? "assets/create-account.webp" : "assets/sign-in.webp";
+  image.alt = signup ? "Create an Account" : "Sign In";
+  document.querySelectorAll("[data-account-tab]").forEach(b => b.classList.toggle("active", b.dataset.accountTab === (signup ? "signup" : "signin")));
 }
-
 document.querySelectorAll("[data-account]").forEach(btn => btn.addEventListener("click", () => {
   setAccountMode(btn.dataset.account);
   openModal(accountModal);
-  setTimeout(() => document.querySelector("#accountEmail").focus(), 0);
 }));
-document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => setAccountMode(btn.dataset.accountTab)));
+document.querySelectorAll("[data-account-tab]").forEach(btn => btn.addEventListener("click", () => {
+  setAccountMode(btn.dataset.accountTab);
+  window.location.assign(document.querySelector("#accountPrimary").href);
+}));
 
-document.querySelector("#accountForm").addEventListener("submit", async event => {
-  event.preventDefault();
-  const email = document.querySelector("#accountEmail").value.trim();
-  const password = document.querySelector("#accountPassword").value;
-  const submit = document.querySelector("#accountSubmit");
+const pageParams = new URLSearchParams(window.location.search);
+const requestedAccount = pageParams.get("account");
+const requestedTier = String(pageParams.get("tier") || "").toLowerCase();
+const checkoutStatus = pageParams.get("checkout");
+if (checkoutStatus === "success") {
+  const label = requestedTier ? requestedTier.charAt(0).toUpperCase() + requestedTier.slice(1) : "paid";
+  showToast(`Your ${label} checkout is complete. Sign in to open your ArtBoost workspace.`);
+} else if (checkoutStatus === "cancelled") {
+  showToast("Checkout was cancelled. No new purchase was completed.");
+}
+if (requestedAccount && ["free", "starter", "pro", "business"].includes(requestedTier || "free")) {
+  setAccountMode(requestedAccount === "required" ? "signin" : "signup");
+  openModal(accountModal);
+}
 
-  if (!email || !password) return;
-  submit.disabled = true;
-  setAccountStatus(accountMode === "signin" ? "Signing in…" : "Creating account…");
-
-  try {
-    const config = await getAuthConfig();
-    const endpoint = accountMode === "signin" ? "/auth/v1/token?grant_type=password" : "/auth/v1/signup";
-    const response = await fetch(config.supabaseUrl.replace(/\/$/, "") + endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: config.supabasePublishableKey,
-        Authorization: "Bearer " + config.supabasePublishableKey
-      },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.msg || data.message || data.error_description || data.error || "Authentication failed.");
-
-    if (accountMode === "signup" && !data.access_token) {
-      setAccountStatus("Account created. Check your email to confirm it, then sign in.");
-      setAccountMode("signin");
-      return;
-    }
-
-    if (!data.access_token || !data.user) throw new Error("ArtBoost did not receive a valid login session.");
-
-    localStorage.setItem("artboost_web_session", JSON.stringify({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token || "",
-      expires_in: data.expires_in || 3600,
-      expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
-      user: data.user
-    }));
-    window.location.assign("/workspace/");
-  } catch (error) {
-    setAccountStatus(error && error.message ? error.message : "Unable to sign in.", true);
-  } finally {
-    submit.disabled = false;
-  }
-});
 
 document.querySelector("[data-demo-generate]").addEventListener("click", () => {
   const status = document.querySelector("#demoStatus");
