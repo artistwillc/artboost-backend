@@ -695,7 +695,7 @@ export async function importUniversalStore({
       const failureMessage = error instanceof Error ? error.message : String(error);
       pageFetchErrors.push(failureMessage);
       // A definitive access denial will not improve by requesting more pages.
-      if (/Store returned (?:401|403)\\b/.test(failureMessage)) {
+      if (/Store returned (?:401|403)\b/.test(failureMessage)) {
         throw new Error(
           "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Use a marketplace-authorized export or contact the marketplace about integration access."
         );
@@ -806,7 +806,7 @@ export async function importUniversalStore({
   ];
 
   if (uniqueProducts.length === 0 && productFetchFailures.some((message) =>
-    /Store returned (?:401|403)\\b/.test(message)
+    /Store returned (?:401|403)\b/.test(message)
   )) {
     throw new Error(
       "Artwork pages refused ArtBoost server access (HTTP 403/401). Saved products have not been deleted. Request marketplace-authorized access or use an official export."
@@ -960,6 +960,9 @@ export async function importUniversalStore({
       limitedLinks.length -
       uniqueProducts.length,
     syncStatusUpdated: !syncStatusError,
+    partial: productFetchFailures.length > 0 || pageFetchErrors.length > 0 || links.size > limitedLinks.length,
+    failedProductRequests: productFetchFailures.length,
+    failedPageRequests: pageFetchErrors.length,
     products:
       savedProducts || [],
   };
