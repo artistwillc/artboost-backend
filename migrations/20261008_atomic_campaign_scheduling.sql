@@ -25,6 +25,13 @@ begin
   if platform_key not in ('pinterest','facebook','instagram','x','threads','linkedin') then
     return jsonb_build_object('allowed',false,'reason','Unsupported platform');
   end if;
+  -- Prevent SQL casting errors for malformed optional scheduling timestamps.
+  -- Free accounts must not provide either recurring scheduling field.
+  if coalesce(p.subscription_tier,'free') = 'free'
+     and (nullif(p_campaign->>'repeat_until','') is not null
+          or nullif(p_campaign->>'next_run_at','') is not null) then
+    return jsonb_build_object('allowed',false,'reason','Free accounts cannot schedule recurring campaigns.');
+  end if;
   -- Validate required campaign fields inside the transaction as well as at
   -- the API boundary. Reject malformed direct RPC calls without side effects.
   if nullif(trim(coalesce(p_campaign->>'title','')),'') is null
