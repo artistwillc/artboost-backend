@@ -28,13 +28,17 @@ create table public.scheduled_campaigns (
  error text,
  updated_at timestamptz
 );
--- Mirror the Supabase role referenced in the migration.
-do $$ begin
- if not exists (select 1 from pg_roles where rolname='service_role') then
-   create role service_role nologin;
- end if;
-end $;
-do $ begin
- if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
- if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-end $;
+-- Mirror the Supabase roles referenced in the migration.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+END;
+$roles$;
