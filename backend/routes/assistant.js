@@ -1217,7 +1217,9 @@ function deterministicAccountAnswer(question, accountContext) {
       /\b(?:automation|automations)\b/.test(q) &&
         /\b(?:successful|success|run|runs|fail|fails|failed|failing|failure|failures|history|historical)\b/.test(q)
     ) &&
-    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
+    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    // Posting-time advice is not a request for historical publishing totals.
+    !/\b(?:best|optimal|ideal|recommended|when|what time|which day|day of week)\b/.test(q)
   ) {
     const analytics = accountContext.publishingAnalytics || {};
     const totalPosts = Number(
