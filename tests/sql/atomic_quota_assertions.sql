@@ -1,5 +1,13 @@
 \set ON_ERROR_STOP on
 begin;
+-- Ensure the privileged function cannot resolve attacker-controlled schemas.
+do $function_hardening$
+declare def text;
+begin
+  select pg_get_functiondef('public.schedule_campaign_with_quota(uuid,jsonb)'::regprocedure) into def;
+  if def not ilike '%SECURITY DEFINER%' then raise exception 'Quota RPC must use SECURITY DEFINER'; end if;
+  if def not ilike '%search_path = %' then raise exception 'Quota RPC must set search_path'; end if;
+end $function_hardening$;
 -- Only the trusted service role may invoke the scheduling RPC.
 do $privileges$
 begin
