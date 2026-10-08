@@ -109,3 +109,12 @@ test("HTTP 200 Cloudflare challenge on an artwork page preserves catalog", async
     return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
   }, 2);
 });
+
+test("ArtPal HTTP 403 stops pagination without requesting further pages", async () => {
+  const requested = [];
+  await runDeniedScan(async (url) => {
+    requested.push(url);
+    return response("Forbidden", 403, url);
+  }, 6);
+  assert.equal(requested.length, 1, "must not continue pagination after access denial");
+});
