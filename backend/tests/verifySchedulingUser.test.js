@@ -44,3 +44,18 @@ test("thrown Supabase auth errors are rejected without leaking internal details"
     { ok: false, status: 401, reason: "Invalid or expired session" }
   );
 });
+
+test("non-string authorization headers cannot be coerced into valid tokens", async () => {
+  let calls = 0;
+  const guarded = { auth: { getUser: async () => { calls++; return { data: { user: { id: "a" } }, error: null }; } } };
+  for (const authorization of [["Bearer valid"], { toString: () => "Bearer valid" }, 123, null]) {
+    assert.equal((await verifySchedulingUser(guarded, authorization, "a")).status, 401);
+  }
+  assert.equal(calls, 0);
+});
+test("line-break bearer header is rejected before Supabase lookup", async () => {
+  let calls = 0;
+  const guarded = { auth: { getUser: async () => { calls++; return { data: { user: { id: "a" } }, error: null }; } } };
+  assert.equal((await verifySchedulingUser(guarded, "Bearer\nvalid", "a")).status, 401);
+  assert.equal(calls, 0);
+});
