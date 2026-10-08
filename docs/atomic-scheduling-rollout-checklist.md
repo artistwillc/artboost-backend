@@ -28,3 +28,10 @@
 - Search of `artistwillc/artboost-ai` for `schedule-campaign` and `scheduled-campaigns` returned no matching indexed files; its root `package.json` identifies a backend package, not a verified mobile client.
 - **Unverified:** released iOS and Android source versions, authorization headers on scheduling requests, and compatibility with the protected routes.
 - Do not mark `SCHEDULE_CLIENT_AUTH_VERIFIED` true based on repository search or backend tests alone. Obtain exact mobile/web client source or capture authorized requests in a nonproduction environment and test all four operations.
+
+## Verification evidence (2026-10-08)
+- Subscription tier backend run #56 succeeded; isolated PostgreSQL quota and RPC-permission run #34 succeeded.
+- Connected GitHub owner repository listing returned only `artistwillc/artboost-backend` and `artistwillc/artboost-ai`.
+- Indexed searches across both repositories for `supabase.auth.getSession`, `schedule-campaign`, `Authorization`, and `expo` returned no matching files. Search index absence is **not** proof that a client omits bearer tokens.
+- **Release blocker remains:** locate the exact source/build corresponding to currently published iOS and Android versions, or run authorized nonproduction request captures, then validate bearer tokens on create/list/delete/lifecycle before enabling either authentication enforcement or atomic scheduling.
+- Never set `ENFORCE_SCHEDULE_AUTH=true` solely on the strength of backend unit tests: older clients could receive authentication failures.
