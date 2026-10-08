@@ -11030,25 +11030,26 @@ app.post("/schedule-campaign", async (req, res) => {
     // Free scheduling must use the atomic quota path. The legacy path is
     // non-atomic and still has obsolete Pinterest-only entitlement logic.
     // Paid accounts continue through their existing scheduling flow.
-    if (!atomicSchedulingEnabled()) {
-      const { data: schedulingProfile, error: schedulingProfileError } = await supabase
-        .from("profiles")
-        .select("subscription_tier")
-        .eq("id", userId)
-        .single();
-      if (schedulingProfileError || !schedulingProfile) {
-        return res.status(503).json({ success: false, error: "Unable to verify Free scheduling entitlement." });
-      }
-      if (String(schedulingProfile.subscription_tier || "free").toLowerCase() === "free") {
-        return res.status(503).json({
-          success: false,
-          error: "Free scheduling is temporarily unavailable until atomic quota enforcement is enabled.",
-        });
-      }
+    // Resolve tier once. Atomic Free quotas must not reroute paid subscribers.
+    const { data: schedulingProfile, error: schedulingProfileError } = await supabase
+      .from("profiles")
+      .select("subscription_tier")
+      .eq("id", userId)
+      .single();
+    if (schedulingProfileError || !schedulingProfile) {
+      return res.status(503).json({ success: false, error: "Unable to verify scheduling entitlement." });
     }
-    if (!atomicSchedulingEnabled()) {
+    const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").toLowerCase() === "free";
+    const useAtomicFreeScheduling = isFreeScheduling && atomicSchedulingEnabled();
+    if (isFreeScheduling && !useAtomicFreeScheduling) {
+      return res.status(503).json({
+        success: false,
+        error: "Free scheduling is temporarily unavailable until atomic quota enforcement is enabled.",
+      });
+    }
+    if (!isFreeScheduling) {
+      // Preserve the original paid scheduling quota and insert path.
       const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
-  
       if (!limitCheck.allowed) {
         return res.status(403).json({
           success: false,
@@ -11086,7 +11087,7 @@ app.post("/schedule-campaign", async (req, res) => {
     };
 
     let data;
-    if (atomicSchedulingEnabled()) {
+    if (useAtomicFreeScheduling) {
       // Enable only after the atomic quota migration is applied and verified.
       const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
         p_user_id: userId,
