@@ -1,6 +1,6 @@
 // ARTBOOST_NOTIFICATION_PREFERENCE_GATE_V3154
-import { resolveSubscriptionTier } from "../services/subscriptionTier.js";
-import { verifySchedulingUser } from "../services/verifySchedulingUser.js";
+import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
+import { verifySchedulingUser } from "./services/verifySchedulingUser.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
