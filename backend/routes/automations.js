@@ -36,7 +36,7 @@ async function requirePaidAutomation(userId, res) {
   const tier = String(data.subscription_tier || "free").toLowerCase();
   const status = String(data.subscription_status || "").toLowerCase();
   if (!["starter","pro","business"].includes(tier) ||
-      !["active","trialing"].includes(status)) {
+      !["active","trialing", "complimentary_active"].includes(status)) {
     res.status(403).json({ success: false, upgradeRequired: true,
       error: "Automated posting requires a paid subscription." });
     return false;
