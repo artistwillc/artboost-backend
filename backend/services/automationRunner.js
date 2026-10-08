@@ -596,7 +596,7 @@ export async function runAutomation({
     const tier = String(profile.subscription_tier || "free").toLowerCase();
     const status = String(profile.subscription_status || "").toLowerCase();
     if (!["starter", "pro", "business"].includes(tier) ||
-        !["active", "trialing"].includes(status)) {
+        !["active", "trialing", "complimentary_active"].includes(status)) {
       throw new Error("Automated posting requires a paid subscription.");
     }
   }
