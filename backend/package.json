@@ -5,8 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node --check website/workspace/workspace.js && node tests/background-scheduler-guard-regression.js && node tests/web-workspace-regression.js",
+    "test": "node --check server.js && node --check services/automationRunner.js && node --check services/automationService.js && node tests/background-scheduler-guard-regression.js && node --check website/workspace/workspace.js && node tests/web-workspace-regression.js",
     "test:automation-regression": "node tests/automation-repeat-delay-regression.js",
+    "build:web": "node scripts/buildWebApp.mjs",
+    "build": "npm run build:web",
+    "postinstall": "node scripts/buildWebApp.mjs",
+    "verify:web-export": "node scripts/verifyWebExport.mjs",
     "test:web-workspace": "node --check website/workspace/workspace.js && node tests/web-workspace-regression.js"
   },
   "keywords": [],
