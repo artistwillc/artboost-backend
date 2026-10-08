@@ -72,3 +72,9 @@ Production entrypoint `backend/server.js` expects all four client operations to 
 4. `PATCH /scheduled-campaigns/:id/lifecycle`: JSON body `userId` and `campaignStatus` (active/paused/ended/saved).
 The protected routes compare the Supabase-authenticated user ID against the claimed `userId` and scope database reads/writes to that user. The public mobile and website builds have **not** been observed sending these headers; do not enable the flags without validating actual client traffic or published source.
 Backend CI run #76 and isolated PostgreSQL run #54 succeeded at commit `f36530c63a54ac902c18e7a2039009de58a0300f`. The production Render service auto-deploys `main`; PR merge is a production deploy.
+
+## Post-synchronization CI checkpoint (2026-10-08)
+- Root and backend copies of `subscriptionTier.js` and `verifySchedulingUser.js` now use identical hardened logic.
+- Root and backend unit tests are aligned, including partial Stripe line items, malformed auth headers, thrown auth-provider errors and malformed account IDs.
+- Latest commit `b9984a1dd61aad17965d7857e3e316f70af58f33`: backend CI run #82 passed; isolated PostgreSQL run #60 passed.
+- **Approval remains conditional** on published client compatibility, Stripe price mapping and staging validation; green unit tests alone do not authorize deployment.
