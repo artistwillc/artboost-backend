@@ -16,7 +16,7 @@ export async function verifySchedulingUser(supabase, authorization, claimedUserI
   if (error || !data?.user?.id) {
     return { ok: false, status: 401, reason: "Invalid or expired session" };
   }
-  if (!claimedUserId || data.user.id !== claimedUserId) {
+  if (typeof claimedUserId !== "string" || !claimedUserId || data.user.id !== claimedUserId) {
     return { ok: false, status: 403, reason: "Account mismatch" };
   }
   return { ok: true, userId: data.user.id };
