@@ -133,3 +133,11 @@ test("ArtPal artwork network error does not permit a partial import", async () =
     return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
   });
 });
+
+test("ArtPal HTTP 200 artwork with missing metadata does not permit partial import", async () => {
+  await runDeniedScan(async (url) => {
+    if (url.includes("/artwork/example")) return response("<html><body>Artwork unavailable</body></html>", 200, url);
+    if (url.includes("page=2")) return response("", 200, url);
+    return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
+  });
+});
