@@ -44,7 +44,7 @@ assert.match(quotaSql, /selected_platform <> platform_key/, "Free must be limite
 assert.doesNotMatch(quotaSql, /Free users can only use Pinterest/i, "Free cannot be Pinterest-only");
 assert.match(quotaSql, /next_run_at',''\) is not null/, "Free must reject background next-run scheduling");
 assert.match(quotaSql, /repeat_type','one_time'\) <> 'one_time'/, "Free must reject recurring campaigns");
-assert.match(quotaSql, /if coalesce\(p.subscription_tier,'free'\) = 'free' then/, "Quota must only apply to Free");
+assert.match(quotaSql, /if lower\(trim\(coalesce\(p.subscription_tier,'free'\)\)\) = 'free' then/, "Quota must only apply to Free");
 const serverSource = fs.readFileSync(new URL("server.js", root), "utf8");
 assert.match(serverSource, /Free scheduling is temporarily unavailable until atomic quota enforcement is enabled/, "Free scheduling must fail closed when atomic quota is unavailable");
 assert.match(serverSource, /String\(schedulingProfile.subscription_tier \|\| "free"\).toLowerCase\(\) === "free"/, "Free-only fallback must not block paid tiers");
