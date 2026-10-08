@@ -52,3 +52,15 @@ test("multiple distinct paid tiers on one subscription are ambiguous", () => {
   ] } };
   assert.equal(resolveSubscriptionTier(subscription, env).tier, null);
 });
+
+test("missing Stripe items data does not grant paid tier", () => {
+  for (const subscription of [{ status: "active" }, { status: "active", items: {} }]) {
+    assert.equal(resolveSubscriptionTier(subscription, env).tier, null);
+  }
+});
+test("partially populated Stripe line items do not grant paid tier", () => {
+  const subscription = { status: "active", items: { data: [
+    { price: { id: "price_pro_month" } }, { price: null }
+  ] } };
+  assert.equal(resolveSubscriptionTier(subscription, env).tier, null);
+});
