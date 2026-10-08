@@ -1,8 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const source = fs.readFileSync(require('node:path').join(__dirname, '../server.js'), 'utf8');
+const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../server.js'), 'utf8');
 const route = (method, path) => {
   const start = source.indexOf(`app.${method}("${path}", async (req, res) => {`);
   assert.notEqual(start, -1, `Missing route ${method} ${path}`);
