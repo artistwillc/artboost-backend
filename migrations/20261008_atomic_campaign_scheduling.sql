@@ -27,7 +27,7 @@ begin
   end if;
   -- Prevent SQL casting errors for malformed optional scheduling timestamps.
   -- Free accounts must not provide either recurring scheduling field.
-  if coalesce(p.subscription_tier,'free') = 'free'
+  if lower(trim(coalesce(p.subscription_tier,'free'))) = 'free'
      and (nullif(p_campaign->>'repeat_until','') is not null
           or nullif(p_campaign->>'next_run_at','') is not null) then
     return jsonb_build_object('allowed',false,'reason','Free accounts cannot schedule recurring campaigns.');
@@ -42,7 +42,7 @@ begin
   end if;
   -- Reject malformed or non-finite timestamps without aborting the transaction.
   -- Only the Free path needs this new validation; paid scheduling is unchanged.
-  if coalesce(p.subscription_tier,'free') = 'free' then
+  if lower(trim(coalesce(p.subscription_tier,'free'))) = 'free' then
     begin
       if not isfinite((p_campaign->>'publish_at')::timestamptz) then
         return jsonb_build_object('allowed',false,'reason','Invalid publishing date');
@@ -51,7 +51,7 @@ begin
       return jsonb_build_object('allowed',false,'reason','Invalid publishing date');
     end;
   end if;
-  if coalesce(p.subscription_tier,'free') = 'free' then
+  if lower(trim(coalesce(p.subscription_tier,'free'))) = 'free' then
     -- Only future one-time posts qualify for manual Free scheduling.
     -- Reject past timestamps without consuming a monthly slot.
     if (p_campaign->>'publish_at')::timestamptz <= now() then
@@ -102,7 +102,7 @@ begin
     (p_campaign->>'repeat_until')::timestamptz, null, now()
   ) returning * into inserted;
 
-  if coalesce(p.subscription_tier,'free') = 'free' then
+  if lower(trim(coalesce(p.subscription_tier,'free'))) = 'free' then
     update public.profiles
       set monthly_campaign_count = campaign_count + 1,
           campaign_reset_date = reset_date
