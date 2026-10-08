@@ -265,7 +265,7 @@ router.post("/universal/import", async (req, res) => {
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
-    const accessDenied = /storefront refused ArtBoost server access/i.test(details);
+    const accessDenied = /(?:storefront refused|artwork pages refused) ArtBoost server access/i.test(details);
     return res.status(accessDenied ? 502 : 500).json({
       success: false,
       code: accessDenied ? "STOREFRONT_ACCESS_DENIED" : "STORE_IMPORT_FAILED",
