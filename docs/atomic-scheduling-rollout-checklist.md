@@ -63,3 +63,12 @@
 - **Auto-deploy is enabled on commits to `main`.** Merging PR #42 would initiate a production deploy even if atomic quota flags remain disabled. Therefore merging is a production change and requires explicit approval after all checks.
 - PR branch remains isolated from the Render production deploy branch.
 - No live Render environment variables were modified; do not activate `ENFORCE_SCHEDULE_AUTH` or atomic scheduling flags until published-client compatibility and migration readiness are independently verified.
+
+## Exact client compatibility contract (2026-10-08)
+Production entrypoint `backend/server.js` expects all four client operations to identify the account and, after auth enforcement, provide a **Supabase user access token** in the `Authorization: Bearer <token>` header:
+1. `POST /schedule-campaign`: JSON body `userId`, `title`, `description`, `publishAt`, and campaign details.
+2. `GET /scheduled-campaigns?userId=<uuid>`: user ID in query string.
+3. `DELETE /scheduled-campaigns/:id?userId=<uuid>`: campaign ID in URL, user ID in query string.
+4. `PATCH /scheduled-campaigns/:id/lifecycle`: JSON body `userId` and `campaignStatus` (active/paused/ended/saved).
+The protected routes compare the Supabase-authenticated user ID against the claimed `userId` and scope database reads/writes to that user. The public mobile and website builds have **not** been observed sending these headers; do not enable the flags without validating actual client traffic or published source.
+Backend CI run #76 and isolated PostgreSQL run #54 succeeded at commit `f36530c63a54ac902c18e7a2039009de58a0300f`. The production Render service auto-deploys `main`; PR merge is a production deploy.
