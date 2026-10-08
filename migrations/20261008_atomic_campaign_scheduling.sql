@@ -31,6 +31,7 @@ begin
     reset_date := p.campaign_reset_date;
     campaign_count := coalesce(p.monthly_campaign_count,0);
     if reset_date is null or today_utc >= reset_date then
+      -- Calendar-month advance, anchored to the date of the reset.
       reset_date := (today_utc + interval '1 month')::date;
       campaign_count := 0;
     end if;
