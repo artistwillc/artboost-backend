@@ -48,6 +48,14 @@ assert.match(quotaSql, /if coalesce\(p.subscription_tier,'free'\) = 'free' then/
 const serverSource = fs.readFileSync(new URL("server.js", root), "utf8");
 assert.match(serverSource, /Free scheduling is temporarily unavailable until atomic quota enforcement is enabled/, "Free scheduling must fail closed when atomic quota is unavailable");
 assert.match(serverSource, /String\(schedulingProfile.subscription_tier \|\| "free"\).toLowerCase\(\) === "free"/, "Free-only fallback must not block paid tiers");
+// A manually scheduled one-time Free post must still be published when due.
+// The worker uses publish_at, not next_run_at, to find due campaigns.
+const workerStart = serverSource.indexOf("async function runScheduledCampaigns()");
+assert.ok(workerStart >= 0, "Scheduled campaign worker must exist");
+const scheduledWorker = serverSource.slice(workerStart, serverSource.indexOf("\n}", workerStart) + 2);
+assert.match(scheduledWorker, /\.lte\("publish_at", nowIso\)/, "One-time posts must be dispatched by publish_at");
+assert.match(scheduledWorker, /\.eq\("status", "scheduled"\)/, "Only scheduled posts may be dispatched");
+assert.match(scheduledWorker, /\.eq\("campaign_status", "active"\)/, "Paused posts must not dispatch");
 const gateSource = fs.readFileSync(new URL("services/atomicSchedulingGate.js", root), "utf8");
 for (const flag of ["ENABLE_ATOMIC_SCHEDULE_QUOTA", "ATOMIC_SCHEDULE_MIGRATION_VERIFIED", "SCHEDULE_CLIENT_AUTH_VERIFIED"]) {
   assert.ok(gateSource.includes(flag), "Atomic scheduling rollout must require " + flag);
