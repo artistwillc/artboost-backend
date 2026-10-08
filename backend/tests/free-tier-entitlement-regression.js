@@ -8,6 +8,7 @@ const files = [
   "routes/automations.js",
   "services/storeSyncService.js",
   "services/automationRunner.js",
+  "services/automationService.js",
 ];
 for (const file of files) {
   const source = fs.readFileSync(new URL(file, root), "utf8");
@@ -30,4 +31,11 @@ for (const route of ["/:automationId/disable", "/bulk-delete"]) {
   const end = routes.indexOf("\n);", start);
   assert.doesNotMatch(routes.slice(start, end), /requirePaidAutomation\(userId, res\)/, route + " must remain available");
 }
+const legacy = fs.readFileSync(new URL("services/automationService.js", root), "utf8");
+const legacyExecutor = legacy.slice(legacy.indexOf("export async function runAutomation({"), legacy.indexOf("export async function runDueAutomations({"));
+assert.match(legacyExecutor, /ENFORCE_PAID_STORE_ACCESS/, "legacy executor must check paid entitlement");
+assert.match(legacyExecutor, /complimentary_active/, "legacy executor must preserve complimentary access");
+const newRunner = fs.readFileSync(new URL("services/automationRunner.js", root), "utf8");
+const newExecutor = newRunner.slice(newRunner.indexOf("export async function runAutomation({"));
+assert.match(newExecutor, /ENFORCE_PAID_STORE_ACCESS/, "new executor must check paid entitlement");
 console.log("Free-tier entitlement source regression checks passed");
