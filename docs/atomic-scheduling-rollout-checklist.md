@@ -35,3 +35,9 @@
 - Indexed searches across both repositories for `supabase.auth.getSession`, `schedule-campaign`, `Authorization`, and `expo` returned no matching files. Search index absence is **not** proof that a client omits bearer tokens.
 - **Release blocker remains:** locate the exact source/build corresponding to currently published iOS and Android versions, or run authorized nonproduction request captures, then validate bearer tokens on create/list/delete/lifecycle before enabling either authentication enforcement or atomic scheduling.
 - Never set `ENFORCE_SCHEDULE_AUTH=true` solely on the strength of backend unit tests: older clients could receive authentication failures.
+
+## CI verification update (2026-10-08)
+- Commit `522973b8e14d686a277e1df7708544f63ab9dcee`: backend workflow run #68 succeeded and isolated PostgreSQL run #46 succeeded.
+- Backend workflow now **explicitly runs** `backend/tests/schedulingIdentityContract.test.js` and watches it in the pull-request path filter. The preceding green run #67 did not include this new test; do not cite #67 as evidence for that suite.
+- Behavioral coverage verifies the shared identity helper against mocked asynchronous Supabase responses. It is **not** a full end-to-end HTTP test against a released iOS, Android, or web client.
+- Outstanding release blockers remain: published-client bearer token compatibility, backend callers, Stripe Price IDs, and representative production schema/migration review. No merge or production activation authorized.
