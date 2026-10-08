@@ -15,7 +15,7 @@ test("ArtPal challenge is detected before link discovery", () => {
   assert.ok(challenge >= 0 && discovery > challenge);
 });
 test("ArtPal access errors set fail-closed flag", () => {
-  assert.match(source, /isArtPalHost\\(storeHost\\)/);
+  assert.match(source, /isArtPalHost\(storeHost\)/);
   assert.match(source, /artpalAccessDenied\s*=\s*true/);
 });
 
@@ -30,5 +30,5 @@ test("artwork-page access denial fails closed before catalog writes", () => {
 });
 test("ArtPal product-page errors are reported through concurrency worker", () => {
   assert.match(source, /onError\(error\)/);
-  assert.match(source, /isArtPalHost\\(storeHost\\)/);
+  assert.match(source, /isArtPalHost\(storeHost\)/);
 });
