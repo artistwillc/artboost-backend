@@ -99,28 +99,6 @@ document.querySelectorAll("[data-close-modal]").forEach(btn => btn.addEventListe
 document.querySelectorAll("[data-close-account]").forEach(btn => btn.addEventListener("click", () => closeModal(accountModal)));
 
 let accountMode = "signup";
-let authConfigPromise;
-
-async function getAuthConfig() {
-  if (!authConfigPromise) {
-    authConfigPromise = fetch("/api/public-auth-config", { headers: { Accept: "application/json" } })
-      .then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.supabaseUrl || !data.supabasePublishableKey) {
-          throw new Error(data.error || "Website authentication is unavailable.");
-        }
-        return data;
-      });
-  }
-  return authConfigPromise;
-}
-
-function setAccountStatus(message, isError = false) {
-  const status = document.querySelector("#accountStatus");
-  status.textContent = message || "";
-  status.classList.toggle("error", Boolean(isError));
-}
-
 function setAccountMode(mode) {
   const signup = mode !== "signin";
   document.querySelector("#accountTitle").textContent = signup ? "Create your ArtBoost account" : "Sign in to ArtBoost";
