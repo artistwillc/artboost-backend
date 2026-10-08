@@ -13697,6 +13697,35 @@ app.get("/api/v2/store-connections/:id", async (req, res) => {
 });
 
 // =========================================================
+// Staged entitlement guard for v2 store writes. Keep disabled until all
+// legacy store routes, OAuth callbacks, workers and released clients are ready.
+async function verifyPaidStoreWrite(req, res, claimedUserId) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const identity = await verifySchedulingUser(
+    supabase, req.headers.authorization, claimedUserId
+  );
+  if (!identity.ok) {
+    res.status(identity.status).json({ success: false, error: identity.reason });
+    return false;
+  }
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status")
+    .eq("id", identity.userId).single();
+  if (error || !data) {
+    res.status(503).json({ success: false, error: "Unable to verify subscription." });
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  const status = String(data.subscription_status || "").toLowerCase();
+  if (!["starter","pro","business"].includes(tier) ||
+      !["active","trialing"].includes(status)) {
+    res.status(403).json({ success: false, upgradeRequired: true,
+      error: "Store connections and scanning require a paid subscription." });
+    return false;
+  }
+  return true;
+}
+
 // CREATE STORE CONNECTION
 // POST /api/v2/store-connections
 // =========================================================
@@ -13717,6 +13746,8 @@ app.post("/api/v2/store-connections", async (req, res) => {
       connected,
       syncEnabled,
     } = req.body;
+
+    if (!await verifyPaidStoreWrite(req, res, userId)) return;
 
     if (!userId) {
       return res.status(400).json({
@@ -13866,6 +13897,8 @@ app.patch("/api/v2/store-connections/:id", async (req, res) => {
       lastSyncStatus,
       lastSyncError,
     } = req.body;
+
+    if (!await verifyPaidStoreWrite(req, res, userId)) return;
 
     if (!userId) {
       return res.status(400).json({
