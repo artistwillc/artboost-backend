@@ -25,6 +25,14 @@ begin
   if platform_key not in ('pinterest','facebook','instagram','x') then
     return jsonb_build_object('allowed',false,'reason','Unsupported platform');
   end if;
+  -- Validate required campaign fields inside the transaction as well as at
+  -- the API boundary. Reject malformed direct RPC calls without side effects.
+  if nullif(trim(coalesce(p_campaign->>'title','')),'') is null
+     or nullif(trim(coalesce(p_campaign->>'description','')),'') is null
+     or nullif(trim(coalesce(p_campaign->>'image_url','')),'') is null
+     or nullif(trim(coalesce(p_campaign->>'publish_at','')),'') is null then
+    return jsonb_build_object('allowed',false,'reason','Missing required campaign fields');
+  end if;
   if coalesce(p.subscription_tier,'free') = 'free' then
     -- Free subscribers may select any one supported platform. Derive the
     -- choice from their first scheduled campaign; changing it is not supported
