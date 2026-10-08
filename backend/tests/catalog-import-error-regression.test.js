@@ -21,3 +21,7 @@ test("blocked ArtPal responses report actionable errors before body parsing", ()
   const bodyRead = importer.indexOf("const html = await response.text();");
   assert.ok(statusCheck !== -1 && bodyRead > statusCheck);
 });
+
+test("ArtPal pagination failures propagate instead of being swallowed", () => {
+  assert.match(importer, /if \(storeHost === "artpal\\.com" \\|\\| storeHost\\.endsWith\\("\\.artpal\\.com"\\)\\) \{\\s*throw error;/);
+});
