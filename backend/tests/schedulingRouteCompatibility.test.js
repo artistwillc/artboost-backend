@@ -13,9 +13,11 @@ const route = (method, path) => {
 };
 const securityFlags = /process\.env\.ENFORCE_SCHEDULE_AUTH === "true"\s*\|\|\s*atomicSchedulingEnabled\(\)/;
 
-test('schedule creation authenticates callers when atomic quota is enabled', () => {
+test('schedule creation authenticates Free callers without changing paid auth', () => {
   const body = route('post', '/schedule-campaign');
-  assert.match(body, securityFlags);
+  assert.match(body, /if \(isFreeScheduling && process\.env\.ENFORCE_SCHEDULE_AUTH !== "true"\)/);
+  assert.match(body, /if \(process\.env\.ENFORCE_SCHEDULE_AUTH === "true"\)/);
+  assert.doesNotMatch(body, securityFlags);
   assert.match(body, /verifySchedulingUser\(supabase, req\.headers\.authorization, userId\)/);
   assert.match(body, /supabase\.rpc\("schedule_campaign_with_quota"/);
   assert.match(body, /success:\s*true,\s*campaign:\s*mapCampaignFromDb\(data\)/);
