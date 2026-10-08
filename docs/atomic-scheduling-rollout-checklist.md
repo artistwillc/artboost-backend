@@ -57,3 +57,9 @@
 - Read-only production schema inspection confirmed required profile/campaign column names and types; live function lookup confirmed the proposed RPC has not been installed. No production SQL modifications were made.
 - **Ready:** draft PR code and currently configured automated tests. **Not release-ready:** published-client token verification, background caller audit, live Stripe price IDs, and complete staging/permission checks.
 - **Release decision: HOLD.** Do not merge, deploy, apply SQL, or enable flags until the unresolved items are verified and the owner explicitly authorizes the rollout.
+
+## Production deployment topology verified (2026-10-08)
+- Render service `artboost-ai` (`srv-d7vm9cl7vvec73djg4og`) tracks GitHub `artistwillc/artboost-backend`, branch `main`, root directory `backend`, command `node server.js`.
+- **Auto-deploy is enabled on commits to `main`.** Merging PR #42 would initiate a production deploy even if atomic quota flags remain disabled. Therefore merging is a production change and requires explicit approval after all checks.
+- PR branch remains isolated from the Render production deploy branch.
+- No live Render environment variables were modified; do not activate `ENFORCE_SCHEDULE_AUTH` or atomic scheduling flags until published-client compatibility and migration readiness are independently verified.
