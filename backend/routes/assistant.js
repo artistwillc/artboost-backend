@@ -1126,6 +1126,33 @@ function deterministicAccountAnswer(question, accountContext) {
   const summary = accountContext.summary || {};
   const action = (id) => validateActions([{ id }]);
 
+  // Answer posting-time advice before historical post-count rules.
+  // These are starting windows, not claims about measured audience engagement.
+  if (
+    /\b(?:best|optimal|ideal|recommended|good)\b/.test(q) &&
+    /\b(?:day|days|time|times|when|hour|hours)\b/.test(q) &&
+    /\b(?:post|posting|publish|publishing|upload)\b/.test(q)
+  ) {
+    return {
+      answer: "For an initial posting schedule, test Tuesday through Thursday around 11 AM–1 PM and 6–8 PM in your audience’s local time. For weekends, test Saturday around 9–11 AM. These are suggested experiments, not verified best times for your account: ArtBoost's publishing totals alone cannot establish when your audience engages most. Compare each platform's native audience activity and engagement over 2–4 weeks, then adjust your schedule.",
+      steps: [
+        "Choose the platform and audience time zone.",
+        "Test two consistent posting windows for 2–4 weeks.",
+        "Compare native reach, watch time, saves, and engagement before selecting a winner.",
+      ],
+      actions: action("open_campaign_manager"),
+      followUps: [
+        "What posting schedule should I test for TikTok?",
+        "How should I compare posting times on Instagram?",
+      ],
+      usedAccountData: false,
+      intelligenceSources: ["general"],
+      evidenceNote: "General test windows only; no account-specific engagement data was used.",
+      confidence: "low",
+      severity: "info",
+    };
+  }
+
   // ARTBOOST_CONSULTANT_PUBLISHING_ACTIVITY_FIX_V16_6
   // Resolve store + publishing + explicit time-window questions before generic
   // social-connection counting so "stores posted today" can never collapse into
@@ -1217,7 +1244,9 @@ function deterministicAccountAnswer(question, accountContext) {
       /\b(?:automation|automations)\b/.test(q) &&
         /\b(?:successful|success|run|runs|fail|fails|failed|failing|failure|failures|history|historical)\b/.test(q)
     ) &&
-    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q)
+    !/\b(?:product|products|artwork|artworks|listing|listings)\b/.test(q) &&
+    // Posting-time advice is not a request for historical publishing totals.
+    !/\b(?:best|optimal|ideal|recommended|when|what time|which day|day of week)\b/.test(q)
   ) {
     const analytics = accountContext.publishingAnalytics || {};
     const totalPosts = Number(

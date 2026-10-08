@@ -2689,7 +2689,8 @@ function scanEntireStore() {
     return;
   }
 
-  setProducts([]);
+  // Keep the previous scan visible until replacement results arrive.
+  // An interrupted or blocked storefront scan must not blank the UI.
   setFullStoreScanning(true);
   setScanProgress(
     "Starting full store scan..."
@@ -3247,7 +3248,9 @@ function scanEntireStore() {
         );
 
         const shouldFinish =
-          state.emptyOrDuplicatePages >= 1 ||
+          // A single duplicate/empty Explore page does not prove the catalog has ended.
+          // Allow two more pages before stopping; maxPages remains the hard cap.
+          state.emptyOrDuplicatePages >= 3 ||
           state.page >= state.maxPages;
 
         if (shouldFinish) {
@@ -3627,11 +3630,11 @@ function scanEntireStore() {
 
             {Platform.OS === "web" ? (
               <View style={{ padding: 16 }}>
-                <Text style={{ color: "#c4b5fd", fontSize: 13 }}>
+                <Text style={{ color: "#37235f", fontSize: 13 }}>
                   Browser scanning uses the ArtBoost server importer. No embedded mobile browser is required.
                 </Text>
                 {webScanMessage ? (
-                  <Text accessibilityRole="alert" style={{ color: "#ffffff", marginTop: 10 }}>
+                  <Text accessibilityRole="alert" style={{ color: "#37235f", fontWeight: "600", marginTop: 10 }}>
                     {webScanMessage}
                   </Text>
                 ) : null}
@@ -3766,9 +3769,8 @@ function scanEntireStore() {
   </Text>
 </Pressable>
 
-{fullStoreScanning &&
-scanProgress ? (
-  <Text style={styles.scanProgressText}>
+{scanProgress && (fullStoreScanning || Platform.OS === "web") ? (
+  <Text accessibilityRole="alert" style={Platform.OS === "web" ? { color: "#ffffff", marginTop: 12, fontWeight: "600", textAlign: "center" } : styles.scanProgressText}>
     {scanProgress}
   </Text>
 ) : null}

@@ -492,6 +492,7 @@ async function mapWithConcurrency(
   mapper
 ) {
   const results = [];
+  const failures = [];
   let index = 0;
 
   async function worker() {
@@ -509,6 +510,7 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -532,32 +534,28 @@ async function mapWithConcurrency(
     )
   );
 
-  return results;
+  return { results, failures };
 }
 
 async function resolveConnection({
   userId,
   storeId,
+  storeUrl,
 }) {
-  const {
-    data: connection,
-    error,
-  } = await supabase
+  // Resolve only a store owned by the authenticated user.
+  // A supplied URL must never authorize access to another user's connection.
+  // A pasted storefront URL can differ in www, casing, slash, or tracking
+  // parameters from the saved connection. Resolve only within this user's
+  // connections; never trust a URL to grant access to another account.
+  const query = supabase
     .from("store_connections")
     .select(
-      `
-        id,
-        user_id,
-        platform,
-        store_name,
-        store_url,
-        connected,
-        metadata
-      `
+      "id,user_id,platform,store_name,store_url,connected,metadata"
     )
-    .eq("id", storeId)
-    .eq("user_id", userId)
-    .maybeSingle();
+    .eq("user_id", userId);
+  const { data: connections, error } = storeId
+    ? await query.eq("id", storeId)
+    : await query;
 
   if (error) {
     throw new Error(
@@ -565,6 +563,35 @@ async function resolveConnection({
     );
   }
 
+  const canonicalStoreUrl = (value) => {
+    try {
+      const parsed = new URL(String(value || "").trim());
+      if (!["http:", "https:"].includes(parsed.protocol)) return null;
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      return host + path;
+    } catch {
+      return null;
+    }
+  };
+
+  const candidates = connections || [];
+  const targetUrl = storeId ? null : canonicalStoreUrl(storeUrl);
+  const matching = storeId
+    ? candidates
+    : targetUrl
+      ? candidates.filter(
+          (candidate) => canonicalStoreUrl(candidate.store_url) === targetUrl
+        )
+      : [];
+
+  if (matching.length > 1) {
+    throw new Error(
+      "Multiple connected stores match this URL. Select a specific store."
+    );
+  }
+
+  const connection = matching[0] || null;
   if (!connection) {
     throw new Error(
       "The connected store was not found."
@@ -589,12 +616,13 @@ async function resolveConnection({
 export async function importUniversalStore({
   userId,
   storeId,
+  storeUrl,
   maxPages = 6,
   maxListings = 250,
 }) {
-  if (!userId || !storeId) {
+  if (!userId || (!storeId && !storeUrl)) {
     throw new Error(
-      "A userId and storeId are required."
+      "A userId and either storeId or storeUrl are required."
     );
   }
 
@@ -602,6 +630,7 @@ export async function importUniversalStore({
     await resolveConnection({
       userId,
       storeId,
+      storeUrl,
     });
 
   const parsedStoreUrl = new URL(
@@ -614,6 +643,8 @@ export async function importUniversalStore({
 
   const links = new Set();
   let pagesWithoutNewLinks = 0;
+  let successfulPageFetches = 0;
+  const pageFetchErrors = [];
 
   for (
     let pageNumber = 1;
@@ -646,6 +677,7 @@ export async function importUniversalStore({
       );
 
 
+      successfulPageFetches += 1;
       const discovered =
         extractCandidateLinks(
           html,
@@ -660,6 +692,14 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      pageFetchErrors.push(failureMessage);
+      // A definitive access denial will not improve by requesting more pages.
+      if (/Store returned (?:401|403)\b/.test(failureMessage)) {
+        throw new Error(
+          "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Use a marketplace-authorized export or contact the marketplace about integration access."
+        );
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -678,6 +718,21 @@ export async function importUniversalStore({
     if (pagesWithoutNewLinks >= 2) {
       break;
     }
+  }
+
+  // A blocked or unavailable storefront must not be reported as an empty catalog.
+  if (successfulPageFetches === 0) {
+    const accessDenied = pageFetchErrors.some((message) =>
+      /\b(?:403|401)\b/.test(message)
+    );
+    if (accessDenied) {
+      throw new Error(
+        "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Use a marketplace-authorized export or contact the marketplace about integration access."
+      );
+    }
+    throw new Error(
+      `Storefront pages could not be loaded (${pageFetchErrors.length} failed requests). ${pageFetchErrors[0] || "Check storefront accessibility."}`
+    );
   }
 
   const limitedLinks = [...links].slice(
@@ -721,7 +776,7 @@ export async function importUniversalStore({
     );
   }
 
-  const parsedProducts =
+  const { results: parsedProducts, failures: productFetchFailures } =
     await mapWithConcurrency(
       limitedLinks,
       4,
@@ -731,24 +786,6 @@ export async function importUniversalStore({
           responseUrl,
         } = await fetchPage(productUrl);
 
-        if (
-          storeHost === "artpal.com" ||
-          storeHost.endsWith(".artpal.com")
-        ) {
-          console.log(
-            "========== ARTPAL DEBUG START =========="
-          );
-          console.log("ARTPAL REQUEST URL:", productUrl);
-          console.log("ARTPAL RESPONSE URL:", responseUrl);
-          console.log("ARTPAL HTML LENGTH:", html.length);
-          console.log(
-            "ARTPAL HTML PREVIEW:",
-            html.substring(0, 5000)
-          );
-          console.log(
-            "========== ARTPAL DEBUG END =========="
-          );
-        }
 
         return parseProductPage({
           html,
@@ -767,6 +804,14 @@ export async function importUniversalStore({
       ])
     ).values(),
   ];
+
+  if (uniqueProducts.length === 0 && productFetchFailures.some((message) =>
+    /Store returned (?:401|403)\b/.test(message)
+  )) {
+    throw new Error(
+      "Artwork pages refused ArtBoost server access (HTTP 403/401). Saved products have not been deleted. Request marketplace-authorized access or use an official export."
+    );
+  }
 
   if (uniqueProducts.length === 0) {
     throw new Error(
@@ -873,7 +918,7 @@ export async function importUniversalStore({
       )
     ).length;
 
-  await supabase
+  const { error: syncStatusError } = await supabase
     .from("store_connections")
     .update({
       last_synced_at: syncedAt,
@@ -893,6 +938,10 @@ export async function importUniversalStore({
     .eq("id", connection.id)
     .eq("user_id", userId);
 
+  if (syncStatusError) {
+    console.warn("Universal store sync status update failed:", syncStatusError.message);
+  }
+
   return {
     storeId: connection.id,
     storeName,
@@ -910,6 +959,10 @@ export async function importUniversalStore({
     skipped:
       limitedLinks.length -
       uniqueProducts.length,
+    syncStatusUpdated: !syncStatusError,
+    partial: productFetchFailures.length > 0 || pageFetchErrors.length > 0 || links.size > limitedLinks.length,
+    failedProductRequests: productFetchFailures.length,
+    failedPageRequests: pageFetchErrors.length,
     products:
       savedProducts || [],
   };

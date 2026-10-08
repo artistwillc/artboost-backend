@@ -1,0 +1,35 @@
+name: ArtBoost Scanner and Merlin Regression
+
+on:
+  pull_request:
+    paths:
+      - "backend/routes/assistant.js"
+      - "backend/routes/stores.js"
+      - "backend/services/universalStoreImporter.js"
+      - "backend/tests/scanner-merlin-regression.js"
+      - "frontend/app/ai-store-scanner.tsx"
+      - ".github/workflows/scanner-merlin-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check JavaScript syntax
+        run: |
+          node --check backend/routes/assistant.js
+          node --check backend/routes/stores.js
+          node --check backend/services/universalStoreImporter.js
+          node --check backend/tests/scanner-merlin-regression.js
+      - name: Run scanner and Merlin regression checks
+        run: node backend/tests/scanner-merlin-regression.js

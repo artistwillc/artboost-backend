@@ -244,22 +244,35 @@ router.post("/sync-due/run", async (_req, res) => {
 router.post("/universal/import", async (req, res) => {
   try {
     const { storeId, storeUrl, maxProducts } = req.body ?? {};
-    const userId =
-      await resolveRequestUserId(req, res);
+    const userId = await resolveRequestUserId(req, res);
     if (!userId) return;
-    if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A storeId or storeUrl is required." });
+    if (!storeId && !storeUrl) {
+      return res.status(400).json({
+        success: false,
+        error: "A storeId or storeUrl is required.",
+      });
+    }
     const result = await importUniversalStore({
       userId: String(userId),
       storeId: storeId ? String(storeId) : undefined,
       storeUrl: storeUrl ? String(storeUrl).trim() : undefined,
-      maxProducts,
+      maxListings: maxProducts,
     });
-    return res.status(200).json({ success: true, message: "Store imported successfully.", ...result });
+    return res.status(200).json({
+      success: true,
+      message: "Store imported successfully.",
+      ...result,
+    });
   } catch (error) {
-    return res.status(500).json({
+    const details = error instanceof Error ? error.message : String(error);
+    const accessDenied = /(?:storefront refused|artwork pages refused) ArtBoost server access/i.test(details);
+    return res.status(accessDenied ? 502 : 500).json({
       success: false,
-      error: "Universal store import failed.",
-      details: error instanceof Error ? error.message : String(error),
+      code: accessDenied ? "STOREFRONT_ACCESS_DENIED" : "STORE_IMPORT_FAILED",
+      error: accessDenied
+        ? "The marketplace blocked automatic server-side scanning. Saved listings were not deleted."
+        : "Universal store import failed.",
+      details,
     });
   }
 });
