@@ -37,3 +37,6 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f migrations/20261008_atomic_campaign_scheduling.sql
       - name: Check free-tier quota and platform restrictions
         run: psql -v ON_ERROR_STOP=1 -f tests/sql/atomic_quota_assertions.sql
+
+      - name: Verify concurrent fifth-slot requests
+        run: bash tests/sql/atomic_quota_concurrency.sh
