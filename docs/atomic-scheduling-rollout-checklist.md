@@ -22,3 +22,9 @@
 7. If unexpected failures occur, turn off `ENABLE_ATOMIC_SCHEDULE_QUOTA` to restore the legacy scheduling path; investigate before retrying. Disabling the flag does **not** reverse database changes.
 
 **Caution:** This gate protects the atomic scheduling feature; it does not substitute for a full audit of all other account-scoped endpoints. No production migration, merge, or deployment is performed by this checklist.
+
+## Client source discovery (2026-10-08)
+- Accessible repositories: `artistwillc/artboost-backend` and `artistwillc/artboost-ai`.
+- Search of `artistwillc/artboost-ai` for `schedule-campaign` and `scheduled-campaigns` returned no matching indexed files; its root `package.json` identifies a backend package, not a verified mobile client.
+- **Unverified:** released iOS and Android source versions, authorization headers on scheduling requests, and compatibility with the protected routes.
+- Do not mark `SCHEDULE_CLIENT_AUTH_VERIFIED` true based on repository search or backend tests alone. Obtain exact mobile/web client source or capture authorized requests in a nonproduction environment and test all four operations.
