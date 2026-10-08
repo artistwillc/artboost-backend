@@ -669,6 +669,12 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      // Never treat an inaccessible ArtPal storefront as an empty page.
+      // Propagate the original HTTP/challenge error to the catalog job so
+      // clients can show a failure rather than an apparent successful scan.
+      if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {
+        throw error;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
