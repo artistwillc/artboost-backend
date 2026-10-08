@@ -60,16 +60,15 @@ test('requested but unverified atomic rollout rejects scheduling instead of sile
   assert.ok(body.indexOf('return res.status(503).json(') < body.indexOf('checkCampaignLimit(userId, normalizedPlatform)'), 'Rollout check must precede legacy quota path');
 });
 
-test('campaign management rejects partially enabled atomic rollout before database access', () => {
+test('campaign management stays available during partial Free rollout', () => {
   for (const [method, endpoint] of [
     ['get', '/scheduled-campaigns'],
     ['delete', '/scheduled-campaigns/:id'],
     ['patch', '/scheduled-campaigns/:id/lifecycle'],
   ]) {
     const body = route(method, endpoint);
-    assert.match(body, /process\.env\.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled\(\)/);
-    const failClosedAt = body.indexOf('return res.status(503).json(');
-    const verifyAt = body.indexOf('verifySchedulingUser(supabase, req.headers.authorization, userId)');
-    assert.ok(failClosedAt >= 0 && verifyAt > failClosedAt, `Missing early rollout rejection: ${method} ${endpoint}`);
+    assert.doesNotMatch(body, /Atomic scheduling rollout is not verified/);
+    assert.match(body, securityFlags);
+    assert.match(body, /verifySchedulingUser\(supabase, req\.headers\.authorization, userId\)/);
   }
 });
