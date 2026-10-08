@@ -4,7 +4,7 @@
  * Never accept userId from a request body as authentication.
  */
 export async function verifySchedulingUser(supabase, authorization, claimedUserId) {
-  const match = /^Bearer\\s+([^\\s]+)$/i.exec(String(authorization || "").trim());
+  const match = /^Bearer\s+([^\s]+)$/i.exec(String(authorization || "").trim());
   if (!match) return { ok: false, status: 401, reason: "Authentication required" };
   const { data, error } = await supabase.auth.getUser(match[1]);
   if (error || !data?.user?.id) {
