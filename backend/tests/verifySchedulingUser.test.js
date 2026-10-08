@@ -68,3 +68,12 @@ test("malformed claimed account IDs fail ownership validation", async () => {
     );
   }
 });
+
+test("malformed authenticated user IDs are rejected as invalid sessions", async () => {
+  for (const id of [null, 123, ["a"], { id: "a" }, ""]) {
+    assert.deepEqual(
+      await verifySchedulingUser(client({ id }), "Bearer token", "a"),
+      { ok: false, status: 401, reason: "Invalid or expired session" }
+    );
+  }
+});
