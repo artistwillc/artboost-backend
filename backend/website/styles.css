@@ -57,3 +57,13 @@ h1,h2{margin:0 0 18px;line-height:1.02}h1{font-size:clamp(38px,6vw,76px)}h2{font
 .account-actions{justify-items:stretch}
 .account-image-btn{display:flex;align-items:center;justify-content:center;width:100%;max-width:100%;text-align:center}
 .account-image-btn img{display:block;width:min(480px,100%);height:auto;margin-inline:auto}
+
+/* Mobile app downloads: consistent badge sizes and touch-friendly spacing. */
+.mobile-downloads{padding:58px 0 52px}
+.mobile-downloads .section-copy{margin-bottom:26px}
+.mobile-download-actions{display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
+.store-download-link{display:inline-flex;align-items:center;justify-content:center;width:190px;min-height:64px;border-radius:12px;text-decoration:none;transition:transform .18s ease,filter .18s ease}
+.store-download-link img{display:block;width:100%;height:auto;max-height:64px}
+.store-download-link:hover{transform:translateY(-2px);filter:brightness(1.1)}
+.store-download-link:focus-visible{outline:3px solid var(--gold2);outline-offset:4px}
+@media(max-width:560px){.mobile-downloads{padding:44px 0 38px}.mobile-downloads h2{font-size:clamp(28px,8vw,38px);line-height:1.13;margin-bottom:16px}.mobile-downloads .section-copy{font-size:16px;line-height:1.55;margin-bottom:24px}.mobile-download-actions{gap:14px;flex-direction:column}.store-download-link{width:min(230px,85%);min-height:68px}.store-download-link img{max-height:68px}}
