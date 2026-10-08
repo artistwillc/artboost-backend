@@ -673,7 +673,8 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
-      if (isArtPalHost(storeHost) && isArtPalAccessError(error)) {
+      if (isArtPalHost(storeHost)) {
+        // A partial ArtPal scan is unsafe even when the failure is a timeout.
         artpalAccessDenied = true;
       }
       console.log(
@@ -762,7 +763,8 @@ export async function importUniversalStore({
         });
       },
       (error) => {
-        if (isArtPalHost(storeHost) && isArtPalAccessError(error)) {
+        if (isArtPalHost(storeHost)) {
+          // Never persist a partial catalog after an artwork fetch fails.
           artpalProductAccessDenied = true;
         }
       }
