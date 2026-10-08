@@ -3247,7 +3247,9 @@ function scanEntireStore() {
         );
 
         const shouldFinish =
-          state.emptyOrDuplicatePages >= 1 ||
+          // A single duplicate/empty Explore page does not prove the catalog has ended.
+          // Allow two more pages before stopping; maxPages remains the hard cap.
+          state.emptyOrDuplicatePages >= 3 ||
           state.page >= state.maxPages;
 
         if (shouldFinish) {
