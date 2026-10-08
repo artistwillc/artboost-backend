@@ -38,5 +38,7 @@ jobs:
       - name: Check free-tier quota and platform restrictions
         run: psql -v ON_ERROR_STOP=1 -f tests/sql/atomic_quota_assertions.sql
 
+      - name: Verify effective RLS ownership update checks
+        run: psql -v ON_ERROR_STOP=1 -f tests/sql/rls_ownership_assertions.sql
       - name: Verify concurrent fifth-slot requests
         run: bash tests/sql/atomic_quota_concurrency.sh
