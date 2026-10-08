@@ -2,6 +2,7 @@ name: Subscription tier unit tests
 on:
   pull_request:
     paths:
+      - 'backend/server.js'
       - 'services/subscriptionTier.js'
       - 'tests/subscriptionTier.test.js'
       - 'services/verifySchedulingUser.js'
@@ -16,5 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check production entrypoint syntax
+        run: node --check backend/server.js
       - name: Run subscription resolver tests
         run: node --test tests/subscriptionTier.test.js tests/verifySchedulingUser.test.js
