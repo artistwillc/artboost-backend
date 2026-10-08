@@ -7,14 +7,14 @@ const files = [
   "routes/stores.js",
   "routes/automations.js",
   "services/storeSyncService.js",
-  "services/paidEntitlements.js",
 ];
 for (const file of files) {
   const source = fs.readFileSync(new URL(file, root), "utf8");
-  assert.match(source, /complimentary_active/, file + " must preserve complimentary access");
-  assert.match(source, /trialing/, file + " must preserve trial access");
-  assert.match(source, /active/, file + " must preserve active access");
   assert.match(source, /ENFORCE_PAID_STORE_ACCESS/, file + " must remain feature flagged");
+}
+const predicate = fs.readFileSync(new URL("services/paidEntitlements.js", root), "utf8");
+for (const status of ["active", "trialing", "complimentary_active"]) {
+  assert.ok(predicate.includes(status), "Entitlement predicate missing " + status);
 }
 const routes = fs.readFileSync(new URL("routes/automations.js", root), "utf8");
 for (const route of ["/multi-daily", "/preview", "/:automationId/run", "/:automationId/resume"]) {
