@@ -1,5 +1,6 @@
 import express from "express";
 import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
+import { verifySchedulingUser } from "./services/verifySchedulingUser.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
@@ -6403,6 +6404,20 @@ app.post("/schedule-campaign", async (req, res) => {
         success: false,
         error: "Missing userId.",
       });
+    }
+
+    // Enforce session ownership when enabled. Roll out only after confirming
+    // that all supported iOS, Android and web clients send a bearer token.
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+      const identity = await verifySchedulingUser(
+        supabase, req.headers.authorization, userId
+      );
+      if (!identity.ok) {
+        return res.status(identity.status).json({
+          success: false,
+          error: identity.reason,
+        });
+      }
     }
 
     if (!title || !description || !publishAt) {
