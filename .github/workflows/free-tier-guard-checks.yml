@@ -10,6 +10,7 @@ on:
       - "backend/services/storeSyncService.js"
       - "backend/services/catalogImportQueueService.js"
       - "backend/services/automationRunner.js"
+      - "backend/services/automationService.js"
       - ".github/workflows/free-tier-guard-checks.yml"
   workflow_dispatch:
 
@@ -29,4 +30,5 @@ jobs:
           node --check backend/services/storeSyncService.js
           node --check backend/services/catalogImportQueueService.js
           node --check backend/services/automationRunner.js
+          node --check backend/services/automationService.js
           node backend/tests/free-tier-entitlement-regression.js
