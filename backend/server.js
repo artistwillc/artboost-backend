@@ -531,6 +531,8 @@ app.get(
           );
       }
 
+      if (!await verifyPaidOAuthStoreUser(userId, res)) return;
+
       const state =
         createEtsyState(
           String(userId)
@@ -7272,7 +7274,7 @@ async function saveShopifyConnection({
   return data;
 }
 
-app.get("/auth/shopify", (req, res) => {
+app.get("/auth/shopify", async (req, res) => {
   try {
     const { shop, userId } = req.query;
 
@@ -7290,6 +7292,8 @@ app.get("/auth/shopify", (req, res) => {
         "Missing ArtBoost userId."
       );
     }
+
+    if (!await verifyPaidOAuthStoreUser(userId, res)) return;
 
     const shopDomain = normalizeShopifyDomain(shop);
 
