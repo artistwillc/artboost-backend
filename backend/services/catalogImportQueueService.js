@@ -499,7 +499,9 @@ async function processOneJob() {
           lock_expires_at:
             null,
           last_error:
-            null,
+            hasPartialFailures
+              ? `Catalog import reported ${failed} failed item(s); see result_json for details.`
+              : null,
         }
       );
     } catch (error) {
