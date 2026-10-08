@@ -59,6 +59,16 @@ begin
   select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
   if quota <> 4 then raise exception 'Invalid dates consumed quota: %',quota; end if;
 end $bad_dates$;
+-- Past-dated Free posts must be rejected without consuming a slot.
+do $past_date$
+declare result jsonb; quota integer;
+begin
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Past date","description":"Test","image_url":"https://example.com/art.png","publish_at":"2020-01-01T12:00:00Z"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Past date accepted: %',result; end if;
+  select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
+  if quota <> 4 then raise exception 'Past date consumed quota: %',quota; end if;
+end $past_date$;
 -- Free users may choose Facebook first; subsequent Pinterest requests must fail.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000004','free',0,(current_date + interval '1 month')::date);
