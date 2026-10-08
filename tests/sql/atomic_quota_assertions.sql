@@ -77,6 +77,20 @@ begin
  end if;
 end $rejected$;
 
+-- Explicit PostgreSQL calendar arithmetic: document rollover behavior at edge dates.
+do $calendar_boundaries$
+begin
+  if (date '2024-01-31' + interval '1 month')::date <> date '2024-02-29' then
+    raise exception 'Leap-year January rollover changed';
+  end if;
+  if (date '2025-01-31' + interval '1 month')::date <> date '2025-02-28' then
+    raise exception 'Non-leap-year January rollover changed';
+  end if;
+  if (date '2026-08-31' + interval '1 month')::date <> date '2026-09-30' then
+    raise exception 'Thirty-day month rollover changed';
+  end if;
+end $calendar_boundaries$;
+
 -- Month-end and leap-year boundaries must remain explicit regression cases.
 -- These tests use the database's current date and assert that a reset creates
 -- a future date rather than silently reusing an expired quota window.
