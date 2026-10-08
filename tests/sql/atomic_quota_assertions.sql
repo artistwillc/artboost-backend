@@ -77,6 +77,19 @@ begin
   select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
   if quota <> 4 then raise exception 'Past date consumed quota: %',quota; end if;
 end $past_date$;
+-- Malformed recurring timestamps are denied without casting errors or quota loss.
+do $invalid_recurring$
+declare result jsonb; quota integer;
+begin
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Bad recurrence","description":"Test","image_url":"https://example.com/art.png","publish_at":"2030-01-01T12:00:00Z","next_run_at":"invalid-date"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Invalid next run accepted: %',result; end if;
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Bad recurrence","description":"Test","image_url":"https://example.com/art.png","publish_at":"2030-01-01T12:00:00Z","repeat_until":"invalid-date"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Invalid repeat-until accepted: %',result; end if;
+  select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
+  if quota <> 4 then raise exception 'Malformed recurring request consumed quota: %',quota; end if;
+end $invalid_recurring$;
 -- Free users may choose Threads; a different second platform must be rejected.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000007','free',0,(current_date + interval '1 month')::date);
