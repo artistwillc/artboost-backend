@@ -6483,7 +6483,8 @@ app.post("/schedule-campaign", async (req, res) => {
         error: quotaResult?.reason || "Campaign not permitted.",
       });
     }
-    const data = { id: quotaResult.campaign_id };
+    const data = quotaResult.campaign;
+    if (!data?.id) throw new Error("Campaign RPC returned no campaign record");
 
     await createNotification({
       userId,
