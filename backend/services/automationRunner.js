@@ -584,6 +584,23 @@ export async function runAutomation({
     );
   }
 
+  if (process.env.ENFORCE_PAID_STORE_ACCESS === "true") {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("subscription_tier,subscription_status")
+      .eq("id", String(userId))
+      .single();
+    if (profileError || !profile) {
+      throw new Error("Unable to verify automation subscription.");
+    }
+    const tier = String(profile.subscription_tier || "free").toLowerCase();
+    const status = String(profile.subscription_status || "").toLowerCase();
+    if (!["starter", "pro", "business"].includes(tier) ||
+        !["active", "trialing"].includes(status)) {
+      throw new Error("Automated posting requires a paid subscription.");
+    }
+  }
+
   const normalizedTrigger =
     String(trigger || "scheduled")
       .trim()
