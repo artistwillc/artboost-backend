@@ -755,12 +755,18 @@ export async function importUniversalStore({
           throw new Error("ArtPal security verification challenge detected on artwork page.");
         }
 
-        return parseProductPage({
+        const parsed = parseProductPage({
           html,
           responseUrl,
           originalUrl: productUrl,
           storeHost,
         });
+
+        if (isArtPalHost(storeHost) && !parsed) {
+          throw new Error("ArtPal artwork page did not contain usable artwork metadata.");
+        }
+
+        return parsed;
       },
       (error) => {
         if (isArtPalHost(storeHost)) {
