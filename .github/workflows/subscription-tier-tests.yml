@@ -8,6 +8,8 @@ on:
       - 'backend/tests/subscriptionTier.test.js'
       - 'backend/tests/verifySchedulingUser.test.js'
       - 'backend/tests/schedulingRouteCompatibility.test.js'
+      - 'backend/tests/atomicSchedulingGate.test.js'
+      - 'backend/services/atomicSchedulingGate.js'
       - 'services/subscriptionTier.js'
       - 'tests/subscriptionTier.test.js'
       - 'services/verifySchedulingUser.js'
@@ -23,6 +25,6 @@ jobs:
         with:
           node-version: '22'
       - name: Check production entrypoint syntax
-        run: node --check backend/server.js && node --check backend/services/subscriptionTier.js && node --check backend/services/verifySchedulingUser.js
+        run: node --check backend/server.js && node --check backend/services/atomicSchedulingGate.js && node --check backend/services/subscriptionTier.js && node --check backend/services/verifySchedulingUser.js
       - name: Run subscription resolver tests
-        run: node --test tests/subscriptionTier.test.js tests/verifySchedulingUser.test.js backend/tests/subscriptionTier.test.js backend/tests/verifySchedulingUser.test.js backend/tests/schedulingRouteCompatibility.test.js
+        run: node --test tests/subscriptionTier.test.js tests/verifySchedulingUser.test.js backend/tests/subscriptionTier.test.js backend/tests/verifySchedulingUser.test.js backend/tests/schedulingRouteCompatibility.test.js backend/tests/atomicSchedulingGate.test.js
