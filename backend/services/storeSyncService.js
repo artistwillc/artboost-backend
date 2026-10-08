@@ -282,7 +282,7 @@ export async function syncStoreConnection({ userId, storeId, reason = "manual" }
     const tier = String(profile.subscription_tier || "free").toLowerCase();
     const status = String(profile.subscription_status || "").toLowerCase();
     if (!["starter", "pro", "business"].includes(tier) ||
-        !["active", "trialing"].includes(status)) {
+        !["active", "trialing", "complimentary_active"].includes(status)) {
       return { skipped: true, reason: "paid_subscription_required", storeId };
     }
   }
