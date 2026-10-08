@@ -22,7 +22,7 @@ begin
   if not found then
     return jsonb_build_object('allowed',false,'reason','Profile not found');
   end if;
-  if platform_key not in ('pinterest','facebook','instagram','x') then
+  if platform_key not in ('pinterest','facebook','instagram','x','threads','linkedin') then
     return jsonb_build_object('allowed',false,'reason','Unsupported platform');
   end if;
   -- Validate required campaign fields inside the transaction as well as at
@@ -56,7 +56,7 @@ begin
     select lower(trim(sc.platform)) into selected_platform
       from public.scheduled_campaigns sc
       where sc.user_id = p_user_id
-        and lower(trim(sc.platform)) in ('pinterest','facebook','instagram','x')
+        and lower(trim(sc.platform)) in ('pinterest','facebook','instagram','x','threads','linkedin')
       order by sc.publish_at asc, sc.id asc
       limit 1;
     if selected_platform is not null and selected_platform <> platform_key then
