@@ -696,6 +696,14 @@ export async function importUniversalStore({
 
   // A blocked or unavailable storefront must not be reported as an empty catalog.
   if (successfulPageFetches === 0) {
+    const accessDenied = pageFetchErrors.some((message) =>
+      /\b(?:403|401)\b/.test(message)
+    );
+    if (accessDenied) {
+      throw new Error(
+        "This storefront refused ArtBoost server access (HTTP 403/401). Your saved products have not been deleted. Try a supported product-URL import or contact the marketplace about authorized integration."
+      );
+    }
     throw new Error(
       `Storefront pages could not be loaded (${pageFetchErrors.length} failed requests). ${pageFetchErrors[0] || "Check storefront accessibility."}`
     );
