@@ -46,6 +46,19 @@ begin
     raise exception 'Invalid campaign changed insertion count or quota: %, %',after_count,quota;
   end if;
 end $required_fields$;
+-- Invalid dates must return a denial instead of raising a database error or using quota.
+do $bad_dates$
+declare result jsonb; quota integer;
+begin
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Bad date","description":"Test","image_url":"https://example.com/art.png","publish_at":"not-a-date"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Malformed date accepted: %',result; end if;
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Infinite date","description":"Test","image_url":"https://example.com/art.png","publish_at":"infinity"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Infinite date accepted: %',result; end if;
+  select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
+  if quota <> 4 then raise exception 'Invalid dates consumed quota: %',quota; end if;
+end $bad_dates$;
 -- Free users may choose Facebook first; subsequent Pinterest requests must fail.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000004','free',0,(current_date + interval '1 month')::date);
