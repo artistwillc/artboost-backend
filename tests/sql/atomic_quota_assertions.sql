@@ -1,5 +1,18 @@
 \set ON_ERROR_STOP on
 begin;
+-- Only the trusted service role may invoke the scheduling RPC.
+do $privileges$
+begin
+  if has_function_privilege('anon', 'public.schedule_campaign_with_quota(uuid,jsonb)', 'EXECUTE') then
+    raise exception 'anon unexpectedly has RPC execution rights';
+  end if;
+  if has_function_privilege('authenticated', 'public.schedule_campaign_with_quota(uuid,jsonb)', 'EXECUTE') then
+    raise exception 'authenticated unexpectedly has RPC execution rights';
+  end if;
+  if not has_function_privilege('service_role', 'public.schedule_campaign_with_quota(uuid,jsonb)', 'EXECUTE') then
+    raise exception 'service_role missing RPC execution rights';
+  end if;
+end $privileges$;
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000001','free',4,(current_date + interval '1 month')::date);
 do $$
