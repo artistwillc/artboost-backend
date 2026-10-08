@@ -50,3 +50,10 @@ test('campaign management queries stay scoped to the authenticated account when 
     assert.ok(verifiedAt >= 0 && scopedAt > verifiedAt, `Missing ownership-scoped query for ${method} ${endpoint}`);
   }
 });
+
+test('requested but unverified atomic rollout rejects scheduling instead of silently falling back', () => {
+  const body = route('post', '/schedule-campaign');
+  assert.match(body, /process\.env\.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled\(\)/);
+  assert.match(body, /return res\.status\(503\)\.json\(/);
+  assert.ok(body.indexOf('return res.status(503).json(') < body.indexOf('checkCampaignLimit(userId, normalizedPlatform)'), 'Rollout check must precede legacy quota path');
+});
