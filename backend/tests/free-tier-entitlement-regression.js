@@ -55,7 +55,9 @@ for (const flag of ["ENABLE_ATOMIC_SCHEDULE_QUOTA", "ATOMIC_SCHEDULE_MIGRATION_V
 assert.match(serverSource, /const useAtomicFreeScheduling = isFreeScheduling && atomicSchedulingEnabled\(\)/, "Atomic RPC must be Free-only");
 assert.match(serverSource, /if \(useAtomicFreeScheduling\) \{/, "Only Free may enter atomic RPC path");
 assert.match(serverSource, /if \(!isFreeScheduling\) \{[\s\S]*?checkCampaignLimit\(userId, normalizedPlatform\)/, "Paid tiers must retain legacy scheduling checks");
-assert.match(serverSource, /ENFORCE_SCHEDULE_AUTH === "true" \|\| atomicSchedulingEnabled\(\)/, "Atomic scheduling requires authenticated identity");
+assert.match(serverSource, /if \(isFreeScheduling && process\.env\.ENFORCE_SCHEDULE_AUTH !== "true"\)/, "Free scheduling must verify caller identity");
+assert.match(serverSource, /if \(process\.env\.ENFORCE_SCHEDULE_AUTH === "true"\)/, "Existing global authentication flag must remain supported");
+assert.doesNotMatch(serverSource, /ENFORCE_SCHEDULE_AUTH === "true" \|\| atomicSchedulingEnabled\(\)/, "Free rollout must not force new auth on paid clients");
 const scheduleHandlerStart = serverSource.indexOf('app.post("/schedule-campaign"');
 const scheduleHandler = serverSource.slice(scheduleHandlerStart, serverSource.indexOf("\n});", scheduleHandlerStart));
 assert.ok(scheduleHandlerStart >= 0, "Scheduling handler must exist");
