@@ -33,7 +33,7 @@ begin
       from public.scheduled_campaigns sc
       where sc.user_id = p_user_id
         and lower(trim(sc.platform)) in ('pinterest','facebook','instagram','x')
-      order by sc.created_at asc, sc.id asc
+      order by sc.publish_at asc, sc.id asc
       limit 1;
     if selected_platform is not null and selected_platform <> platform_key then
       return jsonb_build_object('allowed',false,'reason','Free accounts may schedule on one selected platform.');
