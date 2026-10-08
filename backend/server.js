@@ -11144,7 +11144,7 @@ app.get("/scheduled-campaigns", async (req, res) => {
   try {
     const { userId } = req.query;
 
-    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
       if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
@@ -11184,7 +11184,7 @@ app.delete("/scheduled-campaigns/:id", async (req, res) => {
     const { id } = req.params;
     const { userId } = req.query;
 
-    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
       if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
@@ -11243,7 +11243,7 @@ app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
     const { id } = req.params;
     const { userId, campaignStatus } = req.body;
 
-    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true") {
       if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
