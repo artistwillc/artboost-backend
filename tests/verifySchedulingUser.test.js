@@ -18,7 +18,7 @@ test("invalid session rejected", async () => {
 test("malformed or multiple bearer tokens are rejected before auth lookup", async () => {
   let calls = 0;
   const guarded = { auth: { getUser: async () => { calls++; return { data: { user: { id: "a" } }, error: null }; } } };
-  for (const authorization of ["Basic abc", "Bearer", "Bearer first second", "Bearer first\\nsecond"]) {
+  for (const authorization of ["Basic abc", "Bearer", "Bearer first second", "Bearer first\\tsecond"]) {
     assert.equal((await verifySchedulingUser(guarded, authorization, "a")).status, 401);
   }
   assert.equal(calls, 0);
