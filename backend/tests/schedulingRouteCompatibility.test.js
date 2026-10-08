@@ -11,7 +11,7 @@ const route = (method, path) => {
   const next = source.indexOf('\napp.', start + 5);
   return source.slice(start, next < 0 ? undefined : next);
 };
-const securityFlags = /process\.env\.ENFORCE_SCHEDULE_AUTH === "true"\s*\|\|\s*process\.env\.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true"/;
+const securityFlags = /process\.env\.ENFORCE_SCHEDULE_AUTH === "true"\s*\|\|\s*atomicSchedulingEnabled\(\)/;
 
 test('schedule creation authenticates callers when atomic quota is enabled', () => {
   const body = route('post', '/schedule-campaign');
@@ -34,7 +34,7 @@ for (const [method, path] of [
 }
 test('legacy scheduling remains available unless atomic flag is enabled', () => {
   const body = route('post', '/schedule-campaign');
-  assert.match(body, /process\.env\.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true"/);
+  assert.match(body, /!atomicSchedulingEnabled\(\)/);
   assert.match(body, /checkCampaignLimit\(userId, normalizedPlatform\)/);
 });
 
