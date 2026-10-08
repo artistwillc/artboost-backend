@@ -622,6 +622,8 @@ export async function importUniversalStore({
 
   const links = new Set();
   let pagesWithoutNewLinks = 0;
+  let successfulPageFetches = 0;
+  const pageFetchErrors = [];
 
   for (
     let pageNumber = 1;
@@ -654,6 +656,7 @@ export async function importUniversalStore({
       );
 
 
+      successfulPageFetches += 1;
       const discovered =
         extractCandidateLinks(
           html,
@@ -668,6 +671,9 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      pageFetchErrors.push(
+        error instanceof Error ? error.message : String(error)
+      );
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -686,6 +692,13 @@ export async function importUniversalStore({
     if (pagesWithoutNewLinks >= 2) {
       break;
     }
+  }
+
+  // A blocked or unavailable storefront must not be reported as an empty catalog.
+  if (successfulPageFetches === 0) {
+    throw new Error(
+      `Storefront pages could not be loaded (${pageFetchErrors.length} failed requests). ${pageFetchErrors[0] || "Check storefront accessibility."}`
+    );
   }
 
   const limitedLinks = [...links].slice(
