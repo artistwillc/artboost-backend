@@ -62,7 +62,7 @@ begin
       where id = p_user_id;
   end if;
 
-  return jsonb_build_object('allowed',true,'campaign_id',inserted.id);
+  return jsonb_build_object('allowed',true,'campaign',to_jsonb(inserted));
 end;
 $$;
 
