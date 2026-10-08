@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "backend/routes/assistant.js"
+      - "backend/routes/stores.js"
       - "backend/services/universalStoreImporter.js"
       - "backend/tests/scanner-merlin-regression.js"
       - "frontend/app/ai-store-scanner.tsx"
@@ -27,6 +28,7 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --check backend/routes/assistant.js
+          node --check backend/routes/stores.js
           node --check backend/services/universalStoreImporter.js
           node --check backend/tests/scanner-merlin-regression.js
       - name: Run scanner and Merlin regression checks
