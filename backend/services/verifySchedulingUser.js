@@ -13,7 +13,7 @@ export async function verifySchedulingUser(supabase, authorization, claimedUserI
   } catch {
     return { ok: false, status: 401, reason: "Invalid or expired session" };
   }
-  if (error || !data?.user?.id) {
+  if (error || typeof data?.user?.id !== "string" || !data.user.id) {
     return { ok: false, status: 401, reason: "Invalid or expired session" };
   }
   if (typeof claimedUserId !== "string" || !claimedUserId || data.user.id !== claimedUserId) {
