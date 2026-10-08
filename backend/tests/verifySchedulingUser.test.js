@@ -77,3 +77,13 @@ test("malformed authenticated user IDs are rejected as invalid sessions", async 
     );
   }
 });
+
+test("authentication provider null and incomplete responses fail closed", async () => {
+  for (const response of [null, undefined, {}, { data: null }, { data: {} }, { data: { user: null } }]) {
+    const provider = { auth: { getUser: async () => response } };
+    assert.deepEqual(
+      await verifySchedulingUser(provider, "Bearer token", "a"),
+      { ok: false, status: 401, reason: "Invalid or expired session" }
+    );
+  }
+});
