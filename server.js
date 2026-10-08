@@ -6440,23 +6440,15 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
-
-    if (!limitCheck.allowed) {
-      return res.status(403).json({
-        success: false,
-        upgradeRequired: true,
-        error: limitCheck.reason,
-      });
-    }
-
+    // Atomic RPC performs quota verification, campaign insert and counter update
+    // in a single database transaction. Requires migration before activation.
+    // IMPORTANT: Caller identity MUST be verified against userId at the API
+    // boundary before this endpoint is enabled in production.
     const finalRepeatType = repeatType || "one_time";
-
     const calculatedNextRun =
       nextRunAt || (finalRepeatType !== "one_time" ? publishAt : null);
 
     const insertPayload = {
-      user_id: userId,
       platform: normalizedPlatform,
       campaign_group_id: campaignGroupId || null,
       title,
@@ -6468,57 +6460,30 @@ app.post("/schedule-campaign", async (req, res) => {
       board_id: platformKey === "pinterest" ? boardId : null,
       page_id: platformKey === "facebook" ? pageId : null,
       publish_at: publishAt,
-      status: "scheduled",
-      campaign_status: "active",
       repeat_type: finalRepeatType,
       next_run_at: calculatedNextRun,
       repeat_until: repeatUntil || null,
-      error: null,
-      updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("scheduled_campaigns")
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    if (error) {
-      console.log("SCHEDULE INSERT FAILED:", {
-        platform: normalizedPlatform,
-        error: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        payload: insertPayload,
-      });
-
+    const { data: quotaResult, error: scheduleError } = await supabase.rpc(
+      "schedule_campaign_with_quota",
+      { p_user_id: userId, p_campaign: insertPayload }
+    );
+    if (scheduleError) {
+      console.error("Atomic campaign scheduling failed", scheduleError.message);
       return res.status(500).json({
         success: false,
-        error: "Failed to save scheduled campaign.",
-        details: error.message,
-        code: error.code,
-        hint: error.hint,
+        error: "Unable to schedule campaign.",
       });
     }
-
-    if (userId) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .single();
-
-      if (!profileError && (profile?.subscription_tier || "free") === "free") {
-        await supabase
-          .from("profiles")
-          .update({
-            monthly_campaign_count:
-              (profile?.monthly_campaign_count || 0) + 1,
-          })
-          .eq("id", userId);
-      }
+    if (!quotaResult?.allowed) {
+      return res.status(403).json({
+        success: false,
+        upgradeRequired: true,
+        error: quotaResult?.reason || "Campaign not permitted.",
+      });
     }
+    const data = { id: quotaResult.campaign_id };
 
     await createNotification({
       userId,
