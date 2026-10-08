@@ -566,7 +566,7 @@ async function resolveConnection({
       const parsed = new URL(String(value || "").trim());
       if (!["http:", "https:"].includes(parsed.protocol)) return null;
       const host = parsed.hostname.toLowerCase().replace(/^www\\./, "");
-      const path = parsed.pathname.replace(/\\/+$/, "").toLowerCase();
+      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
       return host + path;
     } catch {
       return null;
