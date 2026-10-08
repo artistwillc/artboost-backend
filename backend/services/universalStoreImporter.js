@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import supabase from "../lib/supabase.js";
+import { isArtPalHost, isArtPalChallengeHtml, isArtPalAccessError, assertArtPalScanAccessible } from "./artpalAccessGuard.js";
 
 const REQUEST_HEADERS = {
   "User-Agent":
@@ -650,11 +651,7 @@ export async function importUniversalStore({
       // A bot challenge can return HTTP 200 with no usable artwork.
       // Treat it as access denied before any catalog changes.
       if (
-        (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) &&
-        (
-          /cf-chl-|cf-turnstile|challenge-platform/i.test(html) ||
-          (/cloudflare/i.test(html) && /just a moment|checking your browser|verify you are human|security verification/i.test(html))
-        )
+        isArtPalHost(storeHost) && isArtPalChallengeHtml(html)
       ) {
         artpalAccessDenied = true;
         break;
@@ -674,7 +671,7 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
-      if ((storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) && /\b403\b|forbidden|cloudflare|security verification/i.test(error instanceof Error ? error.message : String(error))) {
+      if (isArtPalHost(storeHost) && isArtPalAccessError(error)) {
         artpalAccessDenied = true;
       }
       console.log(
@@ -697,9 +694,7 @@ export async function importUniversalStore({
     }
   }
 
-  if (artpalAccessDenied) {
-    throw new Error("ArtPal denied storefront access (HTTP 403 / security verification). No artwork was imported or deleted. Retry after ArtPal permits access, or use an authorized artwork export or individual product URLs.");
-  }
+  assertArtPalScanAccessible(artpalAccessDenied);
 
   const limitedLinks = [...links].slice(
     0,
