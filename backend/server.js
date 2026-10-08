@@ -1,4 +1,6 @@
 // ARTBOOST_NOTIFICATION_PREFERENCE_GATE_V3154
+import { resolveSubscriptionTier } from "../services/subscriptionTier.js";
+import { verifySchedulingUser } from "../services/verifySchedulingUser.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -3326,9 +3328,15 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
     ? new Date(subscription.current_period_end * 1000).toISOString()
     : null;
 
+  const resolvedEntitlement = resolveSubscriptionTier(subscription);
+  if (resolvedEntitlement.tier === null) {
+    console.error("Unknown Stripe price; preserving existing subscription tier", { subscriptionId: subscription.id });
+    return { synced: false, reason: "unmapped_price", subscriptionId: subscription.id };
+  }
+
   const updateData = {
     is_pro: isActive,
-    subscription_tier: isActive ? "pro" : "free",
+    subscription_tier: resolvedEntitlement.tier,
     subscription_status: subscription.status,
     plan: isActive ? plan : "free",
     stripe_customer_id: customer.id,
@@ -10958,6 +10966,13 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) {
+        return res.status(identity.status).json({ success: false, error: identity.reason });
+      }
+    }
+
     if (!title || !description || !publishAt) {
       return res.status(400).json({
         success: false,
@@ -10993,16 +11008,6 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
-
-    if (!limitCheck.allowed) {
-      return res.status(403).json({
-        success: false,
-        upgradeRequired: true,
-        error: limitCheck.reason,
-      });
-    }
-
     const finalRepeatType = repeatType || "one_time";
 
     const calculatedNextRun =
@@ -11030,48 +11035,23 @@ app.post("/schedule-campaign", async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("scheduled_campaigns")
-      .insert(insertPayload)
-      .select()
-      .single();
-
+    // Enable only after the atomic quota migration is applied and verified.
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true") {
+      return res.status(503).json({ success: false, error: "Campaign scheduling update is not enabled." });
+    }
+    const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
+      p_user_id: userId,
+      p_campaign: insertPayload,
+    });
     if (error) {
-      console.log("SCHEDULE INSERT FAILED:", {
-        platform: normalizedPlatform,
-        error: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        payload: insertPayload,
-      });
-
-      return res.status(500).json({
-        success: false,
-        error: "Failed to save scheduled campaign.",
-        details: error.message,
-        code: error.code,
-        hint: error.hint,
-      });
+      console.error("ATOMIC SCHEDULE FAILED:", { code: error.code, message: error.message });
+      return res.status(500).json({ success: false, error: "Failed to save scheduled campaign." });
     }
-
-    if (userId) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .single();
-
-      if (!profileError && (profile?.subscription_tier || "free") === "free") {
-        await supabase
-          .from("profiles")
-          .update({
-            monthly_campaign_count:
-              (profile?.monthly_campaign_count || 0) + 1,
-          })
-          .eq("id", userId);
-      }
+    if (!quotaResult?.allowed) {
+      return res.status(403).json({ success: false, upgradeRequired: true, error: quotaResult?.reason || "Campaign limit reached." });
     }
+    const data = quotaResult.campaign;
+    if (!data?.id) throw new Error("Atomic scheduling returned no campaign.");
 
     await createNotification({
       userId,
