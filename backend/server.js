@@ -11151,6 +11151,9 @@ app.post("/schedule-campaign", async (req, res) => {
 
 app.get("/scheduled-campaigns", async (req, res) => {
   try {
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
+      return res.status(503).json({ success: false, error: "Atomic scheduling rollout is not verified." });
+    }
     const { userId } = req.query;
 
     if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
@@ -11190,6 +11193,9 @@ app.get("/scheduled-campaigns", async (req, res) => {
 
 app.delete("/scheduled-campaigns/:id", async (req, res) => {
   try {
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
+      return res.status(503).json({ success: false, error: "Atomic scheduling rollout is not verified." });
+    }
     const { id } = req.params;
     const { userId } = req.query;
 
@@ -11249,6 +11255,9 @@ app.delete("/scheduled-campaigns/:id", async (req, res) => {
 
 app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
   try {
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
+      return res.status(503).json({ success: false, error: "Atomic scheduling rollout is not verified." });
+    }
     const { id } = req.params;
     const { userId, campaignStatus } = req.body;
 
