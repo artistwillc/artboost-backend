@@ -144,14 +144,23 @@ async function fetchPage(url, timeoutMs = 20000) {
       signal: controller.signal,
     });
 
-    const html = await response.text();
-
+    // Check HTTP status before consuming the body: blocked storefronts can
+    // return very large challenge pages that should not be parsed as products.
     if (!response.ok) {
+      const host = new URL(url).hostname.toLowerCase();
+      const isArtPal = host === "artpal.com" || host.endsWith(".artpal.com");
+      const blocked = [401, 403, 429].includes(response.status);
+      if (isArtPal && blocked) {
+        throw new Error(
+          `ArtPal storefront access blocked (HTTP ${response.status}). No products were deleted or replaced. Open ArtPal in the in-app browser and use the authenticated artwork URL importer.`
+        );
+      }
       throw new Error(
         `Store returned ${response.status} for ${url}.`
       );
     }
 
+    const html = await response.text();
     return {
       html,
       responseUrl: response.url || url,
