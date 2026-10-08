@@ -77,6 +77,19 @@ begin
   select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
   if quota <> 4 then raise exception 'Past date consumed quota: %',quota; end if;
 end $past_date$;
+-- Free users may choose Threads; a different second platform must be rejected.
+insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
+values ('00000000-0000-0000-0000-000000000007','free',0,(current_date + interval '1 month')::date);
+do $threads_choice$
+declare a jsonb; b jsonb;
+begin
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000007',
+    '{"platform":"Threads","title":"Threads post","description":"Test","image_url":"https://example.com/art.png","publish_at":"2030-01-01T12:00:00Z"}') into a;
+  if (a->>'allowed') is distinct from 'true' then raise exception 'Threads Free choice denied: %',a; end if;
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000007',
+    '{"platform":"LinkedIn","title":"Second platform","description":"Test","image_url":"https://example.com/art.png","publish_at":"2030-01-01T12:00:00Z"}') into b;
+  if (b->>'allowed') is distinct from 'false' then raise exception 'Second Free platform accepted: %',b; end if;
+end $threads_choice$;
 -- Free users may choose Facebook first; subsequent Pinterest requests must fail.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000004','free',0,(current_date + interval '1 month')::date);
