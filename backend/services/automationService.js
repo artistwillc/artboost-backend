@@ -1031,6 +1031,25 @@ export async function runAutomation({
     );
   }
 
+  // The legacy due-automation worker uses this executor instead of
+  // automationRunner.js; enforce the same entitlement here.
+  if (process.env.ENFORCE_PAID_STORE_ACCESS === "true") {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("subscription_tier,subscription_status")
+      .eq("id", String(automation.userId))
+      .single();
+    if (profileError || !profile) {
+      throw new Error("Unable to verify automation subscription.");
+    }
+    const tier = String(profile.subscription_tier || "free").toLowerCase();
+    const status = String(profile.subscription_status || "").toLowerCase();
+    if (!["starter", "pro", "business"].includes(tier) ||
+        !["active", "trialing", "complimentary_active"].includes(status)) {
+      throw new Error("Automated posting requires a paid subscription.");
+    }
+  }
+
   if (!automation.enabled) {
     return {
       success: false,
