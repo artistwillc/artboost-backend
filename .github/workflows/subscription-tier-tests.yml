@@ -4,6 +4,8 @@ on:
     paths:
       - 'services/subscriptionTier.js'
       - 'tests/subscriptionTier.test.js'
+      - 'services/verifySchedulingUser.js'
+      - 'tests/verifySchedulingUser.test.js'
       - '.github/workflows/subscription-tier-tests.yml'
   workflow_dispatch:
 jobs:
@@ -15,4 +17,4 @@ jobs:
         with:
           node-version: '22'
       - name: Run subscription resolver tests
-        run: node --test tests/subscriptionTier.test.js
+        run: node --test tests/subscriptionTier.test.js tests/verifySchedulingUser.test.js
