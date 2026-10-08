@@ -10926,6 +10926,14 @@ app.post("/pinterest/create-pin", async (req, res) => {
 
 app.post("/schedule-campaign", async (req, res) => {
   try {
+    // Do not silently fall back to non-atomic quota enforcement if rollout was
+    // requested but migration/client verification has not been completed.
+    if (process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
+      return res.status(503).json({
+        success: false,
+        error: "Atomic scheduling rollout is not verified.",
+      });
+    }
     const {
       userId,
       title,
