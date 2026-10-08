@@ -1,0 +1,39 @@
+name: Isolated PostgreSQL quota tests
+on:
+  pull_request:
+    paths:
+      - 'migrations/20261008_atomic_campaign_scheduling.sql'
+      - 'tests/sql/**'
+      - '.github/workflows/atomic-quota-postgres.yml'
+  workflow_dispatch:
+jobs:
+  postgres-quota:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: artboost_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: artboost_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create isolated fixture
+        run: psql -v ON_ERROR_STOP=1 -f tests/sql/atomic_quota_fixture.sql
+      - name: Install migration on disposable database
+        run: psql -v ON_ERROR_STOP=1 -f migrations/20261008_atomic_campaign_scheduling.sql
+      - name: Check free-tier quota and platform restrictions
+        run: psql -v ON_ERROR_STOP=1 -f tests/sql/atomic_quota_assertions.sql
