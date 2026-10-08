@@ -7,8 +7,7 @@ const files = [
   "routes/stores.js",
   "routes/automations.js",
   "services/storeSyncService.js",
-  "services/automationRunner.js",
-  "services/automationService.js",
+  "services/paidEntitlements.js",
 ];
 for (const file of files) {
   const source = fs.readFileSync(new URL(file, root), "utf8");
@@ -34,8 +33,9 @@ for (const route of ["/:automationId/disable", "/bulk-delete"]) {
 const legacy = fs.readFileSync(new URL("services/automationService.js", root), "utf8");
 const legacyExecutor = legacy.slice(legacy.indexOf("export async function runAutomation({"), legacy.indexOf("export async function runDueAutomations({"));
 assert.match(legacyExecutor, /ENFORCE_PAID_STORE_ACCESS/, "legacy executor must check paid entitlement");
-assert.match(legacyExecutor, /complimentary_active/, "legacy executor must preserve complimentary access");
+assert.match(legacyExecutor, /hasPaidAutomationAccess\(profile\)/, "legacy executor must use shared paid entitlement predicate");
 const newRunner = fs.readFileSync(new URL("services/automationRunner.js", root), "utf8");
 const newExecutor = newRunner.slice(newRunner.indexOf("export async function runAutomation({"));
 assert.match(newExecutor, /ENFORCE_PAID_STORE_ACCESS/, "new executor must check paid entitlement");
+assert.match(newExecutor, /hasPaidAutomationAccess\(profile\)/, "new executor must use shared paid entitlement predicate");
 console.log("Free-tier entitlement source regression checks passed");
