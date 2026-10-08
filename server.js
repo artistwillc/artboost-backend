@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
@@ -2070,9 +2071,15 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
     ? new Date(subscription.current_period_end * 1000).toISOString()
     : null;
 
+  const entitlement = resolveSubscriptionTier(subscription);
+  if (entitlement.tier === null) {
+    console.error("Subscription price not mapped; preserving existing entitlement", { subscriptionId: subscription.id });
+    return { synced: false, foundCustomer: true, active: isActive, reason: "unmapped_price" };
+  }
+
   const updateData = {
     is_pro: isActive,
-    subscription_tier: isActive ? "pro" : "free",
+    subscription_tier: entitlement.tier,
     subscription_status: subscription.status,
     plan: isActive ? plan : "free",
     stripe_customer_id: customer.id,
@@ -2125,10 +2132,20 @@ app.post(
           const customerEmail =
             session.metadata?.userEmail || session.customer_details?.email || "";
 
+          // Only grant paid entitlements after verifying the purchased Stripe Price ID.
+          const checkoutSubscription = session.subscription
+            ? await stripe.subscriptions.retrieve(session.subscription)
+            : null;
+          const checkoutEntitlement = resolveSubscriptionTier(checkoutSubscription);
+          if (!checkoutEntitlement.tier || checkoutEntitlement.tier === "free") {
+            console.error("Checkout entitlement unresolved; no profile tier change", { sessionId: session.id });
+            break;
+          }
+
           const updateData = {
             is_pro: true,
-            subscription_tier: "pro",
-            subscription_status: "active",
+            subscription_tier: checkoutEntitlement.tier,
+            subscription_status: checkoutSubscription.status,
             plan,
             stripe_customer_id: session.customer,
             stripe_subscription_id: session.subscription,
@@ -2150,8 +2167,8 @@ app.post(
 
           await createNotification({
             userId,
-            title: "Pro Subscription Activated",
-            message: "Your ArtBoost AI Pro subscription is active.",
+            title: "Subscription Activated",
+            message: `Your ArtBoost AI ${checkoutEntitlement.tier} subscription is active.`,
             type: "success",
           });
 
@@ -2176,9 +2193,14 @@ app.post(
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
 
+          const webhookEntitlement = resolveSubscriptionTier(subscription);
+          if (webhookEntitlement.tier === null) {
+            console.error("Webhook price not mapped; preserving existing entitlement", { subscriptionId: subscription.id });
+            break;
+          }
           const updateData = {
             is_pro: isActive,
-            subscription_tier: isActive ? "pro" : "free",
+            subscription_tier: webhookEntitlement.tier,
             subscription_status: status,
             plan: isActive ? plan : "free",
             stripe_customer_id: customerId,
