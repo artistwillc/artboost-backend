@@ -10979,7 +10979,9 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
+    // Keep the legacy paid-client authentication contract unchanged.
+    // Free-tier scheduling always requires a verified Supabase identity.
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) {
         return res.status(identity.status).json({ success: false, error: identity.reason });
@@ -11034,6 +11036,12 @@ app.post("/schedule-campaign", async (req, res) => {
       return res.status(503).json({ success: false, error: "Unable to verify scheduling entitlement." });
     }
     const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").toLowerCase() === "free";
+    if (isFreeScheduling && process.env.ENFORCE_SCHEDULE_AUTH !== "true") {
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) {
+        return res.status(identity.status).json({ success: false, error: identity.reason });
+      }
+    }
     // A partially enabled Free rollout must not interrupt existing paid subscribers.
     if (isFreeScheduling && process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
       return res.status(503).json({
