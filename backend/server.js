@@ -11002,13 +11002,6 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    if (!["pinterest", "facebook", "instagram", "x"].includes(platformKey)) {
-      return res.status(400).json({
-        success: false,
-        error: `Unsupported platform: ${normalizedPlatform}`,
-      });
-    }
-
     if (platformKey === "pinterest" && !boardId) {
       return res.status(400).json({
         success: false,
@@ -11036,6 +11029,16 @@ app.post("/schedule-campaign", async (req, res) => {
       return res.status(503).json({ success: false, error: "Unable to verify scheduling entitlement." });
     }
     const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").toLowerCase() === "free";
+    // Extend platform choice only for Free; paid clients keep their existing allowlist.
+    const supportedSchedulingPlatforms = isFreeScheduling
+      ? ["pinterest", "facebook", "instagram", "x", "threads", "linkedin"]
+      : ["pinterest", "facebook", "instagram", "x"];
+    if (!supportedSchedulingPlatforms.includes(platformKey)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported platform: ${normalizedPlatform}`,
+      });
+    }
     if (isFreeScheduling && process.env.ENFORCE_SCHEDULE_AUTH !== "true") {
       const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
       if (!identity.ok) {
