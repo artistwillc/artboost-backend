@@ -38,4 +38,12 @@ const newRunner = fs.readFileSync(new URL("services/automationRunner.js", root),
 const newExecutor = newRunner.slice(newRunner.indexOf("export async function runAutomation({"));
 assert.match(newExecutor, /ENFORCE_PAID_STORE_ACCESS/, "new executor must check paid entitlement");
 assert.match(newExecutor, /hasPaidAutomationAccess\(profile\)/, "new executor must use shared paid entitlement predicate");
+const quotaSql = fs.readFileSync(new URL("../migrations/20261008_atomic_campaign_scheduling.sql", root), "utf8");
+assert.match(quotaSql, /for update/i, "Free quota must lock the profile row");
+assert.match(quotaSql, /campaign_count >= 5/, "Free quota must reject a sixth campaign");
+assert.match(quotaSql, /selected_platform <> platform_key/, "Free must be limited to one chosen platform");
+assert.doesNotMatch(quotaSql, /Free users can only use Pinterest/i, "Free cannot be Pinterest-only");
+assert.match(quotaSql, /next_run_at',''\) is not null/, "Free must reject background next-run scheduling");
+assert.match(quotaSql, /repeat_type','one_time'\) <> 'one_time'/, "Free must reject recurring campaigns");
+assert.match(quotaSql, /if coalesce\(p.subscription_tier,'free'\) = 'free' then/, "Quota must only apply to Free");
 console.log("Free-tier entitlement source regression checks passed");
