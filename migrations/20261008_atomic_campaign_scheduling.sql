@@ -39,7 +39,8 @@ begin
       return jsonb_build_object('allowed',false,'reason','Free accounts may schedule on one selected platform.');
     end if;
     if coalesce(p_campaign->>'repeat_type','one_time') <> 'one_time'
-       or nullif(p_campaign->>'repeat_until','') is not null then
+       or nullif(p_campaign->>'repeat_until','') is not null
+       or nullif(p_campaign->>'next_run_at','') is not null then
       return jsonb_build_object('allowed',false,'reason','Free accounts cannot schedule recurring campaigns.');
     end if;
     reset_date := p.campaign_reset_date;
