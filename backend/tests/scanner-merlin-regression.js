@@ -17,6 +17,7 @@ assert.ok(importer.includes('replace(/\\/+$/, "")'), "trailing slash normalizati
 assert.match(importer, /Multiple connected stores match this URL/);
 assert.match(importer, /\.eq\("user_id", userId\)/);
 assert.ok(importer.includes("A definitive access denial will not improve by requesting more pages."));
+assert.match(importer, /syncStatusUpdated: !syncStatusError/);
 assert.match(importer, /successfulPageFetches === 0/);
 assert.match(importer, /storefront refused ArtBoost server access/);
 assert.match(importer, /\.eq\("user_id", userId\)/);
