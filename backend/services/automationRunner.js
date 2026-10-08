@@ -1,3 +1,4 @@
+import { hasPaidAutomationAccess } from "./paidEntitlements.js";
 // ARTBOOST_AUTOMATION_RUNNER_GUARDS_V3156
 import supabase from "../lib/supabase.js";
 
@@ -593,10 +594,7 @@ export async function runAutomation({
     if (profileError || !profile) {
       throw new Error("Unable to verify automation subscription.");
     }
-    const tier = String(profile.subscription_tier || "free").toLowerCase();
-    const status = String(profile.subscription_status || "").toLowerCase();
-    if (!["starter", "pro", "business"].includes(tier) ||
-        !["active", "trialing", "complimentary_active"].includes(status)) {
+    if (!hasPaidAutomationAccess(profile)) {
       throw new Error("Automated posting requires a paid subscription.");
     }
   }
