@@ -629,8 +629,8 @@ export async function importUniversalStore({
     pageNumber += 1
   ) {
     const pageUrl = new URL(
-    connection.store_url
-  );
+      connection.store_url
+    );
 
     if (pageNumber > 1) {
       pageUrl.searchParams.set(
@@ -691,7 +691,7 @@ export async function importUniversalStore({
       pagesWithoutNewLinks = 0;
     }
 
-    if (pagesWithoutNewLinks >= 2) {
+    if (artpalAccessDenied || pagesWithoutNewLinks >= 2) {
       break;
     }
   }
