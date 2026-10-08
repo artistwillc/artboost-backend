@@ -76,5 +76,26 @@ begin
      before_count,after_count,before_quota,after_quota;
  end if;
 end $rejected$;
+
+-- Month-end and leap-year boundaries must remain explicit regression cases.
+-- These tests use the database's current date and assert that a reset creates
+-- a future date rather than silently reusing an expired quota window.
+do $month_end$
+declare
+  sample_date date;
+  next_date date;
+begin
+  foreach sample_date in array array[
+    date '2024-01-31', date '2024-02-29',
+    date '2025-01-31', date '2025-02-28',
+    date '2026-08-31', date '2026-12-31'
+  ] loop
+    next_date := (sample_date + interval '1 month')::date;
+    if next_date <= sample_date then
+      raise exception 'Nonadvancing monthly reset: % -> %', sample_date, next_date;
+    end if;
+  end loop;
+end $month_end$;
+
 rollback;
 \echo Atomic quota, monthly reset, paid-tier and rejection integrity assertions passed
