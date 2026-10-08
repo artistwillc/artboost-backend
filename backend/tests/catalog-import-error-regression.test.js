@@ -23,5 +23,6 @@ test("blocked ArtPal responses report actionable errors before body parsing", ()
 });
 
 test("ArtPal pagination failures propagate instead of being swallowed", () => {
-  assert.match(importer, /if \(storeHost === "artpal\\.com" \\|\\| storeHost\\.endsWith\\("\\.artpal\\.com"\\)\\) \{\\s*throw error;/);
+  assert.ok(importer.includes('if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {'));
+  assert.ok(importer.includes('        throw error;'));
 });
