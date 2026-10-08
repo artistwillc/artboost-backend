@@ -492,6 +492,7 @@ async function mapWithConcurrency(
   mapper
 ) {
   const results = [];
+  const failures = [];
   let index = 0;
 
   async function worker() {
@@ -509,6 +510,7 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        failures.push(error instanceof Error ? error.message : String(error));
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -532,7 +534,7 @@ async function mapWithConcurrency(
     )
   );
 
-  return results;
+  return { results, failures };
 }
 
 async function resolveConnection({
@@ -774,7 +776,7 @@ export async function importUniversalStore({
     );
   }
 
-  const parsedProducts =
+  const { results: parsedProducts, failures: productFetchFailures } =
     await mapWithConcurrency(
       limitedLinks,
       4,
@@ -802,6 +804,14 @@ export async function importUniversalStore({
       ])
     ).values(),
   ];
+
+  if (uniqueProducts.length === 0 && productFetchFailures.some((message) =>
+    /Store returned (?:401|403)\\b/.test(message)
+  )) {
+    throw new Error(
+      "Artwork pages refused ArtBoost server access (HTTP 403/401). Saved products have not been deleted. Request marketplace-authorized access or use an official export."
+    );
+  }
 
   if (uniqueProducts.length === 0) {
     throw new Error(
