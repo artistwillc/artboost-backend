@@ -37,3 +37,16 @@ test('legacy scheduling remains available unless atomic flag is enabled', () => 
   assert.match(body, /process\.env\.ENABLE_ATOMIC_SCHEDULE_QUOTA !== "true"/);
   assert.match(body, /checkCampaignLimit\(userId, normalizedPlatform\)/);
 });
+
+test('campaign management queries stay scoped to the authenticated account when enabled', () => {
+  for (const [method, endpoint] of [
+    ['get', '/scheduled-campaigns'],
+    ['delete', '/scheduled-campaigns/:id'],
+    ['patch', '/scheduled-campaigns/:id/lifecycle'],
+  ]) {
+    const body = route(method, endpoint);
+    const verifiedAt = body.indexOf('verifySchedulingUser(supabase, req.headers.authorization, userId)');
+    const scopedAt = body.indexOf('.eq("user_id", userId)');
+    assert.ok(verifiedAt >= 0 && scopedAt > verifiedAt, `Missing ownership-scoped query for ${method} ${endpoint}`);
+  }
+});
