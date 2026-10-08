@@ -1368,6 +1368,8 @@ app.post("/etsy/sync", express.json({ limit: "10mb" }), async (req, res) => {
       });
     }
 
+    if (!await verifyPaidStoreWrite(req, res, String(userId))) return;
+
     const connection =
       await getValidEtsyConnection(userId);
 
