@@ -2689,7 +2689,8 @@ function scanEntireStore() {
     return;
   }
 
-  setProducts([]);
+  // Keep the previous scan visible until replacement results arrive.
+  // An interrupted or blocked storefront scan must not blank the UI.
   setFullStoreScanning(true);
   setScanProgress(
     "Starting full store scan..."
