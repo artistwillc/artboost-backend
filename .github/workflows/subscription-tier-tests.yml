@@ -1,0 +1,18 @@
+name: Subscription tier unit tests
+on:
+  pull_request:
+    paths:
+      - 'services/subscriptionTier.js'
+      - 'tests/subscriptionTier.test.js'
+      - '.github/workflows/subscription-tier-tests.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run subscription resolver tests
+        run: node --test tests/subscriptionTier.test.js
