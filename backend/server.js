@@ -732,6 +732,8 @@ app.get(
         );
       }
 
+      if (!await verifyPaidOAuthStoreUser(statePayload.userId, res)) return;
+
       const tokenResponse =
         await fetch(
           "https://openapi.etsy.com/v3/public/oauth/token",
@@ -7382,6 +7384,8 @@ app.get(
         );
       }
 
+      if (!await verifyPaidOAuthStoreUser(statePayload.userId, res)) return;
+
       const tokenResponse = await fetch(
         `https://${shopDomain}/admin/oauth/access_token`,
         {
@@ -13699,6 +13703,26 @@ app.get("/api/v2/store-connections/:id", async (req, res) => {
 });
 
 // =========================================================
+// OAuth callbacks cannot carry an app Bearer header. Check the user ID
+// recovered from verified, signed OAuth state before exchanging or saving tokens.
+async function verifyPaidOAuthStoreUser(userId, res) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status").eq("id", String(userId)).single();
+  if (error || !data) {
+    res.status(503).send("Unable to verify ArtBoost subscription.");
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  const status = String(data.subscription_status || "").toLowerCase();
+  if (!["starter","pro","business"].includes(tier) ||
+      !["active","trialing"].includes(status)) {
+    res.status(403).send("Store connections require a paid ArtBoost subscription.");
+    return false;
+  }
+  return true;
+}
+
 // Staged entitlement guard for v2 store writes. Keep disabled until all
 // legacy store routes, OAuth callbacks, workers and released clients are ready.
 async function verifyPaidStoreWrite(req, res, claimedUserId) {
