@@ -542,28 +542,18 @@ async function resolveConnection({
 }) {
   // Resolve only a store owned by the authenticated user.
   // A supplied URL must never authorize access to another user's connection.
-  let query = supabase
+  // A pasted storefront URL can differ in www, casing, slash, or tracking
+  // parameters from the saved connection. Resolve only within this user's
+  // connections; never trust a URL to grant access to another account.
+  const query = supabase
     .from("store_connections")
     .select(
-      `
-        id,
-        user_id,
-        platform,
-        store_name,
-        store_url,
-        connected,
-        metadata
-      `
+      "id,user_id,platform,store_name,store_url,connected,metadata"
     )
     .eq("user_id", userId);
-
-  if (storeId) {
-    query = query.eq("id", storeId);
-  } else {
-    query = query.eq("store_url", storeUrl);
-  }
-
-  const { data: connection, error } = await query.maybeSingle();
+  const { data: connections, error } = storeId
+    ? await query.eq("id", storeId)
+    : await query;
 
   if (error) {
     throw new Error(
@@ -571,6 +561,35 @@ async function resolveConnection({
     );
   }
 
+  const canonicalStoreUrl = (value) => {
+    try {
+      const parsed = new URL(String(value || "").trim());
+      if (!["http:", "https:"].includes(parsed.protocol)) return null;
+      const host = parsed.hostname.toLowerCase().replace(/^www\\./, "");
+      const path = parsed.pathname.replace(/\\/+$/, "").toLowerCase();
+      return host + path;
+    } catch {
+      return null;
+    }
+  };
+
+  const candidates = connections || [];
+  const targetUrl = storeId ? null : canonicalStoreUrl(storeUrl);
+  const matching = storeId
+    ? candidates
+    : targetUrl
+      ? candidates.filter(
+          (candidate) => canonicalStoreUrl(candidate.store_url) === targetUrl
+        )
+      : [];
+
+  if (matching.length > 1) {
+    throw new Error(
+      "Multiple connected stores match this URL. Select a specific store."
+    );
+  }
+
+  const connection = matching[0] || null;
   if (!connection) {
     throw new Error(
       "The connected store was not found."
