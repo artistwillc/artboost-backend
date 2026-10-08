@@ -13,9 +13,8 @@ for (const file of files) {
   assert.match(source, /ENFORCE_PAID_STORE_ACCESS/, file + " must remain feature flagged");
 }
 const predicate = fs.readFileSync(new URL("services/paidEntitlements.js", root), "utf8");
-for (const status of ["active", "trialing", "complimentary_active"]) {
-  assert.ok(predicate.includes(status), "Entitlement predicate missing " + status);
-}
+assert.match(predicate, /tier !== "free"/, "Entitlement predicate must only block Free");
+assert.doesNotMatch(predicate, /subscription_status/, "Free-tier guard must not impose new paid status restrictions");
 const routes = fs.readFileSync(new URL("routes/automations.js", root), "utf8");
 for (const route of ["/multi-daily", "/preview", "/:automationId/run", "/:automationId/resume"]) {
   const start = routes.indexOf('router.post(\n  "' + route + '"');
