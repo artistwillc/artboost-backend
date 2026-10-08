@@ -5,6 +5,8 @@ on:
     paths:
       - "backend/server.js"
       - "backend/tests/free-tier-entitlement-regression.js"
+      - "backend/tests/paid-entitlements.test.js"
+      - "backend/services/paidEntitlements.js"
       - "backend/routes/stores.js"
       - "backend/routes/automations.js"
       - "backend/services/storeSyncService.js"
@@ -32,3 +34,4 @@ jobs:
           node --check backend/services/automationRunner.js
           node --check backend/services/automationService.js
           node backend/tests/free-tier-entitlement-regression.js
+          node backend/tests/paid-entitlements.test.js
