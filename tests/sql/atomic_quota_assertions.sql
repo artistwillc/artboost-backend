@@ -30,6 +30,22 @@ begin
  '{"platform":"Facebook","title":"Test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}') into c;
  if (c->>'allowed')::boolean then raise exception 'Free Facebook campaign accepted'; end if;
 end $$;
+-- Invalid requests must neither insert a campaign nor consume the last quota slot.
+insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
+values ('00000000-0000-0000-0000-000000000006','free',4,(current_date + interval '1 month')::date);
+do $required_fields$
+declare result jsonb; before_count integer; after_count integer; quota integer;
+begin
+  select count(*) into before_count from public.scheduled_campaigns where user_id='00000000-0000-0000-0000-000000000006';
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000006',
+    '{"platform":"Pinterest","title":"Incomplete","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into result;
+  if (result->>'allowed') is distinct from 'false' then raise exception 'Missing artwork URL was accepted: %',result; end if;
+  select count(*) into after_count from public.scheduled_campaigns where user_id='00000000-0000-0000-0000-000000000006';
+  select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
+  if after_count <> before_count or quota <> 4 then
+    raise exception 'Invalid campaign changed insertion count or quota: %, %',after_count,quota;
+  end if;
+end $required_fields$;
 -- Free users may choose Facebook first; subsequent Pinterest requests must fail.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000004','free',0,(current_date + interval '1 month')::date);
