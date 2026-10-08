@@ -48,3 +48,12 @@ h1,h2{margin:0 0 18px;line-height:1.02}h1{font-size:clamp(38px,6vw,76px)}h2{font
 @media(max-width:560px){.site-header{height:62px;padding:0 12px}.brand strong{font-size:14px}.brand-mark{width:32px;height:32px}.text-btn{display:none}.gold-btn.small{display:none}.nav.open{top:62px}.section{padding:52px 0}.integration-grid{grid-template-columns:1fr 1fr;gap:10px}.integration-card{padding:10px}.integration-card img{width:86px}.plans{grid-template-columns:1fr}.modal-card{padding:26px 18px}.modal-card h2{font-size:28px}.hero-create,.hero-signin{height:12%}.demo-pricing{top:89%;height:10%}}
 
 .account-form{display:grid;gap:14px;margin-top:20px}.account-form label{display:grid;gap:7px;text-align:left;color:#ddd;font-size:13px;font-weight:800}.account-form input{width:100%;box-sizing:border-box;border:1px solid #3b2b50;border-radius:10px;background:#090910;color:#fff;padding:13px 14px;font:inherit;outline:none}.account-form input:focus{border-color:#8e63c7;box-shadow:0 0 0 3px rgba(142,99,199,.15)}.account-form button:disabled{opacity:.6;cursor:wait}.account-status{min-height:18px;margin:0;color:#b9d8bf;font-size:12px}.account-status.error{color:#ff9b9b}
+
+/* Mobile app download badges */
+.mobile-downloads{padding:58px 0 52px}
+.mobile-downloads .section-copy{margin-bottom:26px}
+.mobile-download-actions{display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
+.store-download-link{display:inline-flex;align-items:center;justify-content:center;width:190px;min-height:64px;border-radius:12px;text-decoration:none;transition:transform .18s ease,filter .18s ease}
+.store-download-link img{display:block;width:100%;height:auto;max-height:64px}
+.store-download-link:hover{transform:translateY(-2px);filter:brightness(1.1)}
+.store-download-link:focus-visible{outline:3px solid var(--gold2);outline-offset:4px}
