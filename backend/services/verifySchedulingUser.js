@@ -6,7 +6,12 @@
 export async function verifySchedulingUser(supabase, authorization, claimedUserId) {
   const match = /^Bearer\s+([^\s]+)$/i.exec(String(authorization || "").trim());
   if (!match) return { ok: false, status: 401, reason: "Authentication required" };
-  const { data, error } = await supabase.auth.getUser(match[1]);
+  let data, error;
+  try {
+    ({ data, error } = await supabase.auth.getUser(match[1]));
+  } catch {
+    return { ok: false, status: 401, reason: "Invalid or expired session" };
+  }
   if (error || !data?.user?.id) {
     return { ok: false, status: 401, reason: "Invalid or expired session" };
   }
