@@ -442,7 +442,7 @@ export async function runDueStoreSyncs() {
     for (const item of due) {
       try {
         const result = await syncStoreConnection({ userId: item.user_id, storeId: item.id, reason: "scheduled" });
-        results.push({ storeId: item.id, success: true, result });
+        results.push({ storeId: item.id, success: result?.skipped !== true, result });
       } catch (error) {
         results.push({ storeId: item.id, success: false, error: errorMessage(error) });
       }
