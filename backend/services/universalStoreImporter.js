@@ -647,6 +647,19 @@ export async function importUniversalStore({
       );
 
 
+      // A bot challenge can return HTTP 200 with no usable artwork.
+      // Treat it as access denied before any catalog changes.
+      if (
+        (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) &&
+        (
+          /cf-chl-|cf-turnstile|challenge-platform/i.test(html) ||
+          (/cloudflare/i.test(html) && /just a moment|checking your browser|verify you are human|security verification/i.test(html))
+        )
+      ) {
+        artpalAccessDenied = true;
+        break;
+      }
+
       const discovered =
         extractCandidateLinks(
           html,
