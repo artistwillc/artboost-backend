@@ -22,8 +22,14 @@ export function resolveSubscriptionTier(subscription, env = process.env) {
     }
   }
 
-  const priceIds = (subscription.items?.data || [])
-    .map(item => item.price?.id).filter(Boolean);
+  const items = subscription.items?.data;
+  if (!Array.isArray(items)) {
+    return { tier: null, active: true, reason: "unmapped_or_ambiguous_price" };
+  }
+  const priceIds = items.map(item => item?.price?.id).filter(Boolean);
+  if (priceIds.length !== items.length) {
+    return { tier: null, active: true, reason: "unmapped_or_ambiguous_price" };
+  }
   const matches = [...new Set(priceIds.map(id => configured.get(id)).filter(Boolean))];
 
   if (matches.length !== 1 || priceIds.some(id => !configured.has(id))) {
