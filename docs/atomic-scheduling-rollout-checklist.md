@@ -91,3 +91,9 @@ Backend CI run #76 and isolated PostgreSQL run #54 succeeded at commit `f36530c6
 - **Behavioral parity is not established** for month-end dates, timezone boundaries, and dates previously written from JavaScript. Before rollout, create boundary-case tests and agree on the canonical reset rule; avoid silently changing renewal timing for customers.
 - The atomic function's supported scheduling platforms (`pinterest`, `facebook`, `instagram`, `x`) match the current create-route allowlist, but do not imply support for all ArtBoost connected posting platforms.
 - Keep release on HOLD until this boundary behavior is tested in addition to published-client auth, Stripe price mapping, and staging checks.
+
+## Legacy quota parity inspection (2026-10-08)
+- Existing `backend/server.js` `checkCampaignLimit(userId, platform)` enforces Pinterest-only scheduling and at most five campaigns per month for Free users; resets use each profile's `campaign_reset_date` and advance by one month.
+- The atomic migration must preserve these account-level rules and reset semantics. Disposable PostgreSQL tests exercise fifth/sixth campaigns, expired reset dates, paid tiers, rejected requests, and concurrent fifth-slot attempts.
+- The legacy route inserts a campaign and increments the counter separately. The proposed RPC is designed to eliminate that race but is still disabled and uninstalled in production.
+- Stripe synchronization deliberately preserves the existing subscription tier when Price IDs are unknown or ambiguous. The actual configured live Price IDs remain unverified and block release.
