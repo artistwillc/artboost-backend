@@ -36,3 +36,11 @@ test("authorization scheme is case insensitive and token is passed unchanged", a
   assert.equal((await verifySchedulingUser(guarded, "bEaReR opaque-token", "a")).ok, true);
   assert.equal(received, "opaque-token");
 });
+
+test("thrown Supabase auth errors are rejected without leaking internal details", async () => {
+  const failing = { auth: { getUser: async () => { throw new Error("network or provider failure"); } } };
+  assert.deepEqual(
+    await verifySchedulingUser(failing, "Bearer opaque-token", "a"),
+    { ok: false, status: 401, reason: "Invalid or expired session" }
+  );
+});
