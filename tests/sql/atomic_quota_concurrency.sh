@@ -5,7 +5,7 @@ psql -v ON_ERROR_STOP=1 <<'SQL'
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000004','free',4,(current_date + interval '1 month')::date);
 SQL
-payload='{"platform":"Pinterest","title":"Concurrent test","description":"Test","publish_at":"2030-01-01T12:00:00Z"}'
+payload='{"platform":"Pinterest","title":"Concurrent test","description":"Test","image_url":"https://example.com/test-art.png","publish_at":"2030-01-01T12:00:00Z"}'
 query="select (public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000004', '$payload'::jsonb)->>'allowed')::boolean;"
 psql -v ON_ERROR_STOP=1 -Atc "$query" > /tmp/artboost-quota-a.txt &
 a=$!
