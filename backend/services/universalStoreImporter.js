@@ -908,7 +908,7 @@ export async function importUniversalStore({
       )
     ).length;
 
-  await supabase
+  const { error: syncStatusError } = await supabase
     .from("store_connections")
     .update({
       last_synced_at: syncedAt,
@@ -927,6 +927,10 @@ export async function importUniversalStore({
     })
     .eq("id", connection.id)
     .eq("user_id", userId);
+
+  if (syncStatusError) {
+    console.warn("Universal store sync status update failed:", syncStatusError.message);
+  }
 
   return {
     storeId: connection.id,
