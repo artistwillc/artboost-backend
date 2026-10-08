@@ -118,3 +118,18 @@ test("ArtPal HTTP 403 stops pagination without requesting further pages", async 
   }, 6);
   assert.equal(requested.length, 1, "must not continue pagination after access denial");
 });
+
+test("ArtPal storefront timeout does not permit a partial import", async () => {
+  await runDeniedScan(async (url) => {
+    if (url.includes("page=2")) throw new Error("request timed out");
+    return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
+  });
+});
+
+test("ArtPal artwork network error does not permit a partial import", async () => {
+  await runDeniedScan(async (url) => {
+    if (url.includes("/artwork/example")) throw new Error("fetch failed");
+    if (url.includes("page=2")) return response("", 200, url);
+    return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
+  });
+});
