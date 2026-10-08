@@ -538,11 +538,11 @@ async function mapWithConcurrency(
 async function resolveConnection({
   userId,
   storeId,
+  storeUrl,
 }) {
-  const {
-    data: connection,
-    error,
-  } = await supabase
+  // Resolve only a store owned by the authenticated user.
+  // A supplied URL must never authorize access to another user's connection.
+  let query = supabase
     .from("store_connections")
     .select(
       `
@@ -555,9 +555,15 @@ async function resolveConnection({
         metadata
       `
     )
-    .eq("id", storeId)
-    .eq("user_id", userId)
-    .maybeSingle();
+    .eq("user_id", userId);
+
+  if (storeId) {
+    query = query.eq("id", storeId);
+  } else {
+    query = query.eq("store_url", storeUrl);
+  }
+
+  const { data: connection, error } = await query.maybeSingle();
 
   if (error) {
     throw new Error(
@@ -589,12 +595,13 @@ async function resolveConnection({
 export async function importUniversalStore({
   userId,
   storeId,
+  storeUrl,
   maxPages = 6,
   maxListings = 250,
 }) {
-  if (!userId || !storeId) {
+  if (!userId || (!storeId && !storeUrl)) {
     throw new Error(
-      "A userId and storeId are required."
+      "A userId and either storeId or storeUrl are required."
     );
   }
 
@@ -602,6 +609,7 @@ export async function importUniversalStore({
     await resolveConnection({
       userId,
       storeId,
+      storeUrl,
     });
 
   const parsedStoreUrl = new URL(
