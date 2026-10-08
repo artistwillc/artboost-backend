@@ -949,6 +949,7 @@ export async function importUniversalStore({
     skipped:
       limitedLinks.length -
       uniqueProducts.length,
+    syncStatusUpdated: !syncStatusError,
     products:
       savedProducts || [],
   };
