@@ -53,4 +53,8 @@ const gateSource = fs.readFileSync(new URL("services/atomicSchedulingGate.js", r
 for (const flag of ["ENABLE_ATOMIC_SCHEDULE_QUOTA", "ATOMIC_SCHEDULE_MIGRATION_VERIFIED", "SCHEDULE_CLIENT_AUTH_VERIFIED"]) {
   assert.ok(gateSource.includes(flag), "Atomic scheduling rollout must require " + flag);
 }
+assert.match(serverSource, /const useAtomicFreeScheduling = isFreeScheduling && atomicSchedulingEnabled\(\)/, "Atomic RPC must be Free-only");
+assert.match(serverSource, /if \(useAtomicFreeScheduling\) \{/, "Only Free may enter atomic RPC path");
+assert.match(serverSource, /if \(!isFreeScheduling\) \{[\s\S]*?checkCampaignLimit\(userId, normalizedPlatform\)/, "Paid tiers must retain legacy scheduling checks");
+assert.match(serverSource, /ENFORCE_SCHEDULE_AUTH === "true" \|\| atomicSchedulingEnabled\(\)/, "Atomic scheduling requires authenticated identity");
 console.log("Free-tier entitlement source regression checks passed");
