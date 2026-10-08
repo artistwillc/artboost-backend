@@ -33,3 +33,22 @@ test("duplicate price configuration throws", () => {
     ...env, ARTBOOST_PRO_PRICE_IDS: "price_starter_month"
   }), /multiple tiers/);
 });
+
+test("active subscription with missing price items does not grant paid tier", () => {
+  assert.deepEqual(resolveSubscriptionTier({ status: "active", items: { data: [] } }, env),
+    { tier: null, active: true, reason: "unmapped_or_ambiguous_price" });
+});
+test("mixed mapped and unknown prices do not grant paid tier", () => {
+  const subscription = { status: "active", items: { data: [
+    { price: { id: "price_pro_month" } },
+    { price: { id: "price_unknown" } }
+  ] } };
+  assert.equal(resolveSubscriptionTier(subscription, env).tier, null);
+});
+test("multiple distinct paid tiers on one subscription are ambiguous", () => {
+  const subscription = { status: "active", items: { data: [
+    { price: { id: "price_pro_month" } },
+    { price: { id: "price_business_year" } }
+  ] } };
+  assert.equal(resolveSubscriptionTier(subscription, env).tier, null);
+});
