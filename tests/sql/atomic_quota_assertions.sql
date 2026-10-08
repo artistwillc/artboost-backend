@@ -42,5 +42,26 @@ begin
  select monthly_campaign_count into counter from public.profiles where id='00000000-0000-0000-0000-000000000003';
  if counter <> 5 then raise exception 'Paid tier quota changed: %',counter; end if;
 end $paid$;
+-- Rejected requests must not insert campaigns or change quota counters.
+do $rejected$
+declare missing jsonb; unsupported jsonb; before_count integer; after_count integer; before_quota integer; after_quota integer;
+begin
+ select count(*) into before_count from public.scheduled_campaigns;
+ select monthly_campaign_count into before_quota from public.profiles
+ where id='00000000-0000-0000-0000-000000000002';
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000099',
+ '{"platform":"Pinterest","title":"Missing profile","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into missing;
+ if (missing->>'allowed') is distinct from 'false' then raise exception 'Missing profile accepted: %',missing; end if;
+ select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000002',
+ '{"platform":"unsupported","title":"Bad platform","description":"Test","publish_at":"2030-01-01T12:00:00Z"}') into unsupported;
+ if (unsupported->>'allowed') is distinct from 'false' then raise exception 'Unsupported platform accepted: %',unsupported; end if;
+ select count(*) into after_count from public.scheduled_campaigns;
+ select monthly_campaign_count into after_quota from public.profiles
+ where id='00000000-0000-0000-0000-000000000002';
+ if before_count <> after_count or before_quota <> after_quota then
+   raise exception 'Rejected requests mutated state: rows % -> %, quota % -> %',
+     before_count,after_count,before_quota,after_quota;
+ end if;
+end $rejected$;
 rollback;
-\echo Atomic quota basic, monthly reset and paid-tier assertions passed
+\echo Atomic quota, monthly reset, paid-tier and rejection integrity assertions passed
