@@ -37,3 +37,11 @@ test("ArtPal HTTP 200 verification pages cannot be parsed as catalog HTML", () =
 test("ArtPal scanner never logs raw HTML previews", () => {
   assert.doesNotMatch(importer, /ARTPAL HTML PREVIEW|html\.substring\(0, 5000\)/);
 });
+
+test("ArtPal challenge-page title pattern has functional regex escapes", () => {
+  const line = importer.split("\n").find((item) => item.includes("const challengePage ="));
+  assert.ok(line, "challenge detection expression must exist");
+  assert.ok(line.includes(String.raw`\\s*`), "title pattern must include whitespace matching");
+  assert.ok(!line.includes(String.raw`\\\\s*`), "regex must not double-escape whitespace");
+  assert.ok(line.includes(String.raw`<\\/title>`), "title close tag must be escaped once");
+});
