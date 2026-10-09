@@ -1,9 +1,9 @@
-﻿import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useFocusEffect } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, ImageBackground, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { readApiJson } from "@/lib/apiJson";
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "https://artboost-ai.onrender.com";
@@ -73,15 +73,17 @@ export default function CreatedVideosScreen() {
     ]);
   }
 
+  const isWeb = Platform.OS === "web";
   return <>
     <Stack.Screen options={{ headerShown:false }} />
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable style={styles.back} onPress={() => router.back()}><Ionicons name="arrow-back" size={23} color="#fff" /></Pressable>
+      {isWeb ? <ImageBackground source={require("../assets/images/artboost-cosmic-bg-v3153.png")} resizeMode="cover" style={styles.webBackdrop} imageStyle={styles.webBackdropImage}><View style={styles.webScrim} /></ImageBackground> : null}
+      <View style={[styles.header, isWeb && styles.webHeader]}>
+        <Pressable style={styles.back} onPress={() => { if (isWeb) router.replace("/web-dashboard" as any); else router.back(); }} accessibilityLabel={isWeb ? "Back to dashboard" : "Go back"}><Ionicons name={isWeb ? "grid-outline" : "arrow-back"} size={23} color="#fff" /></Pressable>
         <View style={{flex:1}}><Text style={styles.eyebrow}>LIBRARY</Text><Text style={styles.title}>Created Videos</Text><Text style={styles.subtitle}>Your retained ArtBoost Video Studio generations.</Text></View>
       </View>
       {loading ? <View style={styles.center}><ActivityIndicator size="large" color="#9b5cff" /><Text style={styles.muted}>Loading videos...</Text></View> :
-      <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); void load();}} tintColor="#9b5cff" />}>
+      <ScrollView contentContainerStyle={[styles.content, isWeb && styles.webContent]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); void load();}} tintColor="#9b5cff" />}>
         {!jobs.length ? <View style={styles.empty}><Ionicons name="videocam-outline" size={34} color="#a78bfa" /><Text style={styles.emptyTitle}>No created videos yet</Text><Text style={styles.muted}>Videos generated in Video Studio will appear here while they are retained by your plan.</Text></View> : null}
         {jobs.map(job => {
           const snapshot = job.source_snapshot || {};
@@ -104,7 +106,7 @@ export default function CreatedVideosScreen() {
   </>;
 }
 const styles=StyleSheet.create({
-  screen:{flex:1,backgroundColor:"#080711"}, header:{paddingHorizontal:18,paddingVertical:16,flexDirection:"row",gap:12,alignItems:"center",borderBottomWidth:1,borderBottomColor:"#241b3b"}, back:{width:42,height:42,borderRadius:21,alignItems:"center",justifyContent:"center",backgroundColor:"#171126"},
+  screen:{flex:1,backgroundColor:"#080711"}, webBackdrop:{...StyleSheet.absoluteFillObject}, webBackdropImage:{opacity:0.64}, webScrim:{...StyleSheet.absoluteFillObject,backgroundColor:"rgba(4,2,12,0.36)"}, webHeader:{width:"100%",maxWidth:1120,alignSelf:"center",marginTop:18,borderRadius:20,borderWidth:1,borderColor:"rgba(155,76,214,0.45)",backgroundColor:"rgba(7,4,16,0.84)"}, webContent:{width:"100%",maxWidth:1120,alignSelf:"center",paddingHorizontal:28,paddingTop:24,paddingBottom:72}, header:{paddingHorizontal:18,paddingVertical:16,flexDirection:"row",gap:12,alignItems:"center",borderBottomWidth:1,borderBottomColor:"#241b3b"}, back:{width:42,height:42,borderRadius:21,alignItems:"center",justifyContent:"center",backgroundColor:"#171126"},
   eyebrow:{color:"#9b5cff",fontSize:10,fontWeight:"900",letterSpacing:1.2}, title:{color:"#fff",fontSize:24,fontWeight:"900",marginTop:3}, subtitle:{color:"#bcb7cd",fontSize:12,marginTop:3}, center:{flex:1,alignItems:"center",justifyContent:"center",gap:12}, content:{padding:16,paddingBottom:48,gap:12},
   muted:{color:"#bcb7cd",textAlign:"center",lineHeight:19}, empty:{padding:28,borderRadius:18,backgroundColor:"#12101d",alignItems:"center",gap:10}, emptyTitle:{color:"#fff",fontSize:18,fontWeight:"900"}, card:{padding:15,borderRadius:17,backgroundColor:"#12101d",borderWidth:1,borderColor:"#332b4b"}, cardTop:{flexDirection:"row",alignItems:"flex-start",gap:10}, cardTitle:{color:"#fff",fontSize:15,fontWeight:"900"}, meta:{color:"#a78bfa",fontSize:11,lineHeight:16,marginTop:5,textTransform:"capitalize"}, error:{color:"#fca5a5",marginTop:8,fontSize:12}, actions:{flexDirection:"row",flexWrap:"wrap",gap:8,marginTop:13}, button:{minHeight:40,paddingHorizontal:12,borderRadius:11,backgroundColor:"#242033",borderWidth:1,borderColor:"#43395c",flexDirection:"row",alignItems:"center",gap:6}, campaign:{backgroundColor:"#5b36bd",borderColor:"#815df0"}, delete:{backgroundColor:"#35151c",borderColor:"#7f1d1d"}, buttonText:{color:"#fff",fontSize:11,fontWeight:"800"}
 });
