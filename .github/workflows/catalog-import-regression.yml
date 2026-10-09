@@ -1,0 +1,30 @@
+name: Catalog importer regression
+on:
+  pull_request:
+    paths:
+      - 'backend/services/catalogImportQueueService.js'
+      - 'backend/services/universalStoreImporter.js'
+      - 'backend/tests/catalog-import-error-regression.test.js'
+      - 'backend/package.json'
+      - '.github/workflows/catalog-import-regression.yml'
+  push:
+    branches:
+      - 'fix/catalog-import-partial-failure-20261008'
+jobs:
+  catalog-import:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check importer and queue
+        run: |
+          node --check services/catalogImportQueueService.js
+          node --check services/universalStoreImporter.js
+          node --check tests/catalog-import-error-regression.test.js
+      - name: Catalog regression checks
+        run: npm run test:catalog-import

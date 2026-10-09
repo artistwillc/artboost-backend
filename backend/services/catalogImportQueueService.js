@@ -470,6 +470,9 @@ async function processOneJob() {
             0
         ) || 0;
 
+      // A provider can return partial results without throwing. Never report
+      // a clean success when the importer explicitly counted failed items.
+      const hasPartialFailures = failed > 0;
       await updateJob(
         job.id,
         {
@@ -478,7 +481,9 @@ async function processOneJob() {
           progress_percent:
             100,
           progress_message:
-            "Catalog import complete.",
+            hasPartialFailures
+              ? `Catalog import finished with ${failed} failed item(s). Review import details.`
+              : "Catalog import complete.",
           imported_count:
             imported,
           updated_count:
@@ -494,7 +499,9 @@ async function processOneJob() {
           lock_expires_at:
             null,
           last_error:
-            null,
+            hasPartialFailures
+              ? `Catalog import reported ${failed} failed item(s); see result_json for details.`
+              : null,
         }
       );
     } catch (error) {

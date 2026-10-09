@@ -10,7 +10,8 @@
     "build:web": "node scripts/buildWebApp.mjs",
     "build": "npm run build:web",
     "postinstall": "node scripts/buildWebApp.mjs",
-    "verify:web-export": "node scripts/verifyWebExport.mjs"
+    "verify:web-export": "node scripts/verifyWebExport.mjs",
+    "test:catalog-import": "node --test tests/catalog-import-error-regression.test.js"
   },
   "keywords": [],
   "author": "",

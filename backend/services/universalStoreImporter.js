@@ -144,14 +144,35 @@ async function fetchPage(url, timeoutMs = 20000) {
       signal: controller.signal,
     });
 
-    const html = await response.text();
-
+    // Check HTTP status before consuming the body: blocked storefronts can
+    // return very large challenge pages that should not be parsed as products.
     if (!response.ok) {
+      const host = new URL(url).hostname.toLowerCase();
+      const isArtPal = host === "artpal.com" || host.endsWith(".artpal.com");
+      const blocked = [401, 403, 429].includes(response.status);
+      if (isArtPal && blocked) {
+        throw new Error(
+          `ArtPal storefront access blocked (HTTP ${response.status}). No products were deleted or replaced. Automatic scanning cannot proceed while ArtPal blocks server access. You can try importing individual artwork URLs, but those requests may also be blocked.`
+        );
+      }
       throw new Error(
         `Store returned ${response.status} for ${url}.`
       );
     }
 
+    const html = await response.text();
+    // Some bot challenges return HTTP 200 with an interstitial instead of
+    // actual storefront HTML. Do not interpret those pages as empty catalogs.
+    const responseHost = new URL(response.url || url).hostname.toLowerCase();
+    const isArtPalPage = responseHost === "artpal.com" ||
+      responseHost.endsWith(".artpal.com");
+    const challengePage = /<title[^>]*>\s*(?:Just a moment\.{0,3}|Attention Required!?|Access Denied)\s*<\/title>/i.test(html) &&
+      /cloudflare|checking your browser|verify you are human|access denied/i.test(html);
+    if (isArtPalPage && challengePage) {
+      throw new Error(
+        "ArtPal returned a browser verification page instead of artwork. The scan was stopped without replacing existing products. Automatic scanning cannot proceed while ArtPal blocks server access. You can try importing individual artwork URLs, but those requests may also be blocked."
+      );
+    }
     return {
       html,
       responseUrl: response.url || url,
@@ -423,6 +444,18 @@ function parseProductPage({
     storeHost === "artpal.com" ||
     storeHost.endsWith(".artpal.com");
 
+  // ArtPal artist-profile pages also contain og:title and og:image.
+  // Require explicit artwork metadata before treating a profile fallback
+  // as a product, otherwise a profile image can become a fake listing.
+  const artPalArtworkSchema = Boolean(productSchema) &&
+    ["Product", "VisualArtwork", "ImageObject", "CreativeWork"].includes(
+      productSchema?.["@type"]
+    );
+  if (artPalHost && !isLikelyProductUrl(productUrl, storeHost) &&
+      !artPalArtworkSchema) {
+    return null;
+  }
+
   if (
     !title ||
     !productUrl ||
@@ -489,13 +522,18 @@ function parseProductPage({
 async function mapWithConcurrency(
   values,
   concurrency,
-  mapper
+  mapper,
+  { failOnError = false } = {}
 ) {
   const results = [];
+  let firstError = null;
   let index = 0;
 
   async function worker() {
     while (index < values.length) {
+      // Once an ArtPal request has failed, do not schedule additional
+      // requests; allow already in-flight workers to finish safely.
+      if (failOnError && firstError) break;
       const currentIndex = index;
       index += 1;
 
@@ -509,6 +547,10 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        if (failOnError) {
+          firstError ??= error;
+          break;
+        }
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -532,6 +574,9 @@ async function mapWithConcurrency(
     )
   );
 
+  if (firstError) {
+    throw firstError;
+  }
   return results;
 }
 
@@ -660,6 +705,12 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      // Never treat an inaccessible ArtPal storefront as an empty page.
+      // Propagate the original HTTP/challenge error to the catalog job so
+      // clients can show a failure rather than an apparent successful scan.
+      if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {
+        throw error;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -691,19 +742,17 @@ export async function importUniversalStore({
     )
   );
 
-  /*
-   * Some ArtPal storefronts expose the first artwork directly
-   * through the storefront URL or render listing links in a
-   * nonstandard way. Include the storefront URL as a final
-   * candidate so the metadata parser can still recover a
-   * valid artwork when possible.
-   */
+  // An artist profile is not an artwork listing. Only use the
+  // connected ArtPal URL as a fallback when it is itself an artwork URL.
+  // Otherwise report discovery failure rather than silently importing
+  // the artist avatar or profile as a product.
   if (
     (
       storeHost === "artpal.com" ||
       storeHost.endsWith(".artpal.com")
     ) &&
-    limitedLinks.length === 0
+    limitedLinks.length === 0 &&
+    isLikelyProductUrl(connection.store_url, storeHost)
   ) {
     limitedLinks.push(
       normalizeUrl(
@@ -731,24 +780,8 @@ export async function importUniversalStore({
           responseUrl,
         } = await fetchPage(productUrl);
 
-        if (
-          storeHost === "artpal.com" ||
-          storeHost.endsWith(".artpal.com")
-        ) {
-          console.log(
-            "========== ARTPAL DEBUG START =========="
-          );
-          console.log("ARTPAL REQUEST URL:", productUrl);
-          console.log("ARTPAL RESPONSE URL:", responseUrl);
-          console.log("ARTPAL HTML LENGTH:", html.length);
-          console.log(
-            "ARTPAL HTML PREVIEW:",
-            html.substring(0, 5000)
-          );
-          console.log(
-            "========== ARTPAL DEBUG END =========="
-          );
-        }
+        // Avoid logging raw storefront HTML, which can contain customer
+        // information and creates large, noisy production log entries.
 
         return parseProductPage({
           html,
@@ -756,6 +789,12 @@ export async function importUniversalStore({
           originalUrl: productUrl,
           storeHost,
         });
+      },
+      {
+        // A blocked ArtPal artwork request must fail the import job instead
+        // of silently producing a partial or empty catalog.
+        failOnError: storeHost === "artpal.com" ||
+          storeHost.endsWith(".artpal.com"),
       }
     );
 
