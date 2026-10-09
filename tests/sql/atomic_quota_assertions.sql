@@ -90,6 +90,18 @@ begin
   select monthly_campaign_count into quota from public.profiles where id='00000000-0000-0000-0000-000000000006';
   if quota <> 4 then raise exception 'Malformed recurring request consumed quota: %',quota; end if;
 end $invalid_recurring$;
+-- Subscription tier comparisons must reject mixed-case and padded Free values.
+insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
+values ('00000000-0000-0000-0000-000000000008',' FREE ',5,(current_date + interval '1 month')::date);
+do $padded_free$
+declare result jsonb;
+begin
+  select public.schedule_campaign_with_quota('00000000-0000-0000-0000-000000000008',
+    '{"platform":"Pinterest","title":"Padded Free","description":"Test","image_url":"https://example.com/art.png","publish_at":"2030-01-01T12:00:00Z"}') into result;
+  if (result->>'allowed') is distinct from 'false' then
+    raise exception 'Padded Free tier bypassed quota: %',result;
+  end if;
+end $padded_free$;
 -- Free users may choose Threads; a different second platform must be rejected.
 insert into public.profiles(id,subscription_tier,monthly_campaign_count,campaign_reset_date)
 values ('00000000-0000-0000-0000-000000000007','free',0,(current_date + interval '1 month')::date);
