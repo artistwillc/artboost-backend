@@ -1,4 +1,6 @@
 import express from "express";
+import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
+import { verifySchedulingUser } from "./services/verifySchedulingUser.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import productRoutes from "./routes/products.js";
@@ -2070,9 +2072,15 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
     ? new Date(subscription.current_period_end * 1000).toISOString()
     : null;
 
+  const entitlement = resolveSubscriptionTier(subscription);
+  if (entitlement.tier === null) {
+    console.error("Subscription price not mapped; preserving existing entitlement", { subscriptionId: subscription.id });
+    return { synced: false, foundCustomer: true, active: isActive, reason: "unmapped_price" };
+  }
+
   const updateData = {
     is_pro: isActive,
-    subscription_tier: isActive ? "pro" : "free",
+    subscription_tier: entitlement.tier,
     subscription_status: subscription.status,
     plan: isActive ? plan : "free",
     stripe_customer_id: customer.id,
@@ -2125,10 +2133,20 @@ app.post(
           const customerEmail =
             session.metadata?.userEmail || session.customer_details?.email || "";
 
+          // Only grant paid entitlements after verifying the purchased Stripe Price ID.
+          const checkoutSubscription = session.subscription
+            ? await stripe.subscriptions.retrieve(session.subscription)
+            : null;
+          const checkoutEntitlement = resolveSubscriptionTier(checkoutSubscription);
+          if (!checkoutEntitlement.tier || checkoutEntitlement.tier === "free") {
+            console.error("Checkout entitlement unresolved; no profile tier change", { sessionId: session.id });
+            break;
+          }
+
           const updateData = {
             is_pro: true,
-            subscription_tier: "pro",
-            subscription_status: "active",
+            subscription_tier: checkoutEntitlement.tier,
+            subscription_status: checkoutSubscription.status,
             plan,
             stripe_customer_id: session.customer,
             stripe_subscription_id: session.subscription,
@@ -2150,8 +2168,8 @@ app.post(
 
           await createNotification({
             userId,
-            title: "Pro Subscription Activated",
-            message: "Your ArtBoost AI Pro subscription is active.",
+            title: "Subscription Activated",
+            message: `Your ArtBoost AI ${checkoutEntitlement.tier} subscription is active.`,
             type: "success",
           });
 
@@ -2176,9 +2194,14 @@ app.post(
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
 
+          const webhookEntitlement = resolveSubscriptionTier(subscription);
+          if (webhookEntitlement.tier === null) {
+            console.error("Webhook price not mapped; preserving existing entitlement", { subscriptionId: subscription.id });
+            break;
+          }
           const updateData = {
             is_pro: isActive,
-            subscription_tier: isActive ? "pro" : "free",
+            subscription_tier: webhookEntitlement.tier,
             subscription_status: status,
             plan: isActive ? plan : "free",
             stripe_customer_id: customerId,
@@ -6383,6 +6406,20 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
+    // Enforce session ownership when enabled. Roll out only after confirming
+    // that all supported iOS, Android and web clients send a bearer token.
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+      const identity = await verifySchedulingUser(
+        supabase, req.headers.authorization, userId
+      );
+      if (!identity.ok) {
+        return res.status(identity.status).json({
+          success: false,
+          error: identity.reason,
+        });
+      }
+    }
+
     if (!title || !description || !publishAt) {
       return res.status(400).json({
         success: false,
@@ -6418,23 +6455,15 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
-
-    if (!limitCheck.allowed) {
-      return res.status(403).json({
-        success: false,
-        upgradeRequired: true,
-        error: limitCheck.reason,
-      });
-    }
-
+    // Atomic RPC performs quota verification, campaign insert and counter update
+    // in a single database transaction. Requires migration before activation.
+    // IMPORTANT: Caller identity MUST be verified against userId at the API
+    // boundary before this endpoint is enabled in production.
     const finalRepeatType = repeatType || "one_time";
-
     const calculatedNextRun =
       nextRunAt || (finalRepeatType !== "one_time" ? publishAt : null);
 
     const insertPayload = {
-      user_id: userId,
       platform: normalizedPlatform,
       campaign_group_id: campaignGroupId || null,
       title,
@@ -6446,57 +6475,31 @@ app.post("/schedule-campaign", async (req, res) => {
       board_id: platformKey === "pinterest" ? boardId : null,
       page_id: platformKey === "facebook" ? pageId : null,
       publish_at: publishAt,
-      status: "scheduled",
-      campaign_status: "active",
       repeat_type: finalRepeatType,
       next_run_at: calculatedNextRun,
       repeat_until: repeatUntil || null,
-      error: null,
-      updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("scheduled_campaigns")
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    if (error) {
-      console.log("SCHEDULE INSERT FAILED:", {
-        platform: normalizedPlatform,
-        error: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        payload: insertPayload,
-      });
-
+    const { data: quotaResult, error: scheduleError } = await supabase.rpc(
+      "schedule_campaign_with_quota",
+      { p_user_id: userId, p_campaign: insertPayload }
+    );
+    if (scheduleError) {
+      console.error("Atomic campaign scheduling failed", scheduleError.message);
       return res.status(500).json({
         success: false,
-        error: "Failed to save scheduled campaign.",
-        details: error.message,
-        code: error.code,
-        hint: error.hint,
+        error: "Unable to schedule campaign.",
       });
     }
-
-    if (userId) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .single();
-
-      if (!profileError && (profile?.subscription_tier || "free") === "free") {
-        await supabase
-          .from("profiles")
-          .update({
-            monthly_campaign_count:
-              (profile?.monthly_campaign_count || 0) + 1,
-          })
-          .eq("id", userId);
-      }
+    if (!quotaResult?.allowed) {
+      return res.status(403).json({
+        success: false,
+        upgradeRequired: true,
+        error: quotaResult?.reason || "Campaign not permitted.",
+      });
     }
+    const data = quotaResult.campaign;
+    if (!data?.id) throw new Error("Campaign RPC returned no campaign record");
 
     await createNotification({
       userId,

@@ -1,0 +1,37 @@
+name: Free-tier guard syntax checks
+
+on:
+  pull_request:
+    paths:
+      - "backend/server.js"
+      - "backend/tests/free-tier-entitlement-regression.js"
+      - "backend/tests/paid-entitlements.test.js"
+      - "backend/services/paidEntitlements.js"
+      - "backend/routes/stores.js"
+      - "backend/routes/automations.js"
+      - "backend/services/storeSyncService.js"
+      - "backend/services/catalogImportQueueService.js"
+      - "backend/services/automationRunner.js"
+      - "backend/services/automationService.js"
+      - ".github/workflows/free-tier-guard-checks.yml"
+  workflow_dispatch:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check syntax of all modified backend entrypoints
+        run: |
+          node --check backend/server.js
+          node --check backend/routes/stores.js
+          node --check backend/routes/automations.js
+          node --check backend/services/storeSyncService.js
+          node --check backend/services/catalogImportQueueService.js
+          node --check backend/services/automationRunner.js
+          node --check backend/services/automationService.js
+          node backend/tests/free-tier-entitlement-regression.js
+          node backend/tests/paid-entitlements.test.js

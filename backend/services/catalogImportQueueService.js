@@ -440,6 +440,24 @@ async function processOneJob() {
             "background_import",
         });
 
+      if (result?.skipped === true &&
+          result?.reason === "paid_subscription_required") {
+        await updateJob(job.id, {
+          status: "failed",
+          progress_percent: 100,
+          progress_message: "Catalog import requires a paid subscription.",
+          imported_count: 0,
+          updated_count: 0,
+          skipped_count: 0,
+          failed_count: 0,
+          result_json: { skipped: true, reason: result.reason },
+          completed_at: new Date().toISOString(),
+          lock_expires_at: null,
+          last_error: "Paid subscription required.",
+        });
+        return true;
+      }
+
       const imported =
         Number(
           result?.imported ??

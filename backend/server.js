@@ -1,4 +1,7 @@
 // ARTBOOST_NOTIFICATION_PREFERENCE_GATE_V3154
+import { resolveSubscriptionTier } from "./services/subscriptionTier.js";
+import { verifySchedulingUser } from "./services/verifySchedulingUser.js";
+import { atomicSchedulingEnabled } from "./services/atomicSchedulingGate.js";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -528,6 +531,8 @@ app.get(
           );
       }
 
+      if (!await verifyPaidOAuthStoreUser(userId, res)) return;
+
       const state =
         createEtsyState(
           String(userId)
@@ -728,6 +733,8 @@ app.get(
           "Etsy OAuth request expired. Please try connecting again."
         );
       }
+
+      if (!await verifyPaidOAuthStoreUser(statePayload.userId, res)) return;
 
       const tokenResponse =
         await fetch(
@@ -1364,6 +1371,8 @@ app.post("/etsy/sync", express.json({ limit: "10mb" }), async (req, res) => {
         error: "Missing userId.",
       });
     }
+
+    if (!await verifyPaidStoreWrite(req, res, String(userId))) return;
 
     const connection =
       await getValidEtsyConnection(userId);
@@ -3326,9 +3335,15 @@ async function syncStripeSubscriptionForUser({ userId, email }) {
     ? new Date(subscription.current_period_end * 1000).toISOString()
     : null;
 
+  const resolvedEntitlement = resolveSubscriptionTier(subscription);
+  if (resolvedEntitlement.tier === null) {
+    console.error("Unknown Stripe price; preserving existing subscription tier", { subscriptionId: subscription.id });
+    return { synced: false, reason: "unmapped_price", subscriptionId: subscription.id };
+  }
+
   const updateData = {
     is_pro: isActive,
-    subscription_tier: isActive ? "pro" : "free",
+    subscription_tier: resolvedEntitlement.tier,
     subscription_status: subscription.status,
     plan: isActive ? plan : "free",
     stripe_customer_id: customer.id,
@@ -7259,7 +7274,7 @@ async function saveShopifyConnection({
   return data;
 }
 
-app.get("/auth/shopify", (req, res) => {
+app.get("/auth/shopify", async (req, res) => {
   try {
     const { shop, userId } = req.query;
 
@@ -7277,6 +7292,8 @@ app.get("/auth/shopify", (req, res) => {
         "Missing ArtBoost userId."
       );
     }
+
+    if (!await verifyPaidOAuthStoreUser(userId, res)) return;
 
     const shopDomain = normalizeShopifyDomain(shop);
 
@@ -7370,6 +7387,8 @@ app.get(
           "Shopify store domain does not match."
         );
       }
+
+      if (!await verifyPaidOAuthStoreUser(statePayload.userId, res)) return;
 
       const tokenResponse = await fetch(
         `https://${shopDomain}/admin/oauth/access_token`,
@@ -10917,6 +10936,8 @@ app.post("/pinterest/create-pin", async (req, res) => {
 
 app.post("/schedule-campaign", async (req, res) => {
   try {
+    // Do not silently fall back to non-atomic quota enforcement if rollout was
+    // requested but migration/client verification has not been completed.
     const {
       userId,
       title,
@@ -10958,6 +10979,15 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
+    // Keep the legacy paid-client authentication contract unchanged.
+    // Free-tier scheduling always requires a verified Supabase identity.
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true") {
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) {
+        return res.status(identity.status).json({ success: false, error: identity.reason });
+      }
+    }
+
     if (!title || !description || !publishAt) {
       return res.status(400).json({
         success: false,
@@ -10969,13 +10999,6 @@ app.post("/schedule-campaign", async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Missing imageUrl.",
-      });
-    }
-
-    if (!["pinterest", "facebook", "instagram", "x"].includes(platformKey)) {
-      return res.status(400).json({
-        success: false,
-        error: `Unsupported platform: ${normalizedPlatform}`,
       });
     }
 
@@ -10993,14 +11016,59 @@ app.post("/schedule-campaign", async (req, res) => {
       });
     }
 
-    const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
-
-    if (!limitCheck.allowed) {
-      return res.status(403).json({
+    // Free scheduling must use the atomic quota path. The legacy path is
+    // non-atomic and still has obsolete Pinterest-only entitlement logic.
+    // Paid accounts continue through their existing scheduling flow.
+    // Resolve tier once. Atomic Free quotas must not reroute paid subscribers.
+    const { data: schedulingProfile, error: schedulingProfileError } = await supabase
+      .from("profiles")
+      .select("subscription_tier")
+      .eq("id", userId)
+      .single();
+    if (schedulingProfileError || !schedulingProfile) {
+      return res.status(503).json({ success: false, error: "Unable to verify scheduling entitlement." });
+    }
+    const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").trim().toLowerCase() === "free";
+    // Extend platform choice only for Free; paid clients keep their existing allowlist.
+    const supportedSchedulingPlatforms = isFreeScheduling
+      ? ["pinterest", "facebook", "instagram", "x", "threads", "linkedin"]
+      : ["pinterest", "facebook", "instagram", "x"];
+    if (!supportedSchedulingPlatforms.includes(platformKey)) {
+      return res.status(400).json({
         success: false,
-        upgradeRequired: true,
-        error: limitCheck.reason,
+        error: `Unsupported platform: ${normalizedPlatform}`,
       });
+    }
+    if (isFreeScheduling && process.env.ENFORCE_SCHEDULE_AUTH !== "true") {
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) {
+        return res.status(identity.status).json({ success: false, error: identity.reason });
+      }
+    }
+    // A partially enabled Free rollout must not interrupt existing paid subscribers.
+    if (isFreeScheduling && process.env.ENABLE_ATOMIC_SCHEDULE_QUOTA === "true" && !atomicSchedulingEnabled()) {
+      return res.status(503).json({
+        success: false,
+        error: "Atomic scheduling rollout is not verified.",
+      });
+    }
+    const useAtomicFreeScheduling = isFreeScheduling && atomicSchedulingEnabled();
+    if (isFreeScheduling && !useAtomicFreeScheduling) {
+      return res.status(503).json({
+        success: false,
+        error: "Free scheduling is temporarily unavailable until atomic quota enforcement is enabled.",
+      });
+    }
+    if (!isFreeScheduling) {
+      // Preserve the original paid scheduling quota and insert path.
+      const limitCheck = await checkCampaignLimit(userId, normalizedPlatform);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          success: false,
+          upgradeRequired: true,
+          error: limitCheck.reason,
+        });
+      }
     }
 
     const finalRepeatType = repeatType || "one_time";
@@ -11030,49 +11098,71 @@ app.post("/schedule-campaign", async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("scheduled_campaigns")
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    if (error) {
-      console.log("SCHEDULE INSERT FAILED:", {
-        platform: normalizedPlatform,
-        error: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-        payload: insertPayload,
+    let data;
+    if (useAtomicFreeScheduling) {
+      // Enable only after the atomic quota migration is applied and verified.
+      const { data: quotaResult, error } = await supabase.rpc("schedule_campaign_with_quota", {
+        p_user_id: userId,
+        p_campaign: insertPayload,
       });
-
-      return res.status(500).json({
-        success: false,
-        error: "Failed to save scheduled campaign.",
-        details: error.message,
-        code: error.code,
-        hint: error.hint,
-      });
-    }
-
-    if (userId) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("subscription_tier, monthly_campaign_count")
-        .eq("id", userId)
-        .single();
-
-      if (!profileError && (profile?.subscription_tier || "free") === "free") {
-        await supabase
-          .from("profiles")
-          .update({
-            monthly_campaign_count:
-              (profile?.monthly_campaign_count || 0) + 1,
-          })
-          .eq("id", userId);
+      if (error) {
+        console.error("ATOMIC SCHEDULE FAILED:", { code: error.code, message: error.message });
+        return res.status(500).json({ success: false, error: "Failed to save scheduled campaign." });
       }
+      if (!quotaResult?.allowed) {
+        return res.status(403).json({ success: false, upgradeRequired: true, error: quotaResult?.reason || "Campaign limit reached." });
+      }
+      data = quotaResult.campaign;
+      if (!data?.id) throw new Error("Atomic scheduling returned no campaign.");
+  
+  
+    } else {
+        const { data: legacyData, error } = await supabase
+        .from("scheduled_campaigns")
+        .insert(insertPayload)
+        .select()
+        .single();
+  
+      if (error) {
+        console.log("SCHEDULE INSERT FAILED:", {
+          platform: normalizedPlatform,
+          error: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          payload: insertPayload,
+        });
+  
+        return res.status(500).json({
+          success: false,
+          error: "Failed to save scheduled campaign.",
+          details: error.message,
+          code: error.code,
+          hint: error.hint,
+        });
+      }
+  
+      data = legacyData;
+      if (userId) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("subscription_tier, monthly_campaign_count")
+          .eq("id", userId)
+          .single();
+  
+        if (!profileError && (profile?.subscription_tier || "free") === "free") {
+          await supabase
+            .from("profiles")
+            .update({
+              monthly_campaign_count:
+                (profile?.monthly_campaign_count || 0) + 1,
+            })
+            .eq("id", userId);
+        }
+      }
+  
+  
     }
-
     await createNotification({
       userId,
       title: "Campaign Scheduled",
@@ -11103,7 +11193,15 @@ app.post("/schedule-campaign", async (req, res) => {
 
 app.get("/scheduled-campaigns", async (req, res) => {
   try {
+    // Management of existing campaigns must remain available during a
+    // partial Free-tier rollout; only new Free inserts require the atomic RPC.
     const { userId } = req.query;
+
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
+      if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
+    }
 
     let query = supabase
       .from("scheduled_campaigns")
@@ -11136,8 +11234,16 @@ app.get("/scheduled-campaigns", async (req, res) => {
 
 app.delete("/scheduled-campaigns/:id", async (req, res) => {
   try {
+    // Management of existing campaigns must remain available during a
+    // partial Free-tier rollout; only new Free inserts require the atomic RPC.
     const { id } = req.params;
     const { userId } = req.query;
+
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
+      if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
+    }
 
     let deleteQuery = supabase
       .from("scheduled_campaigns")
@@ -11189,8 +11295,16 @@ app.delete("/scheduled-campaigns/:id", async (req, res) => {
 
 app.patch("/scheduled-campaigns/:id/lifecycle", async (req, res) => {
   try {
+    // Management of existing campaigns must remain available during a
+    // partial Free-tier rollout; only new Free inserts require the atomic RPC.
     const { id } = req.params;
     const { userId, campaignStatus } = req.body;
+
+    if (process.env.ENFORCE_SCHEDULE_AUTH === "true" || atomicSchedulingEnabled()) {
+      if (!userId) return res.status(400).json({ success: false, error: "Missing userId." });
+      const identity = await verifySchedulingUser(supabase, req.headers.authorization, userId);
+      if (!identity.ok) return res.status(identity.status).json({ success: false, error: identity.reason });
+    }
 
     if (!["active", "paused", "ended", "saved"].includes(campaignStatus)) {
       return res.status(400).json({
@@ -13622,6 +13736,53 @@ app.get("/api/v2/store-connections/:id", async (req, res) => {
 });
 
 // =========================================================
+// OAuth callbacks cannot carry an app Bearer header. Check the user ID
+// recovered from verified, signed OAuth state before exchanging or saving tokens.
+async function verifyPaidOAuthStoreUser(userId, res) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status").eq("id", String(userId)).single();
+  if (error || !data) {
+    res.status(503).send("Unable to verify ArtBoost subscription.");
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  if (tier === "free") {
+    res.status(403).send("Store connections require a paid ArtBoost subscription.");
+    return false;
+  }
+  return true;
+}
+
+// Staged entitlement guard for v2 store writes. Keep disabled until all
+// legacy store routes, OAuth callbacks, workers and released clients are ready.
+async function verifyPaidStoreWrite(req, res, claimedUserId) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const identity = await verifySchedulingUser(
+    supabase, req.headers.authorization, claimedUserId
+  );
+  if (!identity.ok) {
+    res.status(identity.status).json({ success: false, error: identity.reason });
+    return false;
+  }
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status")
+    .eq("id", identity.userId).single();
+  if (error || !data) {
+    res.status(503).json({ success: false, error: "Unable to verify subscription." });
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  const status = String(data.subscription_status || "").toLowerCase();
+  if (!["starter","pro","business"].includes(tier) ||
+      !["active","trialing", "complimentary_active"].includes(status)) {
+    res.status(403).json({ success: false, upgradeRequired: true,
+      error: "Store connections and scanning require a paid subscription." });
+    return false;
+  }
+  return true;
+}
+
 // CREATE STORE CONNECTION
 // POST /api/v2/store-connections
 // =========================================================
@@ -13642,6 +13803,8 @@ app.post("/api/v2/store-connections", async (req, res) => {
       connected,
       syncEnabled,
     } = req.body;
+
+    if (!await verifyPaidStoreWrite(req, res, userId)) return;
 
     if (!userId) {
       return res.status(400).json({
@@ -13791,6 +13954,8 @@ app.patch("/api/v2/store-connections/:id", async (req, res) => {
       lastSyncStatus,
       lastSyncError,
     } = req.body;
+
+    if (!await verifyPaidStoreWrite(req, res, userId)) return;
 
     if (!userId) {
       return res.status(400).json({

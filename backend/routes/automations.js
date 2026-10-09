@@ -22,6 +22,26 @@ import supabase from "../lib/supabase.js";
 
 const router = express.Router();
 
+// Staged entitlement check for creating, previewing, running or resuming
+// automations. Disable/delete operations remain available after downgrade.
+async function requirePaidAutomation(userId, res) {
+  if (process.env.ENFORCE_PAID_STORE_ACCESS !== "true") return true;
+  const { data, error } = await supabase.from("profiles")
+    .select("subscription_tier,subscription_status")
+    .eq("id", String(userId)).single();
+  if (error || !data) {
+    res.status(503).json({ success: false, error: "Unable to verify subscription." });
+    return false;
+  }
+  const tier = String(data.subscription_tier || "free").toLowerCase();
+  if (tier === "free") {
+    res.status(403).json({ success: false, upgradeRequired: true,
+      error: "Automated posting requires a paid subscription." });
+    return false;
+  }
+  return true;
+}
+
 async function assertOwnedConnectedStore(userId, storeId) {
   const { data, error } = await supabase
     .from("store_connections")
@@ -278,6 +298,8 @@ router.post(
 
       if (!userId) return;
 
+      if (!await requirePaidAutomation(userId, res)) return;
+
       if (!storeId) {
         return res.status(400).json({
           success: false,
@@ -421,6 +443,8 @@ router.post(
         await resolveRequestUserId(req, res);
 
       if (!userId) return;
+
+      if (!await requirePaidAutomation(userId, res)) return;
 
       if (!storeId || !storeType || !storeName) {
         return res.status(400).json({
@@ -706,6 +730,8 @@ router.post(
 
       if (!userId) return;
 
+      if (!await requirePaidAutomation(userId, res)) return;
+
       if (!storeId) {
         return res.status(400).json({
           success: false,
@@ -824,6 +850,8 @@ router.post(
 
       if (!userId) return;
 
+      if (!await requirePaidAutomation(userId, res)) return;
+
       if (!automationId) {
         return res.status(400).json({
           success: false,
@@ -935,6 +963,8 @@ router.post(
         await resolveRequestUserId(req, res);
 
       if (!userId) return;
+
+      if (!await requirePaidAutomation(userId, res)) return;
 
       const automation =
         await resumeAutomation({

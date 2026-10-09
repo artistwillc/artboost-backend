@@ -270,6 +270,23 @@ export async function syncShopifyStore({ connection }) {
 }
 
 export async function syncStoreConnection({ userId, storeId, reason = "manual" }) {
+  // Worker-level enforcement also protects queued jobs and scheduled syncs.
+  // Remains disabled until subscription status and all clients are verified.
+  if (process.env.ENFORCE_PAID_STORE_ACCESS === "true") {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles").select("subscription_tier,subscription_status")
+      .eq("id", String(userId)).single();
+    if (profileError || !profile) {
+      throw new Error("Unable to verify store sync subscription.");
+    }
+    const tier = String(profile.subscription_tier || "free").toLowerCase();
+    const status = String(profile.subscription_status || "").toLowerCase();
+    if (!["starter", "pro", "business"].includes(tier) ||
+        !["active", "trialing", "complimentary_active"].includes(status)) {
+      return { skipped: true, reason: "paid_subscription_required", storeId };
+    }
+  }
+
   const connection = await loadStoreConnection({ userId, storeId });
   if (!connection.connected) throw new Error("This store is disconnected.");
   if (connection.sync_enabled === false && reason !== "manual") {
@@ -425,7 +442,7 @@ export async function runDueStoreSyncs() {
     for (const item of due) {
       try {
         const result = await syncStoreConnection({ userId: item.user_id, storeId: item.id, reason: "scheduled" });
-        results.push({ storeId: item.id, success: true, result });
+        results.push({ storeId: item.id, success: result?.skipped !== true, result });
       } catch (error) {
         results.push({ storeId: item.id, success: false, error: errorMessage(error) });
       }
