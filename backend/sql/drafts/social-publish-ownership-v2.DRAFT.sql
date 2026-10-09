@@ -88,7 +88,8 @@ BEGIN
       claim_expires_at = NULL, claim_token = NULL, updated_at = now()
   WHERE spa.idempotency_key = p_idempotency_key
     AND spa.claim_token = p_claim_token
-    AND spa.status = 'in_progress';
+    AND spa.status = 'in_progress'
+    AND spa.claim_expires_at > clock_timestamp();
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count = 1;
 END;
