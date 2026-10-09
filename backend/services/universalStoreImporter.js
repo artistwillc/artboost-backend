@@ -710,28 +710,8 @@ export async function importUniversalStore({
     )
   );
 
-  /*
-   * Some ArtPal storefronts expose the first artwork directly
-   * through the storefront URL or render listing links in a
-   * nonstandard way. Include the storefront URL as a final
-   * candidate so the metadata parser can still recover a
-   * valid artwork when possible.
-   */
-  if (
-    (
-      storeHost === "artpal.com" ||
-      storeHost.endsWith(".artpal.com")
-    ) &&
-    limitedLinks.length === 0
-  ) {
-    limitedLinks.push(
-      normalizeUrl(
-        connection.store_url,
-        connection.store_url
-      ) || connection.store_url
-    );
-  }
-
+  // A storefront homepage is not an artwork listing. Never manufacture an
+  // ArtPal product from it when no artwork links were discovered.
   if (limitedLinks.length === 0) {
     throw new Error(
       connection.platform === "artpal"
