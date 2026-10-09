@@ -144,13 +144,23 @@ async function fetchPage(url, timeoutMs = 20000) {
       signal: controller.signal,
     });
 
-    const html = await response.text();
-
+    // Preserve the known-good scanner, but surface ArtPal access failures
+    // immediately instead of interpreting them as an empty catalog.
     if (!response.ok) {
+      const host = new URL(url).hostname.toLowerCase();
+      const artPalRequest = host === "artpal.com" ||
+        host.endsWith(".artpal.com");
+      if (artPalRequest && [401, 403, 429].includes(response.status)) {
+        throw new Error(
+          `ArtPal blocked the scan (HTTP ${response.status}). Existing products are unchanged. Automatic scanning cannot continue until ArtPal permits access.`
+        );
+      }
       throw new Error(
         `Store returned ${response.status} for ${url}.`
       );
     }
+
+    const html = await response.text();
 
     return {
       html,
@@ -489,13 +499,16 @@ function parseProductPage({
 async function mapWithConcurrency(
   values,
   concurrency,
-  mapper
+  mapper,
+  { failOnError = false } = {}
 ) {
   const results = [];
+  let firstError = null;
   let index = 0;
 
   async function worker() {
     while (index < values.length) {
+      if (failOnError && firstError) break;
       const currentIndex = index;
       index += 1;
 
@@ -509,6 +522,10 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        if (failOnError) {
+          firstError ??= error;
+          break;
+        }
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -532,6 +549,7 @@ async function mapWithConcurrency(
     )
   );
 
+  if (firstError) throw firstError;
   return results;
 }
 
@@ -660,6 +678,9 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {
+        throw error;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -731,31 +752,16 @@ export async function importUniversalStore({
           responseUrl,
         } = await fetchPage(productUrl);
 
-        if (
-          storeHost === "artpal.com" ||
-          storeHost.endsWith(".artpal.com")
-        ) {
-          console.log(
-            "========== ARTPAL DEBUG START =========="
-          );
-          console.log("ARTPAL REQUEST URL:", productUrl);
-          console.log("ARTPAL RESPONSE URL:", responseUrl);
-          console.log("ARTPAL HTML LENGTH:", html.length);
-          console.log(
-            "ARTPAL HTML PREVIEW:",
-            html.substring(0, 5000)
-          );
-          console.log(
-            "========== ARTPAL DEBUG END =========="
-          );
-        }
-
         return parseProductPage({
           html,
           responseUrl,
           originalUrl: productUrl,
           storeHost,
         });
+      },
+      {
+        failOnError: storeHost === "artpal.com" ||
+          storeHost.endsWith(".artpal.com"),
       }
     );
 

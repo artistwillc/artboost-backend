@@ -470,15 +470,21 @@ async function processOneJob() {
             0
         ) || 0;
 
+      // A partial import must not be reported as an unconditional success.
+      const partialFailure = failed > 0;
+      const completionMessage = partialFailure
+        ? `Catalog import finished with ${failed} failed listing(s).`
+        : "Catalog import complete.";
+
       await updateJob(
         job.id,
         {
           status:
-            "completed",
+            partialFailure ? "failed" : "completed",
           progress_percent:
             100,
           progress_message:
-            "Catalog import complete.",
+            completionMessage,
           imported_count:
             imported,
           updated_count:
@@ -490,11 +496,13 @@ async function processOneJob() {
           result_json:
             result ?? {},
           completed_at:
-            new Date().toISOString(),
+            partialFailure ? null : new Date().toISOString(),
+          failed_at:
+            partialFailure ? new Date().toISOString() : null,
           lock_expires_at:
             null,
           last_error:
-            null,
+            partialFailure ? completionMessage : null,
         }
       );
     } catch (error) {
