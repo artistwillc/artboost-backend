@@ -14,6 +14,11 @@ const css = read("styles.css");
 assert.match(html, /https:\/\/apps\.apple\.com\/us\/app\/artboost-ai\/id6784803136/);
 assert.match(html, /https:\/\/play\.google\.com\/store\/apps\/details\?id=com\.artboostai\.app/);
 assert.match(html, /class="section mobile-downloads"/);
+assert.match(html, /class="store-download-link"[^>]*href="https:\/\/apps\.apple\.com\/us\/app\/artboost-ai\/id6784803136"[^>]*>\s*<img src="assets\/app-store-badge\.svg"/);
+assert.match(html, /class="store-download-link"[^>]*href="https:\/\/play\.google\.com\/store\/apps\/details\?id=com\.artboostai\.app"[^>]*>\s*<img src="assets\/google-play-badge\.svg"/);
+assert.match(html, /data-account-tab="signup"/);
+assert.match(html, /data-account-tab="signin"/);
+
 assert.match(html, /id="accountPrimary"[^>]*href="\/app\/web-auth"/);
 assert.match(script, /\/app\/web-auth\?/);
 assert.doesNotMatch(html, /id="accountForm"/, "Do not restore the obsolete embedded auth form");
