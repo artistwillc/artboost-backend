@@ -510,9 +510,11 @@ function parseProductPage({
 async function mapWithConcurrency(
   values,
   concurrency,
-  mapper
+  mapper,
+  { failOnError = false } = {}
 ) {
   const results = [];
+  let firstError = null;
   let index = 0;
 
   async function worker() {
@@ -530,6 +532,10 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        if (failOnError) {
+          firstError ??= error;
+          continue;
+        }
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -553,6 +559,9 @@ async function mapWithConcurrency(
     )
   );
 
+  if (firstError) {
+    throw firstError;
+  }
   return results;
 }
 
@@ -767,6 +776,12 @@ export async function importUniversalStore({
           originalUrl: productUrl,
           storeHost,
         });
+      },
+      {
+        // A blocked ArtPal artwork request must fail the import job instead
+        // of silently producing a partial or empty catalog.
+        failOnError: storeHost === "artpal.com" ||
+          storeHost.endsWith(".artpal.com"),
       }
     );
 
