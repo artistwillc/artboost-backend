@@ -47,7 +47,7 @@ assert.match(quotaSql, /repeat_type','one_time'\) <> 'one_time'/, "Free must rej
 assert.match(quotaSql, /if lower\(trim\(coalesce\(p.subscription_tier,'free'\)\)\) = 'free' then/, "Quota must only apply to Free");
 const serverSource = fs.readFileSync(new URL("server.js", root), "utf8");
 assert.match(serverSource, /Free scheduling is temporarily unavailable until atomic quota enforcement is enabled/, "Free scheduling must fail closed when atomic quota is unavailable");
-assert.match(serverSource, /String\(schedulingProfile.subscription_tier \|\| "free"\).toLowerCase\(\) === "free"/, "Free-only fallback must not block paid tiers");
+assert.match(serverSource, /String\(schedulingProfile.subscription_tier \|\| "free"\).trim\(\).toLowerCase\(\) === "free"/, "Free-only fallback must not block paid tiers");
 // A manually scheduled one-time Free post must still be published when due.
 // The worker uses publish_at, not next_run_at, to find due campaigns.
 const workerStart = serverSource.indexOf("async function runScheduledCampaigns()");
