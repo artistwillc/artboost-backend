@@ -68,3 +68,9 @@ test("ArtPal empty discovery never falls back to an artist profile URL", () => {
   assert.match(importer, /limitedLinks\.length === 0 &&\s*isLikelyProductUrl\(connection\.store_url, storeHost\)/);
   assert.match(importer, /ArtBoost could not identify ArtPal artwork listings/);
 });
+
+test("ArtPal blocked-access guidance does not promise browser authentication", () => {
+  assert.match(importer, /Automatic scanning cannot proceed while ArtPal blocks server access/);
+  assert.match(importer, /individual artwork URLs, but those requests may also be blocked/);
+  assert.doesNotMatch(importer, /authenticated artwork URL importer/);
+});
