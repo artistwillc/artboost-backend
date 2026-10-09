@@ -26,7 +26,7 @@ test("retry must reclaim ownership before the next publish invocation", () => {
 });
 
 test("publish completion records success against the idempotency key", () => {
-  assert.match(source, /await finishAttempt\(\{\s*idempotencyKey,\s*status: "succeeded"/);
+  assert.match(source, /await finishAttempt\(\{\s*idempotencyKey,\s*claimToken,\s*status: "succeeded"/);
 });
 
 test("initial claim must reject unknown actions before calling publish", () => {
@@ -37,4 +37,11 @@ test("initial claim must reject unknown actions before calling publish", () => {
   assert.match(guard, /claim\?\.action !== "claimed"/);
   assert.match(guard, /claim\?\.action !== "retry"/);
   assert.match(guard, /ARTBOOST_PUBLISH_IN_PROGRESS/);
+});
+
+test("v2 publishing requires a claim token and fails closed on lost ownership", () => {
+  assert.match(source, /ARTBOOST_PUBLISH_CLAIM_V2/);
+  assert.match(source, /if \(useV2 && !claimToken\)/);
+  assert.match(source, /Publishing claim ownership lost during finalization/);
+  assert.match(source, /ARTBOOST_PUBLISH_FINALIZATION_UNCERTAIN/);
 });
