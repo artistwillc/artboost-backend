@@ -266,6 +266,33 @@ export default function StoreProductsScreen() {
           }
         }
 
+        // A reconnect can create an empty ArtPal connection while the same
+        // signed-in user's original ArtPal connection retains the catalog.
+        // Recover the existing catalog without changing any product ownership.
+        let recoveredArtPalCatalog = false;
+        if (normalize(storeType) === "artpal" && allRows.length === 0 && storeId) {
+          const fallbackQuery = new URLSearchParams({
+            userId: user.id,
+            storeType: "artpal",
+            limit: "500",
+            offset: "0",
+          });
+          const fallbackResponse = await fetch(
+            `${API_BASE}/products?${fallbackQuery.toString()}`,
+            { headers: authHeaders }
+          );
+          if (fallbackResponse.ok) {
+            const fallbackData = await fallbackResponse.json();
+            if (fallbackData?.success === true && Array.isArray(fallbackData.products)) {
+              allRows.push(...fallbackData.products.filter((item: any) =>
+                normalize(item.store_type || item.storeType) === "artpal" &&
+                normalize(item.store_name || item.storeName) === normalize(storeName)
+              ));
+              recoveredArtPalCatalog = allRows.length > 0;
+            }
+          }
+        }
+
         const mappedProducts: Product[] = allRows.map(
           (item: any) => ({
             id: String(item.id),
@@ -324,7 +351,7 @@ export default function StoreProductsScreen() {
         );
 
         setProducts(
-          mappedProducts.filter(matchesStore)
+          recoveredArtPalCatalog ? mappedProducts : mappedProducts.filter(matchesStore)
         );
       } catch (error: any) {
         console.log(

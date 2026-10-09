@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -96,6 +97,7 @@ export default function StoreDashboardScreen() {
     storeId?: string;
     storeName?: string;
     storeType?: string;
+    storeUrl?: string;
     productCount?: string;
     connected?: string;
     lastSyncedAt?: string;
@@ -176,6 +178,34 @@ export default function StoreDashboardScreen() {
           data?.details || data?.error || response.status
         );
         return;
+      }
+
+      // An ArtPal reconnect may create a second connection for the same
+      // storefront. If the selected connection is empty, display the count
+      // belonging to this authenticated user's existing ArtPal catalog.
+      // Do not change the selected store ID or any automation ownership.
+      if (
+        String(storeType).toLowerCase() === "artpal" &&
+        Number(data?.total) === 0
+      ) {
+        const fallbackQuery = new URLSearchParams({
+          userId: user.id,
+          storeType: "artpal",
+          limit: "1",
+          offset: "0",
+        });
+        const fallbackResponse = await fetch(
+          `${API_BASE}/products?${fallbackQuery.toString()}`,
+          { headers }
+        );
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          const fallbackCount = Number(fallbackData?.total);
+          if (fallbackData?.success === true && Number.isFinite(fallbackCount) && fallbackCount > 0) {
+            setProductCount(fallbackCount);
+            return;
+          }
+        }
       }
 
       const exactCount = Number(data?.total);
@@ -436,6 +466,21 @@ const syncButtonLabel = useMemo(() => {
         "Store Unavailable",
         "ArtBoost could not identify this saved store connection."
       );
+      return;
+    }
+
+    // Restore the dedicated, browser-based ArtPal scanner on native devices.
+    // Web continues using the existing server-backed universal scanner.
+    if (type === "artpal" && Platform.OS !== "web" && (/artpal\.com\/(?:artistwill|artists\.html\?id=37279)/i.test(String(params.storeUrl || "")) || /artistwill/i.test(String(storeName)))) {
+      router.push({
+        pathname: "/artpal-store-scanner" as any,
+        params: {
+          storeId,
+          storeName,
+          storeType: "artpal",
+          storeUrl: /artpal\.com/i.test(String(params.storeUrl || "")) ? String(params.storeUrl) : "https://www.ArtPal.com/artistwill",
+        },
+      });
       return;
     }
 
