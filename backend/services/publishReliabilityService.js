@@ -190,7 +190,9 @@ async function beginAttempt({
   platform,
 }) {
   const { data, error } = await supabase.rpc(
-    "begin_social_publish_attempt",
+    process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true"
+      ? "begin_social_publish_attempt_v2"
+      : "begin_social_publish_attempt",
     {
       p_idempotency_key: idempotencyKey,
       p_user_id: userId || null,
@@ -212,10 +214,14 @@ async function finishAttempt({
   status,
   providerResult = null,
   errorMessage = null,
+  claimToken = null,
 }) {
-  const { error } = await supabase.rpc(
-    "finish_social_publish_attempt",
+  const useV2 = process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true";
+  if (useV2 && !claimToken) throw new Error("Missing publishing claim token.");
+  const { data, error } = await supabase.rpc(
+    useV2 ? "finish_social_publish_attempt_v2" : "finish_social_publish_attempt",
     {
+      ...(useV2 ? { p_claim_token: claimToken } : {}),
       p_idempotency_key: idempotencyKey,
       p_status: status,
       p_provider_result: providerResult,
@@ -223,7 +229,14 @@ async function finishAttempt({
     }
   );
 
+  if (!error && process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && data !== true) {
+    throw new Error("Publishing claim ownership lost during finalization.");
+  }
+
   if (error) {
+    if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true") {
+      throw new Error(`Publish attempt finalization failed: ${error.message}`);
+    }
     console.error("Publish attempt finalization failed:", error);
     await recordError({
       error,
@@ -419,6 +432,11 @@ export async function publishWithReliability({
     throw error;
   }
 
+  let claimToken = claim?.claim_token ?? null;
+  if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && !claimToken) {
+    throw new Error("Publishing ownership claim token was not returned.");
+  }
+
   let lastError;
 
   for (
@@ -432,6 +450,7 @@ export async function publishWithReliability({
 
       await finishAttempt({
         idempotencyKey,
+        claimToken,
         status: "succeeded",
         providerResult: result ?? null,
       });
@@ -467,6 +486,7 @@ export async function publishWithReliability({
 
       await finishAttempt({
         idempotencyKey,
+        claimToken,
         status: "retry_wait",
         errorMessage: classification.message,
       });
@@ -512,6 +532,10 @@ export async function publishWithReliability({
         );
         ownershipError.code = "ARTBOOST_PUBLISH_IN_PROGRESS";
         throw ownershipError;
+      }
+      claimToken = retryClaim?.claim_token ?? null;
+      if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && !claimToken) {
+        throw new Error("Publishing retry ownership token was not returned.");
       }
     }
   }
