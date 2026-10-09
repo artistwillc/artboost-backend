@@ -33,3 +33,7 @@ test("ArtPal HTTP 200 verification pages cannot be parsed as catalog HTML", () =
   assert.ok(importer.indexOf("if (isArtPalPage && challengePage)") <
     importer.indexOf("return {\n      html,\n      responseUrl: response.url || url,"));
 });
+
+test("ArtPal scanner never logs raw HTML previews", () => {
+  assert.doesNotMatch(importer, /ARTPAL HTML PREVIEW|html\.substring\(0, 5000\)/);
+});
