@@ -144,13 +144,23 @@ async function fetchPage(url, timeoutMs = 20000) {
       signal: controller.signal,
     });
 
-    const html = await response.text();
-
+    // Preserve the known-good scanner, but surface ArtPal access failures
+    // immediately instead of interpreting them as an empty catalog.
     if (!response.ok) {
+      const host = new URL(url).hostname.toLowerCase();
+      const artPalRequest = host === "artpal.com" ||
+        host.endsWith(".artpal.com");
+      if (artPalRequest && [401, 403, 429].includes(response.status)) {
+        throw new Error(
+          `ArtPal blocked the scan (HTTP ${response.status}). Existing products are unchanged. Automatic scanning cannot continue until ArtPal permits access.`
+        );
+      }
       throw new Error(
         `Store returned ${response.status} for ${url}.`
       );
     }
+
+    const html = await response.text();
 
     return {
       html,
@@ -660,6 +670,9 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {
+        throw error;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
