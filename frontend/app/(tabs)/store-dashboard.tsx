@@ -97,6 +97,7 @@ export default function StoreDashboardScreen() {
     storeId?: string;
     storeName?: string;
     storeType?: string;
+    storeUrl?: string;
     productCount?: string;
     connected?: string;
     lastSyncedAt?: string;
