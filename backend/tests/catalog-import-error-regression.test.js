@@ -57,3 +57,9 @@ test("ArtPal workers stop scheduling after first fetch failure", () => {
   assert.match(importer, /if \(failOnError && firstError\) break;/);
   assert.match(importer, /firstError \?\?= error;\s*break;/);
 });
+
+test("ArtPal artist profiles are not accepted as artwork without artwork metadata", () => {
+  assert.match(importer, /const artPalArtworkSchema = Boolean\(productSchema\)/);
+  assert.match(importer, /if \(artPalHost && !isLikelyProductUrl\(productUrl, storeHost\) &&/);
+  assert.match(importer, /!artPalArtworkSchema\) \{\s*return null;/);
+});
