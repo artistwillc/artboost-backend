@@ -52,3 +52,8 @@ test("ArtPal product fetch failures propagate through concurrent workers", () =>
   assert.match(importer, /if \(firstError\) \{\s*throw firstError;/);
   assert.match(importer, /failOnError: storeHost === "artpal\.com"/);
 });
+
+test("ArtPal workers stop scheduling after first fetch failure", () => {
+  assert.match(importer, /if \(failOnError && firstError\) break;/);
+  assert.match(importer, /firstError \?\?= error;\s*break;/);
+});
