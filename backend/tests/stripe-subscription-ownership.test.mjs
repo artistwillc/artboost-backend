@@ -21,3 +21,14 @@ test("Stripe subscription event guard preserves first-time subscription activati
   assert.match(handler, /incomingSubscriptionId &&/);
   assert.match(handler, /Ignored Stripe subscription event for a non-current subscription/);
 });
+
+test("Stripe reconciliation prioritizes active subscriptions across customers", () => {
+  const start = source.indexOf("async function syncStripeSubscriptionForUser(");
+  const end = source.indexOf("async function findActiveLiveSubscriptionForUser(", start);
+  const sync = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(sync, /candidateEntitled = Boolean/);
+  assert.match(sync, /selectedEntitled = Boolean/);
+  assert.match(sync, /candidateEntitled && !selectedEntitled/);
+  assert.match(sync, /candidateEntitled === selectedEntitled/);
+});
