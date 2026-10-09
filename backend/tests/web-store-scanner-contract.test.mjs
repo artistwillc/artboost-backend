@@ -16,7 +16,7 @@ test("web scanner requires a connected store ID before sending import", () => {
 
 test("web scanner sends connected store ID and exposes backend error details", () => {
   assert.match(webScanner, /body: JSON\.stringify\(\{ storeId \}\)/);
-  assert.match(webScanner, /payload\.details \|\| payload\.error/);
+  assert.match(webScanner, /payload\?\.details \|\| payload\?\.error/);
   assert.match(webScanner, /setWebScanMessage\(`Scan failed:/);
 });
 
