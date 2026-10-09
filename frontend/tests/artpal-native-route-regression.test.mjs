@@ -8,6 +8,8 @@ const artpal = readFileSync(new URL("../app/artpal-store-scanner.tsx", import.me
 test("native ArtPal recovery requires a saved matching storefront URL", () => {
   assert.match(dashboard, /type === "artpal" && Platform\.OS !== "web"/);
   assert.match(dashboard, /String\(params\.storeUrl \|\| ""\)/);
+  assert.match(dashboard, /https:\/\/www\.ArtPal\.com\/artistwill/);
+  assert.match(dashboard, /artistwill\/i\.test\(String\(storeName\)\)/);
   assert.match(dashboard, /pathname: "\/artpal-store-scanner"/);
 });
 
