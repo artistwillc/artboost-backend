@@ -180,6 +180,34 @@ export default function StoreDashboardScreen() {
         return;
       }
 
+      // An ArtPal reconnect may create a second connection for the same
+      // storefront. If the selected connection is empty, display the count
+      // belonging to this authenticated user's existing ArtPal catalog.
+      // Do not change the selected store ID or any automation ownership.
+      if (
+        String(storeType).toLowerCase() === "artpal" &&
+        Number(data?.total) === 0
+      ) {
+        const fallbackQuery = new URLSearchParams({
+          userId: user.id,
+          storeType: "artpal",
+          limit: "1",
+          offset: "0",
+        });
+        const fallbackResponse = await fetch(
+          `${API_BASE}/products?${fallbackQuery.toString()}`,
+          { headers }
+        );
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          const fallbackCount = Number(fallbackData?.total);
+          if (fallbackData?.success === true && Number.isFinite(fallbackCount) && fallbackCount > 0) {
+            setProductCount(fallbackCount);
+            return;
+          }
+        }
+      }
+
       const exactCount = Number(data?.total);
       if (Number.isFinite(exactCount) && exactCount >= 0) {
         // A store card can already carry a newer successful import count than
