@@ -25,7 +25,7 @@ BEGIN
   VALUES
     (p_idempotency_key, p_user_id, p_automation_id, p_product_id,
      lower(btrim(p_platform)), 'in_progress', 1,
-     now(), now() + interval '5 minutes', gen_random_uuid(), now())
+     now(), clock_timestamp() + interval '5 minutes', gen_random_uuid(), now())
   ON CONFLICT (idempotency_key) DO NOTHING
   RETURNING * INTO v_row;
 
@@ -47,7 +47,7 @@ BEGIN
   END IF;
 
   IF v_row.status = 'in_progress' AND
-     v_row.claim_expires_at IS NOT NULL AND v_row.claim_expires_at > now() THEN
+     v_row.claim_expires_at IS NOT NULL AND v_row.claim_expires_at > clock_timestamp() THEN
     RETURN QUERY SELECT 'in_progress'::text, v_row.attempt_count,
                         v_row.provider_result, null::uuid;
     RETURN;
