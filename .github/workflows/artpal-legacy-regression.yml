@@ -1,0 +1,24 @@
+name: ArtPal legacy scanner regression
+on:
+  pull_request:
+    paths:
+      - "backend/services/universalStoreImporter.js"
+      - "backend/services/catalogImportQueueService.js"
+      - "backend/tests/artpal-legacy-regression.test.js"
+      - ".github/workflows/artpal-legacy-regression.yml"
+  workflow_dispatch:
+jobs:
+  scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax check
+        run: |
+          node --check backend/services/universalStoreImporter.js
+          node --check backend/services/catalogImportQueueService.js
+          node --check backend/tests/artpal-legacy-regression.test.js
+      - name: Regression checks
+        run: node --test backend/tests/artpal-legacy-regression.test.js
