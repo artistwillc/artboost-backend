@@ -32,8 +32,9 @@ test("publish completion records success against the idempotency key", () => {
 test("initial claim must reject unknown actions before calling publish", () => {
   const start = source.indexOf("const claim = await beginAttempt(");
   const loop = source.indexOf("let lastError;", start);
+  assert.ok(start >= 0 && loop > start);
   const guard = source.slice(start, loop);
-  assert.match(guard, /claim\?\.action === "in_progress"/);
-  // TODO: replace the current two-case guard with an explicit allowlist
-  // once the database claim ownership migration is ready.
+  assert.match(guard, /claim\?\.action !== "claimed"/);
+  assert.match(guard, /claim\?\.action !== "retry"/);
+  assert.match(guard, /ARTBOOST_PUBLISH_IN_PROGRESS/);
 });
