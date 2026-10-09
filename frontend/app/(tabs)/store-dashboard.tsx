@@ -443,16 +443,14 @@ const syncButtonLabel = useMemo(() => {
 
     // Restore the dedicated, browser-based ArtPal scanner on native devices.
     // Web continues using the existing server-backed universal scanner.
-    if (type === "artpal" && Platform.OS !== "web" && /artpal\\.com/i.test(String(params.storeUrl || ""))) {
+    if (type === "artpal" && Platform.OS !== "web") {
       router.push({
         pathname: "/artpal-store-scanner" as any,
         params: {
           storeId,
           storeName,
           storeType: "artpal",
-          storeUrl: /artpal\\.com\\/artistwill/i.test(String(params.storeUrl || ""))
-            ? "https://www.ArtPal.com/artists.html?id=37279"
-            : String(params.storeUrl || ""),
+          storeUrl: String(params.storeUrl || ""),
         },
       });
       return;
