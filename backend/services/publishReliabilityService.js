@@ -471,6 +471,7 @@ export async function publishWithReliability({
       if (!classification.retryable || attempt >= maxAttempts) {
         await finishAttempt({
           idempotencyKey,
+          claimToken,
           status: classification.retryable
             ? "failed_exhausted"
             : "failed_permanent",
