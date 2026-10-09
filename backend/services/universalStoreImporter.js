@@ -519,6 +519,9 @@ async function mapWithConcurrency(
 
   async function worker() {
     while (index < values.length) {
+      // Once an ArtPal request has failed, do not schedule additional
+      // requests; allow already in-flight workers to finish safely.
+      if (failOnError && firstError) break;
       const currentIndex = index;
       index += 1;
 
@@ -534,7 +537,7 @@ async function mapWithConcurrency(
       } catch (error) {
         if (failOnError) {
           firstError ??= error;
-          continue;
+          break;
         }
         console.log(
           "Universal store product skipped:",
