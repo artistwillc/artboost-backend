@@ -95,6 +95,8 @@ BEGIN
 END;
 $$;
 
--- Before production rollout: revoke PUBLIC, anon and authenticated EXECUTE
--- on v2 functions; grant only to service_role, and verify in staging.
--- Do not call these RPCs from clients.
+REVOKE ALL ON FUNCTION public.begin_social_publish_attempt_v2(text,uuid,uuid,text,text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.finish_social_publish_attempt_v2(text,uuid,text,jsonb,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.begin_social_publish_attempt_v2(text,uuid,uuid,text,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.finish_social_publish_attempt_v2(text,uuid,text,jsonb,text) TO service_role;
+-- Staging validation required before applying this draft.
