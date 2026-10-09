@@ -1415,6 +1415,25 @@ router.post(
             break;
           }
 
+          // Stripe events can arrive out of order. An update for an old
+          // subscription must not replace the profile's current paid plan.
+          const currentProfile = complimentary.profile;
+          const currentSubscriptionId = String(
+            currentProfile?.stripe_subscription_id || ""
+          ).trim();
+          const incomingSubscriptionId = String(subscription.id || "").trim();
+          if (
+            currentSubscriptionId &&
+            incomingSubscriptionId &&
+            currentSubscriptionId !== incomingSubscriptionId
+          ) {
+            console.log(
+              "Ignored Stripe subscription event for a non-current subscription:",
+              { incomingSubscriptionId, currentSubscriptionId, eventType: event.type }
+            );
+            break;
+          }
+
           await updateProfile({
             userId,
             email,
