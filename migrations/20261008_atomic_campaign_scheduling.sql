@@ -17,7 +17,10 @@ declare
   campaign_count integer;
   selected_platform text;
 begin
-  -- SECURITY DEFINER is required for the service-role-only RPC to perform\n  -- the row lock and atomic insert under restrictive table RLS.\n  -- The function has an empty search_path and fully qualified relations.\n  -- A row lock serializes all quota decisions for the same user.
+  -- SECURITY DEFINER is required for the service-role-only RPC to perform
+  -- the row lock and atomic insert under restrictive table RLS.
+  -- The function has an empty search_path and fully qualified relations.
+  -- A row lock serializes all quota decisions for the same user.
   select * into p from public.profiles where id = p_user_id for update;
   if not found then
     return jsonb_build_object('allowed',false,'reason','Profile not found');
