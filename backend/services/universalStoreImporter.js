@@ -742,19 +742,17 @@ export async function importUniversalStore({
     )
   );
 
-  /*
-   * Some ArtPal storefronts expose the first artwork directly
-   * through the storefront URL or render listing links in a
-   * nonstandard way. Include the storefront URL as a final
-   * candidate so the metadata parser can still recover a
-   * valid artwork when possible.
-   */
+  // An artist profile is not an artwork listing. Only use the
+  // connected ArtPal URL as a fallback when it is itself an artwork URL.
+  // Otherwise report discovery failure rather than silently importing
+  // the artist avatar or profile as a product.
   if (
     (
       storeHost === "artpal.com" ||
       storeHost.endsWith(".artpal.com")
     ) &&
-    limitedLinks.length === 0
+    limitedLinks.length === 0 &&
+    isLikelyProductUrl(connection.store_url, storeHost)
   ) {
     limitedLinks.push(
       normalizeUrl(
