@@ -2663,8 +2663,13 @@ async function scanWebStore() {
     setScanProgress(message);
   } catch (error) {
     const message = error instanceof Error ? error.message : "ArtPal import failed.";
-    setWebScanMessage(`Scan failed: ${message}`);
-    setScanProgress(`Scan failed: ${message}`);
+    const blockedByArtPal =
+      storeType === "artpal" && /ArtPal blocked the scan|HTTP 403/i.test(message);
+    const visibleMessage = blockedByArtPal
+      ? `Scan blocked by ArtPal (HTTP 403). Your existing products are safe. ArtPal must permit server access before automatic imports can work. You can still manage existing products in ArtBoost; do not keep retrying this blocked scan.`
+      : `Scan failed: ${message}`;
+    setWebScanMessage(visibleMessage);
+    setScanProgress(visibleMessage);
   } finally {
     setFullStoreScanning(false);
   }
