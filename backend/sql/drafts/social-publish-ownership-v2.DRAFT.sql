@@ -26,7 +26,14 @@ BEGIN
     (p_idempotency_key, p_user_id, p_automation_id, p_product_id,
      lower(btrim(p_platform)), 'in_progress', 1,
      now(), now() + interval '5 minutes', gen_random_uuid(), now())
-  ON CONFLICT (idempotency_key) DO NOTHING;
+  ON CONFLICT (idempotency_key) DO NOTHING
+  RETURNING * INTO v_row;
+
+  IF FOUND THEN
+    RETURN QUERY SELECT 'claimed'::text, v_row.attempt_count,
+                        v_row.provider_result, v_row.claim_token;
+    RETURN;
+  END IF;
 
   SELECT spa.* INTO STRICT v_row
   FROM public.social_publish_attempts spa
@@ -41,8 +48,6 @@ BEGIN
 
   IF v_row.status = 'in_progress' AND
      v_row.claim_expires_at IS NOT NULL AND v_row.claim_expires_at > now() THEN
-    -- First acquisition is distinguishable only when the row was inserted
-    -- by this call. Use a separate insertion marker in the revised version.
     RETURN QUERY SELECT 'in_progress'::text, v_row.attempt_count,
                         v_row.provider_result, null::uuid;
     RETURN;
