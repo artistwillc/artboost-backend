@@ -141,3 +141,25 @@ test("ArtPal HTTP 200 artwork with missing metadata does not permit partial impo
     return response('<a href="https://www.artpal.com/artwork/example">Artwork</a>', 200, url);
   });
 });
+
+test("ArtPal empty storefront cannot be saved as a fabricated artwork", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  const { db, writes } = makeDatabase();
+  const importer = await loadImporter(db);
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    return response("<html><title>Artist Gallery</title><body>No artwork links here</body></html>", 200, url);
+  };
+  try {
+    await assert.rejects(
+      importer({ userId: "test-user", storeId: "artpal-store", maxPages: 2 }),
+      /could not identify ArtPal artwork listings/
+    );
+    assert.equal(requested.length, 2, "should inspect storefront pages but not fetch homepage as an artwork");
+    assert.deepEqual(writes, [], "empty storefront must leave the catalog unchanged");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete globalThis.__artpalMockDb;
+  }
+});
