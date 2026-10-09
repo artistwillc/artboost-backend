@@ -511,10 +511,14 @@ async function processOneJob() {
           ? error.message
           : String(error);
 
+      // An ArtPal 403 is an upstream access denial, not a transient
+      // network failure. Retrying the same request cannot fix permissions.
+      const blockedArtPal =
+        /ArtPal blocked the scan \(HTTP 403\)/i.test(message);
       const attempts =
-        Number(
-          job.attempt_count
-        ) || 1;
+        blockedArtPal ? 3 : (
+          Number(job.attempt_count) || 1
+        );
 
       if (attempts < 3) {
         void recordWarning({
@@ -602,7 +606,9 @@ async function processOneJob() {
             status:
               "failed",
             progress_message:
-              "Catalog import failed after 3 attempts.",
+              blockedArtPal
+                ? "ArtPal blocked the import (HTTP 403). Existing products are unchanged."
+                : "Catalog import failed after 3 attempts.",
             failed_at:
               new Date().toISOString(),
             lock_expires_at:
