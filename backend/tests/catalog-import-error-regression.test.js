@@ -63,3 +63,8 @@ test("ArtPal artist profiles are not accepted as artwork without artwork metadat
   assert.match(importer, /if \(artPalHost && !isLikelyProductUrl\(productUrl, storeHost\) &&/);
   assert.match(importer, /!artPalArtworkSchema\) \{\s*return null;/);
 });
+
+test("ArtPal empty discovery never falls back to an artist profile URL", () => {
+  assert.match(importer, /limitedLinks\.length === 0 &&\s*isLikelyProductUrl\(connection\.store_url, storeHost\)/);
+  assert.match(importer, /ArtBoost could not identify ArtPal artwork listings/);
+});
