@@ -514,7 +514,8 @@ async function processOneJob() {
       // An ArtPal 403 is an upstream access denial, not a transient
       // network failure. Retrying the same request cannot fix permissions.
       const blockedArtPal =
-        /ArtPal blocked the scan \(HTTP 403\)/i.test(message);
+        /^ArtPal (?:blocked the scan|storefront access blocked|denied storefront access|returned a browser verification page|security verification challenge detected)/i.test(message) ||
+        /^ArtPal .*\bHTTP (?:401|403|429)\b/i.test(message);
       const attempts =
         blockedArtPal ? 3 : (
           Number(job.attempt_count) || 1
