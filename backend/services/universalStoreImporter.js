@@ -152,7 +152,7 @@ async function fetchPage(url, timeoutMs = 20000) {
       const blocked = [401, 403, 429].includes(response.status);
       if (isArtPal && blocked) {
         throw new Error(
-          `ArtPal storefront access blocked (HTTP ${response.status}). No products were deleted or replaced. Open ArtPal in the in-app browser and use the authenticated artwork URL importer.`
+          `ArtPal storefront access blocked (HTTP ${response.status}). No products were deleted or replaced. Automatic scanning cannot proceed while ArtPal blocks server access. You can try importing individual artwork URLs, but those requests may also be blocked.`
         );
       }
       throw new Error(
@@ -170,7 +170,7 @@ async function fetchPage(url, timeoutMs = 20000) {
       /cloudflare|checking your browser|verify you are human|access denied/i.test(html);
     if (isArtPalPage && challengePage) {
       throw new Error(
-        "ArtPal returned a browser verification page instead of artwork. The scan was stopped without replacing existing products. Open ArtPal in the in-app browser and use the authenticated artwork URL importer."
+        "ArtPal returned a browser verification page instead of artwork. The scan was stopped without replacing existing products. Automatic scanning cannot proceed while ArtPal blocks server access. You can try importing individual artwork URLs, but those requests may also be blocked."
       );
     }
     return {
