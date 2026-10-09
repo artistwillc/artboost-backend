@@ -2646,7 +2646,7 @@ async function scanWebStore() {
   }
   setFullStoreScanning(true);
   setWebScanMessage("");
-  setScanProgress("Importing ArtPal products from the server...");
+  setScanProgress(`Importing ${storeName} products from the server...`);
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
@@ -2660,11 +2660,17 @@ async function scanWebStore() {
       },
       body: JSON.stringify({ storeId }),
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.details || payload.error || `Import failed (HTTP ${response.status}).`);
+    const responseText = await response.text();
+    let payload: any;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Store scan returned an invalid response (HTTP ${response.status}). Try again later.`);
     }
-    const message = `ArtPal scan finished: ${payload.discovered ?? 0} links found, ${payload.imported ?? 0} new products, ${payload.updated ?? 0} updated, ${payload.skipped ?? 0} skipped.`;
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.details || payload?.error || `Import failed (HTTP ${response.status}).`);
+    }
+    const message = `${storeName} scan finished: ${payload.discovered ?? 0} links found, ${payload.imported ?? 0} new products, ${payload.updated ?? 0} updated, ${payload.skipped ?? 0} skipped.`;
     setWebScanMessage(message);
     setScanProgress(message);
   } catch (error) {
