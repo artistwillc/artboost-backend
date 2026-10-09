@@ -448,15 +448,23 @@ export async function publishWithReliability({
       await reservePlatformSlot(platform);
       const result = await publish();
 
-      await finishAttempt({
-        idempotencyKey,
-        claimToken,
-        status: "succeeded",
-        providerResult: result ?? null,
-      });
+      // A provider may have accepted the post. A database finalization failure
+      // must never be treated as permission to publish it a second time.
+      try {
+        await finishAttempt({
+          idempotencyKey,
+          claimToken,
+          status: "succeeded",
+          providerResult: result ?? null,
+        });
+      } catch (finalizationError) {
+        finalizationError.code = "ARTBOOST_PUBLISH_FINALIZATION_UNCERTAIN";
+        throw finalizationError;
+      }
 
       return result;
     } catch (error) {
+      if (error?.code === "ARTBOOST_PUBLISH_FINALIZATION_UNCERTAIN") throw error;
       lastError = error;
       const classification = classifyPublishError(error);
 
