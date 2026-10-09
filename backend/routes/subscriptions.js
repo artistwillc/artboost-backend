@@ -803,13 +803,20 @@ async function syncStripeSubscriptionForUser({
     const candidate =
       active || ordered[0];
 
+    // Prefer an entitled subscription across ALL matching Stripe customers.
+    // A newer canceled subscription must not override an older active one.
+    const candidateEntitled = Boolean(
+      candidate && ACTIVE_STATUSES.has(candidate.status)
+    );
+    const selectedEntitled = Boolean(
+      selected && ACTIVE_STATUSES.has(selected.status)
+    );
     if (
       candidate &&
       (!selected ||
-        Number(candidate.created || 0) >
-          Number(
-            selected.created || 0
-          ))
+        (candidateEntitled && !selectedEntitled) ||
+        (candidateEntitled === selectedEntitled &&
+          Number(candidate.created || 0) > Number(selected.created || 0)))
     ) {
       selected = candidate;
       selectedCustomer = customer;
