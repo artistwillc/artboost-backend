@@ -161,6 +161,18 @@ async function fetchPage(url, timeoutMs = 20000) {
     }
 
     const html = await response.text();
+    // Some bot challenges return HTTP 200 with an interstitial instead of
+    // actual storefront HTML. Do not interpret those pages as empty catalogs.
+    const responseHost = new URL(response.url || url).hostname.toLowerCase();
+    const isArtPalPage = responseHost === "artpal.com" ||
+      responseHost.endsWith(".artpal.com");
+    const challengePage = /<title[^>]*>\\s*(?:Just a moment\\.{0,3}|Attention Required!?|Access Denied)\\s*<\\/title>/i.test(html) &&
+      /cloudflare|checking your browser|verify you are human|access denied/i.test(html);
+    if (isArtPalPage && challengePage) {
+      throw new Error(
+        "ArtPal returned a browser verification page instead of artwork. The scan was stopped without replacing existing products. Open ArtPal in the in-app browser and use the authenticated artwork URL importer."
+      );
+    }
     return {
       html,
       responseUrl: response.url || url,
