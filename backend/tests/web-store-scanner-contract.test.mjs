@@ -19,3 +19,14 @@ test("web scanner sends connected store ID and exposes backend error details", (
   assert.match(webScanner, /payload\.details \|\| payload\.error/);
   assert.match(webScanner, /setWebScanMessage\(`Scan failed:/);
 });
+
+test("web scanner handles non-JSON backend responses without crashing", () => {
+  assert.match(webScanner, /const responseText = await response\.text\(\)/);
+  assert.match(webScanner, /JSON\.parse\(responseText\)/);
+  assert.match(webScanner, /Store scan returned an invalid response/);
+});
+
+test("web scanner uses the connected store name in progress and results", () => {
+  assert.match(webScanner, /Importing \$\{storeName\} products/);
+  assert.match(webScanner, /\$\{storeName\} scan finished/);
+});
