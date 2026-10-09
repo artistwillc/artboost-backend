@@ -1,0 +1,31 @@
+name: ArtPal Importer Regression
+on:
+  pull_request:
+    paths:
+      - 'backend/services/universalStoreImporter.js'
+      - 'backend/routes/stores.js'
+      - 'backend/routes/subscriptions.js'
+      - 'backend/services/publishReliabilityService.js'
+      - 'backend/tests/publish-retry-ownership.test.mjs'
+      - 'backend/tests/stripe-subscription-ownership.test.mjs'
+      - 'frontend/app/ai-store-scanner.tsx'
+      - 'backend/tests/web-store-scanner-contract.test.mjs'
+      - 'backend/tests/universal-import-route.test.mjs'
+      - 'backend/services/artpalAccessGuard.js'
+      - 'backend/tests/artpal-access-guard.behavior.test.mjs'
+      - 'backend/tests/artpal-import-integration.test.mjs'
+      - 'backend/tests/artpal-import-guard.test.mjs'
+      - '.github/workflows/artpal-regression.yml'
+  workflow_dispatch:
+jobs:
+  artpal-regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run ArtPal importer regression contracts
+        run: node --test backend/tests/artpal-import-guard.test.mjs backend/tests/artpal-access-guard.behavior.test.mjs backend/tests/artpal-import-integration.test.mjs backend/tests/universal-import-route.test.mjs backend/tests/web-store-scanner-contract.test.mjs backend/tests/stripe-subscription-ownership.test.mjs backend/tests/publish-retry-ownership.test.mjs

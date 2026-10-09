@@ -803,13 +803,20 @@ async function syncStripeSubscriptionForUser({
     const candidate =
       active || ordered[0];
 
+    // Prefer an entitled subscription across ALL matching Stripe customers.
+    // A newer canceled subscription must not override an older active one.
+    const candidateEntitled = Boolean(
+      candidate && ACTIVE_STATUSES.has(candidate.status)
+    );
+    const selectedEntitled = Boolean(
+      selected && ACTIVE_STATUSES.has(selected.status)
+    );
     if (
       candidate &&
       (!selected ||
-        Number(candidate.created || 0) >
-          Number(
-            selected.created || 0
-          ))
+        (candidateEntitled && !selectedEntitled) ||
+        (candidateEntitled === selectedEntitled &&
+          Number(candidate.created || 0) > Number(selected.created || 0)))
     ) {
       selected = candidate;
       selectedCustomer = customer;
@@ -1412,6 +1419,25 @@ router.post(
             });
 
           if (complimentary.protected) {
+            break;
+          }
+
+          // Stripe events can arrive out of order. An update for an old
+          // subscription must not replace the profile's current paid plan.
+          const currentProfile = complimentary.profile;
+          const currentSubscriptionId = String(
+            currentProfile?.stripe_subscription_id || ""
+          ).trim();
+          const incomingSubscriptionId = String(subscription.id || "").trim();
+          if (
+            currentSubscriptionId &&
+            incomingSubscriptionId &&
+            currentSubscriptionId !== incomingSubscriptionId
+          ) {
+            console.log(
+              "Ignored Stripe subscription event for a non-current subscription:",
+              { incomingSubscriptionId, currentSubscriptionId, eventType: event.type }
+            );
             break;
           }
 

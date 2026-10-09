@@ -243,16 +243,16 @@ router.post("/sync-due/run", async (_req, res) => {
 
 router.post("/universal/import", async (req, res) => {
   try {
-    const { storeId, storeUrl, maxProducts } = req.body ?? {};
+    const { storeId, maxProducts, maxListings, maxPages } = req.body ?? {};
     const userId =
       await resolveRequestUserId(req, res);
     if (!userId) return;
-    if (!storeId && !storeUrl) return res.status(400).json({ success: false, error: "A storeId or storeUrl is required." });
+    if (!storeId) return res.status(400).json({ success: false, error: "A connected storeId is required." });
     const result = await importUniversalStore({
       userId: String(userId),
-      storeId: storeId ? String(storeId) : undefined,
-      storeUrl: storeUrl ? String(storeUrl).trim() : undefined,
-      maxProducts,
+      storeId: String(storeId),
+      maxListings: maxListings ?? maxProducts ?? 250,
+      maxPages: maxPages ?? 6,
     });
     return res.status(200).json({ success: true, message: "Store imported successfully.", ...result });
   } catch (error) {

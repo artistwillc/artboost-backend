@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import supabase from "../lib/supabase.js";
+import { isArtPalHost, isArtPalChallengeHtml, isArtPalAccessError, assertArtPalScanAccessible } from "./artpalAccessGuard.js";
 
 const REQUEST_HEADERS = {
   "User-Agent":
@@ -489,7 +490,8 @@ function parseProductPage({
 async function mapWithConcurrency(
   values,
   concurrency,
-  mapper
+  mapper,
+  onError = () => {}
 ) {
   const results = [];
   let index = 0;
@@ -509,6 +511,7 @@ async function mapWithConcurrency(
           results.push(result);
         }
       } catch (error) {
+        onError(error);
         console.log(
           "Universal store product skipped:",
           values[currentIndex],
@@ -614,6 +617,7 @@ export async function importUniversalStore({
 
   const links = new Set();
   let pagesWithoutNewLinks = 0;
+  let artpalAccessDenied = false;
 
   for (
     let pageNumber = 1;
@@ -625,8 +629,8 @@ export async function importUniversalStore({
     pageNumber += 1
   ) {
     const pageUrl = new URL(
-    connection.store_url
-  );
+      connection.store_url
+    );
 
     if (pageNumber > 1) {
       pageUrl.searchParams.set(
@@ -646,6 +650,15 @@ export async function importUniversalStore({
       );
 
 
+      // A bot challenge can return HTTP 200 with no usable artwork.
+      // Treat it as access denied before any catalog changes.
+      if (
+        isArtPalHost(storeHost) && isArtPalChallengeHtml(html)
+      ) {
+        artpalAccessDenied = true;
+        break;
+      }
+
       const discovered =
         extractCandidateLinks(
           html,
@@ -660,6 +673,10 @@ export async function importUniversalStore({
         }
       }
     } catch (error) {
+      if (isArtPalHost(storeHost)) {
+        // A partial ArtPal scan is unsafe even when the failure is a timeout.
+        artpalAccessDenied = true;
+      }
       console.log(
         "Universal store page skipped:",
         pageUrl.toString(),
@@ -675,10 +692,12 @@ export async function importUniversalStore({
       pagesWithoutNewLinks = 0;
     }
 
-    if (pagesWithoutNewLinks >= 2) {
+    if (artpalAccessDenied || pagesWithoutNewLinks >= 2) {
       break;
     }
   }
+
+  assertArtPalScanAccessible(artpalAccessDenied);
 
   const limitedLinks = [...links].slice(
     0,
@@ -691,28 +710,8 @@ export async function importUniversalStore({
     )
   );
 
-  /*
-   * Some ArtPal storefronts expose the first artwork directly
-   * through the storefront URL or render listing links in a
-   * nonstandard way. Include the storefront URL as a final
-   * candidate so the metadata parser can still recover a
-   * valid artwork when possible.
-   */
-  if (
-    (
-      storeHost === "artpal.com" ||
-      storeHost.endsWith(".artpal.com")
-    ) &&
-    limitedLinks.length === 0
-  ) {
-    limitedLinks.push(
-      normalizeUrl(
-        connection.store_url,
-        connection.store_url
-      ) || connection.store_url
-    );
-  }
-
+  // A storefront homepage is not an artwork listing. Never manufacture an
+  // ArtPal product from it when no artwork links were discovered.
   if (limitedLinks.length === 0) {
     throw new Error(
       connection.platform === "artpal"
@@ -721,6 +720,7 @@ export async function importUniversalStore({
     );
   }
 
+  let artpalProductAccessDenied = false;
   const parsedProducts =
     await mapWithConcurrency(
       limitedLinks,
@@ -731,33 +731,32 @@ export async function importUniversalStore({
           responseUrl,
         } = await fetchPage(productUrl);
 
-        if (
-          storeHost === "artpal.com" ||
-          storeHost.endsWith(".artpal.com")
-        ) {
-          console.log(
-            "========== ARTPAL DEBUG START =========="
-          );
-          console.log("ARTPAL REQUEST URL:", productUrl);
-          console.log("ARTPAL RESPONSE URL:", responseUrl);
-          console.log("ARTPAL HTML LENGTH:", html.length);
-          console.log(
-            "ARTPAL HTML PREVIEW:",
-            html.substring(0, 5000)
-          );
-          console.log(
-            "========== ARTPAL DEBUG END =========="
-          );
+        if (isArtPalHost(storeHost) && isArtPalChallengeHtml(html)) {
+          throw new Error("ArtPal security verification challenge detected on artwork page.");
         }
 
-        return parseProductPage({
+        const parsed = parseProductPage({
           html,
           responseUrl,
           originalUrl: productUrl,
           storeHost,
         });
+
+        if (isArtPalHost(storeHost) && !parsed) {
+          throw new Error("ArtPal artwork page did not contain usable artwork metadata.");
+        }
+
+        return parsed;
+      },
+      (error) => {
+        if (isArtPalHost(storeHost)) {
+          // Never persist a partial catalog after an artwork fetch fails.
+          artpalProductAccessDenied = true;
+        }
       }
     );
+
+  assertArtPalScanAccessible(artpalProductAccessDenied);
 
   const uniqueProducts = [
     ...new Map(

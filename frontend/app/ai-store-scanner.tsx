@@ -2636,11 +2636,17 @@ const [scanProgress, setScanProgress] =
 
 async function scanWebStore() {
   // Web browsers cannot inject JavaScript into native WebView. Use the
-  // existing authenticated backend universal importer instead.
+  // authenticated backend importer, which requires a connected store ID.
   if (fullStoreScanning || importing) return;
+  if (!storeId) {
+    const message = "Connect this store to ArtBoost before running the website scanner. Your existing artwork has not been changed.";
+    setWebScanMessage(message);
+    setScanProgress(message);
+    return;
+  }
   setFullStoreScanning(true);
   setWebScanMessage("");
-  setScanProgress("Importing ArtPal products from the server...");
+  setScanProgress(`Importing ${storeName} products from the server...`);
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
@@ -2652,13 +2658,19 @@ async function scanWebStore() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ storeId: storeId || undefined, storeUrl: browserUrl || storeUrl }),
+      body: JSON.stringify({ storeId }),
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.details || payload.error || `Import failed (HTTP ${response.status}).`);
+    const responseText = await response.text();
+    let payload: any;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Store scan returned an invalid response (HTTP ${response.status}). Try again later.`);
     }
-    const message = `ArtPal scan finished: ${payload.discovered ?? 0} links found, ${payload.imported ?? 0} new products, ${payload.updated ?? 0} updated, ${payload.skipped ?? 0} skipped.`;
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.details || payload?.error || `Import failed (HTTP ${response.status}).`);
+    }
+    const message = `${storeName} scan finished: ${payload.discovered ?? 0} links found, ${payload.imported ?? 0} new products, ${payload.updated ?? 0} updated, ${payload.skipped ?? 0} skipped.`;
     setWebScanMessage(message);
     setScanProgress(message);
   } catch (error) {
