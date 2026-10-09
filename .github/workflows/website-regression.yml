@@ -1,0 +1,30 @@
+name: Website download and auth regression
+on:
+  push:
+    branches:
+      - web-download-auth-rebase-20261008
+    paths:
+      - 'backend/website/**'
+      - 'backend/tests/website-download-auth-regression.js'
+      - 'backend/package.json'
+      - '.github/workflows/website-regression.yml'
+  pull_request:
+    paths:
+      - 'backend/website/**'
+      - 'backend/tests/website-download-auth-regression.js'
+      - 'backend/package.json'
+jobs:
+  website-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate website source
+        run: npm run test:website
+      - name: Check website JavaScript syntax
+        run: node --check website/script.js
