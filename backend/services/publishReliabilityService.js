@@ -411,6 +411,14 @@ export async function publishWithReliability({
     throw error;
   }
 
+  // Fail closed if the database returns an unexpected claim action.
+  // Only an explicit ownership grant may proceed to the provider.
+  if (claim?.action !== "claimed" && claim?.action !== "retry") {
+    const error = new Error(`A ${platform} publish claim was not granted to this worker.`);
+    error.code = "ARTBOOST_PUBLISH_IN_PROGRESS";
+    throw error;
+  }
+
   let lastError;
 
   for (
