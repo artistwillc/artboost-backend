@@ -190,7 +190,9 @@ async function beginAttempt({
   platform,
 }) {
   const { data, error } = await supabase.rpc(
-    "begin_social_publish_attempt",
+    process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true"
+      ? "begin_social_publish_attempt_v2"
+      : "begin_social_publish_attempt",
     {
       p_idempotency_key: idempotencyKey,
       p_user_id: userId || null,
@@ -212,10 +214,14 @@ async function finishAttempt({
   status,
   providerResult = null,
   errorMessage = null,
+  claimToken = null,
 }) {
-  const { error } = await supabase.rpc(
-    "finish_social_publish_attempt",
+  const useV2 = process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true";
+  if (useV2 && !claimToken) throw new Error("Missing publishing claim token.");
+  const { data, error } = await supabase.rpc(
+    useV2 ? "finish_social_publish_attempt_v2" : "finish_social_publish_attempt",
     {
+      ...(useV2 ? { p_claim_token: claimToken } : {}),
       p_idempotency_key: idempotencyKey,
       p_status: status,
       p_provider_result: providerResult,
@@ -223,7 +229,14 @@ async function finishAttempt({
     }
   );
 
+  if (!error && process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && data !== true) {
+    throw new Error("Publishing claim ownership lost during finalization.");
+  }
+
   if (error) {
+    if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true") {
+      throw new Error(`Publish attempt finalization failed: ${error.message}`);
+    }
     console.error("Publish attempt finalization failed:", error);
     await recordError({
       error,
@@ -411,6 +424,19 @@ export async function publishWithReliability({
     throw error;
   }
 
+  // Fail closed if the database returns an unexpected claim action.
+  // Only an explicit ownership grant may proceed to the provider.
+  if (claim?.action !== "claimed" && claim?.action !== "retry") {
+    const error = new Error(`A ${platform} publish claim was not granted to this worker.`);
+    error.code = "ARTBOOST_PUBLISH_IN_PROGRESS";
+    throw error;
+  }
+
+  let claimToken = claim?.claim_token ?? null;
+  if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && !claimToken) {
+    throw new Error("Publishing ownership claim token was not returned.");
+  }
+
   let lastError;
 
   for (
@@ -422,20 +448,30 @@ export async function publishWithReliability({
       await reservePlatformSlot(platform);
       const result = await publish();
 
-      await finishAttempt({
-        idempotencyKey,
-        status: "succeeded",
-        providerResult: result ?? null,
-      });
+      // A provider may have accepted the post. A database finalization failure
+      // must never be treated as permission to publish it a second time.
+      try {
+        await finishAttempt({
+          idempotencyKey,
+          claimToken,
+          status: "succeeded",
+          providerResult: result ?? null,
+        });
+      } catch (finalizationError) {
+        finalizationError.code = "ARTBOOST_PUBLISH_FINALIZATION_UNCERTAIN";
+        throw finalizationError;
+      }
 
       return result;
     } catch (error) {
+      if (error?.code === "ARTBOOST_PUBLISH_FINALIZATION_UNCERTAIN") throw error;
       lastError = error;
       const classification = classifyPublishError(error);
 
       if (!classification.retryable || attempt >= maxAttempts) {
         await finishAttempt({
           idempotencyKey,
+          claimToken,
           status: classification.retryable
             ? "failed_exhausted"
             : "failed_permanent",
@@ -459,6 +495,7 @@ export async function publishWithReliability({
 
       await finishAttempt({
         idempotencyKey,
+        claimToken,
         status: "retry_wait",
         errorMessage: classification.message,
       });
@@ -504,6 +541,10 @@ export async function publishWithReliability({
         );
         ownershipError.code = "ARTBOOST_PUBLISH_IN_PROGRESS";
         throw ownershipError;
+      }
+      claimToken = retryClaim?.claim_token ?? null;
+      if (process.env.ARTBOOST_PUBLISH_CLAIM_V2 === "true" && !claimToken) {
+        throw new Error("Publishing retry ownership token was not returned.");
       }
     }
   }
