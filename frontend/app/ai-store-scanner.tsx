@@ -2654,7 +2654,7 @@ async function scanWebStore() {
       },
       body: JSON.stringify({ storeId: storeId || undefined, storeUrl: browserUrl || storeUrl }),
     });
-    const payload = await response.json();
+    const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.success) {
       throw new Error(payload.details || payload.error || `Import failed (HTTP ${response.status}).`);
     }
@@ -3766,9 +3766,11 @@ function scanEntireStore() {
   </Text>
 </Pressable>
 
-{fullStoreScanning &&
-scanProgress ? (
-  <Text style={styles.scanProgressText}>
+{scanProgress ? (
+  <Text
+    accessibilityRole={Platform.OS === "web" ? "alert" : undefined}
+    style={styles.scanProgressText}
+  >
     {scanProgress}
   </Text>
 ) : null}
