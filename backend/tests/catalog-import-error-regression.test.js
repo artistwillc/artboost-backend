@@ -26,3 +26,10 @@ test("ArtPal pagination failures propagate instead of being swallowed", () => {
   assert.ok(importer.includes('if (storeHost === "artpal.com" || storeHost.endsWith(".artpal.com")) {'));
   assert.ok(importer.includes('        throw error;'));
 });
+
+test("ArtPal HTTP 200 verification pages cannot be parsed as catalog HTML", () => {
+  assert.match(importer, /const challengePage =/);
+  assert.match(importer, /ArtPal returned a browser verification page/);
+  assert.ok(importer.indexOf("if (isArtPalPage && challengePage)") <
+    importer.indexOf("return {\n      html,\n      responseUrl: response.url || url,"));
+});
