@@ -11028,7 +11028,7 @@ app.post("/schedule-campaign", async (req, res) => {
     if (schedulingProfileError || !schedulingProfile) {
       return res.status(503).json({ success: false, error: "Unable to verify scheduling entitlement." });
     }
-    const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").toLowerCase() === "free";
+    const isFreeScheduling = String(schedulingProfile.subscription_tier || "free").trim().toLowerCase() === "free";
     // Extend platform choice only for Free; paid clients keep their existing allowlist.
     const supportedSchedulingPlatforms = isFreeScheduling
       ? ["pinterest", "facebook", "instagram", "x", "threads", "linkedin"]
