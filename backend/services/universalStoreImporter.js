@@ -444,6 +444,18 @@ function parseProductPage({
     storeHost === "artpal.com" ||
     storeHost.endsWith(".artpal.com");
 
+  // ArtPal artist-profile pages also contain og:title and og:image.
+  // Require explicit artwork metadata before treating a profile fallback
+  // as a product, otherwise a profile image can become a fake listing.
+  const artPalArtworkSchema = Boolean(productSchema) &&
+    ["Product", "VisualArtwork", "ImageObject", "CreativeWork"].includes(
+      productSchema?.["@type"]
+    );
+  if (artPalHost && !isLikelyProductUrl(productUrl, storeHost) &&
+      !artPalArtworkSchema) {
+    return null;
+  }
+
   if (
     !title ||
     !productUrl ||
