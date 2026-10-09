@@ -63,3 +63,12 @@ jobs:
           test -s backend/website/styles.css
           test -s backend/website/script.js
           grep -Fq 'https://apps.apple.com/us/app/artboost-ai/id6784803136' backend/website/index.html
+          grep -Fq 'href="/subscribe/starter"' backend/website/index.html
+          grep -Fq 'href="/subscribe/pro"' backend/website/index.html
+          grep -Fq 'href="/subscribe/business"' backend/website/index.html
+          grep -Fq 'accountParams.get("account")' backend/website/script.js
+          grep -Fq 'accountParams.get("tier")' backend/website/script.js
+          if grep -Fq 'https://artboost-ai.onrender.com/subscribe/' backend/website/index.html; then
+            echo "Flagship pricing must not use the legacy Render subscription hostname."
+            exit 1
+          fi
