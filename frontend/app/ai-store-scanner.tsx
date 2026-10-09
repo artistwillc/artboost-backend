@@ -2636,8 +2636,14 @@ const [scanProgress, setScanProgress] =
 
 async function scanWebStore() {
   // Web browsers cannot inject JavaScript into native WebView. Use the
-  // existing authenticated backend universal importer instead.
+  // authenticated backend importer, which requires a connected store ID.
   if (fullStoreScanning || importing) return;
+  if (!storeId) {
+    const message = "Connect this store to ArtBoost before running the website scanner. Your existing artwork has not been changed.";
+    setWebScanMessage(message);
+    setScanProgress(message);
+    return;
+  }
   setFullStoreScanning(true);
   setWebScanMessage("");
   setScanProgress("Importing ArtPal products from the server...");
@@ -2652,7 +2658,7 @@ async function scanWebStore() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ storeId: storeId || undefined, storeUrl: browserUrl || storeUrl }),
+      body: JSON.stringify({ storeId }),
     });
     const payload = await response.json();
     if (!response.ok || !payload.success) {
