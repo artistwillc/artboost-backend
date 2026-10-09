@@ -166,7 +166,7 @@ async function fetchPage(url, timeoutMs = 20000) {
     const responseHost = new URL(response.url || url).hostname.toLowerCase();
     const isArtPalPage = responseHost === "artpal.com" ||
       responseHost.endsWith(".artpal.com");
-    const challengePage = /<title[^>]*>\\s*(?:Just a moment\\.{0,3}|Attention Required!?|Access Denied)\\s*<\\/title>/i.test(html) &&
+    const challengePage = /<title[^>]*>\s*(?:Just a moment\.{0,3}|Attention Required!?|Access Denied)\s*<\/title>/i.test(html) &&
       /cloudflare|checking your browser|verify you are human|access denied/i.test(html);
     if (isArtPalPage && challengePage) {
       throw new Error(
