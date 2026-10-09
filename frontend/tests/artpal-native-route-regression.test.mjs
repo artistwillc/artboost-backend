@@ -22,3 +22,11 @@ test("legacy ArtPal browser scanner remains available", () => {
   assert.match(artpal, /export default function ArtPalStoreScannerScreen/);
   assert.match(artpal, /function scanEntireStore\(\)/);
 });
+
+test("ArtPal duplicate connection uses authenticated catalog recovery without changing other stores", () => {
+  const products = readFileSync(new URL("../app/store-products.tsx", import.meta.url), "utf8");
+  assert.match(products, /normalize\(storeType\) === "artpal" && allRows\.length === 0 && storeId/);
+  assert.match(products, /recoveredArtPalCatalog \? mappedProducts : mappedProducts\.filter\(matchesStore\)/);
+  assert.match(dashboard, /String\(storeType\)\.toLowerCase\(\) === "artpal"/);
+  assert.match(products, /userId: user\.id/);
+});
