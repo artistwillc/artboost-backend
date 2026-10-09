@@ -495,6 +495,16 @@ export async function publishWithReliability({
           providerResult: retryClaim.provider_result ?? null,
         };
       }
+
+      // The lease can be acquired by another worker while we wait. Never
+      // publish again unless this worker explicitly owns the retry claim.
+      if (retryClaim?.action !== "claimed" && retryClaim?.action !== "retry") {
+        const ownershipError = new Error(
+          `A ${platform} publish retry is no longer owned by this worker.`
+        );
+        ownershipError.code = "ARTBOOST_PUBLISH_IN_PROGRESS";
+        throw ownershipError;
+      }
     }
   }
 
