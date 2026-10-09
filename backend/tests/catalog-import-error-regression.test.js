@@ -45,3 +45,10 @@ test("ArtPal challenge-page title pattern has functional regex escapes", () => {
   assert.ok(!line.includes(String.raw`\\s*`), "regex must not double-escape whitespace");
   assert.ok(line.includes(String.raw`<\/title>`), "title close tag must be escaped once");
 });
+
+test("ArtPal product fetch failures propagate through concurrent workers", () => {
+  assert.match(importer, /\{ failOnError = false \} = \{\}/);
+  assert.match(importer, /firstError \?\?= error/);
+  assert.match(importer, /if \(firstError\) \{\s*throw firstError;/);
+  assert.match(importer, /failOnError: storeHost === "artpal\.com"/);
+});
