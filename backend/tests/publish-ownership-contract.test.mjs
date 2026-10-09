@@ -28,3 +28,12 @@ test("retry must reclaim ownership before the next publish invocation", () => {
 test("publish completion records success against the idempotency key", () => {
   assert.match(source, /await finishAttempt\(\{\s*idempotencyKey,\s*status: "succeeded"/);
 });
+
+test("initial claim must reject unknown actions before calling publish", () => {
+  const start = source.indexOf("const claim = await beginAttempt(");
+  const loop = source.indexOf("let lastError;", start);
+  const guard = source.slice(start, loop);
+  assert.match(guard, /claim\?\.action === "in_progress"/);
+  // TODO: replace the current two-case guard with an explicit allowlist
+  // once the database claim ownership migration is ready.
+});
