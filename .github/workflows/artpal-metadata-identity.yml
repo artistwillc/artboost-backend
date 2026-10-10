@@ -1,0 +1,17 @@
+name: ArtPal metadata identity regression
+on:
+  pull_request:
+    paths:
+      - "backend/services/catalogImportService.js"
+      - "backend/tests/artpal-metadata-bypass.test.mjs"
+      - ".github/workflows/artpal-metadata-identity.yml"
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check backend/services/catalogImportService.js
+      - run: node --test backend/tests/artpal-metadata-bypass.test.mjs
