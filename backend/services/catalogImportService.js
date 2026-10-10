@@ -947,8 +947,23 @@ export async function importSingleCatalogProduct({
    */
   const artPalScannerMetadataUsable =
     normalizedStoreType === "artpal" &&
+    (() => {
+      try {
+        const parsed = new URL(cleanProductUrl);
+        const host = parsed.hostname.replace(/^www\\./i, "").toLowerCase();
+        // ArtPal artwork links use an ?i=<artist>-<artwork> identifier.
+        // A storefront, external link, or unrelated image must not bypass metadata validation.
+        return (
+          host === "artpal.com" &&
+          /^\\d+-\\d+$/.test(parsed.searchParams.get("i") || "")
+        );
+      } catch {
+        return false;
+      }
+    })() &&
     suppliedImageIsUsable &&
-    !placeholderTitle;
+    !placeholderTitle &&
+    !/^ArtPal Artwork(?:\\s+\\d+)?$/i.test(suppliedTitle);
 
   const needsMetadataFallback =
     redbubbleScannerMetadataUsable ||
