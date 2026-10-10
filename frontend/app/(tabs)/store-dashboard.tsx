@@ -471,17 +471,22 @@ const syncButtonLabel = useMemo(() => {
 
     // Restore the dedicated, browser-based ArtPal scanner on native devices.
     // Web continues using the existing server-backed universal scanner.
-    if (type === "artpal" && Platform.OS !== "web" && (/artpal\.com\/(?:artistwill|artists\.html\?id=37279)/i.test(String(params.storeUrl || "")) || /artistwill/i.test(String(storeName)))) {
-      router.push({
-        pathname: "/artpal-store-scanner" as any,
-        params: {
-          storeId,
-          storeName,
-          storeType: "artpal",
-          storeUrl: /artpal\.com/i.test(String(params.storeUrl || "")) ? String(params.storeUrl) : "https://www.ArtPal.com/artistwill",
-        },
-      });
-      return;
+    if (type === "artpal" && Platform.OS !== "web") {
+      const savedArtPalUrl = String(params.storeUrl || "").trim();
+      const isValidArtPalUrl = /^https?:\/\/(?:www\.)?artpal\.com\//i.test(savedArtPalUrl);
+      const isKnownArtistwill = /artistwill/i.test(String(storeName));
+      if (isValidArtPalUrl || isKnownArtistwill) {
+        router.push({
+          pathname: "/artpal-store-scanner" as any,
+          params: {
+            storeId,
+            storeName,
+            storeType: "artpal",
+            storeUrl: isValidArtPalUrl ? savedArtPalUrl : "https://www.ArtPal.com/artistwill",
+          },
+        });
+        return;
+      }
     }
 
     router.push({
