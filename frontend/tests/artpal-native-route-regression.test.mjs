@@ -9,7 +9,7 @@ test("native ArtPal recovery requires a saved matching storefront URL", () => {
   assert.match(dashboard, /type === "artpal" && Platform\.OS !== "web"/);
   assert.match(dashboard, /String\(params\.storeUrl \|\| ""\)/);
   assert.match(dashboard, /https:\/\/www\.ArtPal\.com\/artistwill/);
-  assert.match(dashboard, /artistwill\/i\.test\(String\(storeName\)\)/);
+  assert.match(dashboard, /isKnownArtistwill = \/artistwill\/i\.test\(String\(storeName\)\)/);
   assert.match(dashboard, /pathname: "\/artpal-store-scanner"/);
 });
 
@@ -29,4 +29,11 @@ test("ArtPal duplicate connection uses authenticated catalog recovery without ch
   assert.match(products, /recoveredArtPalCatalog \? mappedProducts : mappedProducts\.filter\(matchesStore\)/);
   assert.match(dashboard, /String\(storeType\)\.toLowerCase\(\) === "artpal"/);
   assert.match(products, /userId: user\.id/);
+});
+
+test("other artists never default to artistwill storefront", () => {
+  assert.match(dashboard, /isValidArtPalUrl \|\| isKnownArtistwill/);
+  assert.match(artpal, /if \(incoming\) return incoming/);
+  assert.match(artpal, /return \/artistwill\/i\.test\(String\(params\.storeName \|\| ""\)\)/);
+  assert.match(artpal, /: "";/);
 });
