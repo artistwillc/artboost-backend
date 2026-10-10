@@ -1214,6 +1214,17 @@ void createFacebookPost; /* ARTBOOST_V3126_LINT_USE */
                 onPress={() => router.push("/(tabs)/consultant" as any)}
               />
             </View>
+            {session?.user ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Ask Merlin what to promote next"
+                onPress={() => router.push("/(tabs)/consultant" as any)}
+                style={{ marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: "#231c3b", borderWidth: 1, borderColor: "#4c3575" }}
+              >
+                <Text style={{ color: "#f4eaff", fontSize: 15, fontWeight: "700" }}>Need marketing ideas?</Text>
+                <Text style={{ color: "#c4b5fd", fontSize: 13, marginTop: 4 }}>Ask Merlin what to promote next. Recommendations are based on available account information.</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           {session?.user ? (
