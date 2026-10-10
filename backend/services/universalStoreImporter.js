@@ -232,6 +232,16 @@ function isLikelyProductUrl(value, storeHost) {
       return false;
     }
 
+    // Gumroad product links use /l/<slug>, including on custom domains.
+    // Restrict this signal to verified Gumroad hosts to avoid admitting
+    // unrelated /l/ routes on other storefronts.
+    if (
+      (storeHost === "gumroad.com" || storeHost.endsWith(".gumroad.com")) &&
+      /^\/l\/[^/]+\/?$/.test(path)
+    ) {
+      return true;
+    }
+
     const productSignals = [
       "/product/",
       "/products/",
