@@ -513,10 +513,12 @@ export default function ArtPalStoreScannerScreen() {
         return "https://www.ArtPal.com/artists.html?id=37279";
       }
 
-      return (
-        incoming ||
-        "https://www.ArtPal.com/artists.html?id=37279"
-      );
+      // Never load another artist's storefront when a connection URL is
+      // absent. Only the original artistwill connection has a known fallback.
+      if (incoming) return incoming;
+      return /artistwill/i.test(String(params.storeName || ""))
+        ? "https://www.ArtPal.com/artists.html?id=37279"
+        : "";
     });
 
   const [browserUrl, setBrowserUrl] =
