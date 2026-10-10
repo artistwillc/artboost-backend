@@ -540,11 +540,12 @@ export default function ConsultantScreen() {
             onPress={chooseAttachment}
             disabled={busy || recording || voiceProcessing}
             style={[styles.composerIcon, (busy || recording || voiceProcessing) && styles.composerIconDisabled]}
-            accessibilityLabel="Add image or ArtBoost Library item"
+            accessibilityLabel="Attach artwork or image"
             testID="artboost-consultant-add-image"
           >
             <Ionicons name="add" size={24} color="#fff" />
           </Pressable>
+          <Text style={{ color: "#a78bfa", fontSize: 11, marginLeft: 4, alignSelf: "center" }}>Attach</Text>
           <TextInput
             value={input}
             onChangeText={setInput}
