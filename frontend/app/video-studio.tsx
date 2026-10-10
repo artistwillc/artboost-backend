@@ -709,6 +709,40 @@ export default function VideoStudioScreen() {
             <Text style={styles.promptHelp}>
               Guide movement, atmosphere, camera, lighting, or effects. Artwork integrity always takes priority.
             </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8, gap: 6 }}>
+              {[
+                "Subtle ambient motion with soft light rays",
+                "Slow zoom focusing on the main subject",
+                "Gentle camera drift with atmospheric depth",
+              ].map((preset) => {
+                const selected = userPrompt.includes(preset);
+                return (
+                  <Pressable
+                    key={preset}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => setUserPrompt((previous) => {
+                      if (previous.includes(preset)) return previous;
+                      const separator = previous.trim() ? "\n" : "";
+                      const candidate = previous.trimEnd() + separator + preset;
+                      return candidate.length <= 500 ? candidate : previous;
+                    })}
+                    style={{
+                      backgroundColor: selected ? "#443078" : "#2a1f4a",
+                      borderColor: selected ? "#c4b5fd" : "#51406e",
+                      borderWidth: 1,
+                      paddingHorizontal: 10,
+                      paddingVertical: 7,
+                      borderRadius: 16,
+                      marginRight: 6,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <Text style={{ color: "#e9ddff", fontSize: 12 }}>{selected ? "✓ " : "+ "}{preset}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
 
           {selectedProduct ? <View style={styles.readyCard}><Ionicons name="shield-checkmark" size={23} color="#6ee7b7" /><View style={{ flex: 1 }}><Text style={styles.readyTitle}>Artwork-safe rendering</Text><Text style={styles.readyText}>Artwork integrity is the priority. ArtBoost preserves the subject, proportions, composition, colors, logos, and important lettering while adding controlled motion, atmosphere, lighting, depth, and camera movement.</Text></View></View> : null}

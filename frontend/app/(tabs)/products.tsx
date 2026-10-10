@@ -106,6 +106,7 @@ export default function ProductsScreen() {
   const isWeb = Platform.OS === "web";
   const webWide = isWeb && width >= 900;
   const [products, setProducts] = useState<Product[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   type Store = {
   id: string;
   storeType: string;
@@ -480,6 +481,14 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
               artwork, and marketing automations.
             </Text>
           </View>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search connected stores"
+            placeholderTextColor="#9ca3af"
+            accessibilityLabel="Search connected stores"
+            style={{ backgroundColor: "#1e1b2e", color: "#fff", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, fontSize: 15, marginTop: 12 }}
+          />
           {isWeb ? <Pressable style={styles.webDashboardButton} onPress={() => router.replace("/web-dashboard" as any)}><Ionicons name="grid-outline" size={17} color="#ffffff" /><Text style={styles.webDashboardButtonText}>Dashboard</Text></Pressable> : null}
         </View>
 
@@ -617,7 +626,12 @@ const [activeAutomationCounts, setActiveAutomationCounts] = useState<Record<stri
           </View>
         ) : (
           <View style={[styles.sourcesList, webWide && styles.webSourcesGrid]}>
-            {connectedSources.map((store) => {
+            {connectedSources.filter((store) => {
+              const query = searchQuery.trim().toLowerCase();
+              if (!query) return true;
+              return displayStoreName(store).toLowerCase().includes(query) ||
+                String(store.storeType || "").toLowerCase().includes(query);
+            }).map((store) => {
               const count =
                 getStoreProductCount(store);
 
