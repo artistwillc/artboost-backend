@@ -31,6 +31,7 @@ import {
   runStrictAuthLaunchSmokeTest,
 } from "../services/launchSmokeTestService.js";
 import { buildStorePublishingActivityAnswer } from "../services/consultantPublishingActivity.js";
+import { needsCreativeWebResearch } from "../services/consultantResearchIntent.js";
 // ARTBOOST_STRICT_AUTH_LAUNCH_SMOKE_TEST_V13_9
 // ARTBOOST_CONSULTANT_LAUNCH_AUTHORITY_V13
 
@@ -2265,7 +2266,7 @@ router.post("/assistant", async (req, res) => {
       ([id, action]) => ({ id, ...action })
     );
 
-    const useWebResearch = isConsultant && marketResearchIntent;
+    const useWebResearch = isConsultant && (marketResearchIntent || needsCreativeWebResearch(question));
     const modelAccountContext = buildModelAccountContext(accountContext, {
       visualSimilarityIntent,
       deepProductIntent,

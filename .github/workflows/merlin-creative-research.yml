@@ -1,0 +1,18 @@
+name: Merlin creative research regression
+on:
+  pull_request:
+    paths:
+      - "backend/services/consultantResearchIntent.js"
+      - "backend/routes/assistant.js"
+      - "backend/tests/consultantResearchIntent.test.mjs"
+      - ".github/workflows/merlin-creative-research.yml"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check backend/routes/assistant.js
+      - run: node --test backend/tests/consultantResearchIntent.test.mjs
